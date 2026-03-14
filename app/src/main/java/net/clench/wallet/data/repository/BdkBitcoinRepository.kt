@@ -1,84 +1,257 @@
 package net.clench.wallet.data.repository
 
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.dao.TransactionDao
 import net.clench.wallet.data.local.dao.WalletDao
+import net.clench.wallet.data.local.entity.TransactionEntity
+import net.clench.wallet.data.local.entity.WalletEntity
 import net.clench.wallet.domain.model.*
 import net.clench.wallet.domain.repository.BitcoinRepository
+import org.bitcoindevkit.*
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * BDK-backed implementation of BitcoinRepository.
  *
- * TODO: Wire up BDK calls in each method.
- *       BDK Android docs: https://bitcoindevkit.org/
- *       bdk-android: org.bitcoindevkit:bdk-android:1.1.0
- *
- * BDK Key Classes:
- *   - Mnemonic           → generate / restore seed phrases
- *   - DescriptorSecretKey → derive xprv from mnemonic
- *   - Descriptor         → build BIP84 descriptors (wpkh)
- *   - Wallet             → core wallet, balance, address derivation, tx building
- *   - ElectrumClient     → connect to Electrum server for sync
- *   - TxBuilder          → build and sign transactions
- *   - Psbt               → partially signed bitcoin transactions (for multisig)
+ * Uses BDK Android 1.1.0 for all Bitcoin operations:
+ *   - Mnemonic generation and restoration
+ *   - BIP84 descriptor derivation (wpkh native segwit)
+ *   - SQLite wallet persistence
+ *   - Electrum server sync
+ *   - Transaction building and broadcasting
  */
 @Singleton
 class BdkBitcoinRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val walletDao: WalletDao,
     private val transactionDao: TransactionDao,
     private val keystoreManager: KeystoreManager
 ) : BitcoinRepository {
 
+    // In-memory wallet cache to avoid reopening SQLite on every call
+    private val walletCache = mutableMapOf<String, Wallet>()
+
     override suspend fun createWallet(
         name: String,
         wordCount: Int,
         passphrase: String?
-    ): Pair<List<String>, WalletData> {
-        // TODO: Implement with BDK
-        // val mnemonic = Mnemonic(WordCount.WORDS24) // or WORDS12
-        // val mnemonicWords = mnemonic.toString().split(" ")
-        // val bip32RootKey = DescriptorSecretKey(Network.BITCOIN, mnemonic, passphrase ?: "")
-        // val externalDescriptor = Descriptor("wpkh($bip32RootKey/84'/0'/0'/0/*)", Network.BITCOIN)
-        // val changeDescriptor = Descriptor("wpkh($bip32RootKey/84'/0'/0'/1/*)", Network.BITCOIN)
-        // ... persist and return
-        throw NotImplementedError("BDK createWallet not yet implemented")
+    ): Pair<List<String>, WalletData> = withContext(Dispatchers.IO) {
+        // Generate mnemonic
+        val wordCountEnum = if (wordCount == 12) WordCount.WORDS12 else WordCount.WORDS24
+        val mnemonic = Mnemonic(wordCountEnum)
+        val mnemonicWords = mnemonic.toString().split(" ")
+
+        // Derive BIP84 descriptors
+        val bip32RootKey = DescriptorSecretKey(Network.BITCOIN, mnemonic, passphrase ?: "")
+        val externalDescriptor = Descriptor("wpkh(${bip32RootKey}/84h/0h/0h/0/*)", Network.BITCOIN)
+        val changeDescriptor = Descriptor("wpkh(${bip32RootKey}/84h/0h/0h/1/*)", Network.BITCOIN)
+
+        // Generate wallet ID
+        val walletId = UUID.randomUUID().toString()
+
+        // Create BDK wallet with SQLite persistence
+        val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
+        val connection = Connection(dbPath)
+        val wallet = Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+        walletCache[walletId] = wallet
+
+        // Store mnemonic and passphrase in encrypted keystore
+        keystoreManager.storeMnemonic(walletId, mnemonicWords.joinToString(" "))
+        passphrase?.let { keystoreManager.storePassphrase(walletId, it) }
+
+        // Persist wallet metadata to Room DB
+        val walletEntity = WalletEntity(
+            id = walletId,
+            name = name,
+            descriptor = externalDescriptor.toString(),
+            changeDescriptor = changeDescriptor.toString(),
+            isWatchOnly = false,
+            isMultisig = false,
+            createdAtEpochMs = System.currentTimeMillis()
+        )
+        walletDao.insert(walletEntity)
+
+        // Return mnemonic words and wallet data
+        val walletData = WalletData(
+            id = walletId,
+            name = name,
+            descriptor = externalDescriptor.toString(),
+            changeDescriptor = changeDescriptor.toString(),
+            isWatchOnly = false,
+            isMultisig = false,
+            createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs)
+        )
+
+        Pair(mnemonicWords, walletData)
     }
 
     override suspend fun importWallet(
         name: String,
         mnemonic: List<String>,
         passphrase: String?
-    ): WalletData {
-        // TODO: Implement with BDK
-        // val mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
-        // val bip32RootKey = DescriptorSecretKey(Network.BITCOIN, mnemonicObj, passphrase ?: "")
-        // ... derive descriptors, persist, return
-        throw NotImplementedError("BDK importWallet not yet implemented")
+    ): WalletData = withContext(Dispatchers.IO) {
+        // Restore mnemonic from words
+        val mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
+
+        // Derive BIP84 descriptors
+        val bip32RootKey = DescriptorSecretKey(Network.BITCOIN, mnemonicObj, passphrase ?: "")
+        val externalDescriptor = Descriptor("wpkh(${bip32RootKey}/84h/0h/0h/0/*)", Network.BITCOIN)
+        val changeDescriptor = Descriptor("wpkh(${bip32RootKey}/84h/0h/0h/1/*)", Network.BITCOIN)
+
+        // Generate wallet ID
+        val walletId = UUID.randomUUID().toString()
+
+        // Create BDK wallet with SQLite persistence
+        val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
+        val connection = Connection(dbPath)
+        val wallet = Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+        walletCache[walletId] = wallet
+
+        // Store mnemonic and passphrase in encrypted keystore
+        keystoreManager.storeMnemonic(walletId, mnemonic.joinToString(" "))
+        passphrase?.let { keystoreManager.storePassphrase(walletId, it) }
+
+        // Persist wallet metadata to Room DB
+        val walletEntity = WalletEntity(
+            id = walletId,
+            name = name,
+            descriptor = externalDescriptor.toString(),
+            changeDescriptor = changeDescriptor.toString(),
+            isWatchOnly = false,
+            isMultisig = false,
+            createdAtEpochMs = System.currentTimeMillis()
+        )
+        walletDao.insert(walletEntity)
+
+        // Return wallet data
+        WalletData(
+            id = walletId,
+            name = name,
+            descriptor = externalDescriptor.toString(),
+            changeDescriptor = changeDescriptor.toString(),
+            isWatchOnly = false,
+            isMultisig = false,
+            createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs)
+        )
     }
 
     override suspend fun importWatchOnly(
         name: String,
         descriptor: String
-    ): WalletData {
-        // TODO: parse descriptor, create watch-only Wallet, persist
-        throw NotImplementedError("BDK importWatchOnly not yet implemented")
+    ): WalletData = withContext(Dispatchers.IO) {
+        // Parse descriptor (assume it's an external descriptor, derive change from pattern)
+        val externalDescriptor = Descriptor(descriptor, Network.BITCOIN)
+
+        // For watch-only, we need a change descriptor too
+        // Assume standard BIP84 pattern: change /0/* to /1/*
+        val changeDescriptorStr = descriptor.replace("/0/*", "/1/*")
+        val changeDescriptor = Descriptor(changeDescriptorStr, Network.BITCOIN)
+
+        // Generate wallet ID
+        val walletId = UUID.randomUUID().toString()
+
+        // Create BDK wallet with SQLite persistence (no signing keys)
+        val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
+        val connection = Connection(dbPath)
+        val wallet = Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+        walletCache[walletId] = wallet
+
+        // Persist wallet metadata to Room DB (isWatchOnly = true)
+        val walletEntity = WalletEntity(
+            id = walletId,
+            name = name,
+            descriptor = externalDescriptor.toString(),
+            changeDescriptor = changeDescriptor.toString(),
+            isWatchOnly = true,
+            isMultisig = false,
+            createdAtEpochMs = System.currentTimeMillis()
+        )
+        walletDao.insert(walletEntity)
+
+        // Return wallet data
+        WalletData(
+            id = walletId,
+            name = name,
+            descriptor = externalDescriptor.toString(),
+            changeDescriptor = changeDescriptor.toString(),
+            isWatchOnly = true,
+            isMultisig = false,
+            createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs)
+        )
     }
 
-    override suspend fun syncWallet(walletId: String, config: ElectrumConfig): WalletBalance {
-        // TODO:
-        // val client = ElectrumClient("${config.serverUrl}:${config.port}")
-        // val wallet = loadWallet(walletId)
-        // val update = client.fullScan(wallet, stopGap, parallelRequests)
-        // wallet.applyUpdate(update)
-        // return wallet.balance().toWalletBalance()
-        throw NotImplementedError("BDK syncWallet not yet implemented")
+    override suspend fun syncWallet(walletId: String, config: ElectrumConfig): WalletBalance = withContext(Dispatchers.IO) {
+        // Build Electrum connection string
+        val connectionStr = buildElectrumUrl(config)
+        val electrumClient = ElectrumClient(connectionStr)
+
+        // Load wallet
+        val wallet = loadWallet(walletId)
+
+        // Perform full scan
+        val fullScanRequest = wallet.startFullScan().build()
+        val update = electrumClient.fullScan(
+            fullScanRequest,
+            stopGap = 20u,
+            batchSize = 10u,
+            fetchPrevTxouts = true
+        )
+
+        // Apply update to wallet
+        wallet.applyUpdate(update)
+
+        // Cache transactions to Room DB
+        val transactions = wallet.transactions()
+        val transactionEntities = transactions.map { tx ->
+            val sentAndReceived = wallet.sentAndReceived(tx)
+            val sent = sentAndReceived.sent.toSat()
+            val received = sentAndReceived.received.toSat()
+
+            // Determine direction and amount
+            val (direction, amount) = if (received > sent) {
+                TxDirection.RECEIVED to (received - sent)
+            } else {
+                TxDirection.SENT to (sent - received)
+            }
+
+            TransactionEntity(
+                txid = tx.txid().toString(),
+                walletId = walletId,
+                amountSat = amount.toLong(),
+                feeSat = null, // BDK doesn't directly provide fee per tx
+                timestampEpochMs = null, // Would need to get from blockchain
+                confirmations = 0, // Would need chain height info
+                direction = direction.name,
+                address = null // Could extract from outputs if needed
+            )
+        }
+        transactionDao.insertAll(transactionEntities)
+
+        // Return balance
+        val balance = wallet.balance()
+        WalletBalance(
+            confirmedSat = balance.confirmed.toSat().toLong(),
+            trustedPendingSat = balance.trustedPending.toSat().toLong(),
+            untrustedPendingSat = balance.untrustedPending.toSat().toLong(),
+            immatureSat = balance.immature.toSat().toLong()
+        )
     }
 
-    override suspend fun getBalance(walletId: String): WalletBalance {
-        // TODO: load persisted balance from DB or last sync
-        throw NotImplementedError("BDK getBalance not yet implemented")
+    override suspend fun getBalance(walletId: String): WalletBalance = withContext(Dispatchers.IO) {
+        val wallet = loadWallet(walletId)
+        val balance = wallet.balance()
+        WalletBalance(
+            confirmedSat = balance.confirmed.toSat().toLong(),
+            trustedPendingSat = balance.trustedPending.toSat().toLong(),
+            untrustedPendingSat = balance.untrustedPending.toSat().toLong(),
+            immatureSat = balance.immature.toSat().toLong()
+        )
     }
 
     override suspend fun getTransactions(walletId: String): List<TransactionItem> {
@@ -98,12 +271,14 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
-    override suspend fun getReceiveAddress(walletId: String): Address {
-        // TODO:
-        // val wallet = loadWallet(walletId)
-        // val addressInfo = wallet.revealNextAddress(KeychainKind.EXTERNAL)
-        // return Address(addressInfo.address.toString(), addressInfo.index)
-        throw NotImplementedError("BDK getReceiveAddress not yet implemented")
+    override suspend fun getReceiveAddress(walletId: String): Address = withContext(Dispatchers.IO) {
+        val wallet = loadWallet(walletId)
+        val addressInfo = wallet.revealNextAddress(KeychainKind.EXTERNAL)
+        Address(
+            address = addressInfo.address.toString(),
+            index = addressInfo.index.toInt(),
+            used = false
+        )
     }
 
     override suspend fun buildTransaction(
@@ -111,26 +286,46 @@ class BdkBitcoinRepository @Inject constructor(
         toAddress: String,
         amountSat: Long?,
         feeRateSatPerVbyte: Float
-    ): String {
-        // TODO:
-        // val wallet = loadWallet(walletId)
-        // val psbt = if (amountSat == null) {
-        //     TxBuilder().drainWallet().drainTo(Address(toAddress)).feeRate(feeRateSatPerVbyte).finish(wallet)
-        // } else {
-        //     TxBuilder().addRecipient(Address(toAddress).scriptPubkey(), amountSat.toULong()).feeRate(feeRateSatPerVbyte).finish(wallet)
-        // }
-        // wallet.sign(psbt)
-        // return psbt.serialize()
-        throw NotImplementedError("BDK buildTransaction not yet implemented")
+    ): String = withContext(Dispatchers.IO) {
+        val wallet = loadWallet(walletId)
+        val recipientAddress = org.bitcoindevkit.Address(toAddress, Network.BITCOIN)
+        val feeRate = FeeRate.fromSatPerVb(feeRateSatPerVbyte.toULong())
+
+        // Build transaction (drain or send specific amount)
+        val psbt = if (amountSat == null) {
+            // Send max (drain wallet)
+            TxBuilder()
+                .drainWallet()
+                .drainTo(recipientAddress.scriptPubkey())
+                .feeRate(feeRate)
+                .finish(wallet)
+        } else {
+            // Send specific amount
+            TxBuilder()
+                .addRecipient(recipientAddress.scriptPubkey(), amountSat.toULong())
+                .feeRate(feeRate)
+                .finish(wallet)
+        }
+
+        // Sign transaction
+        wallet.sign(psbt)
+
+        // Return serialized PSBT hex
+        psbt.serialize()
     }
 
-    override suspend fun broadcastTransaction(config: ElectrumConfig, txHex: String): String {
-        // TODO:
-        // val client = ElectrumClient("${config.serverUrl}:${config.port}")
-        // val tx = Transaction(txHex)
-        // client.broadcast(tx)
-        // return tx.txid().toString()
-        throw NotImplementedError("BDK broadcastTransaction not yet implemented")
+    override suspend fun broadcastTransaction(config: ElectrumConfig, txHex: String): String = withContext(Dispatchers.IO) {
+        val connectionStr = buildElectrumUrl(config)
+        val electrumClient = ElectrumClient(connectionStr)
+
+        // Parse transaction from hex
+        val tx = Transaction(txHex)
+
+        // Broadcast to network
+        electrumClient.broadcast(tx)
+
+        // Return txid
+        tx.txid().toString()
     }
 
     override suspend fun listWallets(): List<WalletData> {
@@ -148,8 +343,59 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun deleteWallet(walletId: String) {
+        // Remove from cache
+        walletCache.remove(walletId)
+
+        // Delete from database
         walletDao.deleteById(walletId)
         transactionDao.deleteForWallet(walletId)
         keystoreManager.deleteWalletSecrets(walletId)
+
+        // Delete wallet SQLite file
+        val dbFile = context.getDatabasePath("wallet_${walletId}.db")
+        if (dbFile.exists()) {
+            dbFile.delete()
+        }
+    }
+
+    /**
+     * Load wallet from cache or SQLite, restoring descriptors from Room DB.
+     */
+    private suspend fun loadWallet(walletId: String): Wallet {
+        // Check cache first
+        walletCache[walletId]?.let { return it }
+
+        // Load wallet entity from Room DB
+        val walletEntity = walletDao.getById(walletId)
+            ?: throw IllegalArgumentException("Wallet not found: $walletId")
+
+        // Parse descriptors
+        val externalDescriptor = Descriptor(walletEntity.descriptor, Network.BITCOIN)
+        val changeDescriptor = Descriptor(walletEntity.changeDescriptor, Network.BITCOIN)
+
+        // Load wallet from SQLite (if exists, else create new)
+        val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
+        val connection = Connection(dbPath)
+
+        val wallet = try {
+            Wallet.load(externalDescriptor, changeDescriptor, connection)
+        } catch (e: Exception) {
+            // If load fails, create new wallet
+            Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+        }
+
+        // Cache and return
+        walletCache[walletId] = wallet
+        return wallet
+    }
+
+    /**
+     * Build Electrum connection URL from config.
+     * Format: ssl://host:port or tcp://host:port
+     */
+    private fun buildElectrumUrl(config: ElectrumConfig): String {
+        val protocol = if (config.useSsl) "ssl" else "tcp"
+        val host = config.serverUrl.removePrefix("ssl://").removePrefix("tcp://")
+        return "$protocol://$host:${config.port}"
     }
 }
