@@ -1,0 +1,101 @@
+package net.clench.wallet.ui.screens
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import net.clench.wallet.ui.viewmodel.ReceiveViewModel
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReceiveScreen(
+    walletId: String,
+    onBack: () -> Unit,
+    viewModel: ReceiveViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(walletId) { viewModel.load(walletId) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Receive Bitcoin") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            if (uiState.isLoading) {
+                CircularProgressIndicator()
+            } else {
+                // QR code placeholder — TODO: render actual QR via ZXing
+                Card(
+                    modifier = Modifier.size(220.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("QR Code\n(TODO)", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text("Your Bitcoin Address", style = MaterialTheme.typography.labelLarge)
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                SelectionContainer {
+                    Text(
+                        text = uiState.address,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(
+                    onClick = { viewModel.copyAddress() },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Copy Address") }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TextButton(onClick = { viewModel.nextAddress() }) {
+                    Text("Generate next address")
+                }
+            }
+
+            uiState.error?.let { err ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(err, color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+// Need this import for SelectionContainer
+@Composable
+private fun SelectionContainer(content: @Composable () -> Unit) {
+    androidx.compose.foundation.text.selection.SelectionContainer { content() }
+}
