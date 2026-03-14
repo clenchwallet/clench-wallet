@@ -1,5 +1,7 @@
 package net.clench.wallet.ui.screens
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -7,8 +9,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.google.zxing.BarcodeFormat
+import com.journeyapps.barcodescanner.BarcodeEncoder
 import net.clench.wallet.ui.viewmodel.ReceiveViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,18 +50,24 @@ fun ReceiveScreen(
             if (uiState.isLoading) {
                 CircularProgressIndicator()
             } else {
-                // QR code placeholder — TODO: render actual QR via ZXing
-                Card(
-                    modifier = Modifier.size(220.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("QR Code\n(TODO)", style = MaterialTheme.typography.bodySmall)
+                // Render QR code using ZXing
+                if (uiState.address.isNotBlank()) {
+                    val bitmap = remember(uiState.address) {
+                        try {
+                            val encoder = BarcodeEncoder()
+                            val bmp = encoder.encodeBitmap(uiState.address, BarcodeFormat.QR_CODE, 512, 512)
+                            bmp.asImageBitmap()
+                        } catch (e: Exception) { null }
+                    }
+                    bitmap?.let {
+                        Image(
+                            bitmap = it,
+                            contentDescription = "Bitcoin address QR code",
+                            modifier = Modifier
+                                .size(220.dp)
+                                .background(Color.White)
+                                .padding(8.dp)
+                        )
                     }
                 }
 

@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -8,6 +9,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import net.clench.wallet.ui.viewmodel.SendViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -18,6 +21,10 @@ fun SendScreen(
     viewModel: SendViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { viewModel.setAddress(it) }
+    }
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
 
@@ -46,8 +53,15 @@ fun SendScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 trailingIcon = {
-                    // TODO: QR scan button → launch ZXing scanner
-                    TextButton(onClick = { /* TODO: open QR scanner */ }) {
+                    TextButton(onClick = {
+                        val options = ScanOptions().apply {
+                            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                            setPrompt("Scan Bitcoin address QR code")
+                            setBeepEnabled(false)
+                            setOrientationLocked(false)
+                        }
+                        scanLauncher.launch(options)
+                    }) {
                         Text("Scan")
                     }
                 }

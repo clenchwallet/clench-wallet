@@ -40,7 +40,7 @@ interface BitcoinRepository {
     /**
      * Sync wallet with Electrum server and return updated balance.
      */
-    suspend fun syncWallet(walletId: String, config: ElectrumConfig): WalletBalance
+    suspend fun syncWallet(walletId: String, config: ElectrumConfig? = null): WalletBalance
 
     /**
      * Get the current balance without syncing.

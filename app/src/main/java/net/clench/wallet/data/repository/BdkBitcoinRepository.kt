@@ -5,6 +5,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.KeystoreManager
+import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.local.dao.TransactionDao
 import net.clench.wallet.data.local.dao.WalletDao
 import net.clench.wallet.data.local.entity.TransactionEntity
@@ -31,7 +32,8 @@ class BdkBitcoinRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val walletDao: WalletDao,
     private val transactionDao: TransactionDao,
-    private val keystoreManager: KeystoreManager
+    private val keystoreManager: KeystoreManager,
+    private val settingsManager: SettingsManager
 ) : BitcoinRepository {
 
     // In-memory wallet cache to avoid reopening SQLite on every call
@@ -186,9 +188,12 @@ class BdkBitcoinRepository @Inject constructor(
         )
     }
 
-    override suspend fun syncWallet(walletId: String, config: ElectrumConfig): WalletBalance = withContext(Dispatchers.IO) {
+    override suspend fun syncWallet(walletId: String, config: ElectrumConfig?): WalletBalance = withContext(Dispatchers.IO) {
+        // Use provided config or fall back to saved settings
+        val effectiveConfig = config ?: settingsManager.loadElectrumConfig()
+
         // Build Electrum connection string
-        val connectionStr = buildElectrumUrl(config)
+        val connectionStr = buildElectrumUrl(effectiveConfig)
         val electrumClient = ElectrumClient(connectionStr)
 
         // Load wallet
