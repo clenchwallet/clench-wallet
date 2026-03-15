@@ -63,6 +63,21 @@ $stackTrace
 
                 Log.e("CLENCH_CRASH", report)
 
+                // Auto-POST to debug endpoint (Tailscale — only reachable on dev network)
+                try {
+                    val url = java.net.URL("http://100.120.112.75:8181/crash")
+                    val conn = url.openConnection() as java.net.HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.doOutput = true
+                    conn.connectTimeout = 3000
+                    conn.readTimeout = 3000
+                    conn.outputStream.use { it.write(report.toByteArray()) }
+                    conn.responseCode // trigger send
+                    conn.disconnect()
+                } catch (e: Exception) {
+                    Log.w("CrashHandler", "Failed to POST crash log to debug endpoint", e)
+                }
+
             } catch (e: Exception) {
                 Log.e("CrashHandler", "Error in crash handler itself", e)
             }
