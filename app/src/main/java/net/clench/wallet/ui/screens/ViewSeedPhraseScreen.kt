@@ -14,7 +14,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
+import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.viewmodel.ViewSeedPhraseViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,7 +53,21 @@ fun ViewSeedPhraseScreen(
                 )
             },
             confirmButton = {
-                Button(onClick = { viewModel.confirmWarning() }) {
+                Button(onClick = {
+                    val activity = context as? FragmentActivity
+                    if (activity != null && BiometricHelper.canAuthenticate(context)) {
+                        BiometricHelper.authenticate(
+                            activity = activity,
+                            title = "Authenticate to view seed phrase",
+                            subtitle = "Verify your identity to access sensitive data",
+                            onSuccess = { viewModel.confirmWarning() },
+                            onFailure = { /* user can retry via the dialog */ }
+                        )
+                    } else {
+                        // No biometric/PIN available — allow access (device is unprotected anyway)
+                        viewModel.confirmWarning()
+                    }
+                }) {
                     Text("I understand, show seed phrase")
                 }
             },

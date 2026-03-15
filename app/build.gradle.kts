@@ -45,6 +45,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -89,6 +90,9 @@ dependencies {
 
     // QR codes
     implementation(libs.zxing.android.embedded)
+
+    // Biometric authentication
+    implementation(libs.biometric)
 
     // BDK - Bitcoin Dev Kit (Block/Spiral funded)
     implementation(libs.bdk.android)

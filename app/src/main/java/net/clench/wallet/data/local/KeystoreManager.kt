@@ -64,18 +64,40 @@ class KeystoreManager @Inject constructor(
     fun getPassphrase(walletId: String): String? =
         prefs.getString(passphraseKey(walletId), null)
 
-    /** Delete all stored secrets for a wallet. Call when deleting a wallet. */
-    fun deleteWalletSecrets(walletId: String) {
-        prefs.edit()
-            .remove(mnemonicKey(walletId))
-            .remove(passphraseKey(walletId))
-            .apply()
+    /** Store the secret (xprv) descriptor for a wallet in encrypted storage. */
+    fun storeSecretDescriptor(walletId: String, descriptor: String) {
+        prefs.edit().putString(secretDescriptorKey(walletId), descriptor).apply()
     }
+
+    /** Retrieve the secret (xprv) descriptor. Returns null for watch-only wallets. */
+    fun getSecretDescriptor(walletId: String): String? =
+        prefs.getString(secretDescriptorKey(walletId), null)
+
+    /** Store the secret change descriptor for a wallet. */
+    fun storeSecretChangeDescriptor(walletId: String, descriptor: String) {
+        prefs.edit().putString(secretChangeDescriptorKey(walletId), descriptor).apply()
+    }
+
+    /** Retrieve the secret change descriptor. Returns null for watch-only wallets. */
+    fun getSecretChangeDescriptor(walletId: String): String? =
+        prefs.getString(secretChangeDescriptorKey(walletId), null)
 
     /** Check if we have a mnemonic (i.e. wallet is not watch-only). */
     fun hasMnemonic(walletId: String): Boolean =
         prefs.contains(mnemonicKey(walletId))
 
+    /** Delete all stored secrets for a wallet. Call when deleting a wallet. */
+    fun deleteWalletSecrets(walletId: String) {
+        prefs.edit()
+            .remove(mnemonicKey(walletId))
+            .remove(passphraseKey(walletId))
+            .remove(secretDescriptorKey(walletId))
+            .remove(secretChangeDescriptorKey(walletId))
+            .apply()
+    }
+
     private fun mnemonicKey(walletId: String) = "mnemonic_$walletId"
     private fun passphraseKey(walletId: String) = "passphrase_$walletId"
+    private fun secretDescriptorKey(walletId: String) = "secret_descriptor_$walletId"
+    private fun secretChangeDescriptorKey(walletId: String) = "secret_change_descriptor_$walletId"
 }

@@ -2,6 +2,8 @@ package net.clench.wallet.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.app.Activity
+import android.view.WindowManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -9,11 +11,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.viewmodel.SendViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -24,6 +29,16 @@ fun SendScreen(
     viewModel: SendViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    // FLAG_SECURE — prevent screenshots of balance/addresses
+    val context = LocalContext.current
+    DisposableEffect(Unit) {
+        val activity = context as? Activity
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { scanned ->
@@ -139,7 +154,21 @@ fun SendScreen(
                 ) { Text("Broadcast Transaction") }
             } else {
                 Button(
-                    onClick = { viewModel.buildTx() },
+                    onClick = {
+                        val activity = context as? FragmentActivity
+                        if (activity != null && BiometricHelper.canAuthenticate(context)) {
+                            BiometricHelper.authenticate(
+                                activity = activity,
+                                title = "Authenticate to send Bitcoin",
+                                subtitle = "Verify your identity to sign this transaction",
+                                onSuccess = { viewModel.buildTx() },
+                                onFailure = { msg -> viewModel.setError("Auth failed: $msg") }
+                            )
+                        } else {
+                            // No biometric available — proceed without (device is unprotected)
+                            viewModel.buildTx()
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !uiState.isLoading
                 ) {

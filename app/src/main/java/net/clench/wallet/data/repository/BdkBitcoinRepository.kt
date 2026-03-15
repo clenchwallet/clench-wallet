@@ -93,27 +93,35 @@ class BdkBitcoinRepository @Inject constructor(
         walletCache[walletId] = WalletEntry(wallet, connection)
 
         // Store mnemonic and passphrase in encrypted keystore
+        // NOTE: JVM String is immutable — mnemonic cannot be securely zeroed. This is a known JVM limitation.
+        // For production, consider using a native library that handles key material in off-heap memory.
         keystoreManager.storeMnemonic(walletId, mnemonicWords.joinToString(" "))
         passphrase?.let { keystoreManager.storePassphrase(walletId, it) }
 
-        // Persist wallet metadata to Room DB — use toStringWithSecret() to include xprv for signing
+        // Store SECRET descriptors (with xprv) in encrypted Keystore — never in Room DB
+        keystoreManager.storeSecretDescriptor(walletId, externalDescriptor.toStringWithSecret())
+        keystoreManager.storeSecretChangeDescriptor(walletId, changeDescriptor.toStringWithSecret())
+
+        // Persist wallet metadata to Room DB — PUBLIC descriptors only (xpub, no xprv)
+        val publicDescriptor = externalDescriptor.toString()
+        val publicChangeDescriptor = changeDescriptor.toString()
         val walletEntity = WalletEntity(
             id = walletId,
             name = name,
-            descriptor = externalDescriptor.toStringWithSecret(),
-            changeDescriptor = changeDescriptor.toStringWithSecret(),
+            descriptor = publicDescriptor,
+            changeDescriptor = publicChangeDescriptor,
             isWatchOnly = false,
             isMultisig = false,
             createdAtEpochMs = System.currentTimeMillis()
         )
         walletDao.insert(walletEntity)
 
-        // Return mnemonic words and wallet data
+        // Return mnemonic words and wallet data (public descriptors only)
         val walletData = WalletData(
             id = walletId,
             name = name,
-            descriptor = externalDescriptor.toStringWithSecret(),
-            changeDescriptor = changeDescriptor.toStringWithSecret(),
+            descriptor = publicDescriptor,
+            changeDescriptor = publicChangeDescriptor,
             isWatchOnly = false,
             isMultisig = false,
             createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs)
@@ -136,11 +144,13 @@ class BdkBitcoinRepository @Inject constructor(
         val externalDescriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
         val changeDescriptor = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, network)
 
-        // Prevent duplicate imports — compare using toStringWithSecret() for consistency
-        val externalDescriptorStr = externalDescriptor.toStringWithSecret()
-        val changeDescriptorStr = changeDescriptor.toStringWithSecret()
+        // Prevent duplicate imports — compare using public descriptor
+        val publicDescriptor = externalDescriptor.toString()
+        val publicChangeDescriptor = changeDescriptor.toString()
+        val secretDescriptor = externalDescriptor.toStringWithSecret()
+        val secretChangeDescriptor = changeDescriptor.toStringWithSecret()
         val existing = walletDao.getAll()
-        if (existing.any { it.descriptor == externalDescriptorStr }) {
+        if (existing.any { it.descriptor == publicDescriptor }) {
             throw IllegalArgumentException("This seed phrase is already imported in your wallet list.")
         }
 
@@ -154,27 +164,33 @@ class BdkBitcoinRepository @Inject constructor(
         walletCache[walletId] = WalletEntry(wallet, connection)
 
         // Store mnemonic and passphrase in encrypted keystore
+        // NOTE: JVM String is immutable — mnemonic cannot be securely zeroed. This is a known JVM limitation.
+        // For production, consider using a native library that handles key material in off-heap memory.
         keystoreManager.storeMnemonic(walletId, mnemonic.joinToString(" "))
         passphrase?.let { keystoreManager.storePassphrase(walletId, it) }
 
-        // Persist wallet metadata to Room DB — use toStringWithSecret() to include xprv for signing
+        // Store SECRET descriptors (with xprv) in encrypted Keystore — never in Room DB
+        keystoreManager.storeSecretDescriptor(walletId, secretDescriptor)
+        keystoreManager.storeSecretChangeDescriptor(walletId, secretChangeDescriptor)
+
+        // Persist wallet metadata to Room DB — PUBLIC descriptors only (xpub, no xprv)
         val walletEntity = WalletEntity(
             id = walletId,
             name = name,
-            descriptor = externalDescriptorStr,
-            changeDescriptor = changeDescriptorStr,
+            descriptor = publicDescriptor,
+            changeDescriptor = publicChangeDescriptor,
             isWatchOnly = false,
             isMultisig = false,
             createdAtEpochMs = System.currentTimeMillis()
         )
         walletDao.insert(walletEntity)
 
-        // Return wallet data
+        // Return wallet data (public descriptors only)
         WalletData(
             id = walletId,
             name = name,
-            descriptor = externalDescriptorStr,
-            changeDescriptor = changeDescriptorStr,
+            descriptor = publicDescriptor,
+            changeDescriptor = publicChangeDescriptor,
             isWatchOnly = false,
             isMultisig = false,
             createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs)
@@ -487,7 +503,9 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     /**
-     * Load wallet from cache or SQLite, restoring descriptors from Room DB.
+     * Load wallet from cache or SQLite.
+     * For signing wallets: retrieves secret descriptors (xprv) from encrypted Keystore.
+     * For watch-only wallets: uses public descriptors from Room DB.
      */
     private suspend fun loadWallet(walletId: String): WalletEntry {
         // Check cache first
@@ -497,10 +515,21 @@ class BdkBitcoinRepository @Inject constructor(
         val walletEntity = walletDao.getById(walletId)
             ?: throw IllegalArgumentException("Wallet not found: $walletId")
 
-        // Parse descriptors
+        // For non-watch-only wallets, use secret descriptors from Keystore (contains xprv for signing)
+        // Fall back to public descriptors from Room DB (watch-only or migration case)
         val network = activeNetwork()
-        val externalDescriptor = Descriptor(walletEntity.descriptor, network)
-        val changeDescriptor = Descriptor(walletEntity.changeDescriptor, network)
+        val externalDescriptorStr = if (!walletEntity.isWatchOnly) {
+            keystoreManager.getSecretDescriptor(walletId) ?: walletEntity.descriptor
+        } else {
+            walletEntity.descriptor
+        }
+        val changeDescriptorStr = if (!walletEntity.isWatchOnly) {
+            keystoreManager.getSecretChangeDescriptor(walletId) ?: walletEntity.changeDescriptor
+        } else {
+            walletEntity.changeDescriptor
+        }
+        val externalDescriptor = Descriptor(externalDescriptorStr, network)
+        val changeDescriptor = Descriptor(changeDescriptorStr, network)
 
         // Load wallet from SQLite (if exists, else create new)
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath

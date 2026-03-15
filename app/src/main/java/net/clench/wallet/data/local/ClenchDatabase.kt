@@ -9,9 +9,12 @@ import net.clench.wallet.data.local.dao.WalletDao
 import net.clench.wallet.data.local.entity.TransactionEntity
 import net.clench.wallet.data.local.entity.WalletEntity
 
+// NOTE: v3 uses fallbackToDestructiveMigration() — existing wallets will be lost on upgrade.
+// This is acceptable for debug builds. For production, implement proper data migration
+// that moves xprv descriptors from Room to KeystoreManager before clearing the column.
 @Database(
     entities = [WalletEntity::class, TransactionEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class ClenchDatabase : RoomDatabase() {

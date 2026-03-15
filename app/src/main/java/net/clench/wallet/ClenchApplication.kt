@@ -18,6 +18,35 @@ class ClenchApplication : Application() {
         installCrashHandler()
     }
 
+    /**
+     * Sanitize crash reports by stripping potentially sensitive data:
+     * - xprv/xpub extended keys
+     * - BIP39 mnemonic word sequences
+     */
+    internal fun sanitizeCrashReport(report: String): String {
+        var sanitized = report
+
+        // Redact xprv extended private keys (base58, ~111 chars)
+        sanitized = sanitized.replace(
+            Regex("xprv[1-9A-HJ-NP-Za-km-z]{100,}"),
+            "[REDACTED_XPRV]"
+        )
+
+        // Redact xpub extended public keys (base58, ~111 chars)
+        sanitized = sanitized.replace(
+            Regex("xpub[1-9A-HJ-NP-Za-km-z]{100,}"),
+            "[REDACTED_XPUB]"
+        )
+
+        // Redact likely BIP39 mnemonic sequences (12-24 lowercase words, 3-8 chars each)
+        sanitized = sanitized.replace(
+            Regex("""(?<!\S)(?:[a-z]{3,8}\s){11,23}[a-z]{3,8}(?!\S)"""),
+            "[REDACTED_MNEMONIC]"
+        )
+
+        return sanitized
+    }
+
     private fun installCrashHandler() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
 
@@ -33,7 +62,7 @@ class ClenchApplication : Application() {
                     packageManager.getPackageInfo(packageName, 0).versionName
                 } catch (e: Exception) { "unknown" }
 
-                val report = """
+                val rawReport = """
 CLENCH WALLET CRASH REPORT
 ==========================
 Time: $timestamp
@@ -46,7 +75,10 @@ STACK TRACE:
 $stackTrace
 """.trimIndent()
 
-                // Write to internal storage (always accessible)
+                // Sanitize to strip any sensitive material (xprv, mnemonics, etc.)
+                val report = sanitizeCrashReport(rawReport)
+
+                // Write sanitized report to internal storage (always accessible)
                 try {
                     File(filesDir, "crash_log.txt").writeText(report)
                 } catch (e: Exception) {
@@ -63,19 +95,22 @@ $stackTrace
 
                 Log.e("CLENCH_CRASH", report)
 
+                // DEBUG ONLY — remove before production release
                 // Auto-POST to debug endpoint (Tailscale — only reachable on dev network)
-                try {
-                    val url = java.net.URL("http://100.120.112.75:8181/crash")
-                    val conn = url.openConnection() as java.net.HttpURLConnection
-                    conn.requestMethod = "POST"
-                    conn.doOutput = true
-                    conn.connectTimeout = 3000
-                    conn.readTimeout = 3000
-                    conn.outputStream.use { it.write(report.toByteArray()) }
-                    conn.responseCode // trigger send
-                    conn.disconnect()
-                } catch (e: Exception) {
-                    Log.w("CrashHandler", "Failed to POST crash log to debug endpoint", e)
+                if (BuildConfig.DEBUG) {
+                    try {
+                        val url = java.net.URL("http://100.120.112.75:8181/crash")
+                        val conn = url.openConnection() as java.net.HttpURLConnection
+                        conn.requestMethod = "POST"
+                        conn.doOutput = true
+                        conn.connectTimeout = 3000
+                        conn.readTimeout = 3000
+                        conn.outputStream.use { it.write(report.toByteArray()) }
+                        conn.responseCode // trigger send
+                        conn.disconnect()
+                    } catch (e: Exception) {
+                        Log.w("CrashHandler", "Failed to POST crash log to debug endpoint", e)
+                    }
                 }
 
             } catch (e: Exception) {

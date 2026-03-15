@@ -12,6 +12,7 @@ room = "2.6.1"
 securityCrypto = "1.1.0-alpha06"
 coroutines = "1.8.1"
 zxing = "4.3.0"
+biometric = "1.1.0"
 bdk = "1.1.0"
 
 [libraries]
@@ -35,6 +36,7 @@ room-compiler = { group = "androidx.room", name = "room-compiler", version.ref =
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxing" }
+biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 bdk-android = { group = "org.bitcoindevkit", name = "bdk-android", version.ref = "bdk" }
 
 [plugins]

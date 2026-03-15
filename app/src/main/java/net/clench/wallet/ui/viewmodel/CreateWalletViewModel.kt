@@ -68,6 +68,13 @@ class CreateWalletViewModel @Inject constructor(
                     mnemonic = mnemonicWords,
                     passphrase = _uiState.value.passphrase.ifBlank { null }
                 )
+
+                // Clear mnemonic from memory as best effort — JVM String is immutable
+                // so the backing char[] can't be zeroed, but at least remove references
+                // so it becomes eligible for GC and won't be shown if user navigates back.
+                pendingMnemonic = null
+                _uiState.update { it.copy(mnemonic = emptyList(), passphrase = "") }
+
                 onCreated(walletData.id)
             } catch (e: Exception) {
                 android.util.Log.e("CreateWallet", "confirmAndSave failed: ${e.javaClass.simpleName}: ${e.message}", e)
