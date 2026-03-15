@@ -12,3 +12,6 @@ local.properties
 **/*.jks
 # Never commit signing keys or secrets
 keystore.properties
+app/build/
+build/
+clench/screen.png

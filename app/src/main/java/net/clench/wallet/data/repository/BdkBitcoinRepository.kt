@@ -10,9 +10,28 @@ import net.clench.wallet.data.local.dao.TransactionDao
 import net.clench.wallet.data.local.dao.WalletDao
 import net.clench.wallet.data.local.entity.TransactionEntity
 import net.clench.wallet.data.local.entity.WalletEntity
-import net.clench.wallet.domain.model.*
+import net.clench.wallet.domain.model.Address as DomainAddress
+import net.clench.wallet.domain.model.ElectrumConfig
+import net.clench.wallet.domain.model.TransactionItem
+import net.clench.wallet.domain.model.TxDirection
+import net.clench.wallet.domain.model.WalletBalance
+import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
-import org.bitcoindevkit.*
+import org.bitcoindevkit.Amount
+import org.bitcoindevkit.ChainPosition
+import org.bitcoindevkit.Connection
+import org.bitcoindevkit.Descriptor
+import org.bitcoindevkit.DescriptorSecretKey
+import org.bitcoindevkit.ElectrumClient
+import org.bitcoindevkit.FeeRate
+import org.bitcoindevkit.KeychainKind
+import org.bitcoindevkit.Mnemonic
+import org.bitcoindevkit.Network
+import org.bitcoindevkit.Psbt
+import org.bitcoindevkit.Transaction
+import org.bitcoindevkit.TxBuilder
+import org.bitcoindevkit.Wallet
+import org.bitcoindevkit.WordCount
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -213,7 +232,8 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Cache transactions to Room DB
         val transactions = wallet.transactions()
-        val transactionEntities = transactions.map { tx ->
+        val transactionEntities = transactions.map { canonicalTx ->
+            val tx = canonicalTx.transaction
             val sentAndReceived = wallet.sentAndReceived(tx)
             val sent = sentAndReceived.sent.toSat()
             val received = sentAndReceived.received.toSat()
@@ -225,15 +245,21 @@ class BdkBitcoinRepository @Inject constructor(
                 TxDirection.SENT to (sent - received)
             }
 
+            // Get confirmation timestamp from chain position
+            val timestampMs = when (val pos = canonicalTx.chainPosition) {
+                is ChainPosition.Confirmed -> pos.confirmationBlockTime.confirmationTime.toLong() * 1000L
+                else -> null
+            }
+
             TransactionEntity(
-                txid = tx.txid().toString(),
+                txid = tx.computeTxid(),
                 walletId = walletId,
                 amountSat = amount.toLong(),
-                feeSat = null, // BDK doesn't directly provide fee per tx
-                timestampEpochMs = null, // Would need to get from blockchain
-                confirmations = 0, // Would need chain height info
+                feeSat = null,
+                timestampEpochMs = timestampMs,
+                confirmations = 0,
                 direction = direction.name,
-                address = null // Could extract from outputs if needed
+                address = null
             )
         }
         transactionDao.insertAll(transactionEntities)
@@ -276,10 +302,10 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
-    override suspend fun getReceiveAddress(walletId: String): Address = withContext(Dispatchers.IO) {
+    override suspend fun getReceiveAddress(walletId: String): DomainAddress = withContext(Dispatchers.IO) {
         val wallet = loadWallet(walletId)
         val addressInfo = wallet.revealNextAddress(KeychainKind.EXTERNAL)
-        Address(
+        DomainAddress(
             address = addressInfo.address.toString(),
             index = addressInfo.index.toInt(),
             used = false
@@ -307,7 +333,7 @@ class BdkBitcoinRepository @Inject constructor(
         } else {
             // Send specific amount
             TxBuilder()
-                .addRecipient(recipientAddress.scriptPubkey(), amountSat.toULong())
+                .addRecipient(recipientAddress.scriptPubkey(), Amount.fromSat(amountSat.toULong()))
                 .feeRate(feeRate)
                 .finish(wallet)
         }
@@ -323,14 +349,12 @@ class BdkBitcoinRepository @Inject constructor(
         val connectionStr = buildElectrumUrl(config)
         val electrumClient = ElectrumClient(connectionStr)
 
-        // Parse transaction from hex
-        val tx = Transaction(txHex)
+        // Parse transaction from hex bytes
+        val txBytes = txHex.chunked(2).map { it.toInt(16).toUByte() }
+        val tx = Transaction(txBytes)
 
-        // Broadcast to network
-        electrumClient.broadcast(tx)
-
-        // Return txid
-        tx.txid().toString()
+        // Broadcast to network — returns txid string
+        return@withContext electrumClient.transactionBroadcast(tx)
     }
 
     override suspend fun listWallets(): List<WalletData> {
