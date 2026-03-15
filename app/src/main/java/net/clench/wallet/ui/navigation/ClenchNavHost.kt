@@ -134,8 +134,13 @@ fun ClenchNavHost(navController: NavHostController) {
 
         composable(Routes.Settings.route) {
             SettingsScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onDebug = { navController.navigate(Routes.Debug.route) }
             )
+        }
+
+        composable(Routes.Debug.route) {
+            DebugScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.WalletList.route) {

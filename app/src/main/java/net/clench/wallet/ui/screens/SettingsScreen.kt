@@ -15,6 +15,7 @@ import net.clench.wallet.ui.viewmodel.SettingsViewModel
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onDebug: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -140,6 +141,17 @@ fun SettingsScreen(
                 )
                 HorizontalDivider()
             }
+
+            // Debug section — always visible in this build to capture crash logs
+            Spacer(modifier = Modifier.height(32.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Debug", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onDebug,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("View Crash Log") }
         }
     }
 }
