@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,10 +50,14 @@ fun HomeScreen(
             )
         }
     ) { padding ->
+        @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+        PullToRefreshBox(
+            isRefreshing = uiState.isSyncing,
+            onRefresh = { viewModel.reload(walletId) },
+            modifier = Modifier.fillMaxSize().padding(padding)
+        ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
+            modifier = Modifier.fillMaxSize()
         ) {
             // Balance card — tap to cycle sats/BTC/USD
             Card(
@@ -187,5 +192,6 @@ fun HomeScreen(
                 }
             }
         }
+        } // end PullToRefreshBox
     }
 }

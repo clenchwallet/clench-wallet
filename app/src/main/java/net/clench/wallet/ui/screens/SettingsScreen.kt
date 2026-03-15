@@ -2,6 +2,7 @@ package net.clench.wallet.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -98,10 +99,50 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Button(
-                    onClick = { viewModel.saveServerSettings() },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Save") }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { viewModel.saveServerSettings() },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Save") }
+
+                    OutlinedButton(
+                        onClick = { viewModel.testConnection() },
+                        modifier = Modifier.weight(1f),
+                        enabled = !uiState.testingConnection
+                    ) {
+                        if (uiState.testingConnection)
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        else
+                            Text("Test")
+                    }
+                }
+
+                uiState.connectionTestResult?.let { result ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val isSuccess = result.startsWith("✓")
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSuccess)
+                                MaterialTheme.colorScheme.primaryContainer
+                            else
+                                MaterialTheme.colorScheme.errorContainer
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = result,
+                            color = if (isSuccess)
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            else
+                                MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
 
                 if (uiState.savedSuccess) {
                     Spacer(modifier = Modifier.height(8.dp))

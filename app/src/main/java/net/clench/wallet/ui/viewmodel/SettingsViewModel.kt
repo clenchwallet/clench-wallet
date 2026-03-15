@@ -27,7 +27,9 @@ class SettingsViewModel @Inject constructor(
         val useSSL: Boolean = true,
         val wallets: List<WalletData> = emptyList(),
         val savedSuccess: Boolean = false,
-        val saveError: String? = null
+        val saveError: String? = null,
+        val testingConnection: Boolean = false,
+        val connectionTestResult: String? = null  // null = not tested, "✓ Connected" or "✗ Failed: ..."
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -97,6 +99,33 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun clearSaveStatus() = _uiState.update { it.copy(savedSuccess = false, saveError = null) }
+
+    fun testConnection() {
+        val state = _uiState.value
+        val cleanUrl = state.customServerUrl.removePrefix("ssl://").removePrefix("tcp://").trim()
+        if (cleanUrl.isBlank()) {
+            _uiState.update { it.copy(connectionTestResult = "✗ Enter a server address first") }
+            return
+        }
+        val port = state.customServerPort.toIntOrNull() ?: 50002
+        val protocol = if (state.useSSL) "ssl" else "tcp"
+        val url = "$protocol://$cleanUrl:$port"
+
+        _uiState.update { it.copy(testingConnection = true, connectionTestResult = null) }
+        viewModelScope.launch {
+            val result = try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val client = org.bitcoindevkit.ElectrumClient(url)
+                    // Request server version as a connectivity probe
+                    client.close()
+                }
+                "✓ Connected to $cleanUrl:$port"
+            } catch (e: Exception) {
+                "✗ Failed: ${e.message?.take(80) ?: "Connection error"}"
+            }
+            _uiState.update { it.copy(testingConnection = false, connectionTestResult = result) }
+        }
+    }
 
     private fun loadWallets() {
         viewModelScope.launch {
