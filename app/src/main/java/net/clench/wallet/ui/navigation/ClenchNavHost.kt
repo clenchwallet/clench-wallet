@@ -106,7 +106,9 @@ fun ClenchNavHost(navController: NavHostController) {
                 onSend = { navController.navigate(Routes.Send.build(walletId)) },
                 onReceive = { navController.navigate(Routes.Receive.build(walletId)) },
                 onSettings = { navController.navigate(Routes.Settings.route) },
-                onWalletList = { navController.navigate(Routes.WalletList.route) }
+                onWalletList = { navController.navigate(Routes.WalletList.route) },
+                onAddresses = { navController.navigate(Routes.Addresses.build(walletId)) },
+                onViewSeedPhrase = { navController.navigate(Routes.ViewSeedPhrase.build(walletId)) }
             )
         }
 
@@ -141,6 +143,28 @@ fun ClenchNavHost(navController: NavHostController) {
 
         composable(Routes.Debug.route) {
             DebugScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = Routes.Addresses.route,
+            arguments = listOf(navArgument("walletId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
+            AddressesScreen(
+                walletId = walletId,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.ViewSeedPhrase.route,
+            arguments = listOf(navArgument("walletId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
+            ViewSeedPhraseScreen(
+                walletId = walletId,
+                onBack = { navController.popBackStack() }
+            )
         }
 
         composable(Routes.WalletList.route) {

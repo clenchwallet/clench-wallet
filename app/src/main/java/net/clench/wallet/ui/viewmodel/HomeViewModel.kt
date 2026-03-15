@@ -38,7 +38,9 @@ class HomeViewModel @Inject constructor(
         val isWatchOnly: Boolean = false,
         val balanceUnit: BalanceUnit = BalanceUnit.SATS,
         val btcPriceUsd: Double? = null,
-        val priceStale: Boolean = false
+        val priceStale: Boolean = false,
+        val isTestnet: Boolean = false,
+        val mempoolUrl: String = "https://mempool.space"
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -49,7 +51,11 @@ class HomeViewModel @Inject constructor(
 
     fun load(walletId: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
+            _uiState.update { it.copy(
+                isLoading = true,
+                isTestnet = settingsManager.isTestnet(),
+                mempoolUrl = settingsManager.getMempoolUrl()
+            ) }
             try {
                 // Load wallet name from DB
                 try {

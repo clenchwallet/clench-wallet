@@ -17,4 +17,10 @@ sealed class Routes(val route: String) {
     object Settings     : Routes("settings")
     object Debug        : Routes("debug")
     object WalletList   : Routes("wallet_list")
+    object Addresses    : Routes("addresses/{walletId}") {
+        fun build(walletId: String) = "addresses/$walletId"
+    }
+    object ViewSeedPhrase : Routes("view_seed_phrase/{walletId}") {
+        fun build(walletId: String) = "view_seed_phrase/$walletId"
+    }
 }

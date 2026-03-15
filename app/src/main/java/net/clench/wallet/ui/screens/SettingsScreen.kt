@@ -186,6 +186,90 @@ fun SettingsScreen(
                 HorizontalDivider()
             }
 
+            // --- Mempool Explorer ---
+            Spacer(modifier = Modifier.height(32.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Mempool Explorer", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = uiState.useCustomMempool,
+                    onCheckedChange = { viewModel.setUseCustomMempool(it) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("Use custom mempool explorer")
+                    Text(
+                        if (uiState.useCustomMempool) uiState.mempoolUrl
+                        else "Default: mempool.space",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (uiState.useCustomMempool) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = uiState.mempoolUrl,
+                    onValueChange = { viewModel.setMempoolUrl(it) },
+                    label = { Text("Mempool URL") },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("https://mempool.space") },
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { viewModel.saveMempoolSettings() },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Save Mempool URL") }
+            }
+
+            // --- Network (Testnet) ---
+            Spacer(modifier = Modifier.height(32.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Network", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = uiState.useTestnet,
+                    onCheckedChange = { viewModel.setUseTestnet(it) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("Use Testnet")
+                    Text(
+                        if (uiState.useTestnet) "Testnet mode active — not real bitcoin"
+                        else "Mainnet (real bitcoin)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (uiState.useTestnet) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (uiState.useTestnet) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "⚠️ Testnet wallets use fake bitcoin. Existing mainnet wallets will not work on testnet. " +
+                        "Create a new wallet after switching networks.",
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+
             // Debug section — always visible in this build to capture crash logs
             Spacer(modifier = Modifier.height(32.dp))
             HorizontalDivider()

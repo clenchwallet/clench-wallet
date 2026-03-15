@@ -1,5 +1,8 @@
 package net.clench.wallet.ui.screens
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -7,12 +10,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -29,9 +36,13 @@ fun HomeScreen(
     onReceive: () -> Unit,
     onSettings: () -> Unit,
     onWalletList: () -> Unit = {},
+    onAddresses: () -> Unit = {},
+    onViewSeedPhrase: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    var showMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
 
@@ -46,6 +57,32 @@ fun HomeScreen(
                     IconButton(onClick = onSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Addresses") },
+                                onClick = {
+                                    showMenu = false
+                                    onAddresses()
+                                }
+                            )
+                            if (!uiState.isWatchOnly) {
+                                DropdownMenuItem(
+                                    text = { Text("View Seed Phrase") },
+                                    onClick = {
+                                        showMenu = false
+                                        onViewSeedPhrase()
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             )
         }
@@ -59,6 +96,24 @@ fun HomeScreen(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
+            // Testnet banner
+            if (uiState.isTestnet) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFFF9800))
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "⚠ TESTNET",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
             // Balance card — tap to cycle sats/BTC/USD
             Card(
                 modifier = Modifier
@@ -185,6 +240,13 @@ fun HomeScreen(
                                     else
                                         MaterialTheme.colorScheme.error
                                 )
+                            },
+                            modifier = Modifier.clickable {
+                                val mempoolBase = uiState.mempoolUrl.trimEnd('/')
+                                val testnetPrefix = if (uiState.isTestnet) "/testnet" else ""
+                                val url = "$mempoolBase$testnetPrefix/tx/${tx.txid}"
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                context.startActivity(intent)
                             }
                         )
                         HorizontalDivider()

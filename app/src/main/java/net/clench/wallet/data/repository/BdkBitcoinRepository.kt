@@ -63,6 +63,10 @@ class BdkBitcoinRepository @Inject constructor(
     // In-memory wallet cache to avoid reopening SQLite on every call
     private val walletCache = ConcurrentHashMap<String, WalletEntry>()
 
+    /** Resolve the active BDK Network from settings. */
+    private fun activeNetwork(): Network =
+        if (settingsManager.isTestnet()) Network.TESTNET else Network.BITCOIN
+
     override suspend fun createWallet(
         name: String,
         wordCount: Int,
@@ -74,9 +78,10 @@ class BdkBitcoinRepository @Inject constructor(
         val mnemonicWords = mnemonic.toString().split(" ")
 
         // BDK 1.1.0: use Descriptor.newBip84() factory for correct BIP84 wpkh derivation
-        val secretKey = DescriptorSecretKey(Network.BITCOIN, mnemonic, passphrase ?: "")
-        val externalDescriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, Network.BITCOIN)
-        val changeDescriptor = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, Network.BITCOIN)
+        val network = activeNetwork()
+        val secretKey = DescriptorSecretKey(network, mnemonic, passphrase ?: "")
+        val externalDescriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
+        val changeDescriptor = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, network)
 
         // Generate wallet ID
         val walletId = UUID.randomUUID().toString()
@@ -84,7 +89,7 @@ class BdkBitcoinRepository @Inject constructor(
         // Create BDK wallet with SQLite persistence
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
         val connection = Connection(dbPath)
-        val wallet = Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+        val wallet = Wallet(externalDescriptor, changeDescriptor, network, connection)
         walletCache[walletId] = WalletEntry(wallet, connection)
 
         // Store mnemonic and passphrase in encrypted keystore
@@ -126,9 +131,10 @@ class BdkBitcoinRepository @Inject constructor(
         val mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
 
         // BDK 1.1.0: use Descriptor.newBip84() factory for correct BIP84 wpkh derivation
-        val secretKey = DescriptorSecretKey(Network.BITCOIN, mnemonicObj, passphrase ?: "")
-        val externalDescriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, Network.BITCOIN)
-        val changeDescriptor = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, Network.BITCOIN)
+        val network = activeNetwork()
+        val secretKey = DescriptorSecretKey(network, mnemonicObj, passphrase ?: "")
+        val externalDescriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
+        val changeDescriptor = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, network)
 
         // Prevent duplicate imports — compare using toStringWithSecret() for consistency
         val externalDescriptorStr = externalDescriptor.toStringWithSecret()
@@ -144,7 +150,7 @@ class BdkBitcoinRepository @Inject constructor(
         // Create BDK wallet with SQLite persistence
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
         val connection = Connection(dbPath)
-        val wallet = Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+        val wallet = Wallet(externalDescriptor, changeDescriptor, network, connection)
         walletCache[walletId] = WalletEntry(wallet, connection)
 
         // Store mnemonic and passphrase in encrypted keystore
@@ -182,13 +188,14 @@ class BdkBitcoinRepository @Inject constructor(
         // Normalize input — handle bare zpub/ypub/xpub and full descriptor strings
         val (externalDescriptorStr, changeDescriptorStr) = normalizeDescriptor(descriptor.trim())
 
+        val network = activeNetwork()
         val externalDescriptor = try {
-            Descriptor(externalDescriptorStr, Network.BITCOIN)
+            Descriptor(externalDescriptorStr, network)
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid descriptor or extended public key. Please check the format and try again.")
         }
         val changeDescriptor = try {
-            Descriptor(changeDescriptorStr, Network.BITCOIN)
+            Descriptor(changeDescriptorStr, network)
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid descriptor or extended public key. Please check the format and try again.")
         }
@@ -205,7 +212,7 @@ class BdkBitcoinRepository @Inject constructor(
         // Create BDK wallet with SQLite persistence (no signing keys)
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
         val connection = Connection(dbPath)
-        val wallet = Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+        val wallet = Wallet(externalDescriptor, changeDescriptor, network, connection)
         walletCache[walletId] = WalletEntry(wallet, connection)
 
         // Persist wallet metadata to Room DB (isWatchOnly = true)
@@ -377,7 +384,8 @@ class BdkBitcoinRepository @Inject constructor(
     ): String = withContext(Dispatchers.IO) {
         val entry = loadWallet(walletId)
         val wallet = entry.wallet
-        val recipientAddress = org.bitcoindevkit.Address(toAddress, Network.BITCOIN)
+        val network = activeNetwork()
+        val recipientAddress = org.bitcoindevkit.Address(toAddress, network)
         val feeRate = FeeRate.fromSatPerVb(feeRateSatPerVbyte.toULong())
 
         // Build transaction (drain or send specific amount)
@@ -452,6 +460,32 @@ class BdkBitcoinRepository @Inject constructor(
         java.io.File(dbFile.path + "-journal").delete()
     }
 
+    override suspend fun getAddresses(walletId: String, count: Int): List<DomainAddress> = withContext(Dispatchers.IO) {
+        val entry = loadWallet(walletId)
+        val wallet = entry.wallet
+
+        // Get known transactions to determine "used" status
+        val txAddresses = mutableSetOf<String>()
+        try {
+            val transactions = wallet.transactions()
+            // We can't easily get per-address usage from BDK, so we'll mark all as unknown
+            // The sync would need to track this; for now, leave used=false
+        } catch (_: Exception) {}
+
+        val addresses = mutableListOf<DomainAddress>()
+        for (i in 0 until count) {
+            val addressInfo = wallet.peekAddress(KeychainKind.EXTERNAL, i.toUInt())
+            addresses.add(
+                DomainAddress(
+                    address = addressInfo.address.toString(),
+                    index = i,
+                    used = false
+                )
+            )
+        }
+        addresses
+    }
+
     /**
      * Load wallet from cache or SQLite, restoring descriptors from Room DB.
      */
@@ -464,8 +498,9 @@ class BdkBitcoinRepository @Inject constructor(
             ?: throw IllegalArgumentException("Wallet not found: $walletId")
 
         // Parse descriptors
-        val externalDescriptor = Descriptor(walletEntity.descriptor, Network.BITCOIN)
-        val changeDescriptor = Descriptor(walletEntity.changeDescriptor, Network.BITCOIN)
+        val network = activeNetwork()
+        val externalDescriptor = Descriptor(walletEntity.descriptor, network)
+        val changeDescriptor = Descriptor(walletEntity.changeDescriptor, network)
 
         // Load wallet from SQLite (if exists, else create new)
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
@@ -475,10 +510,10 @@ class BdkBitcoinRepository @Inject constructor(
             Wallet.load(externalDescriptor, changeDescriptor, connection)
         } catch (e: org.bitcoindevkit.LoadWithPersistException.CouldNotLoad) {
             // Wallet DB exists but has no persisted state yet — create fresh BDK wallet
-            Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+            Wallet(externalDescriptor, changeDescriptor, network, connection)
         } catch (e: org.bitcoindevkit.LoadWithPersistException.Persist) {
             // SQLite not found / unable to open — create fresh BDK wallet
-            Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+            Wallet(externalDescriptor, changeDescriptor, network, connection)
         }
         // All other exceptions (InvalidChangeSet, descriptor mismatch, etc.) propagate
         // to the ViewModel so the error can be shown rather than silently creating a new wallet

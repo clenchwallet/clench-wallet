@@ -37,4 +37,35 @@ class SettingsManager @Inject constructor(
     }
 
     fun isConfigured(): Boolean = prefs.contains("server_url")
+
+    // --- Mempool explorer settings ---
+
+    fun getMempoolUrl(): String {
+        val useCustom = prefs.getBoolean("use_custom_mempool", false)
+        return if (useCustom) {
+            prefs.getString("mempool_url", "https://mempool.space") ?: "https://mempool.space"
+        } else {
+            "https://mempool.space"
+        }
+    }
+
+    fun setMempoolUrl(url: String) {
+        prefs.edit { putString("mempool_url", url) }
+    }
+
+    fun isCustomMempoolEnabled(): Boolean = prefs.getBoolean("use_custom_mempool", false)
+
+    fun setCustomMempoolEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean("use_custom_mempool", enabled) }
+    }
+
+    // --- Network settings (mainnet/testnet) ---
+
+    fun getNetwork(): String = prefs.getString("network", "mainnet") ?: "mainnet"
+
+    fun setNetwork(network: String) {
+        prefs.edit { putString("network", network) }
+    }
+
+    fun isTestnet(): Boolean = getNetwork() == "testnet"
 }

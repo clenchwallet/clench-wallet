@@ -94,4 +94,11 @@ interface BitcoinRepository {
      * Delete a wallet by id.
      */
     suspend fun deleteWallet(walletId: String)
+
+    /**
+     * Get a list of derived external addresses (for the Addresses screen).
+     * @param count how many addresses to derive (default 20)
+     * @return list of Address objects with index, address string, and used status
+     */
+    suspend fun getAddresses(walletId: String, count: Int = 20): List<Address>
 }

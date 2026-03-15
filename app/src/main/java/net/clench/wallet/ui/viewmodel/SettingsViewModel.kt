@@ -29,7 +29,10 @@ class SettingsViewModel @Inject constructor(
         val savedSuccess: Boolean = false,
         val saveError: String? = null,
         val testingConnection: Boolean = false,
-        val connectionTestResult: String? = null  // null = not tested, "✓ Connected" or "✗ Failed: ..."
+        val connectionTestResult: String? = null,
+        val useCustomMempool: Boolean = false,
+        val mempoolUrl: String = "https://mempool.space",
+        val useTestnet: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -43,7 +46,10 @@ class SettingsViewModel @Inject constructor(
                 useCustomServer = saved.isCustom,
                 customServerUrl = if (saved.isCustom) saved.serverUrl.removePrefix("ssl://").removePrefix("tcp://") else "",
                 customServerPort = saved.port.toString(),
-                useSSL = saved.useSsl
+                useSSL = saved.useSsl,
+                useCustomMempool = settingsManager.isCustomMempoolEnabled(),
+                mempoolUrl = settingsManager.getMempoolUrl(),
+                useTestnet = settingsManager.isTestnet()
             )
         }
     }
@@ -125,6 +131,52 @@ class SettingsViewModel @Inject constructor(
             }
             _uiState.update { it.copy(testingConnection = false, connectionTestResult = result) }
         }
+    }
+
+    // --- Mempool settings ---
+    fun setUseCustomMempool(use: Boolean) {
+        settingsManager.setCustomMempoolEnabled(use)
+        _uiState.update { it.copy(useCustomMempool = use) }
+    }
+
+    fun setMempoolUrl(url: String) {
+        _uiState.update { it.copy(mempoolUrl = url) }
+    }
+
+    fun saveMempoolSettings() {
+        settingsManager.setMempoolUrl(_uiState.value.mempoolUrl)
+        _uiState.update { it.copy(savedSuccess = true) }
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(3000)
+            _uiState.update { it.copy(savedSuccess = false) }
+        }
+    }
+
+    // --- Network settings ---
+    fun setUseTestnet(use: Boolean) {
+        val network = if (use) "testnet" else "mainnet"
+        settingsManager.setNetwork(network)
+
+        // Auto-switch electrum server for testnet if using public server
+        if (!_uiState.value.useCustomServer) {
+            if (use) {
+                settingsManager.saveElectrumConfig(ElectrumConfig(
+                    serverUrl = "electrum.blockstream.info",
+                    port = 60002,
+                    useSsl = true,
+                    isCustom = false
+                ))
+            } else {
+                settingsManager.saveElectrumConfig(ElectrumConfig(
+                    serverUrl = "electrum.blockstream.info",
+                    port = 50002,
+                    useSsl = true,
+                    isCustom = false
+                ))
+            }
+        }
+
+        _uiState.update { it.copy(useTestnet = use) }
     }
 
     private fun loadWallets() {
