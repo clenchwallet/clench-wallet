@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +17,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.domain.model.TxDirection
 import net.clench.wallet.ui.viewmodel.HomeViewModel
+import java.text.NumberFormat
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,11 +54,12 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Balance card
+            // Balance card — tap to cycle sats/BTC/USD
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .clickable { viewModel.cycleBalanceUnit() },
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
@@ -72,7 +76,12 @@ fun HomeScreen(
                         CircularProgressIndicator()
                     } else {
                         Text(
-                            text = "${uiState.balanceSat} sats",
+                            text = HomeViewModel.formatBalance(
+                                uiState.balanceSat,
+                                uiState.balanceUnit,
+                                uiState.btcPriceUsd,
+                                uiState.priceStale
+                            ),
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -163,8 +172,9 @@ fun HomeScreen(
                                 Text(tx.txid.take(16) + "…")
                             },
                             trailingContent = {
+                                val fmt = NumberFormat.getNumberInstance(Locale.US)
                                 Text(
-                                    "${if (tx.direction == TxDirection.RECEIVED) "+" else "-"}${tx.amountSat} sats",
+                                    "${if (tx.direction == TxDirection.RECEIVED) "+" else "-"}${fmt.format(tx.amountSat)} sats",
                                     color = if (tx.direction == TxDirection.RECEIVED)
                                         MaterialTheme.colorScheme.primary
                                     else

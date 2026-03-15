@@ -33,11 +33,11 @@ class ReceiveViewModel @Inject constructor(
 
     fun load(walletId: String) {
         _uiState.update { it.copy(walletId = walletId) }
-        // Use getLastAddress to avoid advancing index on screen open
+        // Use getReceiveAddress to show the next unused address
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                val addr = bitcoinRepository.getLastAddress(walletId)
+                val addr = bitcoinRepository.getReceiveAddress(walletId)
                 _uiState.update { it.copy(address = addr.address, addressIndex = addr.index, isLoading = false) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
