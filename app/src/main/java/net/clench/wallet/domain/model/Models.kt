@@ -61,5 +61,11 @@ data class WalletBalance(
     val untrustedPendingSat: Long,
     val immatureSat: Long
 ) {
-    val totalSat: Long get() = confirmedSat + trustedPendingSat
+    // For watch-only wallets all unconfirmed UTXOs are classified as "untrusted pending"
+    // because there are no private keys to verify trust. Including untrustedPendingSat
+    // ensures watch-only wallets show a non-zero balance for unconfirmed transactions.
+    val totalSat: Long get() = confirmedSat + trustedPendingSat + untrustedPendingSat
+
+    // Strictly spendable (confirmed + trusted unconfirmed only — for send amount validation)
+    val spendableSat: Long get() = confirmedSat + trustedPendingSat
 }

@@ -223,20 +223,25 @@ class BdkBitcoinRepository @Inject constructor(
         val wallet = entry.wallet
 
         // Perform full scan with timeout to prevent hanging on bad servers
-        withTimeout(30_000L) {
-            val fullScanRequest = wallet.startFullScan().build()
-            val update = electrumClient.fullScan(
-                fullScanRequest,
-                stopGap = 20u,
-                batchSize = 10u,
-                fetchPrevTxouts = true
-            )
+        // ElectrumClient must always be closed — resource leak causes silent failures on retry
+        try {
+            withTimeout(30_000L) {
+                val fullScanRequest = wallet.startFullScan().build()
+                val update = electrumClient.fullScan(
+                    fullScanRequest,
+                    stopGap = 20u,
+                    batchSize = 10u,
+                    fetchPrevTxouts = true
+                )
 
-            // Apply update to wallet
-            wallet.applyUpdate(update)
+                // Apply update to wallet
+                wallet.applyUpdate(update)
 
-            // Persist wallet state after sync
-            wallet.persist(entry.connection)
+                // Persist wallet state after sync
+                wallet.persist(entry.connection)
+            }
+        } finally {
+            electrumClient.close()
         }
 
         // Cache transactions to Room DB
@@ -386,7 +391,12 @@ class BdkBitcoinRepository @Inject constructor(
         val tx = Transaction(txBytes)
 
         // Broadcast to network — returns txid string
-        return@withContext electrumClient.transactionBroadcast(tx)
+        // ElectrumClient must always be closed after use
+        try {
+            return@withContext electrumClient.transactionBroadcast(tx)
+        } finally {
+            electrumClient.close()
+        }
     }
 
     override suspend fun listWallets(): List<WalletData> {
@@ -441,17 +451,15 @@ class BdkBitcoinRepository @Inject constructor(
 
         val wallet = try {
             Wallet.load(externalDescriptor, changeDescriptor, connection)
-        } catch (e: Exception) {
-            // Only create a fresh wallet if the DB simply doesn't exist yet.
-            // Any other error (corruption, descriptor mismatch, etc.) should propagate
-            // so the ViewModel can surface it rather than silently discarding wallet state.
-            val msg = e.message?.lowercase() ?: ""
-            if (msg.contains("not found") || msg.contains("no such table") || msg.contains("unable to open")) {
-                Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
-            } else {
-                throw e
-            }
+        } catch (e: org.bitcoindevkit.LoadWithPersistException.CouldNotLoad) {
+            // Wallet DB exists but has no persisted state yet — create fresh BDK wallet
+            Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+        } catch (e: org.bitcoindevkit.LoadWithPersistException.Persist) {
+            // SQLite not found / unable to open — create fresh BDK wallet
+            Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
         }
+        // All other exceptions (InvalidChangeSet, descriptor mismatch, etc.) propagate
+        // to the ViewModel so the error can be shown rather than silently creating a new wallet
 
         // Cache and return
         val entry = WalletEntry(wallet, connection)
@@ -472,13 +480,20 @@ class BdkBitcoinRepository @Inject constructor(
     // Normalize watch-only input into a pair of (externalDescriptor, changeDescriptor) strings.
     // Handles zpub, ypub, xpub, and full descriptor strings.
     private fun normalizeDescriptor(input: String): Pair<String, String> {
-        // Already a full descriptor string — use as-is and derive change
+        // Already a full descriptor string — but may still contain a zpub/ypub that needs converting
         if (input.startsWith("wpkh(") || input.startsWith("pkh(") ||
             input.startsWith("sh(wpkh(") || input.startsWith("tr(")) {
-            val external = if (!input.contains("/0/*") && !input.contains("/*")) {
+            // Extract and convert any non-xpub extended key inside the descriptor
+            val converted = input
+                .replace(Regex("zpub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
+                .replace(Regex("Zpub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
+                .replace(Regex("ypub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
+                .replace(Regex("Ypub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
+                .replace(Regex("vpub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
+            val external = if (!converted.contains("/0/*") && !converted.contains("/*")) {
                 // No derivation path — add /0/*
-                input.trimEnd(')') + "/0/*)"
-            } else input
+                converted.trimEnd(')') + "/0/*)"
+            } else converted
             val change = external.replace("/0/*", "/1/*")
             return Pair(external, change)
         }
