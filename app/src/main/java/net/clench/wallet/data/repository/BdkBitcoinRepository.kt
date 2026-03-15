@@ -73,10 +73,10 @@ class BdkBitcoinRepository @Inject constructor(
         val mnemonic = Mnemonic(wordCountEnum)
         val mnemonicWords = mnemonic.toString().split(" ")
 
-        // BDK 1.1.0: pass root xprv + full path inline — e.g. wpkh(xprv.../84h/0h/0h/0/*)
-        val rootXprv = DescriptorSecretKey(Network.BITCOIN, mnemonic, passphrase ?: "").asString()
-        val externalDescriptor = Descriptor("wpkh($rootXprv/84h/0h/0h/0/*)", Network.BITCOIN)
-        val changeDescriptor = Descriptor("wpkh($rootXprv/84h/0h/0h/1/*)", Network.BITCOIN)
+        // BDK 1.1.0: use Descriptor.newBip84() factory for correct BIP84 wpkh derivation
+        val secretKey = DescriptorSecretKey(Network.BITCOIN, mnemonic, passphrase ?: "")
+        val externalDescriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, Network.BITCOIN)
+        val changeDescriptor = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, Network.BITCOIN)
 
         // Generate wallet ID
         val walletId = UUID.randomUUID().toString()
@@ -91,12 +91,12 @@ class BdkBitcoinRepository @Inject constructor(
         keystoreManager.storeMnemonic(walletId, mnemonicWords.joinToString(" "))
         passphrase?.let { keystoreManager.storePassphrase(walletId, it) }
 
-        // Persist wallet metadata to Room DB
+        // Persist wallet metadata to Room DB — use toStringWithSecret() to include xprv for signing
         val walletEntity = WalletEntity(
             id = walletId,
             name = name,
-            descriptor = externalDescriptor.toString(),
-            changeDescriptor = changeDescriptor.toString(),
+            descriptor = externalDescriptor.toStringWithSecret(),
+            changeDescriptor = changeDescriptor.toStringWithSecret(),
             isWatchOnly = false,
             isMultisig = false,
             createdAtEpochMs = System.currentTimeMillis()
@@ -107,8 +107,8 @@ class BdkBitcoinRepository @Inject constructor(
         val walletData = WalletData(
             id = walletId,
             name = name,
-            descriptor = externalDescriptor.toString(),
-            changeDescriptor = changeDescriptor.toString(),
+            descriptor = externalDescriptor.toStringWithSecret(),
+            changeDescriptor = changeDescriptor.toStringWithSecret(),
             isWatchOnly = false,
             isMultisig = false,
             createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs)
@@ -125,14 +125,16 @@ class BdkBitcoinRepository @Inject constructor(
         // Restore mnemonic from words
         val mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
 
-        // BDK 1.1.0: pass root xprv + full path inline — e.g. wpkh(xprv.../84h/0h/0h/0/*)
-        val rootXprv = DescriptorSecretKey(Network.BITCOIN, mnemonicObj, passphrase ?: "").asString()
-        val externalDescriptor = Descriptor("wpkh($rootXprv/84h/0h/0h/0/*)", Network.BITCOIN)
-        val changeDescriptor = Descriptor("wpkh($rootXprv/84h/0h/0h/1/*)", Network.BITCOIN)
+        // BDK 1.1.0: use Descriptor.newBip84() factory for correct BIP84 wpkh derivation
+        val secretKey = DescriptorSecretKey(Network.BITCOIN, mnemonicObj, passphrase ?: "")
+        val externalDescriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, Network.BITCOIN)
+        val changeDescriptor = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, Network.BITCOIN)
 
-        // Prevent duplicate imports
+        // Prevent duplicate imports — compare using toStringWithSecret() for consistency
+        val externalDescriptorStr = externalDescriptor.toStringWithSecret()
+        val changeDescriptorStr = changeDescriptor.toStringWithSecret()
         val existing = walletDao.getAll()
-        if (existing.any { it.descriptor == externalDescriptor.toString() }) {
+        if (existing.any { it.descriptor == externalDescriptorStr }) {
             throw IllegalArgumentException("This seed phrase is already imported in your wallet list.")
         }
 
@@ -149,12 +151,12 @@ class BdkBitcoinRepository @Inject constructor(
         keystoreManager.storeMnemonic(walletId, mnemonic.joinToString(" "))
         passphrase?.let { keystoreManager.storePassphrase(walletId, it) }
 
-        // Persist wallet metadata to Room DB
+        // Persist wallet metadata to Room DB — use toStringWithSecret() to include xprv for signing
         val walletEntity = WalletEntity(
             id = walletId,
             name = name,
-            descriptor = externalDescriptor.toString(),
-            changeDescriptor = changeDescriptor.toString(),
+            descriptor = externalDescriptorStr,
+            changeDescriptor = changeDescriptorStr,
             isWatchOnly = false,
             isMultisig = false,
             createdAtEpochMs = System.currentTimeMillis()
@@ -165,8 +167,8 @@ class BdkBitcoinRepository @Inject constructor(
         WalletData(
             id = walletId,
             name = name,
-            descriptor = externalDescriptor.toString(),
-            changeDescriptor = changeDescriptor.toString(),
+            descriptor = externalDescriptorStr,
+            changeDescriptor = changeDescriptorStr,
             isWatchOnly = false,
             isMultisig = false,
             createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs)
