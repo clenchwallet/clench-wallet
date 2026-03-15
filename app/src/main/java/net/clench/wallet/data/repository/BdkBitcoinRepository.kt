@@ -21,7 +21,6 @@ import net.clench.wallet.domain.repository.BitcoinRepository
 import org.bitcoindevkit.Amount
 import org.bitcoindevkit.ChainPosition
 import org.bitcoindevkit.Connection
-import org.bitcoindevkit.DerivationPath
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
 import org.bitcoindevkit.ElectrumClient
@@ -74,11 +73,10 @@ class BdkBitcoinRepository @Inject constructor(
         val mnemonic = Mnemonic(wordCountEnum)
         val mnemonicWords = mnemonic.toString().split(" ")
 
-        // Derive BIP84 descriptors: derive to account level, then append /* for the index wildcard
-        val bip32RootKey = DescriptorSecretKey(Network.BITCOIN, mnemonic, passphrase ?: "")
-        val accountKey = bip32RootKey.derive(DerivationPath("m/84h/0h/0h"))
-        val externalDescriptor = Descriptor("wpkh(${accountKey.asString()}/0/*)", Network.BITCOIN)
-        val changeDescriptor = Descriptor("wpkh(${accountKey.asString()}/1/*)", Network.BITCOIN)
+        // BDK 1.1.0: pass root xprv + full path inline — e.g. wpkh(xprv.../84h/0h/0h/0/*)
+        val rootXprv = DescriptorSecretKey(Network.BITCOIN, mnemonic, passphrase ?: "").asString()
+        val externalDescriptor = Descriptor("wpkh($rootXprv/84h/0h/0h/0/*)", Network.BITCOIN)
+        val changeDescriptor = Descriptor("wpkh($rootXprv/84h/0h/0h/1/*)", Network.BITCOIN)
 
         // Generate wallet ID
         val walletId = UUID.randomUUID().toString()
@@ -127,11 +125,10 @@ class BdkBitcoinRepository @Inject constructor(
         // Restore mnemonic from words
         val mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
 
-        // Derive BIP84 descriptors: derive to account level, then append /* for the index wildcard
-        val bip32RootKey = DescriptorSecretKey(Network.BITCOIN, mnemonicObj, passphrase ?: "")
-        val accountKey = bip32RootKey.derive(DerivationPath("m/84h/0h/0h"))
-        val externalDescriptor = Descriptor("wpkh(${accountKey.asString()}/0/*)", Network.BITCOIN)
-        val changeDescriptor = Descriptor("wpkh(${accountKey.asString()}/1/*)", Network.BITCOIN)
+        // BDK 1.1.0: pass root xprv + full path inline — e.g. wpkh(xprv.../84h/0h/0h/0/*)
+        val rootXprv = DescriptorSecretKey(Network.BITCOIN, mnemonicObj, passphrase ?: "").asString()
+        val externalDescriptor = Descriptor("wpkh($rootXprv/84h/0h/0h/0/*)", Network.BITCOIN)
+        val changeDescriptor = Descriptor("wpkh($rootXprv/84h/0h/0h/1/*)", Network.BITCOIN)
 
         // Prevent duplicate imports
         val existing = walletDao.getAll()
