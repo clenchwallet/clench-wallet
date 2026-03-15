@@ -65,6 +65,8 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun reload(walletId: String) = load(walletId)
+
     private fun syncWallet(walletId: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSyncing = true, syncError = null) }

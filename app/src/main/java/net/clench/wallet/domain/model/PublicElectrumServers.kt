@@ -17,13 +17,7 @@ object PublicElectrumServers {
             useSsl = true,
             description = "Run by Blockstream. Well-known, reliable."
         ),
-        PublicServer(
-            name = "Blockstream (Tor)",
-            host = "explorerzydxu5ecjrkwceayqybizmpjjznk5izmitf2modhcuqe7xt7ad.onion",
-            port = 50001,
-            useSsl = false,
-            description = "Blockstream over Tor for privacy."
-        ),
+        // Tor .onion server removed — requires a Tor proxy that the app doesn't provide
         PublicServer(
             name = "LunaNode",
             host = "electrum.lunanode.com",

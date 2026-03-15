@@ -130,6 +130,12 @@ class BdkBitcoinRepository @Inject constructor(
         val externalDescriptor = Descriptor("wpkh(${bip32RootKey.asString()}/84h/0h/0h/0/*)", Network.BITCOIN)
         val changeDescriptor = Descriptor("wpkh(${bip32RootKey.asString()}/84h/0h/0h/1/*)", Network.BITCOIN)
 
+        // Prevent duplicate imports
+        val existing = walletDao.getAll()
+        if (existing.any { it.descriptor == externalDescriptor.toString() }) {
+            throw IllegalArgumentException("This seed phrase is already imported in your wallet list.")
+        }
+
         // Generate wallet ID
         val walletId = UUID.randomUUID().toString()
 
@@ -174,8 +180,22 @@ class BdkBitcoinRepository @Inject constructor(
         // Normalize input — handle bare zpub/ypub/xpub and full descriptor strings
         val (externalDescriptorStr, changeDescriptorStr) = normalizeDescriptor(descriptor.trim())
 
-        val externalDescriptor = Descriptor(externalDescriptorStr, Network.BITCOIN)
-        val changeDescriptor = Descriptor(changeDescriptorStr, Network.BITCOIN)
+        val externalDescriptor = try {
+            Descriptor(externalDescriptorStr, Network.BITCOIN)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("Invalid descriptor or extended public key. Please check the format and try again.")
+        }
+        val changeDescriptor = try {
+            Descriptor(changeDescriptorStr, Network.BITCOIN)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("Invalid descriptor or extended public key. Please check the format and try again.")
+        }
+
+        // Prevent duplicate imports
+        val existing = walletDao.getAll()
+        if (existing.any { it.descriptor == externalDescriptor.toString() }) {
+            throw IllegalArgumentException("A wallet with this descriptor is already in your wallet list.")
+        }
 
         // Generate wallet ID
         val walletId = UUID.randomUUID().toString()
@@ -499,11 +519,18 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         // Bare extended public key — convert to xpub and wrap in wpkh descriptor
+        // Zpub (capital Z) = P2WSH multisig and Ypub (capital Y) = P2SH-P2WSH multisig
+        // These are not supported as single-sig watch-only imports
+        if (input.startsWith("Zpub") || input.startsWith("Ypub")) {
+            throw IllegalArgumentException(
+                "Multisig extended keys (Zpub/Ypub) are not supported. " +
+                "Please provide a full descriptor for multisig wallets, e.g. wsh(multi(2,xpub1.../0/*,xpub2.../0/*))"
+            )
+        }
+
         val (xpub, scriptType) = when {
-            input.startsWith("zpub") -> Pair(convertZpubToXpub(input), "wpkh")
-            input.startsWith("Zpub") -> Pair(convertZpubToXpub(input), "wpkh")  // mainnet P2WPKH-P2SH
-            input.startsWith("ypub") -> Pair(convertZpubToXpub(input), "sh_wpkh")
-            input.startsWith("Ypub") -> Pair(convertZpubToXpub(input), "sh_wpkh")
+            input.startsWith("zpub") -> Pair(convertZpubToXpub(input), "wpkh")  // P2WPKH
+            input.startsWith("ypub") -> Pair(convertZpubToXpub(input), "sh_wpkh")  // P2SH-P2WPKH
             input.startsWith("xpub") -> Pair(input, "wpkh")
             input.startsWith("tpub") -> Pair(input, "wpkh")  // testnet
             input.startsWith("vpub") -> Pair(convertZpubToXpub(input), "wpkh")  // testnet zpub

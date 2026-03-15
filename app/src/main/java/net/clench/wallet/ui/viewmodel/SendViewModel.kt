@@ -20,6 +20,7 @@ class SendViewModel @Inject constructor(
 
     data class UiState(
         val walletId: String = "",
+        val isWatchOnly: Boolean = false,
         val toAddress: String = "",
         val amountSat: String = "",
         val feeRate: String = "2",
@@ -37,8 +38,13 @@ class SendViewModel @Inject constructor(
         _uiState.update { it.copy(walletId = walletId) }
         viewModelScope.launch {
             try {
+                val wallets = bitcoinRepository.listWallets()
+                val wallet = wallets.find { it.id == walletId }
                 val balance = bitcoinRepository.getBalance(walletId)
-                _uiState.update { it.copy(availableBalanceSat = balance.totalSat) }
+                _uiState.update { it.copy(
+                    isWatchOnly = wallet?.isWatchOnly ?: false,
+                    availableBalanceSat = balance.spendableSat
+                ) }
             } catch (e: Exception) { /* show 0 */ }
         }
     }
@@ -73,6 +79,13 @@ class SendViewModel @Inject constructor(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
+
+            // Block send from watch-only wallet at VM level (belt-and-suspenders)
+            if (_uiState.value.isWatchOnly) {
+                _uiState.update { it.copy(isLoading = false, error = "Cannot send from a watch-only wallet") }
+                return@launch
+            }
+
             try {
                 val amountSat = if (state.sendMax) null else state.amountSat.toLongOrNull()
                 val txHex = bitcoinRepository.buildTransaction(
@@ -88,7 +101,7 @@ class SendViewModel @Inject constructor(
         }
     }
 
-    fun broadcast(onSuccess: () -> Unit) {
+    fun broadcast(onSuccess: (walletId: String) -> Unit) {
         val state = _uiState.value
         val txHex = state.txHex ?: return
         viewModelScope.launch {
@@ -96,7 +109,9 @@ class SendViewModel @Inject constructor(
             try {
                 val config = settingsManager.loadElectrumConfig()
                 bitcoinRepository.broadcastTransaction(config, txHex)
-                onSuccess()
+                // Trigger a sync so HomeScreen shows updated balance immediately
+                try { bitcoinRepository.syncWallet(state.walletId, config) } catch (_: Exception) {}
+                onSuccess(state.walletId)
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }

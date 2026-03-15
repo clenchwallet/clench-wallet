@@ -48,6 +48,13 @@ class ImportWalletViewModel @Inject constructor(
                             _uiState.update { it.copy(isLoading = false, error = "Please enter 12 or 24 words") }
                             return@launch
                         }
+                        // Validate BIP39 word list before hitting BDK
+                        try {
+                            org.bitcoindevkit.Mnemonic.fromString(words.joinToString(" "))
+                        } catch (e: Exception) {
+                            _uiState.update { it.copy(isLoading = false, error = "Invalid seed phrase — check that all words are valid BIP39 words and in the correct order") }
+                            return@launch
+                        }
                         bitcoinRepository.importWallet(
                             name = state.walletName.ifBlank { "Imported Wallet" },
                             mnemonic = words,

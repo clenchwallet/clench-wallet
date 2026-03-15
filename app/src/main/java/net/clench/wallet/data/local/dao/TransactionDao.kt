@@ -7,10 +7,11 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TransactionDao {
 
-    @Query("SELECT * FROM transactions WHERE walletId = :walletId ORDER BY timestampEpochMs DESC")
+    // NULLs (unconfirmed) appear first, then confirmed newest-first
+    @Query("SELECT * FROM transactions WHERE walletId = :walletId ORDER BY timestampEpochMs IS NOT NULL, timestampEpochMs DESC")
     fun observeForWallet(walletId: String): Flow<List<TransactionEntity>>
 
-    @Query("SELECT * FROM transactions WHERE walletId = :walletId ORDER BY timestampEpochMs DESC")
+    @Query("SELECT * FROM transactions WHERE walletId = :walletId ORDER BY timestampEpochMs IS NOT NULL, timestampEpochMs DESC")
     suspend fun getForWallet(walletId: String): List<TransactionEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

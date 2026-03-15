@@ -46,7 +46,11 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setUseCustomServer(use: Boolean) = _uiState.update { it.copy(useCustomServer = use) }
+    fun setUseCustomServer(use: Boolean) {
+        _uiState.update { it.copy(useCustomServer = use) }
+        // Auto-save when switching back to public server — the Save button is hidden in public mode
+        if (!use) saveServerSettings()
+    }
     fun setCustomServerUrl(url: String) = _uiState.update { it.copy(customServerUrl = url) }
     fun setCustomServerPort(port: String) = _uiState.update { it.copy(customServerPort = port) }
     fun setUseSsl(ssl: Boolean) = _uiState.update { it.copy(useSSL = ssl) }

@@ -3,11 +3,13 @@ package net.clench.wallet.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.journeyapps.barcodescanner.ScanContract
@@ -24,7 +26,13 @@ fun SendScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { viewModel.setAddress(it) }
+        result.contents?.let { scanned ->
+            // Parse BIP21 URI format: bitcoin:bc1q...?amount=0.001&label=...
+            val address = if (scanned.startsWith("bitcoin:", ignoreCase = true)) {
+                scanned.substringAfter(":").substringBefore("?")
+            } else scanned
+            viewModel.setAddress(address)
+        }
     }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -95,7 +103,8 @@ fun SendScreen(
                 label = { Text("Amount (sats)") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                suffix = { Text("sats") }
+                suffix = { Text("sats") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -113,9 +122,10 @@ fun SendScreen(
             OutlinedTextField(
                 value = uiState.feeRate,
                 onValueChange = { viewModel.setFeeRate(it) },
-                label = { Text("Fee rate (sat/vB)") },
+                label = { Text("Fee rate (sat/vB, whole number)") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -124,7 +134,7 @@ fun SendScreen(
                 Text("Transaction ready to broadcast", color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
-                    onClick = { viewModel.broadcast(onBack) },
+                    onClick = { viewModel.broadcast { onBack() } },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Broadcast Transaction") }
             } else {
