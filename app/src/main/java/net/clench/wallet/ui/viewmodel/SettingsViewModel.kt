@@ -21,7 +21,7 @@ class SettingsViewModel @Inject constructor(
 
     data class UiState(
         val useCustomServer: Boolean = false,
-        val publicServer: String = "electrum.blockstream.info:700",
+        val publicServer: String = "electrum.blockstream.info:50002",
         val customServerUrl: String = "",
         val customServerPort: String = "50002",
         val useSSL: Boolean = true,
@@ -74,7 +74,7 @@ class SettingsViewModel @Inject constructor(
         } else {
             ElectrumConfig(
                 serverUrl = "electrum.blockstream.info",
-                port = 700,
+                port = 50002,
                 useSsl = true,
                 isCustom = false
             )

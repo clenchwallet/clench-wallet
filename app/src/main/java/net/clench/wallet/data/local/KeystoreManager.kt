@@ -19,16 +19,31 @@ class KeystoreManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val prefs by lazy {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        EncryptedSharedPreferences.create(
-            context,
-            "clench_secure_prefs",
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+        createPrefs() ?: run {
+            // Keystore corrupted (e.g. after backup restore or device migration).
+            // Delete the corrupted prefs file and retry with a fresh key.
+            // NOTE: all stored mnemonics will be lost — user must re-import wallets.
+            android.util.Log.w("KeystoreManager", "Keystore corrupted — clearing encrypted prefs and retrying")
+            context.deleteSharedPreferences("clench_secure_prefs")
+            createPrefs() ?: throw IllegalStateException("Android Keystore unavailable — cannot secure wallet data")
+        }
+    }
+
+    private fun createPrefs(): android.content.SharedPreferences? {
+        return try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                context,
+                "clench_secure_prefs",
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            null
+        }
     }
 
     /** Store a mnemonic (space-separated words) for a wallet id. */

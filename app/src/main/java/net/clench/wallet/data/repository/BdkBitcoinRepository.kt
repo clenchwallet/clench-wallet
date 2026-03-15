@@ -412,11 +412,12 @@ class BdkBitcoinRepository @Inject constructor(
         transactionDao.deleteForWallet(walletId)
         keystoreManager.deleteWalletSecrets(walletId)
 
-        // Delete wallet SQLite file
+        // Delete wallet SQLite file + WAL/SHM journal files
         val dbFile = context.getDatabasePath("wallet_${walletId}.db")
-        if (dbFile.exists()) {
-            dbFile.delete()
-        }
+        dbFile.delete()
+        java.io.File(dbFile.path + "-wal").delete()
+        java.io.File(dbFile.path + "-shm").delete()
+        java.io.File(dbFile.path + "-journal").delete()
     }
 
     /**
@@ -441,8 +442,15 @@ class BdkBitcoinRepository @Inject constructor(
         val wallet = try {
             Wallet.load(externalDescriptor, changeDescriptor, connection)
         } catch (e: Exception) {
-            // If load fails, create new wallet
-            Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+            // Only create a fresh wallet if the DB simply doesn't exist yet.
+            // Any other error (corruption, descriptor mismatch, etc.) should propagate
+            // so the ViewModel can surface it rather than silently discarding wallet state.
+            val msg = e.message?.lowercase() ?: ""
+            if (msg.contains("not found") || msg.contains("no such table") || msg.contains("unable to open")) {
+                Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
+            } else {
+                throw e
+            }
         }
 
         // Cache and return
