@@ -91,11 +91,17 @@ fun ImportWalletScreen(
                     OutlinedTextField(
                         value = uiState.descriptorInput,
                         onValueChange = { viewModel.setDescriptorInput(it) },
-                        label = { Text("Descriptor or xpub") },
+                        label = { Text("Descriptor, xpub, or zpub") },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(120.dp),
-                        placeholder = { Text("wpkh([fingerprint/84'/0'/0']xpub.../0/*)") }
+                        placeholder = { Text("zpub... or xpub... or wpkh([fp/84'/0'/0']xpub.../0/*)") }
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Accepted: zpub, ypub, xpub, or full descriptor string",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

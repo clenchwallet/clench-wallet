@@ -166,12 +166,10 @@ class BdkBitcoinRepository @Inject constructor(
         name: String,
         descriptor: String
     ): WalletData = withContext(Dispatchers.IO) {
-        // Parse descriptor (assume it's an external descriptor, derive change from pattern)
-        val externalDescriptor = Descriptor(descriptor, Network.BITCOIN)
+        // Normalize input — handle bare zpub/ypub/xpub and full descriptor strings
+        val (externalDescriptorStr, changeDescriptorStr) = normalizeDescriptor(descriptor.trim())
 
-        // For watch-only, we need a change descriptor too
-        // Assume standard BIP84 pattern: change /0/* to /1/*
-        val changeDescriptorStr = descriptor.replace("/0/*", "/1/*")
+        val externalDescriptor = Descriptor(externalDescriptorStr, Network.BITCOIN)
         val changeDescriptor = Descriptor(changeDescriptorStr, Network.BITCOIN)
 
         // Generate wallet ID
@@ -426,5 +424,93 @@ class BdkBitcoinRepository @Inject constructor(
         val protocol = if (config.useSsl) "ssl" else "tcp"
         val host = config.serverUrl.removePrefix("ssl://").removePrefix("tcp://")
         return "$protocol://$host:${config.port}"
+    }
+
+    // Normalize watch-only input into a pair of (externalDescriptor, changeDescriptor) strings.
+    // Handles zpub, ypub, xpub, and full descriptor strings.
+    private fun normalizeDescriptor(input: String): Pair<String, String> {
+        // Already a full descriptor string — use as-is and derive change
+        if (input.startsWith("wpkh(") || input.startsWith("pkh(") ||
+            input.startsWith("sh(wpkh(") || input.startsWith("tr(")) {
+            val external = if (!input.contains("/0/*") && !input.contains("/*")) {
+                // No derivation path — add /0/*
+                input.trimEnd(')') + "/0/*)"
+            } else input
+            val change = external.replace("/0/*", "/1/*")
+            return Pair(external, change)
+        }
+
+        // Bare extended public key — convert to xpub and wrap in wpkh descriptor
+        val (xpub, scriptType) = when {
+            input.startsWith("zpub") -> Pair(convertZpubToXpub(input), "wpkh")
+            input.startsWith("Zpub") -> Pair(convertZpubToXpub(input), "wpkh")  // mainnet P2WPKH-P2SH
+            input.startsWith("ypub") -> Pair(convertZpubToXpub(input), "sh_wpkh")
+            input.startsWith("Ypub") -> Pair(convertZpubToXpub(input), "sh_wpkh")
+            input.startsWith("xpub") -> Pair(input, "wpkh")
+            input.startsWith("tpub") -> Pair(input, "wpkh")  // testnet
+            input.startsWith("vpub") -> Pair(convertZpubToXpub(input), "wpkh")  // testnet zpub
+            else -> Pair(input, "wpkh")  // try as-is
+        }
+
+        return when (scriptType) {
+            "sh_wpkh" -> Pair("sh(wpkh($xpub/0/*))", "sh(wpkh($xpub/1/*))")
+            else -> Pair("wpkh($xpub/0/*)", "wpkh($xpub/1/*)")
+        }
+    }
+
+    // Convert zpub/ypub/vpub to standard xpub by swapping version bytes (Base58Check decode, swap, re-encode).
+    private fun convertZpubToXpub(zpub: String): String {
+        val XPUB_VERSION = byteArrayOf(0x04.toByte(), 0x88.toByte(), 0xB2.toByte(), 0x1E.toByte())
+
+        try {
+            val decoded = base58Decode(zpub)
+            if (decoded.size < 78) return zpub  // not a valid extended key, return as-is
+
+            // Replace first 4 version bytes with xpub version
+            val xpubBytes = XPUB_VERSION + decoded.sliceArray(4 until decoded.size - 4)
+
+            // Re-add checksum
+            val checksum = doubleSha256(xpubBytes).sliceArray(0..3)
+            return base58Encode(xpubBytes + checksum)
+        } catch (e: Exception) {
+            // If conversion fails, return original and let BDK give a clear error
+            return zpub
+        }
+    }
+
+    private fun doubleSha256(data: ByteArray): ByteArray {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        return md.digest(md.digest(data))
+    }
+
+    private fun base58Decode(input: String): ByteArray {
+        val ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        var result = java.math.BigInteger.ZERO
+        val base = java.math.BigInteger.valueOf(58)
+        for (c in input) {
+            val digit = ALPHABET.indexOf(c)
+            if (digit < 0) throw IllegalArgumentException("Invalid Base58 character: $c")
+            result = result.multiply(base).add(java.math.BigInteger.valueOf(digit.toLong()))
+        }
+        val bytes = result.toByteArray()
+        // Count leading zeros
+        var leadingZeros = 0
+        for (c in input) { if (c == '1') leadingZeros++ else break }
+        val stripped = if (bytes[0] == 0.toByte()) bytes.drop(1).toByteArray() else bytes
+        return ByteArray(leadingZeros) + stripped
+    }
+
+    private fun base58Encode(input: ByteArray): String {
+        val ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        var value = java.math.BigInteger(1, input)
+        val base = java.math.BigInteger.valueOf(58)
+        val sb = StringBuilder()
+        while (value > java.math.BigInteger.ZERO) {
+            val (quotient, remainder) = value.divideAndRemainder(base)
+            sb.append(ALPHABET[remainder.toInt()])
+            value = quotient
+        }
+        for (b in input) { if (b == 0.toByte()) sb.append('1') else break }
+        return sb.reverse().toString()
     }
 }
