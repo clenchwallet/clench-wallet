@@ -7,13 +7,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.TransactionItem
 import net.clench.wallet.domain.repository.BitcoinRepository
 import javax.inject.Inject
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val bitcoinRepository: BitcoinRepository
+    private val bitcoinRepository: BitcoinRepository,
+    private val settingsManager: SettingsManager
 ) : ViewModel() {
 
     data class UiState(
@@ -21,6 +23,8 @@ class HomeViewModel @Inject constructor(
         val balanceSat: Long = 0L,
         val transactions: List<TransactionItem> = emptyList(),
         val isLoading: Boolean = false,
+        val isSyncing: Boolean = false,
+        val syncError: String? = null,
         val error: String? = null
     )
 
@@ -31,10 +35,45 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             try {
+                // First show cached balance and transactions
+                val balance = bitcoinRepository.getBalance(walletId)
                 val txs = bitcoinRepository.getTransactions(walletId)
-                _uiState.update { it.copy(transactions = txs, isLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        balanceSat = balance.totalSat,
+                        transactions = txs,
+                        isLoading = false
+                    )
+                }
+
+                // Then sync in background
+                syncWallet(walletId)
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
+            }
+        }
+    }
+
+    private fun syncWallet(walletId: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSyncing = true, syncError = null) }
+            try {
+                val config = settingsManager.loadElectrumConfig()
+                val balance = bitcoinRepository.syncWallet(walletId, config)
+                val txs = bitcoinRepository.getTransactions(walletId)
+
+                // Update balance and transactions after successful sync
+                _uiState.update {
+                    it.copy(
+                        balanceSat = balance.totalSat,
+                        transactions = txs,
+                        isSyncing = false,
+                        syncError = null
+                    )
+                }
+            } catch (e: Exception) {
+                // Keep cached data but set sync error
+                _uiState.update { it.copy(isSyncing = false, syncError = e.message) }
             }
         }
     }

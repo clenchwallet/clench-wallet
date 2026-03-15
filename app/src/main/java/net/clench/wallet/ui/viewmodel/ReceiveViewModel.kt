@@ -33,17 +33,20 @@ class ReceiveViewModel @Inject constructor(
 
     fun load(walletId: String) {
         _uiState.update { it.copy(walletId = walletId) }
-        fetchAddress()
+        // Use getLastAddress to avoid advancing index on screen open
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            try {
+                val addr = bitcoinRepository.getLastAddress(walletId)
+                _uiState.update { it.copy(address = addr.address, addressIndex = addr.index, isLoading = false) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false, error = e.message) }
+            }
+        }
     }
 
-    fun nextAddress() = fetchAddress()
-
-    fun copyAddress() {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Bitcoin Address", _uiState.value.address))
-    }
-
-    private fun fetchAddress() {
+    fun nextAddress() {
+        // Use getReceiveAddress to advance to next address
         val walletId = _uiState.value.walletId
         if (walletId.isBlank()) return
         viewModelScope.launch {
@@ -55,5 +58,10 @@ class ReceiveViewModel @Inject constructor(
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
         }
+    }
+
+    fun copyAddress() {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Bitcoin Address", _uiState.value.address))
     }
 }

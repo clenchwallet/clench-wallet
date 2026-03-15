@@ -71,6 +71,14 @@ fun HomeScreen(
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold
                         )
+                        if (uiState.isSyncing) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Syncing...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }

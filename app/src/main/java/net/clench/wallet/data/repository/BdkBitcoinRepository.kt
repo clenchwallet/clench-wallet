@@ -33,6 +33,7 @@ import org.bitcoindevkit.TxBuilder
 import org.bitcoindevkit.Wallet
 import org.bitcoindevkit.WordCount
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -55,8 +56,11 @@ class BdkBitcoinRepository @Inject constructor(
     private val settingsManager: SettingsManager
 ) : BitcoinRepository {
 
+    // Wallet entry with connection for persistence
+    private data class WalletEntry(val wallet: Wallet, val connection: Connection)
+
     // In-memory wallet cache to avoid reopening SQLite on every call
-    private val walletCache = mutableMapOf<String, Wallet>()
+    private val walletCache = ConcurrentHashMap<String, WalletEntry>()
 
     override suspend fun createWallet(
         name: String,
@@ -70,8 +74,8 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Derive BIP84 descriptors
         val bip32RootKey = DescriptorSecretKey(Network.BITCOIN, mnemonic, passphrase ?: "")
-        val externalDescriptor = Descriptor("wpkh(${bip32RootKey}/84h/0h/0h/0/*)", Network.BITCOIN)
-        val changeDescriptor = Descriptor("wpkh(${bip32RootKey}/84h/0h/0h/1/*)", Network.BITCOIN)
+        val externalDescriptor = Descriptor("wpkh(${bip32RootKey.asString()}/84h/0h/0h/0/*)", Network.BITCOIN)
+        val changeDescriptor = Descriptor("wpkh(${bip32RootKey.asString()}/84h/0h/0h/1/*)", Network.BITCOIN)
 
         // Generate wallet ID
         val walletId = UUID.randomUUID().toString()
@@ -80,7 +84,7 @@ class BdkBitcoinRepository @Inject constructor(
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
         val connection = Connection(dbPath)
         val wallet = Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
-        walletCache[walletId] = wallet
+        walletCache[walletId] = WalletEntry(wallet, connection)
 
         // Store mnemonic and passphrase in encrypted keystore
         keystoreManager.storeMnemonic(walletId, mnemonicWords.joinToString(" "))
@@ -122,8 +126,8 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Derive BIP84 descriptors
         val bip32RootKey = DescriptorSecretKey(Network.BITCOIN, mnemonicObj, passphrase ?: "")
-        val externalDescriptor = Descriptor("wpkh(${bip32RootKey}/84h/0h/0h/0/*)", Network.BITCOIN)
-        val changeDescriptor = Descriptor("wpkh(${bip32RootKey}/84h/0h/0h/1/*)", Network.BITCOIN)
+        val externalDescriptor = Descriptor("wpkh(${bip32RootKey.asString()}/84h/0h/0h/0/*)", Network.BITCOIN)
+        val changeDescriptor = Descriptor("wpkh(${bip32RootKey.asString()}/84h/0h/0h/1/*)", Network.BITCOIN)
 
         // Generate wallet ID
         val walletId = UUID.randomUUID().toString()
@@ -132,7 +136,7 @@ class BdkBitcoinRepository @Inject constructor(
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
         val connection = Connection(dbPath)
         val wallet = Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
-        walletCache[walletId] = wallet
+        walletCache[walletId] = WalletEntry(wallet, connection)
 
         // Store mnemonic and passphrase in encrypted keystore
         keystoreManager.storeMnemonic(walletId, mnemonic.joinToString(" "))
@@ -179,7 +183,7 @@ class BdkBitcoinRepository @Inject constructor(
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
         val connection = Connection(dbPath)
         val wallet = Wallet(externalDescriptor, changeDescriptor, Network.BITCOIN, connection)
-        walletCache[walletId] = wallet
+        walletCache[walletId] = WalletEntry(wallet, connection)
 
         // Persist wallet metadata to Room DB (isWatchOnly = true)
         val walletEntity = WalletEntity(
@@ -214,7 +218,8 @@ class BdkBitcoinRepository @Inject constructor(
         val electrumClient = ElectrumClient(connectionStr)
 
         // Load wallet
-        val wallet = loadWallet(walletId)
+        val entry = loadWallet(walletId)
+        val wallet = entry.wallet
 
         // Perform full scan
         val fullScanRequest = wallet.startFullScan().build()
@@ -227,6 +232,9 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Apply update to wallet
         wallet.applyUpdate(update)
+
+        // Persist wallet state after sync
+        wallet.persist(entry.connection)
 
         // Cache transactions to Room DB
         val transactions = wallet.transactions()
@@ -273,7 +281,8 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun getBalance(walletId: String): WalletBalance = withContext(Dispatchers.IO) {
-        val wallet = loadWallet(walletId)
+        val entry = loadWallet(walletId)
+        val wallet = entry.wallet
         val balance = wallet.balance()
         WalletBalance(
             confirmedSat = balance.confirmed.toSat().toLong(),
@@ -300,9 +309,32 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
+    override suspend fun getLastAddress(walletId: String): DomainAddress = withContext(Dispatchers.IO) {
+        val entry = loadWallet(walletId)
+        val wallet = entry.wallet
+
+        // Get the last revealed address without advancing index
+        val addressInfo = wallet.listUnusedAddresses(KeychainKind.EXTERNAL).firstOrNull()
+            ?: wallet.revealNextAddress(KeychainKind.EXTERNAL).also {
+                // If no address exists, reveal one and persist
+                wallet.persist(entry.connection)
+            }
+
+        DomainAddress(
+            address = addressInfo.address.toString(),
+            index = addressInfo.index.toInt(),
+            used = false
+        )
+    }
+
     override suspend fun getReceiveAddress(walletId: String): DomainAddress = withContext(Dispatchers.IO) {
-        val wallet = loadWallet(walletId)
+        val entry = loadWallet(walletId)
+        val wallet = entry.wallet
         val addressInfo = wallet.revealNextAddress(KeychainKind.EXTERNAL)
+
+        // Persist wallet state after revealing address
+        wallet.persist(entry.connection)
+
         DomainAddress(
             address = addressInfo.address.toString(),
             index = addressInfo.index.toInt(),
@@ -316,7 +348,8 @@ class BdkBitcoinRepository @Inject constructor(
         amountSat: Long?,
         feeRateSatPerVbyte: Float
     ): String = withContext(Dispatchers.IO) {
-        val wallet = loadWallet(walletId)
+        val entry = loadWallet(walletId)
+        val wallet = entry.wallet
         val recipientAddress = org.bitcoindevkit.Address(toAddress, Network.BITCOIN)
         val feeRate = FeeRate.fromSatPerVb(feeRateSatPerVbyte.toULong())
 
@@ -339,8 +372,9 @@ class BdkBitcoinRepository @Inject constructor(
         // Sign transaction
         wallet.sign(psbt)
 
-        // Return serialized PSBT hex
-        psbt.serialize()
+        // Extract final transaction and serialize
+        val finalTx = psbt.extractTx()
+        return@withContext finalTx.serialize().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
     override suspend fun broadcastTransaction(config: ElectrumConfig, txHex: String): String = withContext(Dispatchers.IO) {
@@ -388,7 +422,7 @@ class BdkBitcoinRepository @Inject constructor(
     /**
      * Load wallet from cache or SQLite, restoring descriptors from Room DB.
      */
-    private suspend fun loadWallet(walletId: String): Wallet {
+    private suspend fun loadWallet(walletId: String): WalletEntry {
         // Check cache first
         walletCache[walletId]?.let { return it }
 
@@ -412,8 +446,9 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         // Cache and return
-        walletCache[walletId] = wallet
-        return wallet
+        val entry = WalletEntry(wallet, connection)
+        walletCache[walletId] = entry
+        return entry
     }
 
     /**

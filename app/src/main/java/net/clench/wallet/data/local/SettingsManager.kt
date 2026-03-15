@@ -29,7 +29,7 @@ class SettingsManager @Inject constructor(
 
     fun loadElectrumConfig(): ElectrumConfig {
         return ElectrumConfig(
-            serverUrl = prefs.getString("server_url", "ssl://electrum.blockstream.info") ?: "ssl://electrum.blockstream.info",
+            serverUrl = prefs.getString("server_url", "electrum.blockstream.info") ?: "electrum.blockstream.info",
             port = prefs.getInt("server_port", 700),
             useSsl = prefs.getBoolean("use_ssl", true),
             isCustom = prefs.getBoolean("use_custom_server", false)

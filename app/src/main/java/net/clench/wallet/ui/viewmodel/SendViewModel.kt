@@ -7,13 +7,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.repository.BitcoinRepository
 import javax.inject.Inject
 
 @HiltViewModel
 class SendViewModel @Inject constructor(
-    private val bitcoinRepository: BitcoinRepository
+    private val bitcoinRepository: BitcoinRepository,
+    private val settingsManager: SettingsManager
 ) : ViewModel() {
 
     data class UiState(
@@ -61,7 +63,8 @@ class SendViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                bitcoinRepository.broadcastTransaction(ElectrumConfig(), txHex)
+                val config = settingsManager.loadElectrumConfig()
+                bitcoinRepository.broadcastTransaction(config, txHex)
                 onSuccess()
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }

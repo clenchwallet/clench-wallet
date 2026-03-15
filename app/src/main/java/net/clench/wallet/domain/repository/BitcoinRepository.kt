@@ -53,6 +53,11 @@ interface BitcoinRepository {
     suspend fun getTransactions(walletId: String): List<TransactionItem>
 
     /**
+     * Get the last revealed receive address without advancing the index.
+     */
+    suspend fun getLastAddress(walletId: String): Address
+
+    /**
      * Get the next unused receive address.
      */
     suspend fun getReceiveAddress(walletId: String): Address
