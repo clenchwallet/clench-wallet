@@ -68,4 +68,21 @@ class SettingsManager @Inject constructor(
     }
 
     fun isTestnet(): Boolean = getNetwork() == "testnet"
+
+    // --- Biometric / Security settings ---
+
+    fun isBiometricForSeedEnabled(): Boolean = prefs.getBoolean("biometric_seed", true)
+    fun setBiometricForSeedEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean("biometric_seed", enabled) }
+    }
+
+    fun isBiometricForSendEnabled(): Boolean = prefs.getBoolean("biometric_send", true)
+    fun setBiometricForSendEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean("biometric_send", enabled) }
+    }
+
+    fun getAppLockMode(): String = prefs.getString("app_lock_mode", "biometric") ?: "biometric"
+    fun setAppLockMode(mode: String) {
+        prefs.edit { putString("app_lock_mode", mode) }
+    }
 }

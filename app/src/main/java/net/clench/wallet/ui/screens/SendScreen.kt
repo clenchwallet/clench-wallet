@@ -3,6 +3,7 @@ package net.clench.wallet.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Activity
+import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
@@ -32,6 +33,17 @@ fun SendScreen(
 
     // FLAG_SECURE — prevent screenshots of balance/addresses
     val context = LocalContext.current
+
+    // Resolve FragmentActivity from Compose context
+    val fragmentActivity = remember(context) {
+        var ctx = context as? android.content.Context
+        while (ctx != null) {
+            if (ctx is FragmentActivity) return@remember ctx
+            ctx = (ctx as? ContextWrapper)?.baseContext
+        }
+        null
+    }
+
     DisposableEffect(Unit) {
         val activity = context as? Activity
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -155,10 +167,9 @@ fun SendScreen(
             } else {
                 Button(
                     onClick = {
-                        val activity = context as? FragmentActivity
-                        if (activity != null && BiometricHelper.canAuthenticate(context)) {
+                        if (fragmentActivity != null && BiometricHelper.canAuthenticate(context)) {
                             BiometricHelper.authenticate(
-                                activity = activity,
+                                activity = fragmentActivity,
                                 title = "Authenticate to send Bitcoin",
                                 subtitle = "Verify your identity to sign this transaction",
                                 onSuccess = { viewModel.buildTx() },

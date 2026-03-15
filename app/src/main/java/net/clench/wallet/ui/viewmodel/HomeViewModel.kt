@@ -161,8 +161,22 @@ class HomeViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
-                // Keep cached data but set sync error
-                _uiState.update { it.copy(isSyncing = false, syncError = e.message) }
+                // Keep cached data but set sync error with user-friendly message
+                val friendlyMsg = when {
+                    e is kotlinx.coroutines.TimeoutCancellationException ->
+                        "Sync timed out — check your Electrum server connection"
+                    e.message?.contains("Connection refused") == true ->
+                        "Connection refused — is your Electrum server running?"
+                    e.message?.contains("Unable to resolve host") == true ||
+                    e.message?.contains("UnknownHostException") == true ->
+                        "Cannot reach server — check hostname and network"
+                    e.message?.contains("SSL") == true || e.message?.contains("TLS") == true ->
+                        "SSL error — try toggling SSL in server settings"
+                    e.message?.contains("descriptor") == true ->
+                        "Wallet descriptor error — try deleting and re-importing this wallet"
+                    else -> e.message ?: "Unknown sync error"
+                }
+                _uiState.update { it.copy(isSyncing = false, syncError = friendlyMsg) }
             }
         }
     }

@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import net.clench.wallet.domain.repository.BitcoinRepository
 import org.bitcoindevkit.Mnemonic
 import org.bitcoindevkit.WordCount
+import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
 
@@ -24,8 +25,28 @@ class CreateWalletViewModel @Inject constructor(
         val passphrase: String = "",
         val mnemonic: List<String> = emptyList(),
         val isLoading: Boolean = false,
-        val error: String? = null
-    )
+        val error: String? = null,
+        val fingerprintBytes: ByteArray? = null
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is UiState) return false
+            return walletName == other.walletName && wordCount == other.wordCount &&
+                passphrase == other.passphrase && mnemonic == other.mnemonic &&
+                isLoading == other.isLoading && error == other.error &&
+                fingerprintBytes.contentEquals(other.fingerprintBytes)
+        }
+        override fun hashCode(): Int {
+            var result = walletName.hashCode()
+            result = 31 * result + wordCount
+            result = 31 * result + passphrase.hashCode()
+            result = 31 * result + mnemonic.hashCode()
+            result = 31 * result + isLoading.hashCode()
+            result = 31 * result + (error?.hashCode() ?: 0)
+            result = 31 * result + (fingerprintBytes?.contentHashCode() ?: 0)
+            return result
+        }
+    }
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
@@ -35,7 +56,35 @@ class CreateWalletViewModel @Inject constructor(
 
     fun setWalletName(name: String) = _uiState.update { it.copy(walletName = name) }
     fun setWordCount(count: Int) = _uiState.update { it.copy(wordCount = count, mnemonic = emptyList()) }
-    fun setPassphrase(pass: String) = _uiState.update { it.copy(passphrase = pass) }
+    fun setPassphrase(pass: String) {
+        _uiState.update { it.copy(passphrase = pass) }
+        updateFingerprint()
+    }
+
+    private fun updateFingerprint() {
+        val state = _uiState.value
+        val mnemonic = state.mnemonic
+        val passphrase = state.passphrase
+
+        // Show fingerprint if we have mnemonic or passphrase
+        if (mnemonic.isEmpty() && passphrase.isEmpty()) {
+            _uiState.update { it.copy(fingerprintBytes = null) }
+            return
+        }
+
+        val input = if (mnemonic.isNotEmpty()) {
+            mnemonic.joinToString(" ") + passphrase
+        } else {
+            passphrase
+        }
+
+        try {
+            val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
+            _uiState.update { it.copy(fingerprintBytes = digest.sliceArray(0 until 8)) }
+        } catch (e: Exception) {
+            _uiState.update { it.copy(fingerprintBytes = null) }
+        }
+    }
 
     fun generateWallet() {
         viewModelScope.launch {
@@ -50,6 +99,7 @@ class CreateWalletViewModel @Inject constructor(
                 pendingMnemonic = mnemonicWords
 
                 _uiState.update { it.copy(mnemonic = mnemonicWords, isLoading = false) }
+                updateFingerprint()
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }

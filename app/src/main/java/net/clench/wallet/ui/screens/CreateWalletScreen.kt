@@ -20,7 +20,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
-import java.security.MessageDigest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -152,6 +151,12 @@ fun CreateWalletScreen(
                             }
                         }
                     )
+
+                    // Dynamic wallet fingerprint — updates with passphrase
+                    uiState.fingerprintBytes?.let { bytes ->
+                        Spacer(modifier = Modifier.height(16.dp))
+                        WalletFingerprint(bytes)
+                    }
                 }
             }
 
@@ -198,10 +203,6 @@ fun CreateWalletScreen(
                     }
                 }
 
-                // Visual wallet fingerprint
-                Spacer(modifier = Modifier.height(12.dp))
-                WalletFingerprint(uiState.mnemonic)
-
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
@@ -233,43 +234,24 @@ fun CreateWalletScreen(
 }
 
 /**
- * Visual wallet fingerprint — a deterministic 2x4 grid of colored squares
- * derived from SHA-256 of the first mnemonic word list (used as a visual confirmation aid).
+ * Visual + text wallet fingerprint — a deterministic 2×4 grid of colored squares
+ * derived from 8 bytes of SHA-256(mnemonic + passphrase).
+ * Each byte maps to a hue-based color for perceptually meaningful changes.
  */
 @Composable
-private fun WalletFingerprint(mnemonic: List<String>) {
-    if (mnemonic.isEmpty()) return
+private fun WalletFingerprint(fingerprintBytes: ByteArray) {
+    if (fingerprintBytes.size < 8) return
 
-    val colors = remember(mnemonic) {
-        val palette = listOf(
-            Color(0xFFE53935), // Red
-            Color(0xFF1E88E5), // Blue
-            Color(0xFF43A047), // Green
-            Color(0xFFFDD835), // Yellow
-            Color(0xFF8E24AA), // Purple
-            Color(0xFFFF6F00), // Orange
-            Color(0xFF00ACC1), // Cyan
-            Color(0xFF6D4C41), // Brown
-            Color(0xFFD81B60), // Pink
-            Color(0xFF00897B), // Teal
-            Color(0xFF3949AB), // Indigo
-            Color(0xFF7CB342), // Light green
-            Color(0xFFFFB300), // Amber
-            Color(0xFF5E35B1), // Deep purple
-            Color(0xFFF4511E), // Deep orange
-            Color(0xFF546E7A)  // Blue grey
-        )
-        try {
-            val input = mnemonic.joinToString(" ")
-            val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
-            // Take first 8 bytes, map to colors
-            (0 until 8).map { i ->
-                val byteVal = digest[i].toInt() and 0xFF
-                palette[byteVal % palette.size]
-            }
-        } catch (e: Exception) {
-            List(8) { Color.Gray }
+    val colors = remember(fingerprintBytes.toList()) {
+        (0 until 8).map { i ->
+            val byteVal = fingerprintBytes[i].toInt() and 0xFF
+            val hue = byteVal * 360f / 256f
+            Color.hsl(hue, 0.7f, 0.5f)
         }
+    }
+
+    val hexText = remember(fingerprintBytes.toList()) {
+        fingerprintBytes.take(8).joinToString(":") { "%02X".format(it.toInt() and 0xFF) }
     }
 
     Column(
@@ -277,24 +259,41 @@ private fun WalletFingerprint(mnemonic: List<String>) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Text(
-            "Wallet fingerprint",
+            "Wallet fingerprint — changes with passphrase",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(modifier = Modifier.height(4.dp))
-        // 2 rows x 4 columns
+        Spacer(modifier = Modifier.height(8.dp))
+        // 2 rows × 4 columns
         for (row in 0 until 2) {
-            Row(horizontalArrangement = Arrangement.Center) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 for (col in 0 until 4) {
                     val idx = row * 4 + col
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
-                            .padding(1.dp)
-                            .background(colors[idx], MaterialTheme.shapes.extraSmall)
+                            .size(40.dp)
+                            .background(colors[idx], MaterialTheme.shapes.small)
                     )
                 }
             }
+            if (row == 0) Spacer(modifier = Modifier.height(4.dp))
         }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            hexText,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            "This fingerprint is unique to your seed + passphrase combination.\nUse it to confirm you're using the correct passphrase.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
     }
 }

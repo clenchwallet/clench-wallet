@@ -1,7 +1,9 @@
 package net.clench.wallet.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -40,6 +42,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(16.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             Text("Electrum Server", style = MaterialTheme.typography.titleMedium)
 
@@ -269,6 +272,73 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            // --- Security ---
+            Spacer(modifier = Modifier.height(32.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Security", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = uiState.biometricForSeed,
+                    onCheckedChange = { viewModel.setBiometricForSeed(it) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("Require biometric to view seed phrase")
+                    Text(
+                        "Authenticate before showing your seed words",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = uiState.biometricForSend,
+                    onCheckedChange = { viewModel.setBiometricForSend(it) }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("Require biometric to send")
+                    Text(
+                        "Authenticate before building a transaction",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text("App lock", style = MaterialTheme.typography.labelLarge)
+            Spacer(modifier = Modifier.height(4.dp))
+            Row {
+                FilterChip(
+                    selected = uiState.appLockMode == "biometric",
+                    onClick = { viewModel.setAppLockMode("biometric") },
+                    label = { Text("Biometric / PIN") }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                FilterChip(
+                    selected = uiState.appLockMode == "none",
+                    onClick = { viewModel.setAppLockMode("none") },
+                    label = { Text("None") }
+                )
+            }
+            Text(
+                if (uiState.appLockMode == "biometric")
+                    "App will require authentication after 30s in background"
+                else
+                    "No lock — app is accessible without authentication",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             // Debug section — always visible in this build to capture crash logs
             Spacer(modifier = Modifier.height(32.dp))

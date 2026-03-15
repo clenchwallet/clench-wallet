@@ -1,6 +1,7 @@
 package net.clench.wallet.ui.screens
 
 import android.app.Activity
+import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
@@ -40,6 +41,16 @@ fun ViewSeedPhraseScreen(
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
 
+    // Resolve FragmentActivity from Compose context (unwrap ContextWrapper chain)
+    val fragmentActivity = remember(context) {
+        var ctx = context as? android.content.Context
+        while (ctx != null) {
+            if (ctx is FragmentActivity) return@remember ctx
+            ctx = (ctx as? ContextWrapper)?.baseContext
+        }
+        null
+    }
+
     // Warning dialog
     if (uiState.showWarning) {
         AlertDialog(
@@ -54,10 +65,9 @@ fun ViewSeedPhraseScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    val activity = context as? FragmentActivity
-                    if (activity != null && BiometricHelper.canAuthenticate(context)) {
+                    if (fragmentActivity != null && BiometricHelper.canAuthenticate(context)) {
                         BiometricHelper.authenticate(
-                            activity = activity,
+                            activity = fragmentActivity,
                             title = "Authenticate to view seed phrase",
                             subtitle = "Verify your identity to access sensitive data",
                             onSuccess = { viewModel.confirmWarning() },

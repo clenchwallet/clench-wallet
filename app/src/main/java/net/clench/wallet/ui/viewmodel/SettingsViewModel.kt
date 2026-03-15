@@ -32,7 +32,10 @@ class SettingsViewModel @Inject constructor(
         val connectionTestResult: String? = null,
         val useCustomMempool: Boolean = false,
         val mempoolUrl: String = "https://mempool.space",
-        val useTestnet: Boolean = false
+        val useTestnet: Boolean = false,
+        val biometricForSeed: Boolean = true,
+        val biometricForSend: Boolean = true,
+        val appLockMode: String = "biometric"
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -49,7 +52,10 @@ class SettingsViewModel @Inject constructor(
                 useSSL = saved.useSsl,
                 useCustomMempool = settingsManager.isCustomMempoolEnabled(),
                 mempoolUrl = settingsManager.getMempoolUrl(),
-                useTestnet = settingsManager.isTestnet()
+                useTestnet = settingsManager.isTestnet(),
+                biometricForSeed = settingsManager.isBiometricForSeedEnabled(),
+                biometricForSend = settingsManager.isBiometricForSendEnabled(),
+                appLockMode = settingsManager.getAppLockMode()
             )
         }
     }
@@ -177,6 +183,22 @@ class SettingsViewModel @Inject constructor(
         }
 
         _uiState.update { it.copy(useTestnet = use) }
+    }
+
+    // --- Security settings ---
+    fun setBiometricForSeed(enabled: Boolean) {
+        settingsManager.setBiometricForSeedEnabled(enabled)
+        _uiState.update { it.copy(biometricForSeed = enabled) }
+    }
+
+    fun setBiometricForSend(enabled: Boolean) {
+        settingsManager.setBiometricForSendEnabled(enabled)
+        _uiState.update { it.copy(biometricForSend = enabled) }
+    }
+
+    fun setAppLockMode(mode: String) {
+        settingsManager.setAppLockMode(mode)
+        _uiState.update { it.copy(appLockMode = mode) }
     }
 
     private fun loadWallets() {

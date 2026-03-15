@@ -269,8 +269,10 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Perform full scan with timeout to prevent hanging on bad servers
         // ElectrumClient must always be closed — resource leak causes silent failures on retry
+        // Use longer timeout for custom/private nodes which may be slower
+        val timeoutMs = if (effectiveConfig.isCustom) 60_000L else 30_000L
         try {
-            withTimeout(30_000L) {
+            withTimeout(timeoutMs) {
                 val fullScanRequest = wallet.startFullScan().build()
                 val update = electrumClient.fullScan(
                     fullScanRequest,
@@ -543,9 +545,21 @@ class BdkBitcoinRepository @Inject constructor(
         } catch (e: org.bitcoindevkit.LoadWithPersistException.Persist) {
             // SQLite not found / unable to open — create fresh BDK wallet
             Wallet(externalDescriptor, changeDescriptor, network, connection)
+        } catch (e: Exception) {
+            // Descriptor mismatch, InvalidChangeSet, or other BDK error
+            // This can happen after network switch or DB corruption
+            // Delete the stale wallet DB and create fresh
+            android.util.Log.w("BdkBitcoinRepository", "Wallet load failed (${e.javaClass.simpleName}: ${e.message}), recreating wallet DB for $walletId")
+            try {
+                val dbFile = context.getDatabasePath("wallet_${walletId}.db")
+                dbFile.delete()
+                java.io.File(dbFile.path + "-wal").delete()
+                java.io.File(dbFile.path + "-shm").delete()
+                java.io.File(dbFile.path + "-journal").delete()
+            } catch (_: Exception) {}
+            val freshConnection = Connection(dbPath)
+            Wallet(externalDescriptor, changeDescriptor, network, freshConnection)
         }
-        // All other exceptions (InvalidChangeSet, descriptor mismatch, etc.) propagate
-        // to the ViewModel so the error can be shown rather than silently creating a new wallet
 
         // Cache and return
         val entry = WalletEntry(wallet, connection)
