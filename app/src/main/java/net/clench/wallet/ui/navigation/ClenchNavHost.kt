@@ -12,8 +12,18 @@ import net.clench.wallet.ui.screens.*
 fun ClenchNavHost(navController: NavHostController) {
     NavHost(
         navController = navController,
-        startDestination = Routes.Welcome.route
+        startDestination = Routes.ServerSetup.route
     ) {
+        composable(Routes.ServerSetup.route) {
+            ServerSetupScreen(
+                onServerConfigured = { config ->
+                    navController.navigate(Routes.Welcome.route) {
+                        popUpTo(Routes.ServerSetup.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
         composable(Routes.Welcome.route) {
             WelcomeScreen(
                 onCreateWallet = { navController.navigate(Routes.CreateWallet.route) },

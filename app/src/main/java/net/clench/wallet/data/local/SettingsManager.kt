@@ -35,4 +35,6 @@ class SettingsManager @Inject constructor(
             isCustom = prefs.getBoolean("use_custom_server", false)
         )
     }
+
+    fun isConfigured(): Boolean = prefs.contains("server_url")
 }

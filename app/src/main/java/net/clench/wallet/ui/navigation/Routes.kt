@@ -1,6 +1,7 @@
 package net.clench.wallet.ui.navigation
 
 sealed class Routes(val route: String) {
+    object ServerSetup  : Routes("server_setup")
     object Welcome      : Routes("welcome")
     object CreateWallet : Routes("create_wallet")
     object ImportWallet : Routes("import_wallet")
