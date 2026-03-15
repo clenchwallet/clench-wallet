@@ -1,6 +1,10 @@
 package net.clench.wallet.ui
 
+import android.content.Intent
+import android.nfc.NdefMessage
+import android.nfc.NfcAdapter
 import android.os.Bundle
+import android.util.Base64
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricManager
@@ -26,6 +30,8 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.ui.navigation.ClenchNavHost
 import net.clench.wallet.ui.theme.ClenchTheme
@@ -38,6 +44,10 @@ class MainActivity : FragmentActivity() {
 
     private var lastPauseTimestamp: Long = 0L
     private val isLocked = mutableStateOf(true) // Start locked — will be resolved in onCreate
+
+    // NFC PSBT flow — hardware wallets (Coldcard) can deliver signed PSBTs via NFC
+    private val _nfcPsbtFlow = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val nfcPsbtFlow = _nfcPsbtFlow.asSharedFlow()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,6 +98,24 @@ class MainActivity : FragmentActivity() {
         // Auto-prompt biometric on first launch if locked
         if (shouldLock) {
             promptBiometricUnlock()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (NfcAdapter.ACTION_NDEF_DISCOVERED == intent.action ||
+            NfcAdapter.ACTION_TAG_DISCOVERED == intent.action
+        ) {
+            @Suppress("DEPRECATION")
+            val rawMsgs = intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES)
+            if (rawMsgs != null && rawMsgs.isNotEmpty()) {
+                val ndefMessage = rawMsgs[0] as NdefMessage
+                val payload = ndefMessage.records.firstOrNull()?.payload
+                if (payload != null) {
+                    val psbtBase64 = Base64.encodeToString(payload, Base64.NO_WRAP)
+                    _nfcPsbtFlow.tryEmit(psbtBase64)
+                }
+            }
         }
     }
 

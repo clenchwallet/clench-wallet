@@ -38,19 +38,7 @@ fun TransactionDetailScreen(
     isOfflineMode: Boolean = false
 ) {
     val context = LocalContext.current
-    var showPsbtDialog by remember { mutableStateOf(false) }
     var showFullTxid by remember { mutableStateOf(false) }
-
-    if (showPsbtDialog) {
-        AlertDialog(
-            onDismissRequest = { showPsbtDialog = false },
-            title = { Text("Create PSBT") },
-            text = { Text("PSBT creation for hardware wallets coming soon.") },
-            confirmButton = {
-                Button(onClick = { showPsbtDialog = false }) { Text("OK") }
-            }
-        )
-    }
 
     Scaffold(
         topBar = {
@@ -200,17 +188,12 @@ fun TransactionDetailScreen(
                 // UTXO spend option for received transactions
                 if (isReceived) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    if (isWatchOnly) {
-                        OutlinedButton(
-                            onClick = { showPsbtDialog = true },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Create PSBT") }
-                    } else {
-                        OutlinedButton(
-                            onClick = { onSpendUtxo(transaction.txid) },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !isOfflineMode
-                        ) { Text("Spend this UTXO") }
+                    OutlinedButton(
+                        onClick = { onSpendUtxo(transaction.txid) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isOfflineMode
+                    ) {
+                        Text(if (isWatchOnly) "Spend this UTXO (PSBT)" else "Spend this UTXO")
                     }
                 }
 

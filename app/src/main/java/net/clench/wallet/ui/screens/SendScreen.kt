@@ -19,6 +19,8 @@ import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.viewmodel.SendViewModel
 
@@ -28,9 +30,11 @@ fun SendScreen(
     walletId: String,
     onBack: () -> Unit,
     utxoTxid: String? = null,
+    onNavigateHardwarePsbt: ((walletId: String, psbtBase64: String, deviceType: HardwareWalletType) -> Unit)? = null,
     viewModel: SendViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var showHardwareWalletPicker by remember { mutableStateOf(false) }
 
     // FLAG_SECURE — prevent screenshots of balance/addresses
     val context = LocalContext.current
@@ -86,10 +90,23 @@ fun SendScreen(
         }
     }
 
+    // Hardware wallet picker sheet
+    if (showHardwareWalletPicker) {
+        HardwareWalletPickerSheet(
+            onDismiss = { showHardwareWalletPicker = false },
+            onDeviceSelected = { deviceType ->
+                showHardwareWalletPicker = false
+                viewModel.createPsbt { psbtBase64 ->
+                    onNavigateHardwarePsbt?.invoke(walletId, psbtBase64, deviceType)
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Send Bitcoin") },
+                title = { Text(if (uiState.isWatchOnly) "Create PSBT" else "Send Bitcoin") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -179,7 +196,17 @@ fun SendScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            if (uiState.txHex != null) {
+            if (uiState.isWatchOnly) {
+                // Watch-only wallet: hardware wallet signing flow
+                Button(
+                    onClick = { showHardwareWalletPicker = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !uiState.isLoading
+                ) {
+                    if (uiState.isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    else Text("Sign with Hardware Wallet")
+                }
+            } else if (uiState.txHex != null) {
                 Text("Transaction ready to broadcast", color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(

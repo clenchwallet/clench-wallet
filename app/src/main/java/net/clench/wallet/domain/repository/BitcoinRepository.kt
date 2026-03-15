@@ -101,4 +101,31 @@ interface BitcoinRepository {
      * @return list of Address objects with index, address string, and used status
      */
     suspend fun getAddresses(walletId: String, count: Int = 20): List<Address>
+
+    /**
+     * Create an unsigned PSBT for hardware wallet signing.
+     * @param walletId wallet to build from
+     * @param toAddress recipient Bitcoin address
+     * @param amountSat amount in satoshis (null = send max / drain)
+     * @param feeRateSatPerVbyte fee rate
+     * @param utxoTxid optional: spend only this specific UTXO
+     * @param utxoVout optional: vout index of the UTXO
+     * @return base64-encoded PSBT string
+     */
+    suspend fun createPsbt(
+        walletId: String,
+        toAddress: String,
+        amountSat: Long?,
+        feeRateSatPerVbyte: Float,
+        utxoTxid: String? = null,
+        utxoVout: UInt? = null
+    ): String
+
+    /**
+     * Apply a signed PSBT and broadcast the resulting transaction.
+     * @param walletId wallet that created the original PSBT
+     * @param signedPsbtBase64 base64-encoded signed PSBT from hardware wallet
+     * @return txid of the broadcast transaction
+     */
+    suspend fun applyAndBroadcastPsbt(walletId: String, signedPsbtBase64: String): String
 }

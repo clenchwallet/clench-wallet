@@ -107,6 +107,52 @@ class SendViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Create an unsigned PSBT for hardware wallet signing.
+     * Validates inputs the same way as buildTx, but produces a PSBT instead of signing.
+     */
+    fun createPsbt(onPsbtReady: (psbtBase64: String) -> Unit) {
+        val state = _uiState.value
+
+        if (!state.sendMax) {
+            val amount = state.amountSat.toLongOrNull()
+            if (amount == null || amount <= 0) {
+                _uiState.update { it.copy(error = "Please enter a valid amount in satoshis") }
+                return
+            }
+        }
+
+        if (state.toAddress.isBlank()) {
+            _uiState.update { it.copy(error = "Please enter a recipient address") }
+            return
+        }
+
+        val feeRate = state.feeRate.toFloatOrNull()
+        if (feeRate == null || feeRate < 1f) {
+            _uiState.update { it.copy(error = "Please enter a valid fee rate (min 1 sat/vB)") }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            try {
+                val amountSat = if (state.sendMax) null else state.amountSat.toLongOrNull()
+                val psbtBase64 = bitcoinRepository.createPsbt(
+                    walletId = state.walletId,
+                    toAddress = state.toAddress.trim(),
+                    amountSat = amountSat,
+                    feeRateSatPerVbyte = feeRate,
+                    utxoTxid = state.utxoTxid,
+                    utxoVout = state.utxoVout?.toUInt()
+                )
+                _uiState.update { it.copy(isLoading = false) }
+                onPsbtReady(psbtBase64)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false, error = e.message) }
+            }
+        }
+    }
+
     fun broadcast(onSuccess: (walletId: String) -> Unit) {
         val state = _uiState.value
         val txHex = state.txHex ?: return

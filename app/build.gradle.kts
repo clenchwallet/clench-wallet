@@ -96,4 +96,14 @@ dependencies {
 
     // BDK - Bitcoin Dev Kit (Block/Spiral funded)
     implementation(libs.bdk.android)
+
+    // BC-UR animated QR for hardware wallet PSBT exchange
+    implementation("com.sparrowwallet:hummingbird:1.7.4")
+
+    // CameraX for QR scanning
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
+    implementation("com.google.zxing:core:3.5.3")
 }

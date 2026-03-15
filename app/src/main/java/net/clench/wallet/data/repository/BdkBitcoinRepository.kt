@@ -519,6 +519,71 @@ class BdkBitcoinRepository @Inject constructor(
         addresses
     }
 
+    override suspend fun createPsbt(
+        walletId: String,
+        toAddress: String,
+        amountSat: Long?,
+        feeRateSatPerVbyte: Float,
+        utxoTxid: String?,
+        utxoVout: UInt?
+    ): String = withContext(Dispatchers.IO) {
+        val entry = loadWallet(walletId)
+        val wallet = entry.wallet
+        val network = activeNetwork()
+        val recipientAddress = org.bitcoindevkit.Address(toAddress, network)
+        val feeRate = FeeRate.fromSatPerVb(feeRateSatPerVbyte.toLong().toULong())
+
+        val builder = if (amountSat == null) {
+            TxBuilder()
+                .drainWallet()
+                .drainTo(recipientAddress.scriptPubkey())
+                .feeRate(feeRate)
+        } else {
+            TxBuilder()
+                .addRecipient(recipientAddress.scriptPubkey(), Amount.fromSat(amountSat.toULong()))
+                .feeRate(feeRate)
+        }
+
+        // Optionally restrict to a specific UTXO
+        if (utxoTxid != null && utxoVout != null) {
+            builder.addUtxo(org.bitcoindevkit.OutPoint(utxoTxid, utxoVout))
+            builder.manuallySelectedOnly()
+        }
+
+        // Build PSBT (unsigned — do NOT sign)
+        val psbt = builder.finish(wallet)
+
+        // Return base64-encoded PSBT
+        psbt.serialize()
+    }
+
+    override suspend fun applyAndBroadcastPsbt(walletId: String, signedPsbtBase64: String): String = withContext(Dispatchers.IO) {
+        if (settingsManager.isOfflineMode()) {
+            throw IllegalStateException("Cannot broadcast in offline mode")
+        }
+
+        // Import the signed PSBT
+        val signedPsbt = Psbt(signedPsbtBase64)
+
+        // Finalize the PSBT
+        val finalizeResult = signedPsbt.finalize()
+        if (!finalizeResult.couldFinalize) {
+            val errorMsgs = finalizeResult.errors?.joinToString(", ") { it.toString() } ?: "Unknown error"
+            throw IllegalStateException("Could not finalize PSBT: $errorMsgs")
+        }
+
+        // Extract and broadcast the finalized transaction
+        val tx = finalizeResult.psbt.extractTx()
+        val config = settingsManager.loadElectrumConfig()
+        val connectionStr = buildElectrumUrl(config)
+        val electrumClient = ElectrumClient(connectionStr)
+        try {
+            electrumClient.transactionBroadcast(tx)
+        } finally {
+            electrumClient.close()
+        }
+    }
+
     /**
      * Load wallet from cache or SQLite.
      * For signing wallets: retrieves secret descriptors (xprv) from encrypted Keystore.

@@ -18,7 +18,8 @@ class WalletListViewModel @Inject constructor(
 
     data class UiState(
         val wallets: List<WalletData> = emptyList(),
-        val isLoading: Boolean = false
+        val isLoading: Boolean = false,
+        val deletedWalletId: String? = null
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -34,5 +35,19 @@ class WalletListViewModel @Inject constructor(
                 _uiState.update { it.copy(isLoading = false) }
             }
         }
+    }
+
+    fun deleteWallet(walletId: String) {
+        viewModelScope.launch {
+            try {
+                bitcoinRepository.deleteWallet(walletId)
+                val remaining = bitcoinRepository.listWallets()
+                _uiState.update { it.copy(wallets = remaining, deletedWalletId = if (remaining.isEmpty()) walletId else null) }
+            } catch (_: Exception) { }
+        }
+    }
+
+    fun clearDeletedState() {
+        _uiState.update { it.copy(deletedWalletId = null) }
     }
 }

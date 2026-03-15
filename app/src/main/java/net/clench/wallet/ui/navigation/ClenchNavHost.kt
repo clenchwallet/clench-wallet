@@ -16,6 +16,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.screens.*
 import net.clench.wallet.ui.viewmodel.HomeViewModel
 import net.clench.wallet.ui.viewmodel.StartupViewModel
@@ -124,7 +125,10 @@ fun ClenchNavHost(navController: NavHostController) {
             val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
             SendScreen(
                 walletId = walletId,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onNavigateHardwarePsbt = { wId, psbt, deviceType ->
+                    navController.navigate(Routes.HardwarePsbt.build(wId, psbt, deviceType.name))
+                }
             )
         }
 
@@ -214,7 +218,12 @@ fun ClenchNavHost(navController: NavHostController) {
                 onAddWallet = {
                     navController.navigate(Routes.Welcome.route)
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onNavigateWelcome = {
+                    navController.navigate(Routes.Welcome.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
             )
         }
 
@@ -250,6 +259,33 @@ fun ClenchNavHost(navController: NavHostController) {
                     // Navigate to send with UTXO pre-selected
                     navController.navigate(Routes.Send.build(walletId) + "?utxoTxid=$utxoTxid")
                 }
+            )
+        }
+
+        composable(
+            route = Routes.HardwarePsbt.route,
+            arguments = listOf(
+                navArgument("walletId") { type = NavType.StringType },
+                navArgument("psbtBase64") { type = NavType.StringType },
+                navArgument("deviceType") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
+            val psbtBase64Encoded = backStackEntry.arguments?.getString("psbtBase64") ?: return@composable
+            val deviceTypeName = backStackEntry.arguments?.getString("deviceType") ?: return@composable
+
+            val psbtBase64 = java.net.URLDecoder.decode(psbtBase64Encoded, "UTF-8")
+            val deviceType = try {
+                HardwareWalletType.valueOf(deviceTypeName)
+            } catch (_: Exception) {
+                HardwareWalletType.SEEDSIGNER
+            }
+
+            HardwareWalletPsbtScreen(
+                walletId = walletId,
+                psbtBase64 = psbtBase64,
+                deviceType = deviceType,
+                onBack = { navController.popBackStack() }
             )
         }
     }
