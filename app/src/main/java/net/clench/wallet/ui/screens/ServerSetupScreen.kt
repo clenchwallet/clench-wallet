@@ -353,7 +353,7 @@ private fun OwnNodeStep(
             value = host,
             onValueChange = onHostChange,
             label = { Text("Host / IP") },
-            placeholder = { Text("example.com or 192.168.1.100") },
+            placeholder = { Text("example.com or local IP") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )

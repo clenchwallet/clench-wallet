@@ -67,7 +67,7 @@ fun SettingsScreen(
                     onValueChange = { viewModel.setCustomServerUrl(it) },
                     label = { Text("Server hostname or IP") },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("192.168.0.34 or your.node.com") },
+                    placeholder = { Text("your.node.com or local IP") },
                     supportingText = { Text("Do not include ssl:// — use the SSL toggle below") },
                     singleLine = true
                 )
