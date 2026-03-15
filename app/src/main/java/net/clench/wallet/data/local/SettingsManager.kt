@@ -14,9 +14,14 @@ class SettingsManager @Inject constructor(
     private val prefs = context.getSharedPreferences("clench_settings", Context.MODE_PRIVATE)
 
     fun saveElectrumConfig(config: ElectrumConfig) {
+        // Always store hostname only — protocol prefix added at connection time
+        val cleanUrl = config.serverUrl
+            .removePrefix("ssl://")
+            .removePrefix("tcp://")
+            .trim()
         prefs.edit {
             putBoolean("use_custom_server", config.isCustom)
-            putString("server_url", config.serverUrl)
+            putString("server_url", cleanUrl)
             putInt("server_port", config.port)
             putBoolean("use_ssl", config.useSsl)
         }

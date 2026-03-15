@@ -25,7 +25,9 @@ class SettingsViewModel @Inject constructor(
         val customServerUrl: String = "",
         val customServerPort: String = "50002",
         val useSSL: Boolean = true,
-        val wallets: List<WalletData> = emptyList()
+        val wallets: List<WalletData> = emptyList(),
+        val savedSuccess: Boolean = false,
+        val saveError: String? = null
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -51,23 +53,46 @@ class SettingsViewModel @Inject constructor(
 
     fun saveServerSettings() {
         val state = _uiState.value
+        // Strip any protocol prefix the user may have typed — buildElectrumUrl() adds it back
+        val cleanUrl = state.customServerUrl
+            .removePrefix("ssl://")
+            .removePrefix("tcp://")
+            .trim()
+
+        if (state.useCustomServer && cleanUrl.isBlank()) {
+            _uiState.update { it.copy(saveError = "Please enter a server address") }
+            return
+        }
+
         val config = if (state.useCustomServer) {
             ElectrumConfig(
-                serverUrl = state.customServerUrl,
+                serverUrl = cleanUrl,
                 port = state.customServerPort.toIntOrNull() ?: 50002,
                 useSsl = state.useSSL,
                 isCustom = true
             )
         } else {
             ElectrumConfig(
-                serverUrl = "ssl://electrum.blockstream.info",
+                serverUrl = "electrum.blockstream.info",
                 port = 700,
                 useSsl = true,
                 isCustom = false
             )
         }
         settingsManager.saveElectrumConfig(config)
+        _uiState.update { it.copy(
+            customServerUrl = cleanUrl,  // normalize displayed URL too
+            savedSuccess = true,
+            saveError = null
+        ) }
+        // Clear success banner after a moment
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(3000)
+            _uiState.update { it.copy(savedSuccess = false) }
+        }
     }
+
+    fun clearSaveStatus() = _uiState.update { it.copy(savedSuccess = false, saveError = null) }
 
     private fun loadWallets() {
         viewModelScope.launch {

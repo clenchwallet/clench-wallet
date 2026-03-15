@@ -65,9 +65,10 @@ fun SettingsScreen(
                 OutlinedTextField(
                     value = uiState.customServerUrl,
                     onValueChange = { viewModel.setCustomServerUrl(it) },
-                    label = { Text("Server URL") },
+                    label = { Text("Server hostname or IP") },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("ssl://your.node.com") },
+                    placeholder = { Text("192.168.0.34 or your.node.com") },
+                    supportingText = { Text("Do not include ssl:// — use the SSL toggle below") },
                     singleLine = true
                 )
 
@@ -97,6 +98,27 @@ fun SettingsScreen(
                     onClick = { viewModel.saveServerSettings() },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Save") }
+
+                if (uiState.savedSuccess) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "✓ Server settings saved",
+                            modifier = Modifier.padding(12.dp),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+
+                uiState.saveError?.let { err ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(err, color = MaterialTheme.colorScheme.error)
+                }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
