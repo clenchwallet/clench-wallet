@@ -13,14 +13,14 @@ object PublicElectrumServers {
         PublicServer(
             name = "Blockstream",
             host = "electrum.blockstream.info",
-            port = 700,
+            port = 50002,
             useSsl = true,
             description = "Run by Blockstream. Well-known, reliable."
         ),
         PublicServer(
             name = "Blockstream (Tor)",
             host = "explorerzydxu5ecjrkwceayqybizmpjjznk5izmitf2modhcuqe7xt7ad.onion",
-            port = 143,
+            port = 50001,
             useSsl = false,
             description = "Blockstream over Tor for privacy."
         ),

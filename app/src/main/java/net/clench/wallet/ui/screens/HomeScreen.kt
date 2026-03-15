@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +24,7 @@ fun HomeScreen(
     onSend: () -> Unit,
     onReceive: () -> Unit,
     onSettings: () -> Unit,
+    onWalletList: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -34,6 +36,9 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text(uiState.walletName) },
                 actions = {
+                    IconButton(onClick = onWalletList) {
+                        Icon(Icons.Default.Menu, contentDescription = "Wallets")
+                    }
                     IconButton(onClick = onSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
@@ -83,6 +88,22 @@ fun HomeScreen(
                 }
             }
 
+            // Sync error banner
+            uiState.syncError?.let { err ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                ) {
+                    Text(
+                        "⚠\uFE0F $err",
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Send / Receive buttons
             Row(
                 modifier = Modifier
@@ -90,10 +111,18 @@ fun HomeScreen(
                     .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Button(
-                    onClick = onSend,
-                    modifier = Modifier.weight(1f)
-                ) { Text("Send") }
+                if (!uiState.isWatchOnly) {
+                    Button(
+                        onClick = onSend,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Send") }
+                } else {
+                    OutlinedButton(
+                        onClick = {},
+                        enabled = false,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Watch-only") }
+                }
 
                 Button(
                     onClick = onReceive,

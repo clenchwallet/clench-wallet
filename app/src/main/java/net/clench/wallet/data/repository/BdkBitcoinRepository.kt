@@ -313,16 +313,13 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun getLastAddress(walletId: String): DomainAddress = withContext(Dispatchers.IO) {
-        val entry = loadWallet(walletId)
+        val entry = walletCache[walletId] ?: run {
+            loadWallet(walletId)
+            walletCache[walletId]!!
+        }
         val wallet = entry.wallet
-
-        // Get the last revealed address without advancing index
-        val addressInfo = wallet.listUnusedAddresses(KeychainKind.EXTERNAL).firstOrNull()
-            ?: wallet.revealNextAddress(KeychainKind.EXTERNAL).also {
-                // If no address exists, reveal one and persist
-                wallet.persist(entry.connection)
-            }
-
+        // peekAddress does not advance the index — safe to call repeatedly
+        val addressInfo = wallet.peekAddress(KeychainKind.EXTERNAL, 0u)
         DomainAddress(
             address = addressInfo.address.toString(),
             index = addressInfo.index.toInt(),

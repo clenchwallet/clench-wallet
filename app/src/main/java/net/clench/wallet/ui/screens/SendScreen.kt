@@ -1,6 +1,7 @@
 package net.clench.wallet.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,6 +25,22 @@ fun SendScreen(
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { viewModel.setAddress(it) }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val options = ScanOptions().apply {
+                setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                setPrompt("Scan Bitcoin address QR code")
+                setBeepEnabled(false)
+                setOrientationLocked(false)
+            }
+            scanLauncher.launch(options)
+        } else {
+            viewModel.setError("Camera permission required to scan QR codes")
+        }
     }
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
@@ -63,13 +80,7 @@ fun SendScreen(
                 singleLine = true,
                 trailingIcon = {
                     TextButton(onClick = {
-                        val options = ScanOptions().apply {
-                            setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                            setPrompt("Scan Bitcoin address QR code")
-                            setBeepEnabled(false)
-                            setOrientationLocked(false)
-                        }
-                        scanLauncher.launch(options)
+                        cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
                     }) {
                         Text("Scan")
                     }

@@ -43,6 +43,7 @@ class SendViewModel @Inject constructor(
         }
     }
     fun setAddress(addr: String) = _uiState.update { it.copy(toAddress = addr, error = null) }
+    fun setError(msg: String) = _uiState.update { it.copy(error = msg) }
     fun setAmount(amt: String) = _uiState.update { it.copy(amountSat = amt) }
     fun setFeeRate(rate: String) = _uiState.update { it.copy(feeRate = rate) }
     fun setSendMax(max: Boolean) = _uiState.update { it.copy(sendMax = max, amountSat = if (max) "" else it.amountSat) }

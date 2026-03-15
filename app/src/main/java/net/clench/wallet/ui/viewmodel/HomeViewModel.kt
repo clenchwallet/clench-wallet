@@ -25,7 +25,8 @@ class HomeViewModel @Inject constructor(
         val isLoading: Boolean = false,
         val isSyncing: Boolean = false,
         val syncError: String? = null,
-        val error: String? = null
+        val error: String? = null,
+        val isWatchOnly: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -39,7 +40,10 @@ class HomeViewModel @Inject constructor(
                 try {
                     val wallets = bitcoinRepository.listWallets()
                     val thisWallet = wallets.find { it.id == walletId }
-                    _uiState.update { it.copy(walletName = thisWallet?.name ?: "My Wallet") }
+                    _uiState.update { it.copy(
+                        walletName = thisWallet?.name ?: "My Wallet",
+                        isWatchOnly = thisWallet?.isWatchOnly ?: false
+                    ) }
                 } catch (e: Exception) { /* ignore */ }
 
                 // First show cached balance and transactions

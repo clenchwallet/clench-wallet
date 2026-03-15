@@ -1,19 +1,62 @@
 package net.clench.wallet.ui.navigation
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import net.clench.wallet.ui.screens.*
+import net.clench.wallet.ui.viewmodel.StartupViewModel
 
 @Composable
 fun ClenchNavHost(navController: NavHostController) {
+    val startupViewModel: StartupViewModel = hiltViewModel()
+    val destination by startupViewModel.destination.collectAsState()
+
     NavHost(
         navController = navController,
-        startDestination = Routes.ServerSetup.route
+        startDestination = "loading"
     ) {
+        composable("loading") {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+
+            LaunchedEffect(destination) {
+                when (val dest = destination) {
+                    is StartupViewModel.StartupDestination.Loading -> { /* still loading */ }
+                    is StartupViewModel.StartupDestination.ServerSetup -> {
+                        navController.navigate(Routes.ServerSetup.route) {
+                            popUpTo("loading") { inclusive = true }
+                        }
+                    }
+                    is StartupViewModel.StartupDestination.Welcome -> {
+                        navController.navigate(Routes.Welcome.route) {
+                            popUpTo("loading") { inclusive = true }
+                        }
+                    }
+                    is StartupViewModel.StartupDestination.ExistingWallet -> {
+                        navController.navigate(Routes.Home.build(dest.walletId)) {
+                            popUpTo("loading") { inclusive = true }
+                        }
+                    }
+                }
+            }
+        }
+
         composable(Routes.ServerSetup.route) {
             ServerSetupScreen(
                 onServerConfigured = { config ->
@@ -62,7 +105,8 @@ fun ClenchNavHost(navController: NavHostController) {
                 walletId = walletId,
                 onSend = { navController.navigate(Routes.Send.build(walletId)) },
                 onReceive = { navController.navigate(Routes.Receive.build(walletId)) },
-                onSettings = { navController.navigate(Routes.Settings.route) }
+                onSettings = { navController.navigate(Routes.Settings.route) },
+                onWalletList = { navController.navigate(Routes.WalletList.route) }
             )
         }
 
@@ -90,6 +134,20 @@ fun ClenchNavHost(navController: NavHostController) {
 
         composable(Routes.Settings.route) {
             SettingsScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.WalletList.route) {
+            WalletListScreen(
+                onWalletSelected = { walletId ->
+                    navController.navigate(Routes.Home.build(walletId)) {
+                        popUpTo(Routes.WalletList.route) { inclusive = true }
+                    }
+                },
+                onAddWallet = {
+                    navController.navigate(Routes.Welcome.route)
+                },
                 onBack = { navController.popBackStack() }
             )
         }
