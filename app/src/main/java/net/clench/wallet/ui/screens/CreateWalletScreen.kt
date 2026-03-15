@@ -134,15 +134,27 @@ fun CreateWalletScreen(
 
                 Button(
                     onClick = { viewModel.confirmAndSave(onWalletCreated) },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !uiState.isLoading
                 ) {
-                    Text("I've Written It Down — Continue")
+                    if (uiState.isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    else Text("I've Written It Down — Continue")
                 }
-            }
 
-            uiState.error?.let { err ->
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(err, color = MaterialTheme.colorScheme.error)
+                uiState.error?.let { err ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = err,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = androidx.compose.ui.Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             }
         }
     }

@@ -74,15 +74,11 @@ class BdkBitcoinRepository @Inject constructor(
         val mnemonic = Mnemonic(wordCountEnum)
         val mnemonicWords = mnemonic.toString().split(" ")
 
-        // Derive BIP84 descriptors using BDK key objects (not string concatenation)
+        // Derive BIP84 descriptors: derive to account level, then append /* for the index wildcard
         val bip32RootKey = DescriptorSecretKey(Network.BITCOIN, mnemonic, passphrase ?: "")
-        val accountPath = DerivationPath("m/84h/0h/0h")
-        val externalPath = DerivationPath("m/84h/0h/0h/0")
-        val changePath = DerivationPath("m/84h/0h/0h/1")
-        val externalKey = bip32RootKey.derive(externalPath)
-        val changeKey = bip32RootKey.derive(changePath)
-        val externalDescriptor = Descriptor("wpkh(${externalKey.extend(DerivationPath("m/*")).asString()})", Network.BITCOIN)
-        val changeDescriptor = Descriptor("wpkh(${changeKey.extend(DerivationPath("m/*")).asString()})", Network.BITCOIN)
+        val accountKey = bip32RootKey.derive(DerivationPath("m/84h/0h/0h"))
+        val externalDescriptor = Descriptor("wpkh(${accountKey.asString()}/0/*)", Network.BITCOIN)
+        val changeDescriptor = Descriptor("wpkh(${accountKey.asString()}/1/*)", Network.BITCOIN)
 
         // Generate wallet ID
         val walletId = UUID.randomUUID().toString()
@@ -131,14 +127,11 @@ class BdkBitcoinRepository @Inject constructor(
         // Restore mnemonic from words
         val mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
 
-        // Derive BIP84 descriptors using BDK key objects (not string concatenation)
+        // Derive BIP84 descriptors: derive to account level, then append /* for the index wildcard
         val bip32RootKey = DescriptorSecretKey(Network.BITCOIN, mnemonicObj, passphrase ?: "")
-        val externalPath = DerivationPath("m/84h/0h/0h/0")
-        val changePath = DerivationPath("m/84h/0h/0h/1")
-        val externalKey = bip32RootKey.derive(externalPath)
-        val changeKey = bip32RootKey.derive(changePath)
-        val externalDescriptor = Descriptor("wpkh(${externalKey.extend(DerivationPath("m/*")).asString()})", Network.BITCOIN)
-        val changeDescriptor = Descriptor("wpkh(${changeKey.extend(DerivationPath("m/*")).asString()})", Network.BITCOIN)
+        val accountKey = bip32RootKey.derive(DerivationPath("m/84h/0h/0h"))
+        val externalDescriptor = Descriptor("wpkh(${accountKey.asString()}/0/*)", Network.BITCOIN)
+        val changeDescriptor = Descriptor("wpkh(${accountKey.asString()}/1/*)", Network.BITCOIN)
 
         // Prevent duplicate imports
         val existing = walletDao.getAll()

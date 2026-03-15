@@ -70,7 +70,8 @@ class CreateWalletViewModel @Inject constructor(
                 )
                 onCreated(walletData.id)
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, error = e.message) }
+                android.util.Log.e("CreateWallet", "confirmAndSave failed: ${e.javaClass.simpleName}: ${e.message}", e)
+                _uiState.update { it.copy(isLoading = false, error = "${e.javaClass.simpleName}: ${e.message}") }
             }
         }
     }
