@@ -61,7 +61,19 @@ class ReceiveViewModel @Inject constructor(
     }
 
     fun copyAddress() {
+        val address = _uiState.value.address
+        if (address.isBlank()) return
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Bitcoin Address", _uiState.value.address))
+        clipboard.setPrimaryClip(ClipData.newPlainText("Bitcoin Address", address))
+
+        // Auto-clear clipboard after 60 seconds
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(60_000L)
+            // Only clear if it still contains our address
+            val current = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+            if (current == address) {
+                clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+            }
+        }
     }
 }

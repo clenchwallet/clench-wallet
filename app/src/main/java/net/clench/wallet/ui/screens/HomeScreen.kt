@@ -116,7 +116,7 @@ fun HomeScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "No transactions yet",
+                        if (uiState.isSyncing) "Syncing wallet..." else "No transactions yet",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

@@ -35,6 +35,13 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             try {
+                // Load wallet name from DB
+                try {
+                    val wallets = bitcoinRepository.listWallets()
+                    val thisWallet = wallets.find { it.id == walletId }
+                    _uiState.update { it.copy(walletName = thisWallet?.name ?: "My Wallet") }
+                } catch (e: Exception) { /* ignore */ }
+
                 // First show cached balance and transactions
                 val balance = bitcoinRepository.getBalance(walletId)
                 val txs = bitcoinRepository.getTransactions(walletId)

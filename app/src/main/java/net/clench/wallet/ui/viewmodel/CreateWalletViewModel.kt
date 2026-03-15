@@ -19,6 +19,7 @@ class CreateWalletViewModel @Inject constructor(
 ) : ViewModel() {
 
     data class UiState(
+        val walletName: String = "My Wallet",
         val wordCount: Int = 24,
         val passphrase: String = "",
         val mnemonic: List<String> = emptyList(),
@@ -32,6 +33,7 @@ class CreateWalletViewModel @Inject constructor(
     // Hold generated mnemonic in memory only (not persisted until confirmAndSave)
     private var pendingMnemonic: List<String>? = null
 
+    fun setWalletName(name: String) = _uiState.update { it.copy(walletName = name) }
     fun setWordCount(count: Int) = _uiState.update { it.copy(wordCount = count, mnemonic = emptyList()) }
     fun setPassphrase(pass: String) = _uiState.update { it.copy(passphrase = pass) }
 
@@ -61,9 +63,8 @@ class CreateWalletViewModel @Inject constructor(
                 // Use the same mnemonic words from generateWallet()
                 val mnemonicWords = pendingMnemonic ?: throw IllegalStateException("No mnemonic generated")
 
-                val walletName = "Wallet ${UUID.randomUUID().toString().take(6)}"
                 val walletData = bitcoinRepository.importWallet(
-                    name = walletName,
+                    name = _uiState.value.walletName,
                     mnemonic = mnemonicWords,
                     passphrase = _uiState.value.passphrase.ifBlank { null }
                 )

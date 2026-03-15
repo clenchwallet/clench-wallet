@@ -46,6 +46,15 @@ fun SendScreen(
                 .padding(padding)
                 .padding(16.dp)
         ) {
+            if (uiState.availableBalanceSat > 0) {
+                Text(
+                    "Available: ${uiState.availableBalanceSat} sats",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+
             OutlinedTextField(
                 value = uiState.toAddress,
                 onValueChange = { viewModel.setAddress(it) },

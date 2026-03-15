@@ -4,6 +4,7 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.local.dao.TransactionDao
@@ -221,20 +222,22 @@ class BdkBitcoinRepository @Inject constructor(
         val entry = loadWallet(walletId)
         val wallet = entry.wallet
 
-        // Perform full scan
-        val fullScanRequest = wallet.startFullScan().build()
-        val update = electrumClient.fullScan(
-            fullScanRequest,
-            stopGap = 20u,
-            batchSize = 10u,
-            fetchPrevTxouts = true
-        )
+        // Perform full scan with timeout to prevent hanging on bad servers
+        withTimeout(30_000L) {
+            val fullScanRequest = wallet.startFullScan().build()
+            val update = electrumClient.fullScan(
+                fullScanRequest,
+                stopGap = 20u,
+                batchSize = 10u,
+                fetchPrevTxouts = true
+            )
 
-        // Apply update to wallet
-        wallet.applyUpdate(update)
+            // Apply update to wallet
+            wallet.applyUpdate(update)
 
-        // Persist wallet state after sync
-        wallet.persist(entry.connection)
+            // Persist wallet state after sync
+            wallet.persist(entry.connection)
+        }
 
         // Cache transactions to Room DB
         val transactions = wallet.transactions()

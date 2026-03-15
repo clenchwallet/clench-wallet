@@ -20,6 +20,18 @@ fun CreateWalletScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
+    // Prevent screenshots when mnemonic is visible
+    val context = androidx.compose.ui.platform.LocalContext.current
+    if (uiState.mnemonic.isNotEmpty()) {
+        androidx.compose.runtime.DisposableEffect(Unit) {
+            val activity = context as? android.app.Activity
+            activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+            onDispose {
+                activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -38,6 +50,15 @@ fun CreateWalletScreen(
                 .padding(padding)
                 .padding(16.dp)
         ) {
+            OutlinedTextField(
+                value = uiState.walletName,
+                onValueChange = { viewModel.setWalletName(it) },
+                label = { Text("Wallet name") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Word count selector
             Text("Seed phrase length", style = MaterialTheme.typography.labelLarge)
             Spacer(modifier = Modifier.height(8.dp))

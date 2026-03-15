@@ -26,13 +26,22 @@ class SendViewModel @Inject constructor(
         val sendMax: Boolean = false,
         val txHex: String? = null,
         val isLoading: Boolean = false,
-        val error: String? = null
+        val error: String? = null,
+        val availableBalanceSat: Long = 0L
     )
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
 
-    fun load(walletId: String) = _uiState.update { it.copy(walletId = walletId) }
+    fun load(walletId: String) {
+        _uiState.update { it.copy(walletId = walletId) }
+        viewModelScope.launch {
+            try {
+                val balance = bitcoinRepository.getBalance(walletId)
+                _uiState.update { it.copy(availableBalanceSat = balance.totalSat) }
+            } catch (e: Exception) { /* show 0 */ }
+        }
+    }
     fun setAddress(addr: String) = _uiState.update { it.copy(toAddress = addr, error = null) }
     fun setAmount(amt: String) = _uiState.update { it.copy(amountSat = amt) }
     fun setFeeRate(rate: String) = _uiState.update { it.copy(feeRate = rate) }
@@ -40,6 +49,27 @@ class SendViewModel @Inject constructor(
 
     fun buildTx() {
         val state = _uiState.value
+
+        // Validate inputs before building transaction
+        if (!state.sendMax) {
+            val amount = state.amountSat.toLongOrNull()
+            if (amount == null || amount <= 0) {
+                _uiState.update { it.copy(error = "Please enter a valid amount in satoshis") }
+                return
+            }
+        }
+
+        if (state.toAddress.isBlank()) {
+            _uiState.update { it.copy(error = "Please enter a recipient address") }
+            return
+        }
+
+        val feeRate = state.feeRate.toFloatOrNull()
+        if (feeRate == null || feeRate < 1f) {
+            _uiState.update { it.copy(error = "Please enter a valid fee rate (min 1 sat/vB)") }
+            return
+        }
+
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {

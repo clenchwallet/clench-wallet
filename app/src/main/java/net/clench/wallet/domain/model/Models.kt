@@ -47,7 +47,7 @@ data class Address(
  */
 data class ElectrumConfig(
     val serverUrl: String = "electrum.blockstream.info",
-    val port: Int = 700,
+    val port: Int = 50002,
     val useSsl: Boolean = true,
     val isCustom: Boolean = false
 )
