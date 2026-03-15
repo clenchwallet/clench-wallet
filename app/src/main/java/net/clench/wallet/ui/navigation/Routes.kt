@@ -15,6 +15,12 @@ sealed class Routes(val route: String) {
         fun build(walletId: String) = "receive/$walletId"
     }
     object Settings     : Routes("settings")
+    object SettingsElectrum  : Routes("settings/electrum")
+    object SettingsExplorer  : Routes("settings/explorer")
+    object SettingsNetwork   : Routes("settings/network")
+    object SettingsSecurity  : Routes("settings/security")
+    object SettingsAbout     : Routes("settings/about")
+    object SettingsLicenses  : Routes("settings/licenses")
     object Debug        : Routes("debug")
     object WalletList   : Routes("wallet_list")
     object Addresses    : Routes("addresses/{walletId}") {
@@ -22,5 +28,8 @@ sealed class Routes(val route: String) {
     }
     object ViewSeedPhrase : Routes("view_seed_phrase/{walletId}") {
         fun build(walletId: String) = "view_seed_phrase/$walletId"
+    }
+    object TransactionDetail : Routes("tx_detail/{walletId}/{txid}") {
+        fun build(walletId: String, txid: String) = "tx_detail/$walletId/$txid"
     }
 }

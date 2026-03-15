@@ -256,11 +256,23 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun syncWallet(walletId: String, config: ElectrumConfig?): WalletBalance = withContext(Dispatchers.IO) {
+        // Offline mode — skip sync entirely, return cached balance
+        if (settingsManager.isOfflineMode()) {
+            android.util.Log.d("BdkRepo", "Offline mode — skipping sync")
+            return@withContext getBalance(walletId)
+        }
+
         // Use provided config or fall back to saved settings
         val effectiveConfig = config ?: settingsManager.loadElectrumConfig()
 
+        // Never silently fall back to public server when custom is configured
+        if (effectiveConfig.isCustom && effectiveConfig.serverUrl.isBlank()) {
+            throw IllegalStateException("Custom server is enabled but no server address is configured")
+        }
+
         // Build Electrum connection string
         val connectionStr = buildElectrumUrl(effectiveConfig)
+        android.util.Log.d("BdkRepo", "syncWallet: url=${effectiveConfig.serverUrl}, port=${effectiveConfig.port}, ssl=${effectiveConfig.useSsl}, custom=${effectiveConfig.isCustom}")
         val electrumClient = ElectrumClient(connectionStr)
 
         // Load wallet
@@ -431,6 +443,9 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun broadcastTransaction(config: ElectrumConfig, txHex: String): String = withContext(Dispatchers.IO) {
+        if (settingsManager.isOfflineMode()) {
+            throw IllegalStateException("Cannot broadcast in offline mode")
+        }
         val connectionStr = buildElectrumUrl(config)
         val electrumClient = ElectrumClient(connectionStr)
 

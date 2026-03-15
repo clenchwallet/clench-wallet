@@ -28,7 +28,9 @@ class SendViewModel @Inject constructor(
         val txHex: String? = null,
         val isLoading: Boolean = false,
         val error: String? = null,
-        val availableBalanceSat: Long = 0L
+        val availableBalanceSat: Long = 0L,
+        val utxoTxid: String? = null,
+        val utxoVout: Int? = null
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -48,6 +50,10 @@ class SendViewModel @Inject constructor(
             } catch (e: Exception) { /* show 0 */ }
         }
     }
+    fun setUtxo(txid: String?, vout: Int? = 0) {
+        _uiState.update { it.copy(utxoTxid = txid, utxoVout = vout) }
+    }
+
     fun setAddress(addr: String) = _uiState.update { it.copy(toAddress = addr, error = null) }
     fun setError(msg: String) = _uiState.update { it.copy(error = msg) }
     fun setAmount(amt: String) = _uiState.update { it.copy(amountSat = amt) }

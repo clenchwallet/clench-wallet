@@ -27,6 +27,7 @@ import net.clench.wallet.ui.viewmodel.SendViewModel
 fun SendScreen(
     walletId: String,
     onBack: () -> Unit,
+    utxoTxid: String? = null,
     viewModel: SendViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -78,7 +79,12 @@ fun SendScreen(
         }
     }
 
-    LaunchedEffect(walletId) { viewModel.load(walletId) }
+    LaunchedEffect(walletId) {
+        viewModel.load(walletId)
+        if (utxoTxid != null) {
+            viewModel.setUtxo(utxoTxid, 0)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -105,6 +111,22 @@ fun SendScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
+            }
+
+            uiState.utxoTxid?.let { txid ->
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    Text(
+                        "Spending UTXO: ${txid.take(8)}…",
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
             }
 
             OutlinedTextField(

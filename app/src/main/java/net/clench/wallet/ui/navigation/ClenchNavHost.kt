@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -16,6 +17,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import net.clench.wallet.ui.screens.*
+import net.clench.wallet.ui.viewmodel.HomeViewModel
 import net.clench.wallet.ui.viewmodel.StartupViewModel
 
 @Composable
@@ -108,7 +110,10 @@ fun ClenchNavHost(navController: NavHostController) {
                 onSettings = { navController.navigate(Routes.Settings.route) },
                 onWalletList = { navController.navigate(Routes.WalletList.route) },
                 onAddresses = { navController.navigate(Routes.Addresses.build(walletId)) },
-                onViewSeedPhrase = { navController.navigate(Routes.ViewSeedPhrase.build(walletId)) }
+                onViewSeedPhrase = { navController.navigate(Routes.ViewSeedPhrase.build(walletId)) },
+                onTransactionDetail = { txid ->
+                    navController.navigate(Routes.TransactionDetail.build(walletId, txid))
+                }
             )
         }
 
@@ -137,8 +142,40 @@ fun ClenchNavHost(navController: NavHostController) {
         composable(Routes.Settings.route) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
-                onDebug = { navController.navigate(Routes.Debug.route) }
+                onDebug = { navController.navigate(Routes.Debug.route) },
+                onElectrum = { navController.navigate(Routes.SettingsElectrum.route) },
+                onExplorer = { navController.navigate(Routes.SettingsExplorer.route) },
+                onNetwork = { navController.navigate(Routes.SettingsNetwork.route) },
+                onSecurity = { navController.navigate(Routes.SettingsSecurity.route) },
+                onAbout = { navController.navigate(Routes.SettingsAbout.route) }
             )
+        }
+
+        composable(Routes.SettingsElectrum.route) {
+            ElectrumServerScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SettingsExplorer.route) {
+            ExplorerScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SettingsNetwork.route) {
+            NetworkScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SettingsSecurity.route) {
+            SecurityScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SettingsAbout.route) {
+            AboutScreen(
+                onBack = { navController.popBackStack() },
+                onLicenses = { navController.navigate(Routes.SettingsLicenses.route) }
+            )
+        }
+
+        composable(Routes.SettingsLicenses.route) {
+            LicensesScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.Debug.route) {
@@ -178,6 +215,41 @@ fun ClenchNavHost(navController: NavHostController) {
                     navController.navigate(Routes.Welcome.route)
                 },
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.TransactionDetail.route,
+            arguments = listOf(
+                navArgument("walletId") { type = NavType.StringType },
+                navArgument("txid") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
+            val txid = backStackEntry.arguments?.getString("txid") ?: return@composable
+
+            // Get transaction data from the HomeViewModel's cached state
+            val homeViewModel: HomeViewModel = hiltViewModel()
+            val homeState by homeViewModel.uiState.collectAsState()
+
+            // Load wallet data if not already loaded
+            LaunchedEffect(walletId) { homeViewModel.load(walletId) }
+
+            val transaction = remember(homeState.transactions, txid) {
+                homeState.transactions.find { it.txid == txid }
+            }
+
+            TransactionDetailScreen(
+                transaction = transaction,
+                isWatchOnly = homeState.isWatchOnly,
+                mempoolUrl = homeState.mempoolUrl,
+                isTestnet = homeState.isTestnet,
+                isOfflineMode = homeState.isOfflineMode,
+                onBack = { navController.popBackStack() },
+                onSpendUtxo = { utxoTxid ->
+                    // Navigate to send with UTXO pre-selected
+                    navController.navigate(Routes.Send.build(walletId) + "?utxoTxid=$utxoTxid")
+                }
             )
         }
     }

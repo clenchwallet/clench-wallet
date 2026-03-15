@@ -37,45 +37,57 @@ class MainActivity : FragmentActivity() {
     @Inject lateinit var settingsManager: SettingsManager
 
     private var lastPauseTimestamp: Long = 0L
-    private val isLocked = mutableStateOf(false)
-    private val APP_LOCK_TIMEOUT_MS = 30_000L
+    private val isLocked = mutableStateOf(true) // Start locked — will be resolved in onCreate
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Determine initial lock state: locked if app lock is enabled
+        val shouldLock = settingsManager.getAppLockMode() != "none"
+        isLocked.value = shouldLock
+
         setContent {
             ClenchTheme {
-                if (isLocked.value) {
-                    // Lock screen overlay
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.Lock,
-                                contentDescription = "Locked",
-                                modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                "Clench is locked",
-                                style = MaterialTheme.typography.headlineSmall
-                            )
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Button(onClick = { promptBiometricUnlock() }) {
-                                Text("Unlock")
+                Box(modifier = Modifier.fillMaxSize()) {
+                    // Main app content always rendered underneath
+                    val navController = rememberNavController()
+                    ClenchNavHost(navController = navController)
+
+                    // Lock screen rendered ON TOP when locked
+                    if (isLocked.value) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    Icons.Default.Lock,
+                                    contentDescription = "Locked",
+                                    modifier = Modifier.size(64.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    "Clench is locked",
+                                    style = MaterialTheme.typography.headlineSmall
+                                )
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Button(onClick = { promptBiometricUnlock() }) {
+                                    Text("Unlock")
+                                }
                             }
                         }
                     }
-                } else {
-                    val navController = rememberNavController()
-                    ClenchNavHost(navController = navController)
                 }
             }
+        }
+
+        // Auto-prompt biometric on first launch if locked
+        if (shouldLock) {
+            promptBiometricUnlock()
         }
     }
 
@@ -87,23 +99,38 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         if (lastPauseTimestamp > 0L &&
-            settingsManager.getAppLockMode() == "biometric" &&
-            System.currentTimeMillis() - lastPauseTimestamp > APP_LOCK_TIMEOUT_MS
+            settingsManager.getAppLockMode() != "none"
         ) {
-            val bm = BiometricManager.from(this)
-            val canAuth = bm.canAuthenticate(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-            ) == BiometricManager.BIOMETRIC_SUCCESS
+            val timeoutMs = settingsManager.getLockTimeoutMs()
+            val elapsed = System.currentTimeMillis() - lastPauseTimestamp
+            if (elapsed > timeoutMs) {
+                val bm = BiometricManager.from(this)
+                val canAuth = bm.canAuthenticate(
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                ) == BiometricManager.BIOMETRIC_SUCCESS
 
-            if (canAuth) {
-                isLocked.value = true
-                promptBiometricUnlock()
+                if (canAuth) {
+                    isLocked.value = true
+                    promptBiometricUnlock()
+                }
             }
         }
     }
 
     private fun promptBiometricUnlock() {
+        val bm = BiometricManager.from(this)
+        val canAuth = bm.canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        ) == BiometricManager.BIOMETRIC_SUCCESS
+
+        if (!canAuth) {
+            // Device has no screen lock — unlock without auth
+            isLocked.value = false
+            return
+        }
+
         val executor = ContextCompat.getMainExecutor(this)
         val callback = object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {

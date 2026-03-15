@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.ElectrumConfig
+import net.clench.wallet.domain.model.PublicServer
 import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
 import javax.inject.Inject
@@ -35,7 +36,9 @@ class SettingsViewModel @Inject constructor(
         val useTestnet: Boolean = false,
         val biometricForSeed: Boolean = true,
         val biometricForSend: Boolean = true,
-        val appLockMode: String = "biometric"
+        val appLockMode: String = "biometric",
+        val lockTimeoutKey: String = "30s",
+        val offlineMode: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -55,7 +58,9 @@ class SettingsViewModel @Inject constructor(
                 useTestnet = settingsManager.isTestnet(),
                 biometricForSeed = settingsManager.isBiometricForSeedEnabled(),
                 biometricForSend = settingsManager.isBiometricForSendEnabled(),
-                appLockMode = settingsManager.getAppLockMode()
+                appLockMode = settingsManager.getAppLockMode(),
+                lockTimeoutKey = settingsManager.getLockTimeoutKey(),
+                offlineMode = settingsManager.isOfflineMode()
             )
         }
     }
@@ -199,6 +204,34 @@ class SettingsViewModel @Inject constructor(
     fun setAppLockMode(mode: String) {
         settingsManager.setAppLockMode(mode)
         _uiState.update { it.copy(appLockMode = mode) }
+    }
+
+    fun setLockTimeout(key: String) {
+        settingsManager.setLockTimeout(key)
+        _uiState.update { it.copy(lockTimeoutKey = key) }
+    }
+
+    fun setOfflineMode(enabled: Boolean) {
+        settingsManager.setOfflineMode(enabled)
+        _uiState.update { it.copy(offlineMode = enabled) }
+    }
+
+    fun selectPublicServer(server: PublicServer) {
+        val config = ElectrumConfig(
+            serverUrl = server.host,
+            port = server.port,
+            useSsl = server.useSsl,
+            isCustom = false
+        )
+        settingsManager.saveElectrumConfig(config)
+        _uiState.update { it.copy(
+            publicServer = "${server.host}:${server.port}",
+            savedSuccess = true
+        ) }
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(3000)
+            _uiState.update { it.copy(savedSuccess = false) }
+        }
     }
 
     private fun loadWallets() {

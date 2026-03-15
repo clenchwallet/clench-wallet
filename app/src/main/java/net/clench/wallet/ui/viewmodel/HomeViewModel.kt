@@ -19,7 +19,7 @@ import java.text.NumberFormat
 import java.util.Locale
 import javax.inject.Inject
 
-enum class BalanceUnit { SATS, BTC, USD }
+enum class BalanceUnit { SATS, BTC, USD, HIDDEN }
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -40,7 +40,8 @@ class HomeViewModel @Inject constructor(
         val btcPriceUsd: Double? = null,
         val priceStale: Boolean = false,
         val isTestnet: Boolean = false,
-        val mempoolUrl: String = "https://mempool.space"
+        val mempoolUrl: String = "https://mempool.space",
+        val isOfflineMode: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -51,10 +52,13 @@ class HomeViewModel @Inject constructor(
 
     fun load(walletId: String) {
         viewModelScope.launch {
+            val savedUnit = try { BalanceUnit.valueOf(settingsManager.getBalanceUnit()) } catch (_: Exception) { BalanceUnit.SATS }
             _uiState.update { it.copy(
                 isLoading = true,
                 isTestnet = settingsManager.isTestnet(),
-                mempoolUrl = settingsManager.getMempoolUrl()
+                mempoolUrl = settingsManager.getMempoolUrl(),
+                isOfflineMode = settingsManager.isOfflineMode(),
+                balanceUnit = savedUnit
             ) }
             try {
                 // Load wallet name from DB
@@ -104,12 +108,14 @@ class HomeViewModel @Inject constructor(
             val next = when (state.balanceUnit) {
                 BalanceUnit.SATS -> BalanceUnit.BTC
                 BalanceUnit.BTC -> BalanceUnit.USD
-                BalanceUnit.USD -> BalanceUnit.SATS
+                BalanceUnit.USD -> BalanceUnit.HIDDEN
+                BalanceUnit.HIDDEN -> BalanceUnit.SATS
             }
             // Refresh price when cycling to USD if stale
             if (next == BalanceUnit.USD) {
                 fetchBtcPrice()
             }
+            settingsManager.setBalanceUnit(next.name)
             state.copy(balanceUnit = next)
         }
     }
@@ -206,6 +212,7 @@ class HomeViewModel @Inject constructor(
                         "$prefix${fmt.format(usd)}"
                     }
                 }
+                BalanceUnit.HIDDEN -> "••••••"
             }
         }
     }

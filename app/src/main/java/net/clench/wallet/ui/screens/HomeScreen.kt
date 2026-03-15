@@ -1,7 +1,5 @@
 package net.clench.wallet.ui.screens
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -38,6 +36,7 @@ fun HomeScreen(
     onWalletList: () -> Unit = {},
     onAddresses: () -> Unit = {},
     onViewSeedPhrase: () -> Unit = {},
+    onTransactionDetail: (txid: String) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -114,6 +113,24 @@ fun HomeScreen(
                 }
             }
 
+            // Offline mode banner
+            if (uiState.isOfflineMode) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFFFC107))
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "📡 Offline — balance may be outdated",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
             // Balance card — tap to cycle sats/BTC/USD
             Card(
                 modifier = Modifier
@@ -183,8 +200,9 @@ fun HomeScreen(
                 if (!uiState.isWatchOnly) {
                     Button(
                         onClick = onSend,
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Send") }
+                        modifier = Modifier.weight(1f),
+                        enabled = !uiState.isOfflineMode
+                    ) { Text(if (uiState.isOfflineMode) "Offline" else "Send") }
                 } else {
                     OutlinedButton(
                         onClick = {},
@@ -242,11 +260,7 @@ fun HomeScreen(
                                 )
                             },
                             modifier = Modifier.clickable {
-                                val mempoolBase = uiState.mempoolUrl.trimEnd('/')
-                                val testnetPrefix = if (uiState.isTestnet) "/testnet" else ""
-                                val url = "$mempoolBase$testnetPrefix/tx/${tx.txid}"
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                context.startActivity(intent)
+                                onTransactionDetail(tx.txid)
                             }
                         )
                         HorizontalDivider()

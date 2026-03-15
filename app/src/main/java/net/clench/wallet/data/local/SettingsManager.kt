@@ -85,4 +85,36 @@ class SettingsManager @Inject constructor(
     fun setAppLockMode(mode: String) {
         prefs.edit { putString("app_lock_mode", mode) }
     }
+
+    // --- Lock timeout ---
+
+    fun getLockTimeoutMs(): Long {
+        return when (prefs.getString("lock_timeout", "30s")) {
+            "30s" -> 30_000L
+            "1min" -> 60_000L
+            "5min" -> 300_000L
+            "never" -> Long.MAX_VALUE
+            else -> 30_000L
+        }
+    }
+
+    fun getLockTimeoutKey(): String = prefs.getString("lock_timeout", "30s") ?: "30s"
+
+    fun setLockTimeout(key: String) {
+        prefs.edit { putString("lock_timeout", key) }
+    }
+
+    // --- Offline mode ---
+
+    fun isOfflineMode(): Boolean = prefs.getBoolean("offline_mode", false)
+    fun setOfflineMode(enabled: Boolean) {
+        prefs.edit { putBoolean("offline_mode", enabled) }
+    }
+
+    // --- Balance display unit ---
+
+    fun getBalanceUnit(): String = prefs.getString("balance_unit", "SATS") ?: "SATS"
+    fun setBalanceUnit(unit: String) {
+        prefs.edit { putString("balance_unit", unit) }
+    }
 }
