@@ -110,8 +110,27 @@ class KeystoreManager @Inject constructor(
             .apply()
     }
 
+    /**
+     * Get or create a 32-byte random key for SQLCipher database encryption.
+     * The key is stored encrypted via Android Keystore AES-GCM in EncryptedSharedPreferences.
+     */
+    fun getOrCreateDatabaseKey(): ByteArray {
+        val existing = prefs.getString(DATABASE_KEY, null)
+        if (existing != null) {
+            return android.util.Base64.decode(existing, android.util.Base64.NO_WRAP)
+        }
+        val key = ByteArray(32)
+        java.security.SecureRandom().nextBytes(key)
+        prefs.edit().putString(DATABASE_KEY, android.util.Base64.encodeToString(key, android.util.Base64.NO_WRAP)).apply()
+        return key
+    }
+
     private fun mnemonicKey(walletId: String) = "mnemonic_$walletId"
     private fun passphraseKey(walletId: String) = "passphrase_$walletId"
     private fun secretDescriptorKey(walletId: String) = "secret_descriptor_$walletId"
     private fun secretChangeDescriptorKey(walletId: String) = "secret_change_descriptor_$walletId"
+
+    companion object {
+        private const val DATABASE_KEY = "clench_database_encryption_key"
+    }
 }

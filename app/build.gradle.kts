@@ -85,6 +85,10 @@ dependencies {
     // Encrypted storage
     implementation(libs.security.crypto)
 
+    // SQLCipher — encrypts Room database at rest
+    implementation("net.zetetic:android-database-sqlcipher:4.5.4")
+    implementation("androidx.sqlite:sqlite-ktx:2.4.0")
+
     // Coroutines
     implementation(libs.coroutines.android)
 
