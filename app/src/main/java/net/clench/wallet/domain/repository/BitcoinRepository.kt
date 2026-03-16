@@ -123,9 +123,11 @@ interface BitcoinRepository {
 
     /**
      * Apply a signed PSBT and broadcast the resulting transaction.
+     * Validates that signed PSBT outputs match the original unsigned PSBT before broadcasting.
      * @param walletId wallet that created the original PSBT
      * @param signedPsbtBase64 base64-encoded signed PSBT from hardware wallet
+     * @param unsignedPsbtBase64 base64-encoded original unsigned PSBT for output validation
      * @return txid of the broadcast transaction
      */
-    suspend fun applyAndBroadcastPsbt(walletId: String, signedPsbtBase64: String): String
+    suspend fun applyAndBroadcastPsbt(walletId: String, signedPsbtBase64: String, unsignedPsbtBase64: String): String
 }

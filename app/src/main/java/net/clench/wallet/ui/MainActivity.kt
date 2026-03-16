@@ -103,6 +103,11 @@ class MainActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // Drop NFC payloads while app is locked — don't process until biometric unlock
+        if (isLocked.value) {
+            android.util.Log.d("MainActivity", "NFC intent received while locked — ignored")
+            return
+        }
         if (NfcAdapter.ACTION_NDEF_DISCOVERED == intent.action ||
             NfcAdapter.ACTION_TAG_DISCOVERED == intent.action
         ) {

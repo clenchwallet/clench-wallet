@@ -31,7 +31,6 @@ import net.clench.wallet.ui.viewmodel.HardwareWalletPsbtViewModel
 @Composable
 fun HardwareWalletPsbtScreen(
     walletId: String,
-    psbtBase64: String,
     deviceType: HardwareWalletType,
     onBack: () -> Unit,
     viewModel: HardwareWalletPsbtViewModel = hiltViewModel()
@@ -40,9 +39,13 @@ fun HardwareWalletPsbtScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showScanner by remember { mutableStateOf(false) }
 
+    // Initialize PSBT from in-memory store (not nav args)
+    val storeData = remember { viewModel.initFromStore() }
+    val psbtBase64 = uiState.psbtBase64
+
     // Pre-compute BC-UR frames for QR devices
     val urFrames = remember(psbtBase64) {
-        if (deviceType.supportsQr) psbtToUrFrames(psbtBase64) else emptyList()
+        if (psbtBase64.isNotEmpty() && deviceType.supportsQr) psbtToUrFrames(psbtBase64) else emptyList()
     }
 
     // File picker for importing signed PSBT (Coldcard Mk4 SD card flow)

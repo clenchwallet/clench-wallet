@@ -121,6 +121,9 @@ class HomeViewModel @Inject constructor(
     }
 
     fun fetchBtcPrice() {
+        // Never phone home in offline mode
+        if (settingsManager.isOfflineMode()) return
+
         val now = System.currentTimeMillis()
         val cached = _uiState.value.btcPriceUsd
         if (cached != null && now - lastPriceFetchMs < PRICE_CACHE_MS) {

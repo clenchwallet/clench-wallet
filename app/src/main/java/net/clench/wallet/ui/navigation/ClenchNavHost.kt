@@ -150,8 +150,9 @@ fun ClenchNavHost(navController: NavHostController) {
             SendScreen(
                 walletId = walletId,
                 onBack = { navController.popBackStack() },
-                onNavigateHardwarePsbt = { wId, psbt, deviceType ->
-                    navController.navigate(Routes.HardwarePsbt.build(wId, psbt, deviceType.name))
+                onNavigateHardwarePsbt = { wId, _, deviceType ->
+                    // PSBT already stored in PsbtStore by SendViewModel.storePsbtForNavigation()
+                    navController.navigate(Routes.HardwarePsbt.build(wId, deviceType.name))
                 }
             )
         }
@@ -290,24 +291,21 @@ fun ClenchNavHost(navController: NavHostController) {
             route = Routes.HardwarePsbt.route,
             arguments = listOf(
                 navArgument("walletId") { type = NavType.StringType },
-                navArgument("psbtBase64") { type = NavType.StringType },
                 navArgument("deviceType") { type = NavType.StringType }
             )
         ) { backStackEntry ->
             val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
-            val psbtBase64Encoded = backStackEntry.arguments?.getString("psbtBase64") ?: return@composable
             val deviceTypeName = backStackEntry.arguments?.getString("deviceType") ?: return@composable
 
-            val psbtBase64 = java.net.URLDecoder.decode(psbtBase64Encoded, "UTF-8")
             val deviceType = try {
                 HardwareWalletType.valueOf(deviceTypeName)
             } catch (_: Exception) {
                 HardwareWalletType.SEEDSIGNER
             }
 
+            // PSBT retrieved from PsbtStore in ViewModel (not from nav args)
             HardwareWalletPsbtScreen(
                 walletId = walletId,
-                psbtBase64 = psbtBase64,
                 deviceType = deviceType,
                 onBack = { navController.popBackStack() }
             )

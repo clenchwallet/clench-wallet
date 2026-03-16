@@ -34,10 +34,9 @@ sealed class Routes(val route: String) {
     object TransactionDetail : Routes("tx_detail/{walletId}/{txid}") {
         fun build(walletId: String, txid: String) = "tx_detail/$walletId/$txid"
     }
-    object HardwarePsbt : Routes("hw_psbt/{walletId}/{psbtBase64}/{deviceType}") {
-        fun build(walletId: String, psbtBase64: String, deviceType: String): String {
-            val encoded = java.net.URLEncoder.encode(psbtBase64, "UTF-8")
-            return "hw_psbt/$walletId/$encoded/$deviceType"
+    object HardwarePsbt : Routes("hw_psbt/{walletId}/{deviceType}") {
+        fun build(walletId: String, deviceType: String): String {
+            return "hw_psbt/$walletId/$deviceType"
         }
     }
 }

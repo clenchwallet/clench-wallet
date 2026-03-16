@@ -97,6 +97,8 @@ fun SendScreen(
             onDeviceSelected = { deviceType ->
                 showHardwareWalletPicker = false
                 viewModel.createPsbt { psbtBase64 ->
+                    // Store PSBT in memory before navigating (avoids leaking via nav route args)
+                    viewModel.storePsbtForNavigation(walletId, psbtBase64, deviceType.name)
                     onNavigateHardwarePsbt?.invoke(walletId, psbtBase64, deviceType)
                 }
             }

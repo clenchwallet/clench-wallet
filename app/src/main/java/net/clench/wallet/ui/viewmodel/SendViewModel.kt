@@ -15,7 +15,8 @@ import javax.inject.Inject
 @HiltViewModel
 class SendViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val psbtStore: PsbtStore
 ) : ViewModel() {
 
     data class UiState(
@@ -168,5 +169,13 @@ class SendViewModel @Inject constructor(
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
         }
+    }
+
+    /**
+     * Store PSBT in PsbtStore before navigating to hardware wallet screen.
+     * This avoids passing large base64 strings via navigation route arguments.
+     */
+    fun storePsbtForNavigation(walletId: String, psbtBase64: String, deviceType: String) {
+        psbtStore.store(walletId, psbtBase64, deviceType)
     }
 }
