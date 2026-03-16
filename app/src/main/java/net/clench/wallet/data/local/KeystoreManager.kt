@@ -88,6 +88,18 @@ class KeystoreManager @Inject constructor(
     fun hasMnemonic(walletId: String): Boolean =
         prefs.contains(mnemonicKey(walletId))
 
+    /**
+     * Delete all stale passphrase entries from encrypted prefs.
+     * Passphrases are no longer stored for security — this is a one-time migration cleanup.
+     */
+    fun deleteAllPassphrases() {
+        val editor = prefs.edit()
+        prefs.all.keys
+            .filter { it.startsWith("passphrase_") }
+            .forEach { editor.remove(it) }
+        editor.apply()
+    }
+
     /** Delete all stored secrets for a wallet. Call when deleting a wallet. */
     fun deleteWalletSecrets(walletId: String) {
         prefs.edit()

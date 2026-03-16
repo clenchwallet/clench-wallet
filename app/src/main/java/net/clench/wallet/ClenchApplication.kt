@@ -4,7 +4,9 @@ import android.app.Application
 import android.os.Build
 import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
+import net.clench.wallet.data.local.KeystoreManager
 import java.io.File
+import javax.inject.Inject
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.text.SimpleDateFormat
@@ -13,9 +15,17 @@ import java.util.*
 @HiltAndroidApp
 class ClenchApplication : Application() {
 
+    @Inject lateinit var keystoreManager: KeystoreManager
+
     override fun onCreate() {
         super.onCreate()
         installCrashHandler()
+        // One-time migration: delete any stale passphrases from encrypted storage [C-2]
+        try {
+            keystoreManager.deleteAllPassphrases()
+        } catch (e: Exception) {
+            Log.w("ClenchApp", "Passphrase cleanup failed (non-fatal)", e)
+        }
     }
 
     /**

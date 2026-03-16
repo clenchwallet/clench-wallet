@@ -166,30 +166,7 @@ fun ViewSeedPhraseScreen(
                     }
                 }
 
-                // Show passphrase if set
-                uiState.passphrase?.let { pass ->
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                "Passphrase",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
-                            Text(
-                                pass,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
-                        }
-                    }
-                }
+                // Passphrase is intentionally not stored or displayed for security [C-2]
 
                 uiState.error?.let { err ->
                     Spacer(modifier = Modifier.height(8.dp))

@@ -18,7 +18,6 @@ class ViewSeedPhraseViewModel @Inject constructor(
     data class UiState(
         val showWarning: Boolean = true,
         val mnemonic: List<String> = emptyList(),
-        val passphrase: String? = null,
         val isLoading: Boolean = false,
         val error: String? = null,
         val biometricForSeedEnabled: Boolean = true
@@ -38,7 +37,7 @@ class ViewSeedPhraseViewModel @Inject constructor(
         _uiState.update { it.copy(showWarning = false, isLoading = true) }
         try {
             val mnemonic = keystoreManager.getMnemonic(walletId)
-            val passphrase = keystoreManager.getPassphrase(walletId)
+            // Passphrase is intentionally NOT stored or displayed for security [C-2]
             if (mnemonic == null) {
                 _uiState.update { it.copy(isLoading = false, error = "No seed phrase found. This may be a watch-only wallet.") }
                 return
@@ -46,7 +45,6 @@ class ViewSeedPhraseViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     mnemonic = mnemonic.split(" "),
-                    passphrase = passphrase?.ifBlank { null },
                     isLoading = false
                 )
             }
