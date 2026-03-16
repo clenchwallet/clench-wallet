@@ -175,12 +175,14 @@ class HomeViewModel @Inject constructor(
                     e is kotlinx.coroutines.TimeoutCancellationException ->
                         "Sync timed out — check your Electrum server connection"
                     e.message?.contains("Connection refused") == true ->
-                        "Connection refused — is your Electrum server running?"
+                        "Connection refused — is your Electrum server running?\n\nTip: If your server uses a self-signed certificate, disable SSL and use port 50001 (plain TCP). Note: Clench uses BDK which does not support self-signed certificates over SSL."
                     e.message?.contains("Unable to resolve host") == true ||
                     e.message?.contains("UnknownHostException") == true ->
                         "Cannot reach server — check hostname and network"
-                    e.message?.contains("SSL") == true || e.message?.contains("TLS") == true ->
-                        "SSL error — try toggling SSL in server settings"
+                    e.message?.contains("SSL") == true || e.message?.contains("TLS") == true ||
+                    e.message?.contains("certificate") == true || e.message?.contains("Certificate") == true ||
+                    e.message?.contains("self-signed") == true || e.message?.contains("handshake") == true ->
+                        "SSL/TLS error — your server may be using a self-signed certificate.\n\nClench uses BDK which does not support self-signed certificates. Disable SSL and use port 50001 (plain TCP) instead."
                     e.message?.contains("descriptor") == true ->
                         "Wallet descriptor error — try deleting and re-importing this wallet"
                     else -> e.message ?: "Unknown sync error"

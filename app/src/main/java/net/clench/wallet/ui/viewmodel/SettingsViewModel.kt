@@ -138,7 +138,17 @@ class SettingsViewModel @Inject constructor(
                 }
                 "✓ Connected to $cleanUrl:$port"
             } catch (e: Exception) {
-                "✗ Failed: ${e.message?.take(80) ?: "Connection error"}"
+                val msg = e.message ?: "Connection error"
+                when {
+                    msg.contains("SSL", ignoreCase = true) ||
+                    msg.contains("TLS", ignoreCase = true) ||
+                    msg.contains("certificate", ignoreCase = true) ||
+                    msg.contains("handshake", ignoreCase = true) ->
+                        "✗ SSL/TLS error — self-signed certificates are not supported by BDK.\nDisable SSL and use port 50001 (plain TCP)."
+                    msg.contains("Connection refused", ignoreCase = true) ->
+                        "✗ Connection refused — check host/port and that your server is running.\nFor self-signed certs: disable SSL, use port 50001."
+                    else -> "✗ Failed: ${msg.take(100)}"
+                }
             }
             _uiState.update { it.copy(testingConnection = false, connectionTestResult = result) }
         }
