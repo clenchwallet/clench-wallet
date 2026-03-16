@@ -35,6 +35,7 @@ fun CreateWalletScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val buttonBringIntoViewRequester = remember { BringIntoViewRequester() }
     val coroutineScope = rememberCoroutineScope()
 
     // Prevent screenshots when mnemonic is visible
@@ -215,7 +216,9 @@ fun CreateWalletScreen(
                                     if (focusState.isFocused) {
                                         coroutineScope.launch {
                                             delay(300)
-                                            bringIntoViewRequester.bringIntoView()
+                                            // Scroll to show the button at the bottom — everything between
+                                            // (fingerprint, warnings) becomes visible above keyboard
+                                            buttonBringIntoViewRequester.bringIntoView()
                                         }
                                     }
                                 },
@@ -264,7 +267,9 @@ fun CreateWalletScreen(
                             viewModel.confirmAndSave(onWalletCreated)
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .bringIntoViewRequester(buttonBringIntoViewRequester),
                     enabled = !uiState.isLoading
                 ) {
                     if (uiState.isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp))
