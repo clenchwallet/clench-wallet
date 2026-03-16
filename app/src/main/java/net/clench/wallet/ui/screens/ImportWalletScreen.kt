@@ -85,7 +85,7 @@ fun ImportWalletScreen(
                     // Passphrase field — always plain text
                     OutlinedTextField(
                         value = uiState.passphrase,
-                        onValueChange = { viewModel.setPassphrase(it) },
+                        onValueChange = { if (it.length <= 512) viewModel.setPassphrase(it) },
                         label = { Text("Passphrase (optional)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true

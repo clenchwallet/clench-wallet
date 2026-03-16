@@ -216,7 +216,7 @@ fun CreateWalletScreen(
                         val passphraseFieldBringIntoViewRequester = remember { BringIntoViewRequester() }
                         OutlinedTextField(
                             value = uiState.passphrase,
-                            onValueChange = { viewModel.setPassphrase(it) },
+                            onValueChange = { if (it.length <= 512) viewModel.setPassphrase(it) },
                             label = { Text("Passphrase") },
                             modifier = Modifier
                                 .fillMaxWidth()

@@ -85,8 +85,10 @@ fun PassphraseConfirmScreen(
             OutlinedTextField(
                 value = confirmInput,
                 onValueChange = {
-                    confirmInput = it
-                    confirmError = null
+                    if (it.length <= 512) {
+                        confirmInput = it
+                        confirmError = null
+                    }
                 },
                 label = { Text("Confirm passphrase") },
                 modifier = Modifier
