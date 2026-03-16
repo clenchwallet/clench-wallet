@@ -31,14 +31,18 @@ class SendViewModel @Inject constructor(
         val error: String? = null,
         val availableBalanceSat: Long = 0L,
         val utxoTxid: String? = null,
-        val utxoVout: Int? = null
+        val utxoVout: Int? = null,
+        val biometricForSendEnabled: Boolean = true
     )
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
 
     fun load(walletId: String) {
-        _uiState.update { it.copy(walletId = walletId) }
+        _uiState.update { it.copy(
+            walletId = walletId,
+            biometricForSendEnabled = settingsManager.isBiometricForSendEnabled()
+        ) }
         viewModelScope.launch {
             try {
                 val wallets = bitcoinRepository.listWallets()

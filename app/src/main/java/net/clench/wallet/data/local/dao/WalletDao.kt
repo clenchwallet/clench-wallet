@@ -22,6 +22,9 @@ interface WalletDao {
     @Query("SELECT * FROM wallets WHERE id = :id")
     suspend fun getById(id: String): WalletEntity?
 
+    @Query("SELECT * FROM wallets WHERE id = :walletId LIMIT 1")
+    suspend fun getWalletById(walletId: String): WalletEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(wallet: WalletEntity)
 
@@ -30,4 +33,10 @@ interface WalletDao {
 
     @Query("DELETE FROM wallets WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("UPDATE wallets SET name = :name WHERE id = :walletId")
+    suspend fun updateName(walletId: String, name: String)
+
+    @Query("UPDATE wallets SET preferredHardwareWallet = :device WHERE id = :walletId")
+    suspend fun updatePreferredHardwareWallet(walletId: String, device: String?)
 }

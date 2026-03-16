@@ -6,11 +6,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import net.clench.wallet.data.local.KeystoreManager
+import net.clench.wallet.data.local.SettingsManager
 import javax.inject.Inject
 
 @HiltViewModel
 class ViewSeedPhraseViewModel @Inject constructor(
-    private val keystoreManager: KeystoreManager
+    private val keystoreManager: KeystoreManager,
+    private val settingsManager: SettingsManager
 ) : ViewModel() {
 
     data class UiState(
@@ -18,7 +20,8 @@ class ViewSeedPhraseViewModel @Inject constructor(
         val mnemonic: List<String> = emptyList(),
         val passphrase: String? = null,
         val isLoading: Boolean = false,
-        val error: String? = null
+        val error: String? = null,
+        val biometricForSeedEnabled: Boolean = true
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -28,6 +31,7 @@ class ViewSeedPhraseViewModel @Inject constructor(
 
     fun load(walletId: String) {
         this.walletId = walletId
+        _uiState.update { it.copy(biometricForSeedEnabled = settingsManager.isBiometricForSeedEnabled()) }
     }
 
     fun confirmWarning() {

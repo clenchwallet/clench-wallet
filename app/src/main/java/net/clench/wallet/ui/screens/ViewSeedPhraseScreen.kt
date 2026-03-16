@@ -65,7 +65,8 @@ fun ViewSeedPhraseScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    if (fragmentActivity != null && BiometricHelper.canAuthenticate(context)) {
+                    // R7-7: Only show biometric if the setting is enabled
+                    if (uiState.biometricForSeedEnabled && fragmentActivity != null && BiometricHelper.canAuthenticate(context)) {
                         BiometricHelper.authenticate(
                             activity = fragmentActivity,
                             title = "Authenticate to view seed phrase",
@@ -74,7 +75,7 @@ fun ViewSeedPhraseScreen(
                             onFailure = { /* user can retry via the dialog */ }
                         )
                     } else {
-                        // No biometric/PIN available — allow access (device is unprotected anyway)
+                        // Biometric disabled or not available — allow access
                         viewModel.confirmWarning()
                     }
                 }) {

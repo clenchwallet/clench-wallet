@@ -4,10 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.SettingsManager
@@ -50,7 +52,15 @@ class HomeViewModel @Inject constructor(
     private var lastPriceFetchMs: Long = 0L
     private val PRICE_CACHE_MS = 5 * 60 * 1000L // 5 minutes
 
+    // R7-1/R7-22: Store auto-refresh job to prevent stacking — cancel before starting new one
+    private var autoRefreshJob: Job? = null
+    private var currentWalletId: String? = null
+
     fun load(walletId: String) {
+        // Cancel previous auto-refresh loop to prevent stacking (R7-22)
+        autoRefreshJob?.cancel()
+        currentWalletId = walletId
+
         viewModelScope.launch {
             val savedUnit = try { BalanceUnit.valueOf(settingsManager.getBalanceUnit()) } catch (_: Exception) { BalanceUnit.SATS }
             _uiState.update { it.copy(
@@ -92,16 +102,23 @@ class HomeViewModel @Inject constructor(
             }
         }
 
-        // Auto-refresh every 60 seconds
-        viewModelScope.launch {
-            while (true) {
+        // R7-22: Auto-refresh every 60 seconds — stored as cancellable Job
+        autoRefreshJob = viewModelScope.launch {
+            while (isActive) {
                 delay(60_000L)
-                syncWallet(walletId)
+                if (isActive) {
+                    syncWallet(walletId)
+                }
             }
         }
     }
 
     fun reload(walletId: String) = load(walletId)
+
+    override fun onCleared() {
+        super.onCleared()
+        autoRefreshJob?.cancel()
+    }
 
     fun cycleBalanceUnit() {
         _uiState.update { state ->

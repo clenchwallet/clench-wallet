@@ -17,6 +17,7 @@ import net.clench.wallet.ui.viewmodel.SettingsViewModel
 @Composable
 fun NetworkScreen(
     onBack: () -> Unit,
+    onNetworkSwitched: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -28,17 +29,30 @@ fun NetworkScreen(
             onDismissRequest = { showWarningDialog = false },
             title = { Text("⚠️ Switch Network?") },
             text = {
-                Text(
-                    if (pendingTestnet)
-                        "Switching to testnet. Your mainnet wallets will be hidden until you switch back — they are not deleted. You'll need to create a new testnet wallet."
-                    else
-                        "Switching to mainnet. Your testnet wallets will be hidden until you switch back — they are not deleted."
-                )
+                Column {
+                    Text(
+                        if (pendingTestnet)
+                            "Switching to testnet. Your mainnet wallets will be hidden until you switch back — they are not deleted. You'll need to create a new testnet wallet."
+                        else
+                            "Switching to mainnet. Your testnet wallets will be hidden until you switch back — they are not deleted."
+                    )
+                    // R7-10: Warn about custom server when switching to testnet
+                    if (pendingTestnet && uiState.useCustomServer) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "Note: Your custom Electrum server is configured. Make sure it supports testnet (port 60002 for most servers).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             },
             confirmButton = {
                 Button(onClick = {
                     viewModel.setUseTestnet(pendingTestnet)
                     showWarningDialog = false
+                    // R7-6: Navigate to root after network switch
+                    onNetworkSwitched()
                 }) { Text("Switch") }
             },
             dismissButton = {

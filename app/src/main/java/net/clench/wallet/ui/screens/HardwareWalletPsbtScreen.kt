@@ -3,7 +3,9 @@ package net.clench.wallet.ui.screens
 import android.content.ContentValues
 import android.os.Environment
 import android.provider.MediaStore
+import android.app.Activity
 import android.util.Base64
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +40,15 @@ fun HardwareWalletPsbtScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     var showScanner by remember { mutableStateOf(false) }
+
+    // R7-20: FLAG_SECURE — prevent screenshots of PSBT data
+    DisposableEffect(Unit) {
+        val activity = context as? Activity
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
 
     // Initialize PSBT from in-memory store (not nav args)
     val storeData = remember { viewModel.initFromStore() }
@@ -123,7 +134,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "TXID: ${uiState.txid!!.take(16)}…",
+                            "TXID: ${uiState.txid?.take(16) ?: ""}…",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

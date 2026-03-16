@@ -13,8 +13,14 @@ data class WalletData(
     val isWatchOnly: Boolean = false,
     val isMultisig: Boolean = false,
     val createdAt: Instant = Instant.now(),
-    val network: String = "mainnet"  // "mainnet" or "testnet"
+    val network: String = "mainnet",  // "mainnet" or "testnet"
+    val preferredHardwareWallet: String? = null
 )
+
+/**
+ * Address info for the Addresses list screen.
+ */
+data class AddressInfo(val index: Int, val address: String, val isUsed: Boolean)
 
 /**
  * Direction of a transaction relative to this wallet.

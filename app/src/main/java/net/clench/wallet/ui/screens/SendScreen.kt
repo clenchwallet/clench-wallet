@@ -218,7 +218,8 @@ fun SendScreen(
             } else {
                 Button(
                     onClick = {
-                        if (fragmentActivity != null && BiometricHelper.canAuthenticate(context)) {
+                        // R7-7: Only show biometric if the setting is enabled
+                        if (uiState.biometricForSendEnabled && fragmentActivity != null && BiometricHelper.canAuthenticate(context)) {
                             BiometricHelper.authenticate(
                                 activity = fragmentActivity,
                                 title = "Authenticate to send Bitcoin",
@@ -227,7 +228,7 @@ fun SendScreen(
                                 onFailure = { msg -> viewModel.setError("Auth failed: $msg") }
                             )
                         } else {
-                            // No biometric available — proceed without (device is unprotected)
+                            // Biometric disabled or not available — proceed without
                             viewModel.buildTx()
                         }
                     },

@@ -33,6 +33,8 @@ import org.bitcoindevkit.Transaction
 import org.bitcoindevkit.TxBuilder
 import org.bitcoindevkit.Wallet
 import org.bitcoindevkit.WordCount
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -62,6 +64,10 @@ class BdkBitcoinRepository @Inject constructor(
 
     // In-memory wallet cache to avoid reopening SQLite on every call
     private val walletCache = ConcurrentHashMap<String, WalletEntry>()
+
+    // R7-1: Per-wallet sync mutex to prevent concurrent syncs corrupting BDK wallet DB
+    private val syncMutexes = ConcurrentHashMap<String, Mutex>()
+    private fun syncMutex(walletId: String) = syncMutexes.getOrPut(walletId) { Mutex() }
 
     /** Resolve the active BDK Network from settings. */
     private fun activeNetwork(): Network =
@@ -271,89 +277,120 @@ class BdkBitcoinRepository @Inject constructor(
             return@withContext getBalance(walletId)
         }
 
-        // Use provided config or fall back to saved settings
-        val effectiveConfig = config ?: settingsManager.loadElectrumConfig()
-
-        // Never silently fall back to public server when custom is configured
-        if (effectiveConfig.isCustom && effectiveConfig.serverUrl.isBlank()) {
-            throw IllegalStateException("Custom server is enabled but no server address is configured")
+        // R7-1: Per-wallet mutex — skip if already syncing to prevent concurrent BDK access
+        val mutex = syncMutex(walletId)
+        if (mutex.isLocked) {
+            android.util.Log.d("BdkRepo", "syncWallet: already syncing $walletId, skipping")
+            return@withContext getBalance(walletId)
         }
 
-        // Build Electrum connection string
-        val connectionStr = buildElectrumUrl(effectiveConfig)
-        android.util.Log.d("BdkRepo", "syncWallet: url=${effectiveConfig.serverUrl}, port=${effectiveConfig.port}, ssl=${effectiveConfig.useSsl}, custom=${effectiveConfig.isCustom}")
-        val electrumClient = ElectrumClient(connectionStr)
+        mutex.withLock {
+            // Use provided config or fall back to saved settings
+            val effectiveConfig = config ?: settingsManager.loadElectrumConfig()
 
-        // Load wallet
-        val entry = loadWallet(walletId)
-        val wallet = entry.wallet
+            // Never silently fall back to public server when custom is configured
+            if (effectiveConfig.isCustom && effectiveConfig.serverUrl.isBlank()) {
+                throw IllegalStateException("Custom server is enabled but no server address is configured")
+            }
 
-        // Perform full scan with timeout to prevent hanging on bad servers
-        // ElectrumClient must always be closed — resource leak causes silent failures on retry
-        // Use longer timeout for custom/private nodes which may be slower
-        val timeoutMs = if (effectiveConfig.isCustom) 60_000L else 30_000L
-        try {
-            withTimeout(timeoutMs) {
-                val fullScanRequest = wallet.startFullScan().build()
-                val update = electrumClient.fullScan(
-                    fullScanRequest,
-                    stopGap = 20u,
-                    batchSize = 10u,
-                    fetchPrevTxouts = true
+            // Build Electrum connection string
+            val connectionStr = buildElectrumUrl(effectiveConfig)
+            android.util.Log.d("BdkRepo", "syncWallet: url=${effectiveConfig.serverUrl}, port=${effectiveConfig.port}, ssl=${effectiveConfig.useSsl}, custom=${effectiveConfig.isCustom}")
+            val electrumClient = ElectrumClient(connectionStr)
+
+            // Load wallet
+            val entry = loadWallet(walletId)
+            val wallet = entry.wallet
+
+            // Perform full scan with timeout to prevent hanging on bad servers
+            // ElectrumClient must always be closed — resource leak causes silent failures on retry
+            // Use longer timeout for custom/private nodes which may be slower
+            val timeoutMs = if (effectiveConfig.isCustom) 60_000L else 30_000L
+            try {
+                withTimeout(timeoutMs) {
+                    val fullScanRequest = wallet.startFullScan().build()
+                    val update = electrumClient.fullScan(
+                        fullScanRequest,
+                        stopGap = 20u,
+                        batchSize = 10u,
+                        fetchPrevTxouts = true
+                    )
+
+                    // Apply update to wallet
+                    wallet.applyUpdate(update)
+
+                    // Persist wallet state after sync
+                    wallet.persist(entry.connection)
+                }
+            } finally {
+                electrumClient.close()
+            }
+
+            // R7-4: Calculate tip height from confirmed transactions for confirmation count
+            val transactions = wallet.transactions()
+            var tipHeight: UInt = 0u
+            for (canonicalTx in transactions) {
+                val pos = canonicalTx.chainPosition
+                if (pos is ChainPosition.Confirmed) {
+                    val h = pos.confirmationBlockTime.blockId.height
+                    if (h > tipHeight) tipHeight = h
+                }
+            }
+
+            // Cache transactions to Room DB
+            val transactionEntities = transactions.map { canonicalTx ->
+                val tx = canonicalTx.transaction
+                val sentAndReceived = wallet.sentAndReceived(tx)
+                val sent = sentAndReceived.sent.toSat()
+                val received = sentAndReceived.received.toSat()
+
+                // Determine direction and amount
+                val (direction, amount) = if (received > sent) {
+                    TxDirection.RECEIVED to (received - sent)
+                } else {
+                    TxDirection.SENT to (sent - received)
+                }
+
+                // R7-4: Get confirmation timestamp and calculate confirmations
+                val (timestampMs, confirmations) = when (val pos = canonicalTx.chainPosition) {
+                    is ChainPosition.Confirmed -> {
+                        val ts = pos.confirmationBlockTime.confirmationTime.toLong() * 1000L
+                        val txHeight = pos.confirmationBlockTime.blockId.height
+                        val confs = if (tipHeight >= txHeight) (tipHeight - txHeight + 1u).toInt() else 1
+                        Pair(ts, confs)
+                    }
+                    else -> Pair(null, 0)
+                }
+
+                // R7-5: Calculate fee if possible (may fail for watch-only wallets)
+                val feeSat: Long? = try {
+                    wallet.calculateFee(tx).toSat().toLong()
+                } catch (_: Exception) {
+                    null
+                }
+
+                TransactionEntity(
+                    txid = tx.computeTxid(),
+                    walletId = walletId,
+                    amountSat = amount.toLong(),
+                    feeSat = feeSat,
+                    timestampEpochMs = timestampMs,
+                    confirmations = confirmations,
+                    direction = direction.name,
+                    address = null
                 )
-
-                // Apply update to wallet
-                wallet.applyUpdate(update)
-
-                // Persist wallet state after sync
-                wallet.persist(entry.connection)
             }
-        } finally {
-            electrumClient.close()
-        }
+            transactionDao.insertAll(transactionEntities)
 
-        // Cache transactions to Room DB
-        val transactions = wallet.transactions()
-        val transactionEntities = transactions.map { canonicalTx ->
-            val tx = canonicalTx.transaction
-            val sentAndReceived = wallet.sentAndReceived(tx)
-            val sent = sentAndReceived.sent.toSat()
-            val received = sentAndReceived.received.toSat()
-
-            // Determine direction and amount
-            val (direction, amount) = if (received > sent) {
-                TxDirection.RECEIVED to (received - sent)
-            } else {
-                TxDirection.SENT to (sent - received)
-            }
-
-            // Get confirmation timestamp from chain position
-            val timestampMs = when (val pos = canonicalTx.chainPosition) {
-                is ChainPosition.Confirmed -> pos.confirmationBlockTime.confirmationTime.toLong() * 1000L
-                else -> null
-            }
-
-            TransactionEntity(
-                txid = tx.computeTxid(),
-                walletId = walletId,
-                amountSat = amount.toLong(),
-                feeSat = null,
-                timestampEpochMs = timestampMs,
-                confirmations = 0,
-                direction = direction.name,
-                address = null
+            // Return balance
+            val balance = wallet.balance()
+            WalletBalance(
+                confirmedSat = balance.confirmed.toSat().toLong(),
+                trustedPendingSat = balance.trustedPending.toSat().toLong(),
+                untrustedPendingSat = balance.untrustedPending.toSat().toLong(),
+                immatureSat = balance.immature.toSat().toLong()
             )
         }
-        transactionDao.insertAll(transactionEntities)
-
-        // Return balance
-        val balance = wallet.balance()
-        WalletBalance(
-            confirmedSat = balance.confirmed.toSat().toLong(),
-            trustedPendingSat = balance.trustedPending.toSat().toLong(),
-            untrustedPendingSat = balance.untrustedPending.toSat().toLong(),
-            immatureSat = balance.immature.toSat().toLong()
-        )
     }
 
     override suspend fun getBalance(walletId: String): WalletBalance = withContext(Dispatchers.IO) {
@@ -386,13 +423,11 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun getLastAddress(walletId: String): DomainAddress = withContext(Dispatchers.IO) {
-        val entry = walletCache[walletId] ?: run {
-            loadWallet(walletId)
-            walletCache[walletId]!!
-        }
+        // R7-3: Fixed !! crash — use loadWallet() which always returns a valid entry
+        // R7-8: Use nextUnusedAddress() which returns the next unused address without advancing the gap limit
+        val entry = loadWallet(walletId)
         val wallet = entry.wallet
-        // peekAddress does not advance the index — safe to call repeatedly
-        val addressInfo = wallet.peekAddress(KeychainKind.EXTERNAL, 0u)
+        val addressInfo = wallet.nextUnusedAddress(KeychainKind.EXTERNAL)
         DomainAddress(
             address = addressInfo.address.toString(),
             index = addressInfo.index.toInt(),
@@ -482,7 +517,8 @@ class BdkBitcoinRepository @Inject constructor(
                 isWatchOnly = entity.isWatchOnly,
                 isMultisig = entity.isMultisig,
                 createdAt = java.time.Instant.ofEpochMilli(entity.createdAtEpochMs),
-                network = entity.network
+                network = entity.network,
+                preferredHardwareWallet = entity.preferredHardwareWallet
             )
         }
     }
@@ -507,29 +543,122 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun getAddresses(walletId: String, count: Int): List<DomainAddress> = withContext(Dispatchers.IO) {
+        getAddresses(walletId, KeychainKind.EXTERNAL, count)
+    }
+
+    override suspend fun getAddresses(walletId: String, keychain: KeychainKind, count: Int): List<DomainAddress> = withContext(Dispatchers.IO) {
         val entry = loadWallet(walletId)
         val wallet = entry.wallet
 
-        // Get known transactions to determine "used" status
-        val txAddresses = mutableSetOf<String>()
-        try {
-            val transactions = wallet.transactions()
-            // We can't easily get per-address usage from BDK, so we'll mark all as unknown
-            // The sync would need to track this; for now, leave used=false
-        } catch (_: Exception) {}
+        // Determine "used" addresses by checking BDK's unused address list
+        val unusedAddresses = try {
+            wallet.listUnusedAddresses(keychain).map { it.address.toString() }.toSet()
+        } catch (_: Exception) { emptySet() }
+
+        // Get the last revealed index to know which addresses have been revealed
+        val lastRevealedIndex = try {
+            wallet.derivationIndex(keychain)?.toInt() ?: 0
+        } catch (_: Exception) { 0 }
 
         val addresses = mutableListOf<DomainAddress>()
         for (i in 0 until count) {
-            val addressInfo = wallet.peekAddress(KeychainKind.EXTERNAL, i.toUInt())
+            val addressInfo = wallet.peekAddress(keychain, i.toUInt())
+            val addrStr = addressInfo.address.toString()
+            // An address is "used" if it has been revealed and is not in the unused list
+            val isUsed = i <= lastRevealedIndex && addrStr !in unusedAddresses
             addresses.add(
                 DomainAddress(
-                    address = addressInfo.address.toString(),
+                    address = addrStr,
                     index = i,
-                    used = false
+                    used = isUsed
                 )
             )
         }
         addresses
+    }
+
+    override suspend fun renameWallet(walletId: String, newName: String) {
+        walletDao.updateName(walletId, newName)
+    }
+
+    override suspend fun getAccountXpub(walletId: String): String = withContext(Dispatchers.IO) {
+        val entry = loadWallet(walletId)
+        val wallet = entry.wallet
+        val walletEntity = walletDao.getById(walletId)
+            ?: throw IllegalArgumentException("Wallet not found: $walletId")
+        val descriptorStr = walletEntity.descriptor
+        
+        // Parse the xpub from the descriptor: wpkh([fp/path]xpub.../0/*)
+        val xpubRegex = Regex("[xt]pub[1-9A-HJ-NP-Za-km-z]+")
+        val xpubMatch = xpubRegex.find(descriptorStr)
+            ?: return@withContext descriptorStr // fallback: return full descriptor
+
+        val xpub = xpubMatch.value
+        val isTestnet = walletEntity.network == "testnet"
+
+        // Convert to the appropriate display format
+        if (isTestnet) {
+            // xpub → vpub for testnet P2WPKH, or if already tpub → vpub
+            convertXpubToZpub(xpub, testnet = true)
+        } else {
+            // xpub → zpub for mainnet P2WPKH
+            convertXpubToZpub(xpub, testnet = false)
+        }
+    }
+
+    override suspend fun getDerivationPath(walletId: String): String {
+        val walletEntity = walletDao.getById(walletId)
+            ?: return "Unknown"
+        val descriptorStr = walletEntity.descriptor
+
+        // Try to parse from descriptor origin: [fingerprint/84h/0h/0h]
+        val originRegex = Regex("""\[([0-9a-fA-F]+)/([\d'h/]+)\]""")
+        val match = originRegex.find(descriptorStr)
+        if (match != null) {
+            val path = match.groupValues[2]
+                .replace("h", "'")
+            return "m/$path"
+        }
+
+        // Fallback based on network
+        return if (walletEntity.network == "testnet") "m/84'/1'/0'" else "m/84'/0'/0'"
+    }
+
+    override suspend fun getWalletEntity(walletId: String): WalletData? {
+        val entity = walletDao.getById(walletId) ?: return null
+        return WalletData(
+            id = entity.id,
+            name = entity.name,
+            descriptor = entity.descriptor,
+            changeDescriptor = entity.changeDescriptor,
+            isWatchOnly = entity.isWatchOnly,
+            isMultisig = entity.isMultisig,
+            createdAt = java.time.Instant.ofEpochMilli(entity.createdAtEpochMs),
+            network = entity.network,
+            preferredHardwareWallet = entity.preferredHardwareWallet
+        )
+    }
+
+    override suspend fun setPreferredHardwareWallet(walletId: String, device: String?) {
+        walletDao.updatePreferredHardwareWallet(walletId, device)
+    }
+
+    // Convert xpub/tpub to zpub/vpub format for display
+    private fun convertXpubToZpub(key: String, testnet: Boolean): String {
+        val ZPUB_VERSION = byteArrayOf(0x04.toByte(), 0xB2.toByte(), 0x47.toByte(), 0x46.toByte())
+        val VPUB_VERSION = byteArrayOf(0x04.toByte(), 0x5F.toByte(), 0x1C.toByte(), 0xF6.toByte())
+
+        try {
+            val decoded = base58Decode(key)
+            if (decoded.size < 78) return key
+
+            val targetVersion = if (testnet) VPUB_VERSION else ZPUB_VERSION
+            val convertedBytes = targetVersion + decoded.sliceArray(4 until decoded.size - 4)
+            val checksum = doubleSha256(convertedBytes).sliceArray(0..3)
+            return base58Encode(convertedBytes + checksum)
+        } catch (e: Exception) {
+            return key
+        }
     }
 
     override suspend fun createPsbt(
@@ -703,9 +832,9 @@ class BdkBitcoinRepository @Inject constructor(
         val walletEntity = walletDao.getById(walletId)
             ?: throw IllegalArgumentException("Wallet not found: $walletId")
 
-        // For non-watch-only wallets, use secret descriptors from Keystore (contains xprv for signing)
-        // Fall back to public descriptors from Room DB (watch-only or migration case)
-        val network = activeNetwork()
+        // R7-2: Use the wallet's stored network, NOT the global setting
+        // The wallet's own network is the truth — prevents loading testnet wallet with mainnet network
+        val network = if (walletEntity.network == "testnet") Network.TESTNET else Network.BITCOIN
         val externalDescriptorStr = if (!walletEntity.isWatchOnly) {
             keystoreManager.getSecretDescriptor(walletId) ?: walletEntity.descriptor
         } else {
@@ -776,6 +905,7 @@ class BdkBitcoinRepository @Inject constructor(
                 .replace(Regex("ypub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
                 .replace(Regex("Ypub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
                 .replace(Regex("vpub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
+                .replace(Regex("upub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
             val external = if (!converted.contains("/0/*") && !converted.contains("/*")) {
                 // No derivation path — add /0/*
                 converted.trimEnd(')') + "/0/*)"
@@ -800,6 +930,7 @@ class BdkBitcoinRepository @Inject constructor(
             input.startsWith("xpub") -> Pair(input, "wpkh")
             input.startsWith("tpub") -> Pair(input, "wpkh")  // testnet
             input.startsWith("vpub") -> Pair(convertZpubToXpub(input), "wpkh")  // testnet zpub
+            input.startsWith("upub") -> Pair(convertZpubToXpub(input), "sh_wpkh")  // testnet ypub
             else -> Pair(input, "wpkh")  // try as-is
         }
 
@@ -809,23 +940,34 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
-    // Convert zpub/ypub/vpub to standard xpub by swapping version bytes (Base58Check decode, swap, re-encode).
-    private fun convertZpubToXpub(zpub: String): String {
+    // Convert zpub/ypub/vpub/upub to standard xpub/tpub by swapping version bytes (Base58Check decode, swap, re-encode).
+    // R7-17: Testnet keys (vpub/upub) convert to tpub, mainnet keys (zpub/ypub) convert to xpub.
+    private fun convertZpubToXpub(key: String): String {
         val XPUB_VERSION = byteArrayOf(0x04.toByte(), 0x88.toByte(), 0xB2.toByte(), 0x1E.toByte())
+        val TPUB_VERSION = byteArrayOf(0x04.toByte(), 0x35.toByte(), 0x87.toByte(), 0xCF.toByte())
 
         try {
-            val decoded = base58Decode(zpub)
-            if (decoded.size < 78) return zpub  // not a valid extended key, return as-is
+            val decoded = base58Decode(key)
+            if (decoded.size < 78) return key  // not a valid extended key, return as-is
 
-            // Replace first 4 version bytes with xpub version
-            val xpubBytes = XPUB_VERSION + decoded.sliceArray(4 until decoded.size - 4)
+            // Determine target version based on input prefix
+            // vpub (0x045F1CF6) and upub are testnet → tpub
+            // zpub (0x04B24746) and ypub (0x049D7CB2) are mainnet → xpub
+            val targetVersion = if (key.startsWith("vpub") || key.startsWith("upub")) {
+                TPUB_VERSION
+            } else {
+                XPUB_VERSION
+            }
+
+            // Replace first 4 version bytes with target version
+            val convertedBytes = targetVersion + decoded.sliceArray(4 until decoded.size - 4)
 
             // Re-add checksum
-            val checksum = doubleSha256(xpubBytes).sliceArray(0..3)
-            return base58Encode(xpubBytes + checksum)
+            val checksum = doubleSha256(convertedBytes).sliceArray(0..3)
+            return base58Encode(convertedBytes + checksum)
         } catch (e: Exception) {
             // If conversion fails, return original and let BDK give a clear error
-            return zpub
+            return key
         }
     }
 

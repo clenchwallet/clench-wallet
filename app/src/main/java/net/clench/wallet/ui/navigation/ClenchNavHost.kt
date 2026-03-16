@@ -134,7 +134,7 @@ fun ClenchNavHost(navController: NavHostController) {
                 onReceive = { navController.navigate(Routes.Receive.build(walletId)) },
                 onSettings = { navController.navigate(Routes.Settings.route) },
                 onWalletList = { navController.navigate(Routes.WalletList.route) },
-                onAddresses = { navController.navigate(Routes.Addresses.build(walletId)) },
+                onAddresses = { navController.navigate(Routes.WalletInfo.build(walletId)) },
                 onViewSeedPhrase = { navController.navigate(Routes.ViewSeedPhrase.build(walletId)) },
                 onTransactionDetail = { txid ->
                     navController.navigate(Routes.TransactionDetail.build(walletId, txid))
@@ -189,7 +189,15 @@ fun ClenchNavHost(navController: NavHostController) {
         }
 
         composable(Routes.SettingsNetwork.route) {
-            NetworkScreen(onBack = { navController.popBackStack() })
+            NetworkScreen(
+                onBack = { navController.popBackStack() },
+                // R7-6: After network switch, navigate back to loading to re-evaluate startup
+                onNetworkSwitched = {
+                    navController.navigate("loading") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
         }
 
         composable(Routes.SettingsSecurity.route) {
@@ -211,12 +219,26 @@ fun ClenchNavHost(navController: NavHostController) {
             DebugScreen(onBack = { navController.popBackStack() })
         }
 
+        // Part 2: WalletInfo screen (replaces Addresses)
         composable(
-            route = Routes.Addresses.route,
+            route = Routes.WalletInfo.route,
             arguments = listOf(navArgument("walletId") { type = NavType.StringType })
         ) { backStackEntry ->
             val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
-            AddressesScreen(
+            WalletInfoScreen(
+                walletId = walletId,
+                onBack = { navController.popBackStack() },
+                onViewAddresses = { navController.navigate(Routes.AddressList.build(walletId)) }
+            )
+        }
+
+        // Part 2: AddressList screen
+        composable(
+            route = Routes.AddressList.route,
+            arguments = listOf(navArgument("walletId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
+            AddressListScreen(
                 walletId = walletId,
                 onBack = { navController.popBackStack() }
             )
@@ -262,12 +284,16 @@ fun ClenchNavHost(navController: NavHostController) {
             val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
             val txid = backStackEntry.arguments?.getString("txid") ?: return@composable
 
-            // Get transaction data from the HomeViewModel's cached state
+            // R7-9: Get transaction data from HomeViewModel without triggering a new sync
             val homeViewModel: HomeViewModel = hiltViewModel()
             val homeState by homeViewModel.uiState.collectAsState()
 
-            // Load wallet data if not already loaded
-            LaunchedEffect(walletId) { homeViewModel.load(walletId) }
+            // Only load if not already loaded (avoid redundant sync)
+            LaunchedEffect(walletId) {
+                if (homeState.transactions.isEmpty()) {
+                    homeViewModel.load(walletId)
+                }
+            }
 
             val transaction = remember(homeState.transactions, txid) {
                 homeState.transactions.find { it.txid == txid }

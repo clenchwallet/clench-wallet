@@ -1,6 +1,7 @@
 package net.clench.wallet.domain.repository
 
 import net.clench.wallet.domain.model.*
+import org.bitcoindevkit.KeychainKind
 
 /**
  * Core Bitcoin wallet operations.
@@ -101,6 +102,36 @@ interface BitcoinRepository {
      * @return list of Address objects with index, address string, and used status
      */
     suspend fun getAddresses(walletId: String, count: Int = 20): List<Address>
+
+    /**
+     * Get derived addresses for a specific keychain (external/internal).
+     */
+    suspend fun getAddresses(walletId: String, keychain: KeychainKind, count: Int = 20): List<Address>
+
+    /**
+     * Rename a wallet.
+     */
+    suspend fun renameWallet(walletId: String, newName: String)
+
+    /**
+     * Get the account-level extended public key in the display format (zpub/vpub).
+     */
+    suspend fun getAccountXpub(walletId: String): String
+
+    /**
+     * Get the derivation path for a wallet.
+     */
+    suspend fun getDerivationPath(walletId: String): String
+
+    /**
+     * Get wallet entity data.
+     */
+    suspend fun getWalletEntity(walletId: String): WalletData?
+
+    /**
+     * Set the preferred hardware wallet for a wallet.
+     */
+    suspend fun setPreferredHardwareWallet(walletId: String, device: String?)
 
     /**
      * Create an unsigned PSBT for hardware wallet signing.

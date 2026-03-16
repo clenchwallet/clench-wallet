@@ -161,12 +161,15 @@ fun TransactionDetailScreen(
                     style = MaterialTheme.typography.bodyMedium
                 )
 
-                // Fee
-                transaction.feeSat?.let { fee ->
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("Fee", style = MaterialTheme.typography.labelMedium)
+                // Fee (R7-5: show fee from sync data, "—" if unavailable)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Fee", style = MaterialTheme.typography.labelMedium)
+                if (transaction.feeSat != null) {
                     val fmtFee = NumberFormat.getNumberInstance(Locale.US)
-                    Text("${fmtFee.format(fee)} sats", style = MaterialTheme.typography.bodyMedium)
+                    Text("${fmtFee.format(transaction.feeSat)} sats", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    Text("—", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))

@@ -25,7 +25,8 @@ class ReceiveViewModel @Inject constructor(
         val address: String = "",
         val addressIndex: Int = 0,
         val isLoading: Boolean = false,
-        val error: String? = null
+        val error: String? = null,
+        val hasLoadedOnce: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -33,12 +34,22 @@ class ReceiveViewModel @Inject constructor(
 
     fun load(walletId: String) {
         _uiState.update { it.copy(walletId = walletId) }
-        // Use getReceiveAddress to show the next unused address
+
+        // R7-8: Don't burn addresses on every screen open.
+        // On first load, use getLastAddress (peekAddress) to show current address.
+        // Only advance with getReceiveAddress (revealNextAddress) when user explicitly taps "next".
+        if (_uiState.value.hasLoadedOnce) return  // Already loaded — don't re-derive
+
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                val addr = bitcoinRepository.getReceiveAddress(walletId)
-                _uiState.update { it.copy(address = addr.address, addressIndex = addr.index, isLoading = false) }
+                val addr = bitcoinRepository.getLastAddress(walletId)
+                _uiState.update { it.copy(
+                    address = addr.address,
+                    addressIndex = addr.index,
+                    isLoading = false,
+                    hasLoadedOnce = true
+                ) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
@@ -46,7 +57,7 @@ class ReceiveViewModel @Inject constructor(
     }
 
     fun nextAddress() {
-        // Use getReceiveAddress to advance to next address
+        // R7-8: User explicitly requested a new address — advance the index
         val walletId = _uiState.value.walletId
         if (walletId.isBlank()) return
         viewModelScope.launch {

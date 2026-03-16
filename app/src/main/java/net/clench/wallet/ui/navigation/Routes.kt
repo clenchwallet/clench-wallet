@@ -25,8 +25,12 @@ sealed class Routes(val route: String) {
     object SettingsLicenses  : Routes("settings/licenses")
     object Debug        : Routes("debug")
     object WalletList   : Routes("wallet_list")
-    object Addresses    : Routes("addresses/{walletId}") {
-        fun build(walletId: String) = "addresses/$walletId"
+    // Part 2: Replaced Addresses with WalletInfo and AddressList
+    object WalletInfo   : Routes("wallet_info/{walletId}") {
+        fun build(walletId: String) = "wallet_info/$walletId"
+    }
+    object AddressList  : Routes("address_list/{walletId}") {
+        fun build(walletId: String) = "address_list/$walletId"
     }
     object ViewSeedPhrase : Routes("view_seed_phrase/{walletId}") {
         fun build(walletId: String) = "view_seed_phrase/$walletId"

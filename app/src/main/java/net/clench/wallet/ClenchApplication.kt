@@ -38,6 +38,22 @@ class ClenchApplication : Application() {
             "[REDACTED_XPUB]"
         )
 
+        // R7-23: Redact testnet equivalents (tprv/tpub)
+        sanitized = sanitized.replace(
+            Regex("tprv[1-9A-HJ-NP-Za-km-z]{100,}"),
+            "[REDACTED_TPRV]"
+        )
+        sanitized = sanitized.replace(
+            Regex("tpub[1-9A-HJ-NP-Za-km-z]{100,}"),
+            "[REDACTED_TPUB]"
+        )
+
+        // Redact zpub/vpub/ypub extended keys
+        sanitized = sanitized.replace(
+            Regex("[zvyZVY]pub[1-9A-HJ-NP-Za-km-z]{100,}"),
+            "[REDACTED_EXTKEY]"
+        )
+
         // Redact likely BIP39 mnemonic sequences (12-24 lowercase words, 3-8 chars each)
         sanitized = sanitized.replace(
             Regex("""(?<!\S)(?:[a-z]{3,8}\s){11,23}[a-z]{3,8}(?!\S)"""),

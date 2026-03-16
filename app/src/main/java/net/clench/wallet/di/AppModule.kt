@@ -23,7 +23,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): ClenchDatabase =
         Room.databaseBuilder(context, ClenchDatabase::class.java, "clench.db")
-            .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4)
+            .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4, ClenchDatabase.MIGRATION_4_5)
             .fallbackToDestructiveMigration() // safety net for any future unhandled versions
             .build()
 

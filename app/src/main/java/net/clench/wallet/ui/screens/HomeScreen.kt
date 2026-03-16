@@ -65,7 +65,7 @@ fun HomeScreen(
                             onDismissRequest = { showMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Addresses") },
+                                text = { Text("Wallet Info") },
                                 onClick = {
                                     showMenu = false
                                     onAddresses()
