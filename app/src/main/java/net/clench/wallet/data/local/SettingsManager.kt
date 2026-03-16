@@ -118,6 +118,11 @@ class SettingsManager @Inject constructor(
         prefs.edit { putBoolean("offline_mode", enabled) }
     }
 
+    // --- Onboarding ---
+
+    fun isOnboarded(): Boolean = prefs.getBoolean("onboarded", false)
+    fun setOnboarded() { prefs.edit { putBoolean("onboarded", true) } }
+
     // --- Balance display unit ---
 
     fun getBalanceUnit(): String = prefs.getString("balance_unit", "SATS") ?: "SATS"

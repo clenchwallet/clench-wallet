@@ -41,8 +41,13 @@ fun ClenchNavHost(navController: NavHostController) {
             LaunchedEffect(destination) {
                 when (val dest = destination) {
                     is StartupViewModel.StartupDestination.Loading -> { /* still loading */ }
+                    is StartupViewModel.StartupDestination.NetworkChoice -> {
+                        navController.navigate(Routes.NetworkChoice.route) {
+                            popUpTo("loading") { inclusive = true }
+                        }
+                    }
                     is StartupViewModel.StartupDestination.ServerSetup -> {
-                        navController.navigate(Routes.ServerSetup.route) {
+                        navController.navigate(Routes.ConnectionSetup.route) {
                             popUpTo("loading") { inclusive = true }
                         }
                     }
@@ -60,9 +65,28 @@ fun ClenchNavHost(navController: NavHostController) {
             }
         }
 
+        composable(Routes.NetworkChoice.route) {
+            NetworkChoiceScreen(
+                onNetworkSelected = {
+                    navController.navigate(Routes.ConnectionSetup.route)
+                }
+            )
+        }
+
+        composable(Routes.ConnectionSetup.route) {
+            ConnectionSetupScreen(
+                onComplete = {
+                    navController.navigate(Routes.Welcome.route) {
+                        popUpTo(Routes.NetworkChoice.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // Backwards-compat alias: ServerSetup → ConnectionSetup
         composable(Routes.ServerSetup.route) {
-            ServerSetupScreen(
-                onServerConfigured = { config ->
+            ConnectionSetupScreen(
+                onComplete = {
                     navController.navigate(Routes.Welcome.route) {
                         popUpTo(Routes.ServerSetup.route) { inclusive = true }
                     }

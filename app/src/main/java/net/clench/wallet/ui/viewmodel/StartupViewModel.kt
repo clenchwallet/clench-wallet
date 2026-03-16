@@ -18,6 +18,7 @@ class StartupViewModel @Inject constructor(
 
     sealed class StartupDestination {
         object Loading : StartupDestination()
+        object NetworkChoice : StartupDestination()
         object ServerSetup : StartupDestination()
         object Welcome : StartupDestination()
         data class ExistingWallet(val walletId: String) : StartupDestination()
@@ -33,11 +34,10 @@ class StartupViewModel @Inject constructor(
             } catch (e: Exception) {
                 emptyList()
             }
-            val serverConfigured = settingsManager.isConfigured()
 
             _destination.value = when {
                 wallets.isNotEmpty() -> StartupDestination.ExistingWallet(wallets.first().id)
-                !serverConfigured -> StartupDestination.ServerSetup
+                !settingsManager.isOnboarded() -> StartupDestination.NetworkChoice
                 else -> StartupDestination.Welcome
             }
         }
