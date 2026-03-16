@@ -217,7 +217,16 @@ fun CreateWalletScreen(
                             value = uiState.passphrase,
                             onValueChange = { viewModel.setPassphrase(it) },
                             label = { Text("Passphrase") },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { focusState ->
+                                    if (focusState.isFocused) {
+                                        coroutineScope.launch {
+                                            delay(300) // wait for keyboard to finish rising
+                                            buttonBringIntoViewRequester.bringIntoView()
+                                        }
+                                    }
+                                },
                             singleLine = true
                         )
 
