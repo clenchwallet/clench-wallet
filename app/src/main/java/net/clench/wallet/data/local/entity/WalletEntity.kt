@@ -11,5 +11,6 @@ data class WalletEntity(
     val changeDescriptor: String,
     val isWatchOnly: Boolean,
     val isMultisig: Boolean,
-    val createdAtEpochMs: Long
+    val createdAtEpochMs: Long,
+    val network: String = "mainnet"  // "mainnet" or "testnet"
 )

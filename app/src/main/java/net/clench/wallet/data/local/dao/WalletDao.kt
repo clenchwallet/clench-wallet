@@ -10,6 +10,12 @@ interface WalletDao {
     @Query("SELECT * FROM wallets ORDER BY createdAtEpochMs DESC")
     fun observeAll(): Flow<List<WalletEntity>>
 
+    @Query("SELECT * FROM wallets WHERE network = :network ORDER BY createdAtEpochMs DESC")
+    fun getWalletsByNetwork(network: String): Flow<List<WalletEntity>>
+
+    @Query("SELECT * FROM wallets WHERE network = :network ORDER BY createdAtEpochMs DESC")
+    suspend fun getAllByNetwork(network: String): List<WalletEntity>
+
     @Query("SELECT * FROM wallets ORDER BY createdAtEpochMs DESC")
     suspend fun getAll(): List<WalletEntity>
 

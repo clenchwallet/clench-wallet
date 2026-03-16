@@ -12,7 +12,8 @@ data class WalletData(
     val changeDescriptor: String,    // internal (change) descriptor
     val isWatchOnly: Boolean = false,
     val isMultisig: Boolean = false,
-    val createdAt: Instant = Instant.now()
+    val createdAt: Instant = Instant.now(),
+    val network: String = "mainnet"  // "mainnet" or "testnet"
 )
 
 /**

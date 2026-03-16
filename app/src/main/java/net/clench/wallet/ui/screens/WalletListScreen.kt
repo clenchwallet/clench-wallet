@@ -13,7 +13,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.ui.viewmodel.WalletListViewModel
@@ -122,7 +125,20 @@ fun WalletListScreen(
                         enableDismissFromEndToStart = true
                     ) {
                         ListItem(
-                            headlineContent = { Text(wallet.name) },
+                            headlineContent = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(wallet.name)
+                                    if (wallet.network == "testnet") {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            "TESTNET",
+                                            color = Color(0xFFFF6B00),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            },
                             supportingContent = {
                                 Text(
                                     if (wallet.isWatchOnly) "Watch-only" else "Full wallet",

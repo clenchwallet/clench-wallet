@@ -3,6 +3,9 @@ package net.clench.wallet.data.local
 import android.content.Context
 import androidx.core.content.edit
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import net.clench.wallet.domain.model.ElectrumConfig
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -61,10 +64,14 @@ class SettingsManager @Inject constructor(
 
     // --- Network settings (mainnet/testnet) ---
 
+    private val _networkFlow = MutableStateFlow(prefs.getString("network", "mainnet") ?: "mainnet")
+    val networkFlow: StateFlow<String> = _networkFlow.asStateFlow()
+
     fun getNetwork(): String = prefs.getString("network", "mainnet") ?: "mainnet"
 
     fun setNetwork(network: String) {
         prefs.edit { putString("network", network) }
+        _networkFlow.value = network
     }
 
     fun isTestnet(): Boolean = getNetwork() == "testnet"

@@ -30,9 +30,9 @@ fun NetworkScreen(
             text = {
                 Text(
                     if (pendingTestnet)
-                        "Switching to testnet. Existing mainnet wallets will not work. You'll need to create a new testnet wallet."
+                        "Switching to testnet. Your mainnet wallets will be hidden until you switch back — they are not deleted. You'll need to create a new testnet wallet."
                     else
-                        "Switching to mainnet. Existing testnet wallets will not work on mainnet."
+                        "Switching to mainnet. Your testnet wallets will be hidden until you switch back — they are not deleted."
                 )
             },
             confirmButton = {
@@ -101,8 +101,8 @@ fun NetworkScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        "⚠️ Testnet wallets use fake bitcoin. Existing mainnet wallets will not work on testnet. " +
-                        "Create a new wallet after switching networks.",
+                        "⚠️ Testnet wallets use fake bitcoin. Your mainnet wallets are hidden while in testnet mode — they are safe and will reappear when you switch back. " +
+                        "Create a new wallet to use on testnet.",
                         modifier = Modifier.padding(12.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer

@@ -105,6 +105,7 @@ class BdkBitcoinRepository @Inject constructor(
         // Persist wallet metadata to Room DB — PUBLIC descriptors only (xpub, no xprv)
         val publicDescriptor = externalDescriptor.toString()
         val publicChangeDescriptor = changeDescriptor.toString()
+        val activeNetwork = settingsManager.getNetwork()
         val walletEntity = WalletEntity(
             id = walletId,
             name = name,
@@ -112,7 +113,8 @@ class BdkBitcoinRepository @Inject constructor(
             changeDescriptor = publicChangeDescriptor,
             isWatchOnly = false,
             isMultisig = false,
-            createdAtEpochMs = System.currentTimeMillis()
+            createdAtEpochMs = System.currentTimeMillis(),
+            network = activeNetwork
         )
         walletDao.insert(walletEntity)
 
@@ -124,7 +126,8 @@ class BdkBitcoinRepository @Inject constructor(
             changeDescriptor = publicChangeDescriptor,
             isWatchOnly = false,
             isMultisig = false,
-            createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs)
+            createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
+            network = activeNetwork
         )
 
         Pair(mnemonicWords, walletData)
@@ -174,6 +177,7 @@ class BdkBitcoinRepository @Inject constructor(
         keystoreManager.storeSecretChangeDescriptor(walletId, secretChangeDescriptor)
 
         // Persist wallet metadata to Room DB — PUBLIC descriptors only (xpub, no xprv)
+        val activeNetwork = settingsManager.getNetwork()
         val walletEntity = WalletEntity(
             id = walletId,
             name = name,
@@ -181,7 +185,8 @@ class BdkBitcoinRepository @Inject constructor(
             changeDescriptor = publicChangeDescriptor,
             isWatchOnly = false,
             isMultisig = false,
-            createdAtEpochMs = System.currentTimeMillis()
+            createdAtEpochMs = System.currentTimeMillis(),
+            network = activeNetwork
         )
         walletDao.insert(walletEntity)
 
@@ -193,7 +198,8 @@ class BdkBitcoinRepository @Inject constructor(
             changeDescriptor = publicChangeDescriptor,
             isWatchOnly = false,
             isMultisig = false,
-            createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs)
+            createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
+            network = activeNetwork
         )
     }
 
@@ -232,6 +238,7 @@ class BdkBitcoinRepository @Inject constructor(
         walletCache[walletId] = WalletEntry(wallet, connection)
 
         // Persist wallet metadata to Room DB (isWatchOnly = true)
+        val activeNetwork = settingsManager.getNetwork()
         val walletEntity = WalletEntity(
             id = walletId,
             name = name,
@@ -239,7 +246,8 @@ class BdkBitcoinRepository @Inject constructor(
             changeDescriptor = changeDescriptor.toString(),
             isWatchOnly = true,
             isMultisig = false,
-            createdAtEpochMs = System.currentTimeMillis()
+            createdAtEpochMs = System.currentTimeMillis(),
+            network = activeNetwork
         )
         walletDao.insert(walletEntity)
 
@@ -251,7 +259,8 @@ class BdkBitcoinRepository @Inject constructor(
             changeDescriptor = changeDescriptor.toString(),
             isWatchOnly = true,
             isMultisig = false,
-            createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs)
+            createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
+            network = activeNetwork
         )
     }
 
@@ -463,7 +472,8 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun listWallets(): List<WalletData> {
-        return walletDao.getAll().map { entity ->
+        val network = settingsManager.getNetwork()
+        return walletDao.getAllByNetwork(network).map { entity ->
             WalletData(
                 id = entity.id,
                 name = entity.name,
@@ -471,7 +481,8 @@ class BdkBitcoinRepository @Inject constructor(
                 changeDescriptor = entity.changeDescriptor,
                 isWatchOnly = entity.isWatchOnly,
                 isMultisig = entity.isMultisig,
-                createdAt = java.time.Instant.ofEpochMilli(entity.createdAtEpochMs)
+                createdAt = java.time.Instant.ofEpochMilli(entity.createdAtEpochMs),
+                network = entity.network
             )
         }
     }
