@@ -814,14 +814,11 @@ class BdkBitcoinRepository @Inject constructor(
         } catch (e: SecurityException) {
             throw e
         } catch (e: Exception) {
-            // jsonSerialize() may not be available or may have different format
-            // Fall back to basic size check: signed PSBT must be >= unsigned (signatures add bytes)
-            val unsignedSize = unsignedBase64.length
-            val signedSize = signedBase64.length
-            if (signedSize < unsignedSize) {
-                throw SecurityException("PSBT tampered: signed PSBT is smaller than unsigned (possible output removal)")
-            }
-            android.util.Log.w("BdkRepo", "PSBT JSON validation unavailable (${e.message}), size check passed")
+            // JSON validation unavailable — refuse to broadcast rather than fall back to weak size check [M-5]
+            throw SecurityException(
+                "PSBT output validation failed: unable to verify outputs match (${e.message}). " +
+                "Refusing to broadcast — re-create the PSBT and try again."
+            )
         }
     }
 
