@@ -30,6 +30,31 @@ object DatabaseModule {
         // Load SQLCipher native libs
         System.loadLibrary("sqlcipher")
 
+        // Migrate from unencrypted to encrypted DB: if the existing DB file
+        // isn't encrypted, delete it so Room can recreate with SQLCipher.
+        // This is safe pre-release — wallet secrets live in KeystoreManager,
+        // not in Room (Room only stores public descriptors + tx cache).
+        val dbFile = context.getDatabasePath("clench.db")
+        if (dbFile.exists()) {
+            try {
+                // Try opening with SQLCipher — if it fails, the file is unencrypted
+                val dbKey = keystoreManager.getOrCreateDatabaseKey()
+                val testDb = net.sqlcipher.database.SQLiteDatabase.openDatabase(
+                    dbFile.absolutePath,
+                    String(dbKey),
+                    null,
+                    net.sqlcipher.database.SQLiteDatabase.OPEN_READONLY
+                )
+                testDb.close()
+            } catch (_: Exception) {
+                // Unencrypted or corrupt — delete it
+                dbFile.delete()
+                context.getDatabasePath("clench.db-journal").delete()
+                context.getDatabasePath("clench.db-shm").delete()
+                context.getDatabasePath("clench.db-wal").delete()
+            }
+        }
+
         val dbKey = keystoreManager.getOrCreateDatabaseKey()
         val factory = SupportFactory(dbKey)
 
