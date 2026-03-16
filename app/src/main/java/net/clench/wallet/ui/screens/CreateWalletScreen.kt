@@ -34,6 +34,7 @@ fun CreateWalletScreen(
     viewModel: CreateWalletViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val scrollState = rememberScrollState()
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     val buttonBringIntoViewRequester = remember { BringIntoViewRequester() }
     val coroutineScope = rememberCoroutineScope()
@@ -67,7 +68,7 @@ fun CreateWalletScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(16.dp)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .imePadding()
         ) {
             OutlinedTextField(
@@ -162,7 +163,7 @@ fun CreateWalletScreen(
                         if (!passphraseExpanded) return@OutlinedCard
                         coroutineScope.launch {
                             delay(300) // wait for AnimatedVisibility expand animation
-                            buttonBringIntoViewRequester.bringIntoView()
+                            scrollState.animateScrollTo(scrollState.maxValue)
                         }
                     }
                 ) {
@@ -213,19 +214,17 @@ fun CreateWalletScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // Passphrase field — always plain text, no hide toggle, no confirm field
-                        val passphraseFieldBringIntoViewRequester = remember { BringIntoViewRequester() }
                         OutlinedTextField(
                             value = uiState.passphrase,
                             onValueChange = { if (it.length <= 512) viewModel.setPassphrase(it) },
                             label = { Text("Passphrase") },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .bringIntoViewRequester(passphraseFieldBringIntoViewRequester)
                                 .onFocusChanged { focusState ->
                                     if (focusState.isFocused) {
                                         coroutineScope.launch {
-                                            delay(300) // wait for keyboard to finish rising
-                                            passphraseFieldBringIntoViewRequester.bringIntoView()
+                                            delay(400) // wait for keyboard to finish rising
+                                            scrollState.animateScrollTo(scrollState.maxValue)
                                         }
                                     }
                                 },
