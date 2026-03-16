@@ -104,6 +104,11 @@ dependencies {
     // BC-UR animated QR for hardware wallet PSBT exchange
     implementation("com.sparrowwallet:hummingbird:1.7.4")
 
+    // Unit testing
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("io.mockk:mockk:1.13.9")
+
     // CameraX for QR scanning
     implementation("androidx.camera:camera-core:1.3.4")
     implementation("androidx.camera:camera-camera2:1.3.4")
