@@ -13,5 +13,6 @@ data class WalletEntity(
     val isMultisig: Boolean,
     val createdAtEpochMs: Long,
     val network: String = "mainnet",  // "mainnet" or "testnet"
-    val preferredHardwareWallet: String? = null
+    val preferredHardwareWallet: String? = null,
+    val hasPassphrase: Boolean = false
 )

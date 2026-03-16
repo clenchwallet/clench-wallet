@@ -55,12 +55,14 @@ class KeystoreManager @Inject constructor(
     fun getMnemonic(walletId: String): String? =
         prefs.getString(mnemonicKey(walletId), null)
 
-    /** Store a passphrase for a wallet id. */
+    /** @deprecated Passphrase is no longer stored. Kept for migration/cleanup only. */
+    @Deprecated("Passphrase is no longer stored — do not call from new code")
     fun storePassphrase(walletId: String, passphrase: String) {
         prefs.edit().putString(passphraseKey(walletId), passphrase).apply()
     }
 
-    /** Retrieve a passphrase. Returns null if none was set. */
+    /** @deprecated Passphrase is no longer stored. Kept for migration/cleanup only. */
+    @Deprecated("Passphrase is no longer stored — do not call from new code")
     fun getPassphrase(walletId: String): String? =
         prefs.getString(passphraseKey(walletId), null)
 

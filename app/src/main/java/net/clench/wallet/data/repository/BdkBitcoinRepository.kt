@@ -102,7 +102,7 @@ class BdkBitcoinRepository @Inject constructor(
         // NOTE: JVM String is immutable — mnemonic cannot be securely zeroed. This is a known JVM limitation.
         // For production, consider using a native library that handles key material in off-heap memory.
         keystoreManager.storeMnemonic(walletId, mnemonicWords.joinToString(" "))
-        passphrase?.let { keystoreManager.storePassphrase(walletId, it) }
+        // Passphrase is intentionally NOT stored — user must re-enter it for restore
 
         // Store SECRET descriptors (with xprv) in encrypted Keystore — never in Room DB
         keystoreManager.storeSecretDescriptor(walletId, externalDescriptor.toStringWithSecret())
@@ -120,7 +120,8 @@ class BdkBitcoinRepository @Inject constructor(
             isWatchOnly = false,
             isMultisig = false,
             createdAtEpochMs = System.currentTimeMillis(),
-            network = activeNetwork
+            network = activeNetwork,
+            hasPassphrase = !passphrase.isNullOrBlank()
         )
         walletDao.insert(walletEntity)
 
@@ -133,7 +134,8 @@ class BdkBitcoinRepository @Inject constructor(
             isWatchOnly = false,
             isMultisig = false,
             createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
-            network = activeNetwork
+            network = activeNetwork,
+            hasPassphrase = !passphrase.isNullOrBlank()
         )
 
         Pair(mnemonicWords, walletData)
@@ -176,7 +178,7 @@ class BdkBitcoinRepository @Inject constructor(
         // NOTE: JVM String is immutable — mnemonic cannot be securely zeroed. This is a known JVM limitation.
         // For production, consider using a native library that handles key material in off-heap memory.
         keystoreManager.storeMnemonic(walletId, mnemonic.joinToString(" "))
-        passphrase?.let { keystoreManager.storePassphrase(walletId, it) }
+        // Passphrase is intentionally NOT stored — user must re-enter it for restore
 
         // Store SECRET descriptors (with xprv) in encrypted Keystore — never in Room DB
         keystoreManager.storeSecretDescriptor(walletId, secretDescriptor)
@@ -192,7 +194,8 @@ class BdkBitcoinRepository @Inject constructor(
             isWatchOnly = false,
             isMultisig = false,
             createdAtEpochMs = System.currentTimeMillis(),
-            network = activeNetwork
+            network = activeNetwork,
+            hasPassphrase = !passphrase.isNullOrBlank()
         )
         walletDao.insert(walletEntity)
 
@@ -205,7 +208,8 @@ class BdkBitcoinRepository @Inject constructor(
             isWatchOnly = false,
             isMultisig = false,
             createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
-            network = activeNetwork
+            network = activeNetwork,
+            hasPassphrase = !passphrase.isNullOrBlank()
         )
     }
 
@@ -518,7 +522,8 @@ class BdkBitcoinRepository @Inject constructor(
                 isMultisig = entity.isMultisig,
                 createdAt = java.time.Instant.ofEpochMilli(entity.createdAtEpochMs),
                 network = entity.network,
-                preferredHardwareWallet = entity.preferredHardwareWallet
+                preferredHardwareWallet = entity.preferredHardwareWallet,
+                hasPassphrase = entity.hasPassphrase
             )
         }
     }
@@ -635,7 +640,8 @@ class BdkBitcoinRepository @Inject constructor(
             isMultisig = entity.isMultisig,
             createdAt = java.time.Instant.ofEpochMilli(entity.createdAtEpochMs),
             network = entity.network,
-            preferredHardwareWallet = entity.preferredHardwareWallet
+            preferredHardwareWallet = entity.preferredHardwareWallet,
+            hasPassphrase = entity.hasPassphrase
         )
     }
 

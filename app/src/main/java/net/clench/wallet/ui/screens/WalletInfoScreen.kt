@@ -310,8 +310,8 @@ fun WalletInfoScreen(
                     }
                 }
 
-                // ─── Fingerprint (hot wallets only) ───
-                if (!uiState.isWatchOnly && uiState.fingerprint.isNotEmpty()) {
+                // ─── Fingerprint ───
+                if (uiState.fingerprint.isNotEmpty()) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier.padding(16.dp),
@@ -353,9 +353,13 @@ fun WalletInfoScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                "Visual fingerprint of your seed + passphrase",
+                                if (uiState.hasPassphrase)
+                                    "Wallet fingerprint — verify this matches when restoring with your passphrase"
+                                else
+                                    "Wallet fingerprint — unique visual identifier for this wallet",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
                         }
                     }

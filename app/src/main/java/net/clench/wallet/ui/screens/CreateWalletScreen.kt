@@ -8,15 +8,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
@@ -90,7 +87,6 @@ fun CreateWalletScreen(
 
             // Collapsible passphrase section
             var passphraseExpanded by remember { mutableStateOf(false) }
-            var showPassphrase by remember { mutableStateOf(false) }
 
             OutlinedCard(
                 modifier = Modifier.fillMaxWidth(),
@@ -117,17 +113,19 @@ fun CreateWalletScreen(
 
             AnimatedVisibility(visible = passphraseExpanded) {
                 Column(modifier = Modifier.padding(top = 8.dp)) {
-                    // Warning card
+                    // Warning card 1 — amber
                     Card(
                         colors = CardDefaults.cardColors(
-                            containerColor = Color(0xFFFFF3E0)  // amber/orange
+                            containerColor = Color(0xFFFFF3E0)
                         ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            "⚠️ A passphrase creates a completely different wallet. " +
-                            "If you forget it, your bitcoin is LOST FOREVER. There is no recovery. " +
-                            "Write it down separately from your seed phrase.",
+                            "⚠\uFE0F Your passphrase is NEVER stored — not even on this device.\n\n" +
+                            "To restore this wallet you need BOTH:\n" +
+                            "  • Your 24-word seed phrase\n" +
+                            "  • This exact passphrase\n\n" +
+                            "Write your passphrase down separately from your seed phrase and store both in secure locations.",
                             modifier = Modifier.padding(12.dp),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
@@ -137,20 +135,53 @@ fun CreateWalletScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
+                    // Passphrase field — always plain text, no hide toggle
                     OutlinedTextField(
                         value = uiState.passphrase,
                         onValueChange = { viewModel.setPassphrase(it) },
                         label = { Text("Passphrase") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        visualTransformation = if (showPassphrase) VisualTransformation.None
-                        else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            TextButton(onClick = { showPassphrase = !showPassphrase }) {
-                                Text(if (showPassphrase) "Hide" else "Show")
-                            }
-                        }
+                        singleLine = true
                     )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Confirm passphrase field
+                    OutlinedTextField(
+                        value = uiState.passphraseConfirm,
+                        onValueChange = { viewModel.setPassphraseConfirm(it) },
+                        label = { Text("Confirm passphrase") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        isError = uiState.passphraseError != null
+                    )
+                    uiState.passphraseError?.let { error ->
+                        Text(
+                            error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                        )
+                    }
+
+                    // Warning card 2 — red (only when passphrase is non-empty)
+                    if (uiState.passphrase.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color(0xFFFFEBEE)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "\uD83D\uDD34 If you forget this passphrase, your bitcoin cannot be recovered by anyone — not even us. There is no reset.",
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFC62828)
+                            )
+                        }
+                    }
 
                     // Dynamic wallet fingerprint — updates with passphrase
                     uiState.fingerprintBytes?.let { bytes ->
@@ -177,7 +208,7 @@ fun CreateWalletScreen(
             // Mnemonic display
             if (uiState.mnemonic.isNotEmpty()) {
                 Text(
-                    "⚠️ Write these words down. Never share them.",
+                    "⚠\uFE0F Write these words down. Never share them.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -205,10 +236,14 @@ fun CreateWalletScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // "I've Written It Down" button — disabled if passphrase mismatch or confirm empty
+                val passphraseValid = uiState.passphraseError == null &&
+                    (uiState.passphrase.isEmpty() || uiState.passphraseConfirm.isNotEmpty())
+
                 Button(
                     onClick = { viewModel.confirmAndSave(onWalletCreated) },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !uiState.isLoading
+                    enabled = !uiState.isLoading && passphraseValid
                 ) {
                     if (uiState.isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp))
                     else Text("I've Written It Down — Continue")
@@ -235,7 +270,7 @@ fun CreateWalletScreen(
 
 /**
  * Visual + text wallet fingerprint — a deterministic 2×4 grid of colored squares
- * derived from 8 bytes of SHA-256(mnemonic + passphrase).
+ * derived from 8 bytes of SHA-256(masterFingerprint + passphrase).
  * Each byte maps to a hue-based color for perceptually meaningful changes.
  */
 @Composable
@@ -259,7 +294,7 @@ private fun WalletFingerprint(fingerprintBytes: ByteArray) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Text(
-            "Wallet fingerprint — changes with passphrase",
+            "Wallet fingerprint — verify this matches when restoring",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -287,13 +322,6 @@ private fun WalletFingerprint(fingerprintBytes: ByteArray) {
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            "This fingerprint is unique to your seed + passphrase combination.\nUse it to confirm you're using the correct passphrase.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
     }
 }

@@ -25,6 +25,7 @@ class WalletInfoViewModel @Inject constructor(
         val walletId: String = "",
         val walletName: String = "",
         val isWatchOnly: Boolean = false,
+        val hasPassphrase: Boolean = false,
         val network: String = "mainnet",
         val transactionCount: Int = 0,
         val derivationPath: String = "",
@@ -69,13 +70,14 @@ class WalletInfoViewModel @Inject constructor(
                     else -> "xpub"
                 }
 
-                // Generate visual fingerprint from first receive address
-                val fingerprint = generateFingerprint(walletId)
+                // Generate visual fingerprint from master fingerprint in descriptor
+                val fingerprint = generateFingerprint(wallet.descriptor)
                 val fingerprintColors = generateFingerprintColors(fingerprint)
 
                 _uiState.update { it.copy(
                     walletName = wallet.name,
                     isWatchOnly = wallet.isWatchOnly,
+                    hasPassphrase = wallet.hasPassphrase,
                     network = wallet.network,
                     transactionCount = txs.size,
                     derivationPath = derivPath,
@@ -147,12 +149,23 @@ class WalletInfoViewModel @Inject constructor(
         }
     }
 
-    private suspend fun generateFingerprint(walletId: String): String {
+    /**
+     * Generate fingerprint from master fingerprint bytes extracted from descriptor.
+     * Uses SHA-256 of the 4-byte master fingerprint (no passphrase mixing — passphrase
+     * is not stored, so we can only use the descriptor's embedded master fingerprint).
+     */
+    private fun generateFingerprint(descriptorString: String): String {
         return try {
-            val addr = bitcoinRepository.getLastAddress(walletId)
-            val hash = java.security.MessageDigest.getInstance("SHA-256")
-                .digest(addr.address.toByteArray())
-            hash.take(8).joinToString(":") { "%02X".format(it) }
+            val masterFp = CreateWalletViewModel.extractMasterFingerprint(descriptorString)
+            if (masterFp != null) {
+                val hash = CreateWalletViewModel.computeFingerprint(masterFp, "")
+                hash.take(8).joinToString(":") { "%02X".format(it.toInt() and 0xFF) }
+            } else {
+                // Fallback for descriptors without origin (e.g. bare xpub watch-only)
+                val hash = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(descriptorString.toByteArray())
+                hash.take(8).joinToString(":") { "%02X".format(it.toInt() and 0xFF) }
+            }
         } catch (_: Exception) { "" }
     }
 
@@ -161,12 +174,10 @@ class WalletInfoViewModel @Inject constructor(
         val bytes = fingerprint.split(":").mapNotNull {
             try { it.toInt(16) } catch (_: Exception) { null }
         }
-        // Generate 8 colors from the bytes
+        // Generate 8 hue-based colors from the bytes (matching CreateWalletScreen style)
         return bytes.map { b ->
-            val r = (b * 37 + 100) % 256
-            val g = (b * 67 + 50) % 256
-            val bl = (b * 97 + 150) % 256
-            android.graphics.Color.rgb(r, g, bl)
+            val hue = b * 360f / 256f
+            android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.7f, 0.7f))
         }
     }
 }

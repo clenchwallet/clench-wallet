@@ -14,7 +14,8 @@ data class WalletData(
     val isMultisig: Boolean = false,
     val createdAt: Instant = Instant.now(),
     val network: String = "mainnet",  // "mainnet" or "testnet"
-    val preferredHardwareWallet: String? = null
+    val preferredHardwareWallet: String? = null,
+    val hasPassphrase: Boolean = false
 )
 
 /**
