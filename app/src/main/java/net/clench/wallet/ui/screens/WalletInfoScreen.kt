@@ -1,6 +1,5 @@
 package net.clench.wallet.ui.screens
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -13,8 +12,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -311,55 +308,19 @@ fun WalletInfoScreen(
                 }
 
                 // ─── Fingerprint ───
-                if (uiState.fingerprint.isNotEmpty()) {
+                uiState.fingerprintBytes?.let { fpBytes ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier.padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("Wallet Fingerprint",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // 2×4 color grid
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.height(56.dp)
-                            ) {
-                                val colors = uiState.fingerprintColors
-                                if (colors.size >= 8) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        for (i in 0..3) {
-                                            Canvas(modifier = Modifier.size(24.dp)) {
-                                                drawRect(color = Color(colors[i]), size = Size(size.width, size.height))
-                                            }
-                                        }
-                                    }
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        for (i in 4..7) {
-                                            Canvas(modifier = Modifier.size(24.dp)) {
-                                                drawRect(color = Color(colors[i]), size = Size(size.width, size.height))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                uiState.fingerprint,
-                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                if (uiState.hasPassphrase)
+                            net.clench.wallet.ui.components.WalletFingerprint(
+                                fingerprintBytes = fpBytes,
+                                masterFingerprint = uiState.masterFingerprintBytes,
+                                label = if (uiState.hasPassphrase)
                                     "Wallet fingerprint — verify this matches when restoring with your passphrase"
                                 else
-                                    "Wallet fingerprint — unique visual identifier for this wallet",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    "Wallet fingerprint — unique visual identifier for this wallet"
                             )
                         }
                     }

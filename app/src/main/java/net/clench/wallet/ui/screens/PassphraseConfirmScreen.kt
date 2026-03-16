@@ -1,6 +1,9 @@
 package net.clench.wallet.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -8,14 +11,18 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import net.clench.wallet.ui.components.WalletFingerprint
 import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun PassphraseConfirmScreen(
     onSuccess: (String) -> Unit,
@@ -23,12 +30,15 @@ fun PassphraseConfirmScreen(
     viewModel: CreateWalletViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val coroutineScope = rememberCoroutineScope()
 
     var confirmInput by remember { mutableStateOf("") }
     var confirmError by remember { mutableStateOf<String?>(null) }
 
     // Compute fingerprint for the confirm input dynamically
-    val confirmFingerprintBytes = remember(confirmInput) {
+    // Returns Pair(identiconBytes, masterFingerprintBytes) or null
+    val confirmFingerprintPair = remember(confirmInput) {
         if (confirmInput.isNotEmpty()) {
             viewModel.computeFingerprintForPassphrase(confirmInput)
         } else null
@@ -79,7 +89,16 @@ fun PassphraseConfirmScreen(
                     confirmError = null
                 },
                 label = { Text("Confirm passphrase") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focusState ->
+                        if (focusState.isFocused) {
+                            coroutineScope.launch {
+                                delay(300)
+                                bringIntoViewRequester.bringIntoView()
+                            }
+                        }
+                    },
                 singleLine = true,
                 isError = confirmError != null
             )
@@ -101,15 +120,16 @@ fun PassphraseConfirmScreen(
             }
 
             // Fingerprint display for the confirm input
-            confirmFingerprintBytes?.let { bytes ->
+            confirmFingerprintPair?.let { (identiconBytes, masterFpBytes) ->
                 Spacer(modifier = Modifier.height(16.dp))
-                WalletFingerprint(bytes)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "This fingerprint must match the one on the previous screen.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp)
+                WalletFingerprint(
+                    fingerprintBytes = identiconBytes,
+                    masterFingerprint = masterFpBytes,
+                    size = 64.dp,
+                    label = "This fingerprint must match the one on the previous screen",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .bringIntoViewRequester(bringIntoViewRequester)
                 )
             }
 

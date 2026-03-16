@@ -1,9 +1,10 @@
 package net.clench.wallet.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -14,13 +15,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import net.clench.wallet.ui.components.WalletFingerprint
 import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun CreateWalletScreen(
     onWalletCreated: (String) -> Unit,
@@ -29,6 +34,8 @@ fun CreateWalletScreen(
     viewModel: CreateWalletViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val coroutineScope = rememberCoroutineScope()
 
     // Prevent screenshots when mnemonic is visible
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -171,7 +178,10 @@ fun CreateWalletScreen(
                 }
 
                 AnimatedVisibility(visible = passphraseExpanded) {
-                    Column(modifier = Modifier.padding(top = 8.dp)) {
+                    Column(modifier = Modifier
+                        .padding(top = 8.dp)
+                        .bringIntoViewRequester(bringIntoViewRequester)
+                    ) {
                         // Warning card 1 — amber
                         Card(
                             colors = CardDefaults.cardColors(
@@ -199,7 +209,16 @@ fun CreateWalletScreen(
                             value = uiState.passphrase,
                             onValueChange = { viewModel.setPassphrase(it) },
                             label = { Text("Passphrase") },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { focusState ->
+                                    if (focusState.isFocused) {
+                                        coroutineScope.launch {
+                                            delay(300)
+                                            bringIntoViewRequester.bringIntoView()
+                                        }
+                                    }
+                                },
                             singleLine = true
                         )
 
@@ -225,7 +244,10 @@ fun CreateWalletScreen(
                         // Dynamic wallet fingerprint — updates with passphrase
                         uiState.fingerprintBytes?.let { bytes ->
                             Spacer(modifier = Modifier.height(16.dp))
-                            WalletFingerprint(bytes)
+                            WalletFingerprint(
+                                fingerprintBytes = bytes,
+                                masterFingerprint = uiState.masterFingerprintBytes
+                            )
                         }
                     }
                 }
@@ -268,59 +290,4 @@ fun CreateWalletScreen(
     }
 }
 
-/**
- * Visual + text wallet fingerprint — a deterministic 2×4 grid of colored squares
- * derived from 8 bytes of SHA-256(masterFingerprint + passphrase).
- */
-@Composable
-internal fun WalletFingerprint(fingerprintBytes: ByteArray) {
-    if (fingerprintBytes.size < 8) return
 
-    val colors = remember(fingerprintBytes.toList()) {
-        (0 until 8).map { i ->
-            val byteVal = fingerprintBytes[i].toInt() and 0xFF
-            val hue = byteVal * 360f / 256f
-            Color.hsl(hue, 0.7f, 0.5f)
-        }
-    }
-
-    val hexText = remember(fingerprintBytes.toList()) {
-        fingerprintBytes.take(8).joinToString(":") { "%02X".format(it.toInt() and 0xFF) }
-    }
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Text(
-            "Wallet fingerprint — verify this matches when restoring",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        // 2 rows × 4 columns
-        for (row in 0 until 2) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                for (col in 0 until 4) {
-                    val idx = row * 4 + col
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(colors[idx], MaterialTheme.shapes.small)
-                    )
-                }
-            }
-            if (row == 0) Spacer(modifier = Modifier.height(4.dp))
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            hexText,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}

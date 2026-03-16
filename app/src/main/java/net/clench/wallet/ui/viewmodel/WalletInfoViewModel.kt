@@ -34,6 +34,8 @@ class WalletInfoViewModel @Inject constructor(
         val preferredHardwareWallet: String? = null,
         val fingerprint: String = "",
         val fingerprintColors: List<Int> = emptyList(),
+        val fingerprintBytes: ByteArray? = null,
+        val masterFingerprintBytes: ByteArray? = null,
         val isLoading: Boolean = false,
         val error: String? = null,
         val isEditing: Boolean = false,
@@ -73,6 +75,10 @@ class WalletInfoViewModel @Inject constructor(
                 // Generate visual fingerprint from master fingerprint in descriptor
                 val fingerprint = generateFingerprint(wallet.descriptor)
                 val fingerprintColors = generateFingerprintColors(fingerprint)
+                val masterFp = CreateWalletViewModel.extractMasterFingerprint(wallet.descriptor)
+                val fpBytes = if (masterFp != null) {
+                    CreateWalletViewModel.computeFingerprint(masterFp, "").sliceArray(0 until 8)
+                } else null
 
                 _uiState.update { it.copy(
                     walletName = wallet.name,
@@ -86,6 +92,8 @@ class WalletInfoViewModel @Inject constructor(
                     preferredHardwareWallet = wallet.preferredHardwareWallet,
                     fingerprint = fingerprint,
                     fingerprintColors = fingerprintColors,
+                    fingerprintBytes = fpBytes,
+                    masterFingerprintBytes = masterFp,
                     descriptor = wallet.descriptor,
                     isLoading = false
                 ) }

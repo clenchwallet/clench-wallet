@@ -31,6 +31,7 @@ class CreateWalletViewModel @Inject constructor(
         val isLoading: Boolean = false,
         val error: String? = null,
         val fingerprintBytes: ByteArray? = null,
+        val masterFingerprintBytes: ByteArray? = null,
         val descriptorString: String? = null
     ) {
         override fun equals(other: Any?): Boolean {
@@ -41,6 +42,7 @@ class CreateWalletViewModel @Inject constructor(
                 mnemonic == other.mnemonic &&
                 isLoading == other.isLoading && error == other.error &&
                 fingerprintBytes.contentEquals(other.fingerprintBytes) &&
+                masterFingerprintBytes.contentEquals(other.masterFingerprintBytes) &&
                 descriptorString == other.descriptorString
         }
         override fun hashCode(): Int {
@@ -52,6 +54,7 @@ class CreateWalletViewModel @Inject constructor(
             result = 31 * result + isLoading.hashCode()
             result = 31 * result + (error?.hashCode() ?: 0)
             result = 31 * result + (fingerprintBytes?.contentHashCode() ?: 0)
+            result = 31 * result + (masterFingerprintBytes?.contentHashCode() ?: 0)
             result = 31 * result + (descriptorString?.hashCode() ?: 0)
             return result
         }
@@ -101,38 +104,42 @@ class CreateWalletViewModel @Inject constructor(
         val descriptorStr = state.descriptorString
 
         if (descriptorStr == null) {
-            _uiState.update { it.copy(fingerprintBytes = null) }
+            _uiState.update { it.copy(fingerprintBytes = null, masterFingerprintBytes = null) }
             return
         }
 
         val masterFp = extractMasterFingerprint(descriptorStr)
         if (masterFp == null) {
-            _uiState.update { it.copy(fingerprintBytes = null) }
+            _uiState.update { it.copy(fingerprintBytes = null, masterFingerprintBytes = null) }
             return
         }
 
         try {
             val fpBytes = computeFingerprint(masterFp, state.passphrase)
-            _uiState.update { it.copy(fingerprintBytes = fpBytes.sliceArray(0 until 8)) }
+            _uiState.update { it.copy(
+                fingerprintBytes = fpBytes.sliceArray(0 until 8),
+                masterFingerprintBytes = masterFp
+            ) }
         } catch (_: Exception) {
-            _uiState.update { it.copy(fingerprintBytes = null) }
+            _uiState.update { it.copy(fingerprintBytes = null, masterFingerprintBytes = null) }
         }
     }
 
-    /** Compute fingerprint for an arbitrary passphrase (used by confirm screen) */
-    fun computeFingerprintForPassphrase(passphrase: String): ByteArray? {
-        val descriptorStr = _uiState.value.descriptorString ?: return null
-        val masterFp = extractMasterFingerprint(descriptorStr) ?: return null
+    /**
+     * Compute fingerprint + master key fingerprint for an arbitrary passphrase (used by confirm screen).
+     * Returns Pair(identicon bytes [8], master fingerprint [4]) or null.
+     */
+    fun computeFingerprintForPassphrase(passphrase: String): Pair<ByteArray, ByteArray>? {
+        val mnemonic = pendingMnemonic ?: return null
         return try {
-            // Need to regenerate descriptor with the given passphrase to get correct fingerprint
-            val mnemonic = pendingMnemonic ?: return null
             val mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
             val network = Network.BITCOIN
             val secretKey = DescriptorSecretKey(network, mnemonicObj, passphrase)
             val descriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
             val newDescriptorStr = descriptor.toString()
             val newMasterFp = extractMasterFingerprint(newDescriptorStr) ?: return null
-            computeFingerprint(newMasterFp, passphrase).sliceArray(0 until 8)
+            val identiconBytes = computeFingerprint(newMasterFp, passphrase).sliceArray(0 until 8)
+            Pair(identiconBytes, newMasterFp)
         } catch (_: Exception) {
             null
         }
@@ -178,7 +185,7 @@ class CreateWalletViewModel @Inject constructor(
                 )
 
                 pendingMnemonic = null
-                _uiState.update { it.copy(mnemonic = emptyList(), passphrase = "", pendingPassphrase = "", descriptorString = null, fingerprintBytes = null) }
+                _uiState.update { it.copy(mnemonic = emptyList(), passphrase = "", pendingPassphrase = "", descriptorString = null, fingerprintBytes = null, masterFingerprintBytes = null) }
 
                 onCreated(walletData.id)
             } catch (e: Exception) {
