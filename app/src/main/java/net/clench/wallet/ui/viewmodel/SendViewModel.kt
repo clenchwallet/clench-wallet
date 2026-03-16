@@ -9,8 +9,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.ElectrumConfig
+import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
 import javax.inject.Inject
+
+enum class FeeTier { ECONOMY, STANDARD, PRIORITY, CUSTOM }
 
 @HiltViewModel
 class SendViewModel @Inject constructor(
@@ -32,7 +35,13 @@ class SendViewModel @Inject constructor(
         val availableBalanceSat: Long = 0L,
         val utxoTxid: String? = null,
         val utxoVout: Int? = null,
-        val biometricForSendEnabled: Boolean = true
+        val biometricForSendEnabled: Boolean = true,
+        // Fee estimation
+        val feeEstimates: FeeEstimates? = null,
+        val selectedFeeTier: FeeTier = FeeTier.STANDARD,
+        val feeEstimateError: String? = null,
+        val isEstimatingFees: Boolean = false,
+        val btcPriceUsd: Double? = null
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -54,7 +63,55 @@ class SendViewModel @Inject constructor(
                 ) }
             } catch (e: Exception) { /* show 0 */ }
         }
+        // Fetch fee estimates
+        fetchFeeEstimates()
     }
+
+    private fun fetchFeeEstimates() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isEstimatingFees = true, feeEstimateError = null) }
+            try {
+                val estimates = bitcoinRepository.estimateFees()
+                _uiState.update { state ->
+                    val feeRate = when (state.selectedFeeTier) {
+                        FeeTier.ECONOMY -> estimates.economy
+                        FeeTier.STANDARD -> estimates.standard
+                        FeeTier.PRIORITY -> estimates.priority
+                        FeeTier.CUSTOM -> state.feeRate.toFloatOrNull() ?: estimates.standard
+                    }
+                    state.copy(
+                        feeEstimates = estimates,
+                        isEstimatingFees = false,
+                        feeRate = feeRate.toInt().coerceAtLeast(1).toString()
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(
+                    isEstimatingFees = false,
+                    feeEstimateError = "Fee estimation failed — using manual input"
+                ) }
+            }
+        }
+    }
+
+    fun selectFeeTier(tier: FeeTier) {
+        _uiState.update { state ->
+            val estimates = state.feeEstimates
+            val feeRate = if (tier == FeeTier.CUSTOM) {
+                state.feeRate // keep current
+            } else if (estimates != null) {
+                when (tier) {
+                    FeeTier.ECONOMY -> estimates.economy.toInt().coerceAtLeast(1).toString()
+                    FeeTier.STANDARD -> estimates.standard.toInt().coerceAtLeast(1).toString()
+                    FeeTier.PRIORITY -> estimates.priority.toInt().coerceAtLeast(1).toString()
+                    FeeTier.CUSTOM -> state.feeRate
+                }
+            } else state.feeRate
+
+            state.copy(selectedFeeTier = tier, feeRate = feeRate)
+        }
+    }
+
     fun setUtxo(txid: String?, vout: Int? = 0) {
         _uiState.update { it.copy(utxoTxid = txid, utxoVout = vout) }
     }
@@ -62,7 +119,7 @@ class SendViewModel @Inject constructor(
     fun setAddress(addr: String) = _uiState.update { it.copy(toAddress = addr, error = null) }
     fun setError(msg: String) = _uiState.update { it.copy(error = msg) }
     fun setAmount(amt: String) = _uiState.update { it.copy(amountSat = amt) }
-    fun setFeeRate(rate: String) = _uiState.update { it.copy(feeRate = rate) }
+    fun setFeeRate(rate: String) = _uiState.update { it.copy(feeRate = rate, selectedFeeTier = FeeTier.CUSTOM) }
     fun setSendMax(max: Boolean) = _uiState.update { it.copy(sendMax = max, amountSat = if (max) "" else it.amountSat) }
 
     fun buildTx() {

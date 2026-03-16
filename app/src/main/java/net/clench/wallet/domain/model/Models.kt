@@ -61,6 +61,16 @@ data class ElectrumConfig(
 )
 
 /**
+ * Fee estimates for different confirmation targets.
+ */
+data class FeeEstimates(
+    val priority: Float,    // sat/vB, ~1 block (~10 min)
+    val standard: Float,    // sat/vB, ~3 blocks (~30 min)
+    val economy: Float,     // sat/vB, ~6 blocks (~60 min)
+    val timestamp: Long     // when fetched (epoch ms)
+)
+
+/**
  * Wallet balance in satoshis.
  */
 data class WalletBalance(

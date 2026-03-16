@@ -153,6 +153,13 @@ interface BitcoinRepository {
     ): String
 
     /**
+     * Estimate fee rates for different confirmation targets.
+     * Returns FeeEstimates with priority/standard/economy tiers.
+     * Falls back to reasonable defaults if estimation fails.
+     */
+    suspend fun estimateFees(): FeeEstimates
+
+    /**
      * Apply a signed PSBT and broadcast the resulting transaction.
      * Validates that signed PSBT outputs match the original unsigned PSBT before broadcasting.
      * @param walletId wallet that created the original PSBT

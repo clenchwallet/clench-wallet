@@ -14,6 +14,7 @@ import net.clench.wallet.data.local.entity.WalletEntity
 import net.clench.wallet.domain.model.Address as DomainAddress
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.TransactionItem
+import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.model.TxDirection
 import net.clench.wallet.domain.model.WalletBalance
 import net.clench.wallet.domain.model.WalletData
@@ -664,6 +665,67 @@ class BdkBitcoinRepository @Inject constructor(
             return base58Encode(convertedBytes + checksum)
         } catch (e: Exception) {
             return key
+        }
+    }
+
+    override suspend fun estimateFees(): FeeEstimates = withContext(Dispatchers.IO) {
+        if (settingsManager.isOfflineMode()) {
+            // Return conservative defaults in offline mode
+            return@withContext FeeEstimates(
+                priority = 10f,
+                standard = 5f,
+                economy = 2f,
+                timestamp = System.currentTimeMillis()
+            )
+        }
+
+        val config = settingsManager.loadElectrumConfig()
+        val connectionStr = buildElectrumUrl(config)
+        val electrumClient = ElectrumClient(connectionStr)
+        try {
+            // BDK's ElectrumClient.estimateFee() takes a target (ULong blocks)
+            // and returns a Double representing BTC/kvB.
+            // Convert BTC/kvB to sat/vB: multiply by 100_000 (1e8 / 1000).
+            val priorityBtcKvb = try {
+                electrumClient.estimateFee(1uL)
+            } catch (_: Exception) { null }
+
+            val standardBtcKvb = try {
+                electrumClient.estimateFee(3uL)
+            } catch (_: Exception) { null }
+
+            val economyBtcKvb = try {
+                electrumClient.estimateFee(6uL)
+            } catch (_: Exception) { null }
+
+            // Convert BTC/kvB → sat/vB: (btc_per_kvb * 1e8) / 1000 = btc_per_kvb * 1e5
+            fun btcKvbToSatVb(btcKvb: Double?): Float? {
+                if (btcKvb == null || btcKvb <= 0.0) return null
+                return (btcKvb * 100_000.0).toFloat()
+            }
+
+            val prioritySatVb = btcKvbToSatVb(priorityBtcKvb)
+            val standardSatVb = btcKvbToSatVb(standardBtcKvb)
+            val economySatVb = btcKvbToSatVb(economyBtcKvb)
+
+            // Apply reasonable minimums and fallbacks
+            FeeEstimates(
+                priority = (prioritySatVb ?: 10f).coerceAtLeast(1f),
+                standard = (standardSatVb ?: 5f).coerceAtLeast(1f),
+                economy = (economySatVb ?: 2f).coerceAtLeast(1f),
+                timestamp = System.currentTimeMillis()
+            )
+        } catch (e: Exception) {
+            android.util.Log.w("BdkRepo", "Fee estimation failed: ${e.message}")
+            // Fallback defaults
+            FeeEstimates(
+                priority = 10f,
+                standard = 5f,
+                economy = 2f,
+                timestamp = System.currentTimeMillis()
+            )
+        } finally {
+            electrumClient.close()
         }
     }
 
