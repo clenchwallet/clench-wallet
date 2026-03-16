@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Pre-Android 12 (API < 31) backup rules.
+    Excludes all sensitive wallet data from auto-backup.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="clench_secure_prefs.xml" />
+    <exclude domain="sharedpref" path="clench_settings.xml" />
+    <exclude domain="database" path="clench.db" />
+    <exclude domain="database" path="clench.db-wal" />
+    <exclude domain="database" path="clench.db-shm" />
+    <exclude domain="external" path="." />
+</full-backup-content>
