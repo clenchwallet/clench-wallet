@@ -213,17 +213,19 @@ fun CreateWalletScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // Passphrase field — always plain text, no hide toggle, no confirm field
+                        val passphraseFieldBringIntoViewRequester = remember { BringIntoViewRequester() }
                         OutlinedTextField(
                             value = uiState.passphrase,
                             onValueChange = { viewModel.setPassphrase(it) },
                             label = { Text("Passphrase") },
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .bringIntoViewRequester(passphraseFieldBringIntoViewRequester)
                                 .onFocusChanged { focusState ->
                                     if (focusState.isFocused) {
                                         coroutineScope.launch {
                                             delay(300) // wait for keyboard to finish rising
-                                            buttonBringIntoViewRequester.bringIntoView()
+                                            passphraseFieldBringIntoViewRequester.bringIntoView()
                                         }
                                     }
                                 },
