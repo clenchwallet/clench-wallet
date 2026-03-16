@@ -1,9 +1,6 @@
 package net.clench.wallet.ui.screens
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.widget.Toast
+import net.clench.wallet.ui.util.copyToClipboardWithAutoClear
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -145,9 +142,7 @@ fun AddressListScreen(
                                 // Copy button
                                 IconButton(
                                     onClick = {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        clipboard.setPrimaryClip(ClipData.newPlainText("Bitcoin Address", addr.address))
-                                        Toast.makeText(context, "Address copied", Toast.LENGTH_SHORT).show()
+                                        copyToClipboardWithAutoClear(context, "Address", addr.address)
                                     }
                                 ) {
                                     Icon(Icons.Default.Share, contentDescription = "Copy address",

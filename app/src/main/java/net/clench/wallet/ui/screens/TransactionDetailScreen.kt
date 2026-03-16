@@ -1,11 +1,8 @@
 package net.clench.wallet.ui.screens
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
+import net.clench.wallet.ui.util.copyToClipboardWithAutoClear
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -116,10 +113,7 @@ fun TransactionDetailScreen(
                         .fillMaxWidth()
                         .clickable {
                             if (showFullTxid) {
-                                // Copy to clipboard
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("txid", transaction.txid))
-                                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                copyToClipboardWithAutoClear(context, "Transaction ID", transaction.txid)
                             }
                             showFullTxid = !showFullTxid
                         },
