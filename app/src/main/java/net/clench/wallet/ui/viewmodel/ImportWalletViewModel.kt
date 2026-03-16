@@ -57,6 +57,23 @@ class ImportWalletViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
 
+    /**
+     * Best-effort mnemonic/passphrase cleanup when ViewModel is destroyed.
+     * Note: JVM Strings can't be zeroed in memory, but nullifying references
+     * allows GC to reclaim them and reduces the window of exposure.
+     */
+    override fun onCleared() {
+        super.onCleared()
+        _uiState.update {
+            it.copy(
+                seedInput = "",
+                passphrase = "",
+                descriptorInput = "",
+                fingerprintBytes = null
+            )
+        }
+    }
+
     fun setImportMode(mode: ImportMode) = _uiState.update { it.copy(importMode = mode, error = null) }
     fun setWalletName(name: String) = _uiState.update { it.copy(walletName = name) }
     fun setSeedInput(seed: String) {

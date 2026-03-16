@@ -26,6 +26,16 @@ class ViewSeedPhraseViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
 
+    /**
+     * Best-effort mnemonic cleanup when ViewModel is destroyed.
+     * Note: JVM Strings can't be zeroed in memory, but nullifying references
+     * allows GC to reclaim them and reduces the window of exposure.
+     */
+    override fun onCleared() {
+        super.onCleared()
+        _uiState.update { it.copy(mnemonic = emptyList(), error = null) }
+    }
+
     private var walletId: String = ""
 
     fun load(walletId: String) {

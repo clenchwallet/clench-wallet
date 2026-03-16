@@ -66,6 +66,26 @@ class CreateWalletViewModel @Inject constructor(
     // Hold generated mnemonic in memory only (not persisted until confirmAndSave)
     private var pendingMnemonic: List<String>? = null
 
+    /**
+     * Best-effort mnemonic cleanup when ViewModel is destroyed.
+     * Note: JVM Strings can't be zeroed in memory, but nullifying references
+     * allows GC to reclaim them and reduces the window of exposure.
+     */
+    override fun onCleared() {
+        super.onCleared()
+        pendingMnemonic = null
+        _uiState.update {
+            it.copy(
+                mnemonic = emptyList(),
+                passphrase = "",
+                pendingPassphrase = "",
+                descriptorString = null,
+                fingerprintBytes = null,
+                masterFingerprintBytes = null
+            )
+        }
+    }
+
     fun setWalletName(name: String) = _uiState.update { it.copy(walletName = name) }
     fun setWordCount(count: Int) = _uiState.update { it.copy(wordCount = count, mnemonic = emptyList(), descriptorString = null, fingerprintBytes = null) }
 
