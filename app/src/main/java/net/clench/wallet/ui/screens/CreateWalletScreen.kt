@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -22,6 +24,7 @@ import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
 @Composable
 fun CreateWalletScreen(
     onWalletCreated: (String) -> Unit,
+    onNavigateConfirmPassphrase: () -> Unit,
     onBack: () -> Unit,
     viewModel: CreateWalletViewModel = hiltViewModel()
 ) {
@@ -56,6 +59,8 @@ fun CreateWalletScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+                .imePadding()
         ) {
             OutlinedTextField(
                 value = uiState.walletName,
@@ -85,114 +90,6 @@ fun CreateWalletScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Collapsible passphrase section
-            var passphraseExpanded by remember { mutableStateOf(false) }
-
-            OutlinedCard(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = { passphraseExpanded = !passphraseExpanded }
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Advanced: Add passphrase (optional)",
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(
-                        if (passphraseExpanded) Icons.Default.KeyboardArrowUp
-                        else Icons.Default.KeyboardArrowDown,
-                        contentDescription = null
-                    )
-                }
-            }
-
-            AnimatedVisibility(visible = passphraseExpanded) {
-                Column(modifier = Modifier.padding(top = 8.dp)) {
-                    // Warning card 1 — amber
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = Color(0xFFFFF3E0)
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            "⚠\uFE0F Your passphrase is NEVER stored — not even on this device.\n\n" +
-                            "To restore this wallet you need BOTH:\n" +
-                            "  • Your 24-word seed phrase\n" +
-                            "  • This exact passphrase\n\n" +
-                            "Write your passphrase down separately from your seed phrase and store both in secure locations.",
-                            modifier = Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF5D4037)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Passphrase field — always plain text, no hide toggle
-                    OutlinedTextField(
-                        value = uiState.passphrase,
-                        onValueChange = { viewModel.setPassphrase(it) },
-                        label = { Text("Passphrase") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Confirm passphrase field
-                    OutlinedTextField(
-                        value = uiState.passphraseConfirm,
-                        onValueChange = { viewModel.setPassphraseConfirm(it) },
-                        label = { Text("Confirm passphrase") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        isError = uiState.passphraseError != null
-                    )
-                    uiState.passphraseError?.let { error ->
-                        Text(
-                            error,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(start = 16.dp, top = 4.dp)
-                        )
-                    }
-
-                    // Warning card 2 — red (only when passphrase is non-empty)
-                    if (uiState.passphrase.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = Color(0xFFFFEBEE)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                "\uD83D\uDD34 If you forget this passphrase, your bitcoin cannot be recovered by anyone — not even us. There is no reset.",
-                                modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFC62828)
-                            )
-                        }
-                    }
-
-                    // Dynamic wallet fingerprint — updates with passphrase
-                    uiState.fingerprintBytes?.let { bytes ->
-                        Spacer(modifier = Modifier.height(16.dp))
-                        WalletFingerprint(bytes)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
             // Generate button
             if (uiState.mnemonic.isEmpty()) {
                 Button(
@@ -213,40 +110,143 @@ fun CreateWalletScreen(
                     color = MaterialTheme.colorScheme.error
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    itemsIndexed(uiState.mnemonic) { index, word ->
-                        Card {
-                            Row(modifier = Modifier.padding(8.dp)) {
-                                Text(
-                                    "${index + 1}.",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(word, style = MaterialTheme.typography.bodyMedium)
+
+                // Fixed-height grid instead of LazyVerticalGrid (can't nest lazy in scrollable)
+                val words = uiState.mnemonic
+                val columns = 3
+                val rows = (words.size + columns - 1) / columns
+                for (row in 0 until rows) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (col in 0 until columns) {
+                            val index = row * columns + col
+                            if (index < words.size) {
+                                Card(modifier = Modifier.weight(1f)) {
+                                    Row(modifier = Modifier.padding(8.dp)) {
+                                        Text(
+                                            "${index + 1}.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(words[index], style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }
+                    if (row < rows - 1) Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // "I've Written It Down" button — disabled if passphrase mismatch or confirm empty
-                val passphraseValid = uiState.passphraseError == null &&
-                    (uiState.passphrase.isEmpty() || uiState.passphraseConfirm.isNotEmpty())
+                // Collapsible passphrase section
+                var passphraseExpanded by remember { mutableStateOf(false) }
 
-                Button(
-                    onClick = { viewModel.confirmAndSave(onWalletCreated) },
+                OutlinedCard(
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !uiState.isLoading && passphraseValid
+                    onClick = { passphraseExpanded = !passphraseExpanded }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Advanced: Add passphrase (optional)",
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            if (passphraseExpanded) Icons.Default.KeyboardArrowUp
+                            else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null
+                        )
+                    }
+                }
+
+                AnimatedVisibility(visible = passphraseExpanded) {
+                    Column(modifier = Modifier.padding(top = 8.dp)) {
+                        // Warning card 1 — amber
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color(0xFFFFF3E0)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "⚠\uFE0F Your passphrase is NEVER stored — not even on this device.\n\n" +
+                                "To restore this wallet you need BOTH:\n" +
+                                "  • Your ${uiState.wordCount}-word seed phrase\n" +
+                                "  • This exact passphrase\n\n" +
+                                "Write your passphrase down separately from your seed phrase and store both in secure locations.",
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF5D4037)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Passphrase field — always plain text, no hide toggle, no confirm field
+                        OutlinedTextField(
+                            value = uiState.passphrase,
+                            onValueChange = { viewModel.setPassphrase(it) },
+                            label = { Text("Passphrase") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+
+                        // Warning card 2 — red (only when passphrase is non-empty)
+                        if (uiState.passphrase.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = Color(0xFFFFEBEE)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    "\uD83D\uDD34 If you forget this passphrase, your bitcoin cannot be recovered by anyone — not even us. There is no reset.",
+                                    modifier = Modifier.padding(12.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFC62828)
+                                )
+                            }
+                        }
+
+                        // Dynamic wallet fingerprint — updates with passphrase
+                        uiState.fingerprintBytes?.let { bytes ->
+                            Spacer(modifier = Modifier.height(16.dp))
+                            WalletFingerprint(bytes)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Continue button
+                Button(
+                    onClick = {
+                        if (uiState.passphrase.isNotEmpty()) {
+                            viewModel.setPendingPassphrase()
+                            onNavigateConfirmPassphrase()
+                        } else {
+                            viewModel.confirmAndSave(onWalletCreated)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !uiState.isLoading
                 ) {
                     if (uiState.isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                    else Text("I've Written It Down — Continue")
+                    else Text(if (uiState.passphrase.isNotEmpty()) "Continue" else "I've Written It Down — Continue")
                 }
 
                 uiState.error?.let { err ->
@@ -258,7 +258,7 @@ fun CreateWalletScreen(
                         Text(
                             text = err,
                             color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = androidx.compose.ui.Modifier.padding(12.dp),
+                            modifier = Modifier.padding(12.dp),
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -271,10 +271,9 @@ fun CreateWalletScreen(
 /**
  * Visual + text wallet fingerprint — a deterministic 2×4 grid of colored squares
  * derived from 8 bytes of SHA-256(masterFingerprint + passphrase).
- * Each byte maps to a hue-based color for perceptually meaningful changes.
  */
 @Composable
-private fun WalletFingerprint(fingerprintBytes: ByteArray) {
+internal fun WalletFingerprint(fingerprintBytes: ByteArray) {
     if (fingerprintBytes.size < 8) return
 
     val colors = remember(fingerprintBytes.toList()) {

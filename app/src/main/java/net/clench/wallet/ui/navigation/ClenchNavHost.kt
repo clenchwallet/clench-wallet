@@ -15,9 +15,11 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.navigation
 import androidx.navigation.navArgument
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.screens.*
+import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
 import net.clench.wallet.ui.viewmodel.HomeViewModel
 import net.clench.wallet.ui.viewmodel.StartupViewModel
 
@@ -101,15 +103,44 @@ fun ClenchNavHost(navController: NavHostController) {
             )
         }
 
-        composable(Routes.CreateWallet.route) {
-            CreateWalletScreen(
-                onWalletCreated = { walletId ->
-                    navController.navigate(Routes.Home.build(walletId)) {
-                        popUpTo(Routes.Welcome.route) { inclusive = true }
-                    }
-                },
-                onBack = { navController.popBackStack() }
-            )
+        navigation(
+            startDestination = "create_wallet_main",
+            route = Routes.CreateWallet.route
+        ) {
+            composable("create_wallet_main") { backStackEntry ->
+                val parentEntry = remember(backStackEntry) {
+                    navController.getBackStackEntry(Routes.CreateWallet.route)
+                }
+                val viewModel: CreateWalletViewModel = hiltViewModel(parentEntry)
+                CreateWalletScreen(
+                    onWalletCreated = { walletId ->
+                        navController.navigate(Routes.Home.build(walletId)) {
+                            popUpTo(Routes.Welcome.route) { inclusive = true }
+                        }
+                    },
+                    onNavigateConfirmPassphrase = {
+                        navController.navigate(Routes.PassphraseConfirm.route)
+                    },
+                    onBack = { navController.popBackStack() },
+                    viewModel = viewModel
+                )
+            }
+
+            composable(Routes.PassphraseConfirm.route) { backStackEntry ->
+                val parentEntry = remember(backStackEntry) {
+                    navController.getBackStackEntry(Routes.CreateWallet.route)
+                }
+                val viewModel: CreateWalletViewModel = hiltViewModel(parentEntry)
+                PassphraseConfirmScreen(
+                    onSuccess = { walletId ->
+                        navController.navigate(Routes.Home.build(walletId)) {
+                            popUpTo(Routes.Welcome.route) { inclusive = false }
+                        }
+                    },
+                    onBack = { navController.popBackStack() },
+                    viewModel = viewModel
+                )
+            }
         }
 
         composable(Routes.ImportWallet.route) {

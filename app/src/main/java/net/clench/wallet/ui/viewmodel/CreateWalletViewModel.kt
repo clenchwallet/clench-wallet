@@ -26,20 +26,18 @@ class CreateWalletViewModel @Inject constructor(
         val walletName: String = "My Wallet",
         val wordCount: Int = 24,
         val passphrase: String = "",
-        val passphraseConfirm: String = "",
-        val passphraseError: String? = null,
+        val pendingPassphrase: String = "",
         val mnemonic: List<String> = emptyList(),
         val isLoading: Boolean = false,
         val error: String? = null,
         val fingerprintBytes: ByteArray? = null,
-        val descriptorString: String? = null  // cached for fingerprint computation
+        val descriptorString: String? = null
     ) {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             if (other !is UiState) return false
             return walletName == other.walletName && wordCount == other.wordCount &&
-                passphrase == other.passphrase && passphraseConfirm == other.passphraseConfirm &&
-                passphraseError == other.passphraseError &&
+                passphrase == other.passphrase && pendingPassphrase == other.pendingPassphrase &&
                 mnemonic == other.mnemonic &&
                 isLoading == other.isLoading && error == other.error &&
                 fingerprintBytes.contentEquals(other.fingerprintBytes) &&
@@ -49,8 +47,7 @@ class CreateWalletViewModel @Inject constructor(
             var result = walletName.hashCode()
             result = 31 * result + wordCount
             result = 31 * result + passphrase.hashCode()
-            result = 31 * result + passphraseConfirm.hashCode()
-            result = 31 * result + (passphraseError?.hashCode() ?: 0)
+            result = 31 * result + pendingPassphrase.hashCode()
             result = 31 * result + mnemonic.hashCode()
             result = 31 * result + isLoading.hashCode()
             result = 31 * result + (error?.hashCode() ?: 0)
@@ -70,20 +67,13 @@ class CreateWalletViewModel @Inject constructor(
     fun setWordCount(count: Int) = _uiState.update { it.copy(wordCount = count, mnemonic = emptyList(), descriptorString = null, fingerprintBytes = null) }
 
     fun setPassphrase(pass: String) {
-        _uiState.update {
-            val error = if (it.passphraseConfirm.isNotEmpty() && it.passphraseConfirm != pass)
-                "Passphrases do not match" else null
-            it.copy(passphrase = pass, passphraseError = error)
-        }
+        _uiState.update { it.copy(passphrase = pass) }
         regenerateDescriptorAndFingerprint()
     }
 
-    fun setPassphraseConfirm(value: String) {
-        _uiState.update {
-            val error = if (value.isNotEmpty() && value != it.passphrase)
-                "Passphrases do not match" else null
-            it.copy(passphraseConfirm = value, passphraseError = error)
-        }
+    /** Store passphrase as pending for confirmation on the next screen */
+    fun setPendingPassphrase() {
+        _uiState.update { it.copy(pendingPassphrase = it.passphrase) }
     }
 
     /**
@@ -102,7 +92,6 @@ class CreateWalletViewModel @Inject constructor(
             _uiState.update { it.copy(descriptorString = descriptorStr) }
             updateFingerprint()
         } catch (_: Exception) {
-            // If BDK fails for some reason, clear fingerprint
             _uiState.update { it.copy(fingerprintBytes = null) }
         }
     }
@@ -130,19 +119,35 @@ class CreateWalletViewModel @Inject constructor(
         }
     }
 
+    /** Compute fingerprint for an arbitrary passphrase (used by confirm screen) */
+    fun computeFingerprintForPassphrase(passphrase: String): ByteArray? {
+        val descriptorStr = _uiState.value.descriptorString ?: return null
+        val masterFp = extractMasterFingerprint(descriptorStr) ?: return null
+        return try {
+            // Need to regenerate descriptor with the given passphrase to get correct fingerprint
+            val mnemonic = pendingMnemonic ?: return null
+            val mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
+            val network = Network.BITCOIN
+            val secretKey = DescriptorSecretKey(network, mnemonicObj, passphrase)
+            val descriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
+            val newDescriptorStr = descriptor.toString()
+            val newMasterFp = extractMasterFingerprint(newDescriptorStr) ?: return null
+            computeFingerprint(newMasterFp, passphrase).sliceArray(0 until 8)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun generateWallet() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                // ONLY generate mnemonic in memory — zero DB/keystore writes
                 val wordCountEnum = if (_uiState.value.wordCount == 12) WordCount.WORDS12 else WordCount.WORDS24
                 val mnemonic = Mnemonic(wordCountEnum)
                 val mnemonicWords = mnemonic.toString().split(" ")
 
-                // Store in memory
                 pendingMnemonic = mnemonicWords
 
-                // Generate descriptor for fingerprint computation
                 val passphrase = _uiState.value.passphrase
                 val network = Network.BITCOIN
                 val secretKey = DescriptorSecretKey(network, mnemonic, passphrase)
@@ -161,20 +166,19 @@ class CreateWalletViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                // Use the same mnemonic words from generateWallet()
                 val mnemonicWords = pendingMnemonic ?: throw IllegalStateException("No mnemonic generated")
+                val passphraseToUse = _uiState.value.pendingPassphrase.ifBlank {
+                    _uiState.value.passphrase.ifBlank { null }
+                }
 
                 val walletData = bitcoinRepository.importWallet(
                     name = _uiState.value.walletName,
                     mnemonic = mnemonicWords,
-                    passphrase = _uiState.value.passphrase.ifBlank { null }
+                    passphrase = passphraseToUse
                 )
 
-                // Clear mnemonic from memory as best effort — JVM String is immutable
-                // so the backing char[] can't be zeroed, but at least remove references
-                // so it becomes eligible for GC and won't be shown if user navigates back.
                 pendingMnemonic = null
-                _uiState.update { it.copy(mnemonic = emptyList(), passphrase = "", passphraseConfirm = "", descriptorString = null, fingerprintBytes = null) }
+                _uiState.update { it.copy(mnemonic = emptyList(), passphrase = "", pendingPassphrase = "", descriptorString = null, fingerprintBytes = null) }
 
                 onCreated(walletData.id)
             } catch (e: Exception) {
@@ -185,20 +189,12 @@ class CreateWalletViewModel @Inject constructor(
     }
 
     companion object {
-        /**
-         * Extract the 4-byte master fingerprint from a descriptor origin string.
-         * E.g. from "wpkh([AABBCCDD/84h/0h/0h]xpub...)" extracts bytes [AA, BB, CC, DD].
-         */
         fun extractMasterFingerprint(descriptorString: String): ByteArray? {
             val match = Regex("\\[([0-9a-fA-F]{8})/").find(descriptorString)
             val hex = match?.groupValues?.get(1) ?: return null
             return hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         }
 
-        /**
-         * Compute a visual fingerprint from master fingerprint bytes + passphrase.
-         * SHA-256(masterFingerprint + passphrase.toByteArray())
-         */
         fun computeFingerprint(masterFingerprintBytes: ByteArray, passphrase: String): ByteArray {
             val input = masterFingerprintBytes + passphrase.toByteArray(Charsets.UTF_8)
             return MessageDigest.getInstance("SHA-256").digest(input)
