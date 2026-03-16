@@ -157,7 +157,14 @@ fun CreateWalletScreen(
 
                 OutlinedCard(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = { passphraseExpanded = !passphraseExpanded }
+                    onClick = {
+                        passphraseExpanded = !passphraseExpanded
+                        if (!passphraseExpanded) return@OutlinedCard
+                        coroutineScope.launch {
+                            delay(300) // wait for AnimatedVisibility expand animation
+                            buttonBringIntoViewRequester.bringIntoView()
+                        }
+                    }
                 ) {
                     Row(
                         modifier = Modifier
@@ -210,18 +217,7 @@ fun CreateWalletScreen(
                             value = uiState.passphrase,
                             onValueChange = { viewModel.setPassphrase(it) },
                             label = { Text("Passphrase") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .onFocusChanged { focusState ->
-                                    if (focusState.isFocused) {
-                                        coroutineScope.launch {
-                                            delay(300)
-                                            // Scroll to show the button at the bottom — everything between
-                                            // (fingerprint, warnings) becomes visible above keyboard
-                                            buttonBringIntoViewRequester.bringIntoView()
-                                        }
-                                    }
-                                },
+                            modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
 
