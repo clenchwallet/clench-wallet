@@ -30,6 +30,7 @@ import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
 fun CreateWalletScreen(
     onWalletCreated: (String) -> Unit,
     onNavigateConfirmPassphrase: () -> Unit,
+    onNavigateSeedVerification: () -> Unit,
     onBack: () -> Unit,
     viewModel: CreateWalletViewModel = hiltViewModel()
 ) {
@@ -263,15 +264,10 @@ fun CreateWalletScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Continue button
+                // Continue button — always goes through seed verification first
                 Button(
                     onClick = {
-                        if (uiState.passphrase.isNotEmpty()) {
-                            viewModel.setPendingPassphrase()
-                            onNavigateConfirmPassphrase()
-                        } else {
-                            viewModel.confirmAndSave(onWalletCreated)
-                        }
+                        onNavigateSeedVerification()
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -279,7 +275,7 @@ fun CreateWalletScreen(
                     enabled = !uiState.isLoading
                 ) {
                     if (uiState.isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                    else Text(if (uiState.passphrase.isNotEmpty()) "Continue" else "I've Written It Down — Continue")
+                    else Text("I've Written It Down — Verify")
                 }
 
                 uiState.error?.let { err ->

@@ -121,6 +121,33 @@ fun ClenchNavHost(navController: NavHostController) {
                     onNavigateConfirmPassphrase = {
                         navController.navigate(Routes.PassphraseConfirm.route)
                     },
+                    onNavigateSeedVerification = {
+                        navController.navigate(Routes.SeedVerification.route)
+                    },
+                    onBack = { navController.popBackStack() },
+                    viewModel = viewModel
+                )
+            }
+
+            composable(Routes.SeedVerification.route) { backStackEntry ->
+                val parentEntry = remember(backStackEntry) {
+                    navController.getBackStackEntry(Routes.CreateWallet.route)
+                }
+                val viewModel: CreateWalletViewModel = hiltViewModel(parentEntry)
+                SeedVerificationScreen(
+                    onVerified = {
+                        val uiState = viewModel.uiState.value
+                        if (uiState.passphrase.isNotEmpty()) {
+                            viewModel.setPendingPassphrase()
+                            navController.navigate(Routes.PassphraseConfirm.route)
+                        } else {
+                            viewModel.confirmAndSave { walletId ->
+                                navController.navigate(Routes.Home.build(walletId)) {
+                                    popUpTo(Routes.Welcome.route) { inclusive = true }
+                                }
+                            }
+                        }
+                    },
                     onBack = { navController.popBackStack() },
                     viewModel = viewModel
                 )

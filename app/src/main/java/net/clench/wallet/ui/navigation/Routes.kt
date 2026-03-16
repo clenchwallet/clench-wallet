@@ -38,6 +38,7 @@ sealed class Routes(val route: String) {
     object TransactionDetail : Routes("tx_detail/{walletId}/{txid}") {
         fun build(walletId: String, txid: String) = "tx_detail/$walletId/$txid"
     }
+    object SeedVerification : Routes("seed_verification")
     object PassphraseConfirm : Routes("passphrase_confirm")
     object HardwarePsbt : Routes("hw_psbt/{walletId}/{deviceType}") {
         fun build(walletId: String, deviceType: String): String {
