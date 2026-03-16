@@ -8,7 +8,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
+import net.sqlcipher.database.SupportFactory
 import net.clench.wallet.data.local.ClenchDatabase
 import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.dao.TransactionDao
@@ -31,7 +31,7 @@ object DatabaseModule {
         System.loadLibrary("sqlcipher")
 
         val dbKey = keystoreManager.getOrCreateDatabaseKey()
-        val factory = SupportOpenHelperFactory(dbKey)
+        val factory = SupportFactory(dbKey)
 
         return Room.databaseBuilder(context, ClenchDatabase::class.java, "clench.db")
             .openHelperFactory(factory)
