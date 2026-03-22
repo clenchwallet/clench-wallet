@@ -28,7 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
@@ -66,6 +67,27 @@ class MainActivity : FragmentActivity() {
         // Determine initial lock state: locked if app lock is enabled
         val shouldLock = settingsManager.getAppLockMode() != "none"
         isLocked.value = shouldLock
+
+        // Lock passphrase wallets when app becomes fully invisible (ON_STOP),
+        // NOT on onPause — onPause fires when the Activity is merely obscured
+        // (e.g. QR scanner overlay, biometric dialog), which would nuke
+        // in-memory wallets mid-send-flow.
+        lifecycle.addObserver(LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                lifecycleScope.launch {
+                    try {
+                        val wallets = bitcoinRepository.listWallets()
+                        for (wallet in wallets) {
+                            if (wallet.hasPassphrase) {
+                                (bitcoinRepository as? BdkBitcoinRepository)?.lockPassphraseWallet(wallet.id)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("MainActivity", "Failed to lock passphrase wallets on stop: ${e.message}")
+                    }
+                }
+            }
+        })
 
         setContent {
             ClenchTheme {
@@ -148,21 +170,6 @@ class MainActivity : FragmentActivity() {
         super.onPause()
         isChangingConfiguration = isChangingConfigurations
         lastPauseTimestamp = System.currentTimeMillis()
-        
-        // Lock all passphrase wallets when app goes to background
-        // This ensures secrets are evicted from memory when app is not in foreground
-        lifecycleScope.launch {
-            try {
-                val wallets = bitcoinRepository.listWallets()
-                for (wallet in wallets) {
-                    if (wallet.hasPassphrase) {
-                        (bitcoinRepository as? BdkBitcoinRepository)?.lockPassphraseWallet(wallet.id)
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("MainActivity", "Failed to lock passphrase wallets on pause: ${e.message}")
-            }
-        }
     }
 
     override fun onResume() {
