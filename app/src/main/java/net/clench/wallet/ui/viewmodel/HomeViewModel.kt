@@ -67,14 +67,17 @@ class HomeViewModel @Inject constructor(
         settingsManager.setLastViewedWalletId(walletId)
 
         viewModelScope.launch {
+            val isTestnet = settingsManager.isTestnet()
             val savedUnit = try { BalanceUnit.valueOf(settingsManager.getBalanceUnit()) } catch (_: Exception) { BalanceUnit.SATS }
+            // Testnet BTC has no real value — never show USD equivalent
+            val effectiveUnit = if (isTestnet && savedUnit == BalanceUnit.USD) BalanceUnit.SATS else savedUnit
             _uiState.update { it.copy(
                 isLoading = true,
-                isTestnet = settingsManager.isTestnet(),
+                isTestnet = isTestnet,
                 mempoolUrl = settingsManager.getMempoolUrl(),
                 isOfflineMode = settingsManager.isOfflineMode(),
                 isTorEnabled = settingsManager.isTorEnabled(),
-                balanceUnit = savedUnit
+                balanceUnit = effectiveUnit
             ) }
             try {
                 // Load wallet name from DB
@@ -142,7 +145,8 @@ class HomeViewModel @Inject constructor(
         _uiState.update { state ->
             val next = when (state.balanceUnit) {
                 BalanceUnit.SATS -> BalanceUnit.BTC
-                BalanceUnit.BTC -> BalanceUnit.USD
+                // Skip USD on testnet — testnet BTC has no real value
+                BalanceUnit.BTC -> if (state.isTestnet) BalanceUnit.HIDDEN else BalanceUnit.USD
                 BalanceUnit.USD -> BalanceUnit.HIDDEN
                 BalanceUnit.HIDDEN -> BalanceUnit.SATS
             }

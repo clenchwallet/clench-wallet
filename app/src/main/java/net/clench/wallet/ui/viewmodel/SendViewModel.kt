@@ -269,9 +269,11 @@ class SendViewModel @Inject constructor(
 
     fun cycleAmountUnit() {
         val state = _uiState.value
+        val isTestnet = settingsManager.isTestnet()
         val newUnit = when (state.amountUnit) {
             AmountUnit.SATS -> AmountUnit.BTC
-            AmountUnit.BTC -> if (state.btcPriceUsd != null) AmountUnit.USD else AmountUnit.SATS
+            // Skip USD on testnet — testnet BTC has no real value
+            AmountUnit.BTC -> if (!isTestnet && state.btcPriceUsd != null) AmountUnit.USD else AmountUnit.SATS
             AmountUnit.USD -> AmountUnit.SATS
         }
         // Convert current sats value to new unit for display
