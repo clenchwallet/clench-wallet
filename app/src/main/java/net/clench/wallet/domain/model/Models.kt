@@ -71,7 +71,11 @@ data class ElectrumConfig(
     val serverUrl: String = "electrum.blockstream.info",
     val port: Int = 50002,
     val useSsl: Boolean = true,
-    val isCustom: Boolean = false
+    val isCustom: Boolean = false,
+    /** Base64-encoded DER certificate for TLS cert pinning (null = use system trust store) */
+    val pinnedCert: String? = null,
+    /** Whether to route this connection through Tor SOCKS5 proxy */
+    val useTor: Boolean = false
 )
 
 /**

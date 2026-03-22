@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.data.local.PinManager
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.network.ElectrumConnectionFactory
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.PublicElectrumServers
 import net.clench.wallet.domain.model.PublicServer
@@ -20,7 +21,8 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
     private val settingsManager: SettingsManager,
-    private val pinManager: PinManager
+    private val pinManager: PinManager,
+    private val electrumConnectionFactory: ElectrumConnectionFactory
 ) : ViewModel() {
 
     data class UiState(
@@ -46,7 +48,15 @@ class SettingsViewModel @Inject constructor(
         val torProxyHost: String = "127.0.0.1",
         val torProxyPort: String = "9050",
         val preferredHardwareWalletLabel: String = "None",
-        val isPinSet: Boolean = false
+        val isPinSet: Boolean = false,
+        /** Base64-encoded DER certificate for TLS cert pinning */
+        val pinnedCert: String? = null,
+        /** Per-server Tor toggle (routes this server via SOCKS5) */
+        val useServerTor: Boolean = false,
+        /** Shows QR scanner for cert import */
+        val showCertScanner: Boolean = false,
+        /** Active connection mode label for display */
+        val connectionModeLabel: String = ""
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -91,7 +101,10 @@ class SettingsViewModel @Inject constructor(
                 torEnabled = settingsManager.isTorEnabled(),
                 torProxyHost = settingsManager.getTorProxyHost(),
                 torProxyPort = settingsManager.getTorProxyPort().toString(),
-                isPinSet = pinManager.isPinSet()
+                isPinSet = pinManager.isPinSet(),
+                pinnedCert = validatedConfig.pinnedCert,
+                useServerTor = validatedConfig.useTor,
+                connectionModeLabel = computeConnectionModeLabel(validatedConfig)
             )
         }
     }
@@ -136,7 +149,9 @@ class SettingsViewModel @Inject constructor(
                 serverUrl = cleanUrl,
                 port = state.customServerPort.toIntOrNull() ?: 50002,
                 useSsl = state.useSSL,
-                isCustom = true
+                isCustom = true,
+                pinnedCert = state.pinnedCert,
+                useTor = state.useServerTor
             )
         } else {
             // Keep whatever public server was selected (don't reset to defaults)
@@ -152,7 +167,8 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(
             customServerUrl = cleanUrl,  // normalize displayed URL too
             savedSuccess = true,
-            saveError = null
+            saveError = null,
+            connectionModeLabel = computeConnectionModeLabel(config)
         ) }
         // Clear success banner after a moment
         viewModelScope.launch {
@@ -171,18 +187,32 @@ class SettingsViewModel @Inject constructor(
             return
         }
         val port = state.customServerPort.toIntOrNull() ?: 50002
-        val protocol = if (state.useSSL) "ssl" else "tcp"
-        val url = "$protocol://$cleanUrl:$port"
+        val testConfig = ElectrumConfig(
+            serverUrl = cleanUrl,
+            port = port,
+            useSsl = state.useSSL,
+            isCustom = true,
+            pinnedCert = state.pinnedCert,
+            useTor = state.useServerTor
+        )
+        val resolved = electrumConnectionFactory.resolveConnection(testConfig)
 
         _uiState.update { it.copy(testingConnection = true, connectionTestResult = null) }
         viewModelScope.launch {
             val result = try {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val client = org.bitcoindevkit.ElectrumClient(url)
-                    // Request server version as a connectivity probe
-                    client.close()
+                    val conn = electrumConnectionFactory.createConnection(testConfig)
+                    conn.close()
                 }
-                "✓ Connected to $cleanUrl:$port"
+                "✓ Connected to $cleanUrl:$port (${resolved.mode.name})"
+            } catch (e: net.clench.wallet.data.network.ElectrumConnectionException.TorProxyUnavailable) {
+                "✗ Tor proxy not reachable — is Orbot running?\n${e.message}"
+            } catch (e: net.clench.wallet.data.network.ElectrumConnectionException.TlsCertPinningFailed) {
+                "✗ Certificate pinning failed — the server's cert doesn't match.\n${e.message}"
+            } catch (e: net.clench.wallet.data.network.ElectrumConnectionException.TlsHandshakeFailed) {
+                "✗ TLS handshake failed — check that the server supports TLS on this port.\n${e.message}"
+            } catch (e: net.clench.wallet.data.network.ElectrumConnectionException.ConnectionFailed) {
+                "✗ Connection failed — check host/port.\n${e.message}"
             } catch (e: Exception) {
                 val msg = e.message ?: "Connection error"
                 when {
@@ -190,10 +220,12 @@ class SettingsViewModel @Inject constructor(
                     msg.contains("TLS", ignoreCase = true) ||
                     msg.contains("certificate", ignoreCase = true) ||
                     msg.contains("handshake", ignoreCase = true) ->
-                        "✗ SSL/TLS error — self-signed certificates are not supported by BDK.\nDisable SSL and use port 50001 (plain TCP)."
+                        "✗ SSL/TLS error — try pinning the server's certificate, or disable SSL and use port 50001."
                     msg.contains("Connection refused", ignoreCase = true) ->
-                        "✗ Connection refused — check host/port and that your server is running.\nFor self-signed certs: disable SSL, use port 50001."
-                    else -> "✗ Failed: ${msg.take(100)}"
+                        "✗ Connection refused — check host/port and that your server is running."
+                    msg.contains("SOCKS", ignoreCase = true) || msg.contains("Tor", ignoreCase = true) ->
+                        "✗ Tor proxy error — is Orbot running?\n${msg.take(100)}"
+                    else -> "✗ Failed: ${msg.take(150)}"
                 }
             }
             _uiState.update { it.copy(testingConnection = false, connectionTestResult = result) }
@@ -344,6 +376,75 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val wallets = bitcoinRepository.listWallets()
             _uiState.update { it.copy(wallets = wallets) }
+        }
+    }
+
+    // ─── Cert pinning methods ───
+
+    fun setPinnedCert(certBase64: String?) {
+        _uiState.update { it.copy(pinnedCert = certBase64) }
+    }
+
+    fun clearPinnedCert() {
+        _uiState.update { it.copy(pinnedCert = null) }
+    }
+
+    fun setShowCertScanner(show: Boolean) {
+        _uiState.update { it.copy(showCertScanner = show) }
+    }
+
+    /**
+     * Parse an `electrums://host:port?cert=BASE64` QR code and apply it.
+     * Returns true if successfully parsed.
+     */
+    fun parseCertQr(qrText: String): Boolean {
+        // Format: electrums://host:port?cert=BASE64
+        val regex = Regex("""electrums://([^:]+):(\d+)\?cert=(.+)""")
+        val match = regex.matchEntire(qrText.trim())
+        if (match != null) {
+            val host = match.groupValues[1]
+            val port = match.groupValues[2]
+            val cert = match.groupValues[3]
+            _uiState.update { it.copy(
+                customServerUrl = host,
+                customServerPort = port,
+                useSSL = true,
+                pinnedCert = cert,
+                useCustomServer = true,
+                showCertScanner = false
+            ) }
+            return true
+        }
+        // Also accept raw base64 cert (manual paste or simple QR)
+        return try {
+            android.util.Base64.decode(qrText.trim(), android.util.Base64.NO_WRAP)
+            _uiState.update { it.copy(
+                pinnedCert = qrText.trim(),
+                showCertScanner = false
+            ) }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    // ─── Per-server Tor toggle ───
+
+    fun setUseServerTor(enabled: Boolean) {
+        _uiState.update { it.copy(useServerTor = enabled) }
+    }
+
+    // ─── Connection mode label ───
+
+    private fun computeConnectionModeLabel(config: ElectrumConfig): String {
+        val host = config.serverUrl.removePrefix("ssl://").removePrefix("tcp://").trim()
+        val isOnion = host.endsWith(".onion")
+        return when {
+            isOnion -> "🧅 Tor (.onion)"
+            config.useTor || settingsManager.isTorEnabled() -> "🧅 Tor (SOCKS5)"
+            config.pinnedCert != null -> "🔒 TLS (pinned cert)"
+            config.useSsl -> "🔒 TLS"
+            else -> "📡 Plain TCP"
         }
     }
 }

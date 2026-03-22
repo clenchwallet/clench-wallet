@@ -15,6 +15,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.domain.model.PublicElectrumServers
+import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -24,6 +25,20 @@ fun ElectrumServerScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    // If cert scanner is showing, render it full-screen
+    if (uiState.showCertScanner) {
+        QrScanner(
+            onResult = { qrText ->
+                val parsed = viewModel.parseCertQr(qrText)
+                if (!parsed) {
+                    viewModel.setShowCertScanner(false)
+                }
+            },
+            onCancel = { viewModel.setShowCertScanner(false) }
+        )
+        return
+    }
 
     Scaffold(
         topBar = {
@@ -46,7 +61,35 @@ fun ElectrumServerScreen(
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // Offline mode toggle
+            // ─── Connection mode indicator ───
+            if (uiState.connectionModeLabel.isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(12.dp)
+                    ) {
+                        Text(
+                            "Connection mode: ",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Text(
+                            uiState.connectionModeLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // ─── Offline mode toggle ───
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = if (uiState.offlineMode)
@@ -122,7 +165,7 @@ fun ElectrumServerScreen(
                                 Text("Route through Tor", style = MaterialTheme.typography.titleSmall)
                             }
                             Text(
-                                "Requires Orbot or another Tor SOCKS5 proxy app",
+                                "Routes all Electrum traffic through a SOCKS5 proxy (Orbot)",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -155,9 +198,8 @@ fun ElectrumServerScreen(
                         ) { Text("Save Tor Settings") }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "Note: BDK ElectrumClient does not natively support SOCKS5 proxy. " +
-                            "Price API requests will be routed through Tor when enabled. " +
-                            "For full Tor routing of Electrum traffic, use a .onion Electrum server with Tor's transparent proxy.",
+                            "Electrum connections are routed through the SOCKS5 proxy. " +
+                            ".onion addresses are automatically routed via Tor regardless of this setting.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -167,7 +209,7 @@ fun ElectrumServerScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Public vs custom server toggle
+            // ─── Public vs custom server toggle ───
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(
                     checked = uiState.useCustomServer,
@@ -206,7 +248,7 @@ fun ElectrumServerScreen(
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                "Public servers are not offered for testnet. Enable 'Use custom server' above to configure your node. BDK supports plain TCP and TLS with trusted CA certificates. Self-signed certificates are not supported.",
+                                "Public servers are not offered for testnet. Enable 'Use custom server' above to configure your node.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
@@ -248,13 +290,13 @@ fun ElectrumServerScreen(
                     }
                 }
             } else {
-                // Custom server fields
+                // ─── Custom server fields ───
                 OutlinedTextField(
                     value = uiState.customServerUrl,
                     onValueChange = { viewModel.setCustomServerUrl(it) },
                     label = { Text("Server hostname or IP") },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("your.node.com or local IP") },
+                    placeholder = { Text("your.node.com, IP, or .onion address") },
                     supportingText = { Text("Do not include ssl:// — use the SSL toggle below") },
                     singleLine = true
                 )
@@ -277,7 +319,123 @@ fun ElectrumServerScreen(
                         checked = uiState.useSSL,
                         onCheckedChange = { viewModel.setUseSsl(it) }
                     )
-                    Text("Use SSL")
+                    Text("Use SSL/TLS")
+                }
+
+                // ─── TLS Certificate Pinning ───
+                if (uiState.useSSL) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("🔒 Certificate Pinning", style = MaterialTheme.typography.titleSmall)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Pin a specific TLS certificate for self-signed or private CA servers.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            if (uiState.pinnedCert != null) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(8.dp)
+                                    ) {
+                                        Text(
+                                            "✓ Certificate pinned (${uiState.pinnedCert!!.take(20)}…)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        TextButton(onClick = { viewModel.clearPinnedCert() }) {
+                                            Text("Remove")
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Cert paste field
+                            var certPasteText by remember { mutableStateOf("") }
+                            OutlinedTextField(
+                                value = certPasteText,
+                                onValueChange = { certPasteText = it },
+                                label = { Text("Paste certificate (Base64 DER)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = false,
+                                maxLines = 3,
+                                supportingText = { Text("Or scan a QR code below") }
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        if (certPasteText.isNotBlank()) {
+                                            viewModel.parseCertQr(certPasteText.trim())
+                                            certPasteText = ""
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Pin Cert") }
+
+                                OutlinedButton(
+                                    onClick = { viewModel.setShowCertScanner(true) },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("📷 Scan QR") }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "QR format: electrums://host:port?cert=BASE64",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // ─── Per-server Tor toggle ───
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = uiState.useServerTor,
+                        onCheckedChange = { viewModel.setUseServerTor(it) }
+                    )
+                    Column {
+                        Text("🧅 Route via Tor")
+                        Text(
+                            if (uiState.customServerUrl.endsWith(".onion"))
+                                "Required for .onion addresses (always enabled)"
+                            else
+                                "Route this server's traffic through Tor SOCKS5 proxy",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Auto-enable Tor for .onion addresses
+                LaunchedEffect(uiState.customServerUrl) {
+                    if (uiState.customServerUrl.trim().endsWith(".onion") && !uiState.useServerTor) {
+                        viewModel.setUseServerTor(true)
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))

@@ -29,6 +29,13 @@ class SettingsManager @Inject constructor(
             putString("server_url$suffix", cleanUrl)
             putInt("server_port$suffix", config.port)
             putBoolean("use_ssl$suffix", config.useSsl)
+            // New fields for multi-mode connections
+            if (config.pinnedCert != null) {
+                putString("pinned_cert$suffix", config.pinnedCert)
+            } else {
+                remove("pinned_cert$suffix")
+            }
+            putBoolean("use_tor$suffix", config.useTor)
         }
         // Also write to legacy keys for backward compat
         prefs.edit {
@@ -51,7 +58,9 @@ class SettingsManager @Inject constructor(
                 serverUrl = prefs.getString("server_url$suffix", "electrum.blockstream.info") ?: "electrum.blockstream.info",
                 port = prefs.getInt("server_port$suffix", defaultPort),
                 useSsl = prefs.getBoolean("use_ssl$suffix", true),
-                isCustom = prefs.getBoolean("use_custom_server$suffix", false)
+                isCustom = prefs.getBoolean("use_custom_server$suffix", false),
+                pinnedCert = prefs.getString("pinned_cert$suffix", null),
+                useTor = prefs.getBoolean("use_tor$suffix", false)
             )
         } else {
             // No per-network config exists yet.

@@ -60,7 +60,8 @@ class BdkBitcoinRepository @Inject constructor(
     private val transactionDao: TransactionDao,
     private val utxoMetadataDao: UtxoMetadataDao,
     private val keystoreManager: KeystoreManager,
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory
 ) : BitcoinRepository {
 
     // Wallet entry with connection for persistence
@@ -345,9 +346,9 @@ class BdkBitcoinRepository @Inject constructor(
                 throw IllegalStateException("Custom server is enabled but no server address is configured")
             }
 
-            // Build Electrum connection string
+            // Build Electrum connection
             val connectionStr = buildElectrumUrl(effectiveConfig)
-            android.util.Log.d("BdkRepo", "syncWallet: url=${effectiveConfig.serverUrl}, port=${effectiveConfig.port}, ssl=${effectiveConfig.useSsl}, custom=${effectiveConfig.isCustom}")
+            android.util.Log.d("BdkRepo", "syncWallet: url=${effectiveConfig.serverUrl}, port=${effectiveConfig.port}, ssl=${effectiveConfig.useSsl}, custom=${effectiveConfig.isCustom}, tor=${effectiveConfig.useTor}, pinnedCert=${effectiveConfig.pinnedCert != null}")
 
             // Load wallet first (fast, local operation)
             android.util.Log.d("BdkRepo", "syncWallet: loading wallet $walletId")
@@ -359,15 +360,16 @@ class BdkBitcoinRepository @Inject constructor(
             // withTimeout cannot interrupt native/blocking calls, so we use a Future with hard timeout.
             val timeoutMs = if (effectiveConfig.isCustom) 60_000L else 30_000L
             val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
-            var electrumClient: ElectrumClient? = null
+            var activeConnection: net.clench.wallet.data.network.ActiveElectrumConnection? = null
             try {
-                // Create ElectrumClient with hard timeout
-                android.util.Log.d("BdkRepo", "syncWallet: creating ElectrumClient with $connectionStr (timeout=${timeoutMs}ms)")
+                // Create ElectrumClient via connection factory (handles TLS pinning + Tor relay)
+                val resolved = electrumConnectionFactory.resolveConnection(effectiveConfig)
+                android.util.Log.d("BdkRepo", "syncWallet: creating ElectrumClient mode=${resolved.mode} (timeout=${timeoutMs}ms)")
                 val connectFuture = executor.submit(java.util.concurrent.Callable {
-                    ElectrumClient(connectionStr)
+                    electrumConnectionFactory.createConnection(effectiveConfig)
                 })
                 try {
-                    electrumClient = connectFuture.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    activeConnection = connectFuture.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
                 } catch (e: java.util.concurrent.TimeoutException) {
                     connectFuture.cancel(true)
                     android.util.Log.e("BdkRepo", "syncWallet: ElectrumClient connect TIMEOUT after ${timeoutMs}ms")
@@ -376,7 +378,8 @@ class BdkBitcoinRepository @Inject constructor(
                     android.util.Log.e("BdkRepo", "syncWallet: ElectrumClient connect ERROR: ${e.cause?.message}")
                     throw e.cause ?: e
                 }
-                android.util.Log.d("BdkRepo", "syncWallet: ElectrumClient created OK")
+                val electrumClient = activeConnection.client
+                android.util.Log.d("BdkRepo", "syncWallet: ElectrumClient created OK (mode=${activeConnection.mode})")
 
                 // Full scan with coroutine timeout (fullScan is also blocking but generally completes)
                 withTimeout(timeoutMs) {
@@ -407,7 +410,7 @@ class BdkBitcoinRepository @Inject constructor(
                 android.util.Log.e("BdkRepo", "syncWallet: ERROR for $walletId: ${e.javaClass.simpleName}: ${e.message}")
                 throw e
             } finally {
-                try { electrumClient?.close() } catch (_: Exception) {}
+                try { activeConnection?.close() } catch (_: Exception) {}
                 executor.shutdownNow()
                 android.util.Log.d("BdkRepo", "syncWallet: cleanup done")
             }
@@ -732,19 +735,17 @@ class BdkBitcoinRepository @Inject constructor(
         if (settingsManager.isOfflineMode()) {
             throw IllegalStateException("Cannot broadcast in offline mode")
         }
-        val connectionStr = buildElectrumUrl(config)
-        val electrumClient = ElectrumClient(connectionStr)
+        val activeConnection = electrumConnectionFactory.createConnection(config)
 
         // Parse transaction from hex bytes
         val txBytes = txHex.chunked(2).map { it.toInt(16).toUByte() }
         val tx = Transaction(txBytes)
 
         // Broadcast to network — returns txid string
-        // ElectrumClient must always be closed after use
         try {
-            return@withContext electrumClient.transactionBroadcast(tx)
+            return@withContext activeConnection.client.transactionBroadcast(tx)
         } finally {
-            electrumClient.close()
+            activeConnection.close()
         }
     }
 
@@ -961,8 +962,8 @@ class BdkBitcoinRepository @Inject constructor(
      */
     private suspend fun estimateFeesFromElectrum(): FeeEstimates? {
         val config = settingsManager.loadElectrumConfig()
-        val connectionStr = buildElectrumUrl(config)
-        val electrumClient = ElectrumClient(connectionStr)
+        val activeConnection = electrumConnectionFactory.createConnection(config)
+        val electrumClient = activeConnection.client
         return try {
             // BDK's ElectrumClient.estimateFee() takes a target (ULong blocks)
             // and returns a Double representing BTC/kvB.
@@ -1004,7 +1005,7 @@ class BdkBitcoinRepository @Inject constructor(
             android.util.Log.w("BdkRepo", "Electrum fee estimation error: ${e.message}")
             null
         } finally {
-            electrumClient.close()
+            activeConnection.close()
         }
     }
 
@@ -1259,12 +1260,11 @@ class BdkBitcoinRepository @Inject constructor(
         // Extract and broadcast the finalized transaction
         val tx = finalizeResult.psbt.extractTx()
         val config = settingsManager.loadElectrumConfig()
-        val connectionStr = buildElectrumUrl(config)
-        val electrumClient = ElectrumClient(connectionStr)
+        val activeConnection = electrumConnectionFactory.createConnection(config)
         try {
-            electrumClient.transactionBroadcast(tx)
+            activeConnection.client.transactionBroadcast(tx)
         } finally {
-            electrumClient.close()
+            activeConnection.close()
         }
     }
 
@@ -1612,19 +1612,11 @@ class BdkBitcoinRepository @Inject constructor(
 
         val result = mutableMapOf<String, Pair<Long, Long>>()
         try {
-            val useSsl = connectionStr.startsWith("ssl://")
-            val hostPort = connectionStr.removePrefix("ssl://").removePrefix("tcp://")
-            val parts = hostPort.split(":")
-            val host = parts[0]
-            val port = parts.getOrNull(1)?.toIntOrNull() ?: if (useSsl) 50002 else 50001
-            android.util.Log.d("BdkRepo", "batchElectrumTxLookup: connecting to $host:$port ssl=$useSsl for ${txids.size} txids")
+            val config = settingsManager.loadElectrumConfig()
+            android.util.Log.d("BdkRepo", "batchElectrumTxLookup: connecting for ${txids.size} txids")
             android.util.Log.d("BdkRepo", "batchElectrumTxLookup: first txid=${txids.firstOrNull()} len=${txids.firstOrNull()?.length}")
 
-            val socket = if (useSsl) {
-                javax.net.ssl.SSLSocketFactory.getDefault().createSocket(host, port)
-            } else {
-                java.net.Socket(host, port)
-            }
+            val socket = electrumConnectionFactory.createRawSocket(config)
             socket.soTimeout = 30_000
 
             val writer = java.io.PrintWriter(java.io.BufferedWriter(java.io.OutputStreamWriter(socket.getOutputStream())), true)

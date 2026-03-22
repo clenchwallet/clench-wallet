@@ -10,13 +10,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.network.ElectrumConnectionFactory
 import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
 import org.bitcoindevkit.Amount
 import org.bitcoindevkit.Connection
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
-import org.bitcoindevkit.ElectrumClient
 import org.bitcoindevkit.FeeRate
 import org.bitcoindevkit.KeychainKind
 import org.bitcoindevkit.Mnemonic
@@ -28,7 +28,8 @@ import javax.inject.Inject
 @HiltViewModel
 class SweepViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val electrumConnectionFactory: ElectrumConnectionFactory
 ) : ViewModel() {
 
     data class UiState(
@@ -143,13 +144,11 @@ class SweepViewModel @Inject constructor(
                     try {
                         // Sync the temp wallet
                         val config = settingsManager.loadElectrumConfig()
-                        val protocol = if (config.useSsl) "ssl" else "tcp"
-                        val url = "$protocol://${config.serverUrl}:${config.port}"
-                        val client = ElectrumClient(url)
+                        val activeConn = electrumConnectionFactory.createConnection(config)
                         val fullScanResult = tempWallet.startFullScan().build()
-                        val update = client.fullScan(fullScanResult, stopGap = 20u, batchSize = 10u, fetchPrevTxouts = false)
+                        val update = activeConn.client.fullScan(fullScanResult, stopGap = 20u, batchSize = 10u, fetchPrevTxouts = false)
                         tempWallet.applyUpdate(update)
-                        client.close()
+                        activeConn.close()
 
                         val balance = tempWallet.balance()
                         val confirmed = balance.confirmed.toSat().toLong()
@@ -213,9 +212,7 @@ class SweepViewModel @Inject constructor(
                     val internalDesc = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, network)
 
                     val config = settingsManager.loadElectrumConfig()
-                    val protocol = if (config.useSsl) "ssl" else "tcp"
-                    val url = "$protocol://${config.serverUrl}:${config.port}"
-                    val client = ElectrumClient(url)
+                    val activeConn = electrumConnectionFactory.createConnection(config)
 
                     val tempDbPath = java.io.File.createTempFile("clench_sweep2_", ".db").absolutePath
                     val tempConnection = Connection(tempDbPath)
@@ -224,7 +221,7 @@ class SweepViewModel @Inject constructor(
                     try {
                         // Re-sync to get latest UTXOs
                         val fullScanResult = tempWallet.startFullScan().build()
-                        val update = client.fullScan(fullScanResult, stopGap = 20u, batchSize = 10u, fetchPrevTxouts = false)
+                        val update = activeConn.client.fullScan(fullScanResult, stopGap = 20u, batchSize = 10u, fetchPrevTxouts = false)
                         tempWallet.applyUpdate(update)
 
                         val destAddress = state.destinationAddress
@@ -253,8 +250,8 @@ class SweepViewModel @Inject constructor(
 
                         // Extract and broadcast
                         val tx = psbt.extractTx()
-                        val txid = client.transactionBroadcast(tx)
-                        client.close()
+                        val txid = activeConn.client.transactionBroadcast(tx)
+                        activeConn.close()
 
                         _uiState.update {
                             it.copy(
