@@ -1,0 +1,100 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed to create releases and tags
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Run Unit Tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Run Lint
+        run: ./gradlew lint
+
+      # Extract versionName from build.gradle.kts — this is the single source of truth
+      - name: Get version name
+        id: version
+        run: |
+          VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "TAG=v$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Rename APK with version
+        run: |
+          mv app/build/outputs/apk/debug/app-debug.apk \
+             app/build/outputs/apk/debug/clench-${{ steps.version.outputs.VERSION }}-debug.apk
+
+      # Extract release notes for this version from README changelog table
+      - name: Extract release notes from README
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          # Pull the highlights column for this version from the README table
+          NOTES=$(grep "| $VERSION |" README.md | sed 's/.*| [0-9.]* | //' | sed 's/ |$//')
+          if [ -z "$NOTES" ]; then
+            NOTES="See README for details."
+          fi
+          echo "NOTES=$NOTES" >> $GITHUB_OUTPUT
+
+      # On master push only: create/update tag and GitHub Release
+      - name: Create or update GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: "Clench Wallet ${{ steps.version.outputs.VERSION }}"
+          body: |
+            ${{ steps.notes.outputs.NOTES }}
+
+            **Commit:** ${{ github.event.head_commit.message }}
+
+            Install via ADB:
+            ```
+            adb install -r clench-${{ steps.version.outputs.VERSION }}-debug.apk
+            ```
+            Or sideload directly on your Android device.
+          files: app/build/outputs/apk/debug/clench-${{ steps.version.outputs.VERSION }}-debug.apk
+          make_latest: true
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clench-${{ steps.version.outputs.VERSION }}-debug
+          path: app/build/outputs/apk/debug/clench-${{ steps.version.outputs.VERSION }}-debug.apk
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: app/build/reports/tests/
+
+      - name: Upload Lint Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-results
+          path: app/build/reports/lint-results-debug.html

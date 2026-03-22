@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ (API 31+) data extraction rules.
+    Excludes all sensitive wallet data from cloud backup and device-to-device transfer.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="clench_secure_prefs.xml" />
+        <exclude domain="sharedpref" path="clench_settings.xml" />
+        <exclude domain="database" path="clench.db" />
+        <exclude domain="database" path="clench.db-wal" />
+        <exclude domain="database" path="clench.db-shm" />
+        <!-- Per-wallet BDK SQLite databases (wallet_<uuid>.db and WAL/SHM) -->
+        <exclude domain="database" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="root" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="clench_secure_prefs.xml" />
+        <exclude domain="sharedpref" path="clench_settings.xml" />
+        <exclude domain="database" path="clench.db" />
+        <exclude domain="database" path="clench.db-wal" />
+        <exclude domain="database" path="clench.db-shm" />
+        <!-- Per-wallet BDK SQLite databases (wallet_<uuid>.db and WAL/SHM) -->
+        <exclude domain="database" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="root" path="." />
+    </device-transfer>
+</data-extraction-rules>
