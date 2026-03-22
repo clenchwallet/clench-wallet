@@ -54,6 +54,7 @@ class MainActivity : FragmentActivity() {
     private var lastPauseTimestamp: Long = 0L
     private val isLocked = mutableStateOf(true) // Start locked — will be resolved in onCreate
     var suppressLockOnResume: Boolean = false  // Skip lock check when returning from scanner/camera
+    @Volatile var suppressPassphraseLock: Boolean = false  // Skip passphrase wallet lock during QR scan / biometric
     private var isChangingConfiguration: Boolean = false  // Don't lock on rotation
 
     // NFC PSBT flow — hardware wallets (Coldcard) can deliver signed PSBTs via NFC
@@ -74,17 +75,21 @@ class MainActivity : FragmentActivity() {
         // in-memory wallets mid-send-flow.
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                lifecycleScope.launch {
-                    try {
-                        val wallets = bitcoinRepository.listWallets()
-                        for (wallet in wallets) {
-                            if (wallet.hasPassphrase) {
-                                (bitcoinRepository as? BdkBitcoinRepository)?.lockPassphraseWallet(wallet.id)
+                if (!suppressPassphraseLock) {
+                    lifecycleScope.launch {
+                        try {
+                            val wallets = bitcoinRepository.listWallets()
+                            for (wallet in wallets) {
+                                if (wallet.hasPassphrase) {
+                                    (bitcoinRepository as? BdkBitcoinRepository)?.lockPassphraseWallet(wallet.id)
+                                }
                             }
+                        } catch (e: Exception) {
+                            android.util.Log.w("MainActivity", "Failed to lock passphrase wallets on stop: ${e.message}")
                         }
-                    } catch (e: Exception) {
-                        android.util.Log.w("MainActivity", "Failed to lock passphrase wallets on stop: ${e.message}")
                     }
+                } else {
+                    android.util.Log.d("MainActivity", "suppressPassphraseLock=true, skipping passphrase lock on ON_STOP")
                 }
             }
         })

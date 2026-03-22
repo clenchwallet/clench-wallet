@@ -54,7 +54,8 @@ object BiometricHelper {
         title: String,
         subtitle: String,
         onSuccess: () -> Unit,
-        onFailure: (String) -> Unit
+        onFailure: (String) -> Unit,
+        onCancel: (() -> Unit)? = null
     ) {
         val executor = ContextCompat.getMainExecutor(activity)
 
@@ -106,8 +107,10 @@ object BiometricHelper {
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                if (errorCode != BiometricPrompt.ERROR_USER_CANCELED &&
-                    errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                if (errorCode == BiometricPrompt.ERROR_USER_CANCELED ||
+                    errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                    onCancel?.invoke()
+                } else {
                     onFailure(errString.toString())
                 }
             }

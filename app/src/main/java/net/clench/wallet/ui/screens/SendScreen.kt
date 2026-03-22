@@ -75,14 +75,18 @@ fun SendScreen(
 
     val focusManager = LocalFocusManager.current
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { scanned ->
-            // Parse BIP21 URI format: bitcoin:bc1q...?amount=0.001&label=...
-            val address = if (scanned.startsWith("bitcoin:", ignoreCase = true)) {
-                scanned.substringAfter(":").substringBefore("?")
-            } else scanned
-            viewModel.setAddress(address)
-            // Dismiss keyboard after scan fills the address
-            focusManager.clearFocus()
+        try {
+            result.contents?.let { scanned ->
+                // Parse BIP21 URI format: bitcoin:bc1q...?amount=0.001&label=...
+                val address = if (scanned.startsWith("bitcoin:", ignoreCase = true)) {
+                    scanned.substringAfter(":").substringBefore("?")
+                } else scanned
+                viewModel.setAddress(address)
+                // Dismiss keyboard after scan fills the address
+                focusManager.clearFocus()
+            }
+        } finally {
+            (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
         }
     }
 
@@ -97,8 +101,11 @@ fun SendScreen(
                 setOrientationLocked(true)
                 setCaptureActivity(net.clench.wallet.ui.PortraitCaptureActivity::class.java)
             }
-            // Suppress biometric lock when returning from scanner
-            (context as? net.clench.wallet.ui.MainActivity)?.suppressLockOnResume = true
+            // Suppress biometric lock and passphrase lock when returning from scanner
+            (context as? net.clench.wallet.ui.MainActivity)?.let {
+                it.suppressLockOnResume = true
+                it.suppressPassphraseLock = true
+            }
             scanLauncher.launch(options)
         } else {
             viewModel.setError("Camera permission required to scan QR codes")
@@ -557,12 +564,23 @@ fun SendScreen(
                     onClick = {
                         // R7-7: Only show biometric if the setting is enabled
                         if (uiState.biometricForSendEnabled && fragmentActivity != null && BiometricHelper.canAuthenticate(context)) {
+                            // Suppress passphrase lock while biometric dialog is showing
+                            (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = true
                             BiometricHelper.authenticate(
                                 activity = fragmentActivity,
                                 title = "Authenticate to send Bitcoin",
                                 subtitle = "Verify your identity to sign this transaction",
-                                onSuccess = { viewModel.buildTx() },
-                                onFailure = { msg -> viewModel.setError("Auth failed: $msg") }
+                                onSuccess = {
+                                    (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
+                                    viewModel.buildTx()
+                                },
+                                onFailure = { msg ->
+                                    (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
+                                    viewModel.setError("Auth failed: $msg")
+                                },
+                                onCancel = {
+                                    (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
+                                }
                             )
                         } else {
                             // Biometric disabled or not available — proceed without
