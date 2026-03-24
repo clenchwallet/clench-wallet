@@ -740,8 +740,8 @@ class BdkBitcoinRepository @Inject constructor(
         }
         val activeConnection = electrumConnectionFactory.createConnection(config)
 
-        // Parse transaction from hex bytes
-        val txBytes = txHex.chunked(2).map { it.toInt(16).toUByte() }
+        // Parse transaction from hex bytes — BDK 2.x takes ByteArray
+        val txBytes = txHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         val tx = Transaction(txBytes)
 
         // Broadcast to network — BDK 2.x returns Txid object
@@ -1050,7 +1050,7 @@ class BdkBitcoinRepository @Inject constructor(
         val wallet = entry.wallet
         val feeRate = FeeRate.fromSatPerVb(newFeeRate.toLong().toULong())
 
-        val psbt = org.bitcoindevkit.BumpFeeTxBuilder(txid, feeRate)
+        val psbt = org.bitcoindevkit.BumpFeeTxBuilder(org.bitcoindevkit.Txid.fromString(txid), feeRate)
             .finish(wallet)
 
         // Sign the bumped transaction
@@ -1113,7 +1113,7 @@ class BdkBitcoinRepository @Inject constructor(
         utxos.map { localOutput ->
             val outpoint = localOutput.outpoint
             val txout = localOutput.txout
-            val amountSat = txout.value.toLong()  // ULong → Long
+            val amountSat = txout.value.toSat().toLong()  // Amount → sat → Long
 
             // Derive address from script pubkey
             val address = try {
@@ -1328,8 +1328,8 @@ class BdkBitcoinRepository @Inject constructor(
 
             // Fee reasonableness check
             try {
-                // BDK 2.x: Psbt.fee() returns Amount directly
-                val fee = signed.fee().toSat().toLong()
+                // BDK 2.x: Psbt.fee() returns ULong (sat) directly
+                val fee = signed.fee().toLong()
                 if (fee <= 0L) throw Exception("Cannot determine fee")
                 var totalOut = 0L
                 for (i in 0 until signedOutputs.length()) {
@@ -1417,11 +1417,11 @@ class BdkBitcoinRepository @Inject constructor(
 
         val wallet = try {
             Wallet.load(externalDescriptor, changeDescriptor, persister)
-        } catch (e: org.bitcoindevkit.LoadWithPersistError.Persist) {
-            // SQLite not found / unable to open — create fresh BDK wallet
+        } catch (e: org.bitcoindevkit.LoadWithPersistException.CouldNotLoad) {
+            // Wallet DB exists but has no persisted state yet — create fresh BDK wallet
             Wallet(externalDescriptor, changeDescriptor, network, persister)
-        } catch (e: org.bitcoindevkit.LoadWithPersistError.InvalidChangeSet) {
-            // Wallet DB exists but changeset is invalid — create fresh BDK wallet
+        } catch (e: org.bitcoindevkit.LoadWithPersistException.Persist) {
+            // SQLite not found / unable to open — create fresh BDK wallet
             Wallet(externalDescriptor, changeDescriptor, network, persister)
         } catch (e: Exception) {
             // Descriptor mismatch, InvalidChangeSet, or other BDK error
