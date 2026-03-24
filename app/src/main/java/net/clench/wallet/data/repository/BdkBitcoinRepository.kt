@@ -23,7 +23,7 @@ import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
 import org.bitcoindevkit.Amount
 import org.bitcoindevkit.ChainPosition
-import org.bitcoindevkit.Connection
+import org.bitcoindevkit.Persister
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
 import org.bitcoindevkit.ElectrumClient
@@ -64,8 +64,8 @@ class BdkBitcoinRepository @Inject constructor(
     private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory
 ) : BitcoinRepository {
 
-    // Wallet entry with connection for persistence
-    private data class WalletEntry(val wallet: Wallet, val connection: Connection)
+    // Wallet entry with persister for persistence
+    private data class WalletEntry(val wallet: Wallet, val persister: Persister)
 
     // In-memory wallet cache to avoid reopening SQLite on every call
     private val walletCache = ConcurrentHashMap<String, WalletEntry>()
@@ -105,9 +105,9 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Create BDK wallet with SQLite persistence
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
-        val connection = Connection(dbPath)
-        val wallet = Wallet(externalDescriptor, changeDescriptor, network, connection)
-        walletCache[walletId] = WalletEntry(wallet, connection)
+        val persister = Persister.newSqlite(dbPath)
+        val wallet = Wallet(externalDescriptor, changeDescriptor, network, persister)
+        walletCache[walletId] = WalletEntry(wallet, persister)
 
         // Store mnemonic in encrypted keystore
         // NOTE: JVM String is immutable — mnemonic cannot be securely zeroed. This is a known JVM limitation.
@@ -191,9 +191,9 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Create BDK wallet with SQLite persistence
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
-        val connection = Connection(dbPath)
-        val wallet = Wallet(externalDescriptor, changeDescriptor, network, connection)
-        walletCache[walletId] = WalletEntry(wallet, connection)
+        val persister = Persister.newSqlite(dbPath)
+        val wallet = Wallet(externalDescriptor, changeDescriptor, network, persister)
+        walletCache[walletId] = WalletEntry(wallet, persister)
 
         // Store mnemonic in encrypted keystore
         // NOTE: JVM String is immutable — mnemonic cannot be securely zeroed. This is a known JVM limitation.
@@ -275,9 +275,9 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Create BDK wallet with SQLite persistence (no signing keys)
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
-        val connection = Connection(dbPath)
-        val wallet = Wallet(externalDescriptor, changeDescriptor, network, connection)
-        walletCache[walletId] = WalletEntry(wallet, connection)
+        val persister = Persister.newSqlite(dbPath)
+        val wallet = Wallet(externalDescriptor, changeDescriptor, network, persister)
+        walletCache[walletId] = WalletEntry(wallet, persister)
 
         // Persist wallet metadata to Room DB (isWatchOnly = true)
         val activeNetwork = settingsManager.getNetwork()
@@ -388,8 +388,8 @@ class BdkBitcoinRepository @Inject constructor(
                     android.util.Log.d("BdkRepo", "syncWallet: starting fullScan (stopGap=20, batch=10)")
                     val update = electrumClient.fullScan(
                         fullScanRequest,
-                        stopGap = 20u,
-                        batchSize = 10u,
+                        stopGap = 20uL,
+                        batchSize = 10uL,
                         fetchPrevTxouts = true
                     )
                     android.util.Log.d("BdkRepo", "syncWallet: fullScan complete, applying update")
@@ -397,7 +397,7 @@ class BdkBitcoinRepository @Inject constructor(
                     wallet.applyUpdate(update)
                     android.util.Log.d("BdkRepo", "syncWallet: update applied, persisting")
 
-                    wallet.persist(entry.connection)
+                    wallet.persist(entry.persister)
                     android.util.Log.d("BdkRepo", "syncWallet: persisted OK")
                 }
             } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
@@ -473,15 +473,15 @@ class BdkBitcoinRepository @Inject constructor(
                         val ts = pos.confirmationBlockTime.confirmationTime.toLong() * 1000L
                         val txHeight = pos.confirmationBlockTime.blockId.height
                         val confs = if (tipHeight >= txHeight) (tipHeight - txHeight + 1u).toInt() else 1
-                        android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().take(12)}... CONFIRMED height=$txHeight confs=$confs")
+                        android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... CONFIRMED height=$txHeight confs=$confs")
                         Pair(ts, confs)
                     }
                     is ChainPosition.Unconfirmed -> {
-                        android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().take(12)}... UNCONFIRMED lastSeen=${pos.timestamp}")
+                        android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNCONFIRMED lastSeen=${pos.timestamp}")
                         Pair(pos.timestamp?.let { it.toLong() * 1000L }, 0)
                     }
                     else -> {
-                        android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().take(12)}... UNKNOWN pos=${pos.javaClass.simpleName}")
+                        android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNKNOWN pos=${pos.javaClass.simpleName}")
                         Pair(null, 0)
                     }
                 }
@@ -494,7 +494,7 @@ class BdkBitcoinRepository @Inject constructor(
                 }
 
                 TransactionEntity(
-                    txid = tx.computeTxid(),
+                    txid = tx.computeTxid().toString(),
                     walletId = walletId,
                     amountSat = amount.toLong(),
                     feeSat = feeSat,
@@ -624,7 +624,7 @@ class BdkBitcoinRepository @Inject constructor(
         val addressInfo = wallet.revealNextAddress(KeychainKind.EXTERNAL)
 
         // Persist wallet state after revealing address
-        wallet.persist(entry.connection)
+        wallet.persist(entry.persister)
 
         DomainAddress(
             address = addressInfo.address.toString(),
@@ -648,19 +648,25 @@ class BdkBitcoinRepository @Inject constructor(
         val recipientAddress = org.bitcoindevkit.Address(toAddress, network)
         val feeRate = FeeRate.fromSatPerVb(feeRateSatPerVbyte.toULong())
 
+        // BDK 2.x: TxBuilder is immutable — every method returns a NEW builder.
+        // Must capture return values or chain calls. Never call methods without reassignment.
+        val walletEntity = walletDao.getById(walletId)
+        val isPassphraseWallet = walletEntity?.hasPassphrase == true
+        val hasManualUtxos = selectedOutpoints.isNotEmpty() || (utxoTxid != null && utxoVout != null)
+
         // Build transaction - handle drain single UTXO, drain selected UTXOs, drain wallet, or send specific amount
-        val builder = when {
+        var builder = when {
             // Drain a specific UTXO only
             amountSat == null && utxoTxid != null && utxoVout != null -> {
                 TxBuilder()
-                    .addUtxo(org.bitcoindevkit.OutPoint(utxoTxid, utxoVout))
+                    .addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(utxoTxid), utxoVout))
                     .drainTo(recipientAddress.scriptPubkey())
                     .feeRate(feeRate)
                     .manuallySelectedOnly()
             }
             // Drain specific selected UTXOs
             amountSat == null && selectedOutpoints.isNotEmpty() -> {
-                val b = TxBuilder()
+                var b = TxBuilder()
                     .drainTo(recipientAddress.scriptPubkey())
                     .feeRate(feeRate)
                 for (op in selectedOutpoints) {
@@ -668,7 +674,7 @@ class BdkBitcoinRepository @Inject constructor(
                     if (parts.size == 2) {
                         val txid = parts[0]
                         val vout = parts[1].toUIntOrNull() ?: continue
-                        b.addUtxo(org.bitcoindevkit.OutPoint(txid, vout))
+                        b = b.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(txid), vout))
                     }
                 }
                 b.manuallySelectedOnly()
@@ -689,35 +695,32 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         // If specific UTXOs were selected (coin control), restrict to only those UTXOs
-        // This must happen after the when() block since the drain cases already handle it
+        // Must reassign builder since TxBuilder is immutable in BDK 2.x
         if (amountSat != null && selectedOutpoints.isNotEmpty()) {
             for (op in selectedOutpoints) {
                 val parts = op.split(":")
                 if (parts.size == 2) {
                     val txid = parts[0]
                     val vout = parts[1].toUIntOrNull() ?: continue
-                    builder.addUtxo(org.bitcoindevkit.OutPoint(txid, vout))
+                    builder = builder.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(txid), vout))
                 }
             }
-            builder.manuallySelectedOnly()
+            builder = builder.manuallySelectedOnly()
         } else if (amountSat != null && utxoTxid != null && utxoVout != null) {
-            builder.addUtxo(org.bitcoindevkit.OutPoint(utxoTxid, utxoVout))
-            builder.manuallySelectedOnly()
+            builder = builder.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(utxoTxid), utxoVout))
+            builder = builder.manuallySelectedOnly()
         }
 
-        // Passphrase wallets use in-memory BDK connections (no persisted chain history),
+        // Passphrase wallets use in-memory BDK persisters (no persisted chain history),
         // so BDK classifies all their UTXOs as untrustedPending. TxBuilder's default coin
         // selection ignores untrustedPending UTXOs, causing "insufficient funds: 0 btc".
         // Apply the same addUtxo() workaround used for watch-only wallets in createPsbt().
-        val walletEntity = walletDao.getById(walletId)
-        val isPassphraseWallet = walletEntity?.hasPassphrase == true
-        val hasManualUtxos = selectedOutpoints.isNotEmpty() || (utxoTxid != null && utxoVout != null)
         if (isPassphraseWallet && !hasManualUtxos) {
             val utxos = wallet.listUnspent()
             android.util.Log.d("BdkRepo", "buildTransaction: passphrase wallet, adding ${utxos.size} UTXOs via addUtxo()")
             for (utxo in utxos) {
                 if (!utxo.isSpent) {
-                    builder.addUtxo(utxo.outpoint)
+                    builder = builder.addUtxo(utxo.outpoint)
                 }
             }
         }
@@ -741,9 +744,9 @@ class BdkBitcoinRepository @Inject constructor(
         val txBytes = txHex.chunked(2).map { it.toInt(16).toUByte() }
         val tx = Transaction(txBytes)
 
-        // Broadcast to network — returns txid string
+        // Broadcast to network — BDK 2.x returns Txid object
         try {
-            return@withContext activeConnection.client.transactionBroadcast(tx)
+            return@withContext activeConnection.client.transactionBroadcast(tx).toString()
         } finally {
             activeConnection.close()
         }
@@ -1054,7 +1057,7 @@ class BdkBitcoinRepository @Inject constructor(
         wallet.sign(psbt)
 
         // Persist wallet state
-        wallet.persist(entry.connection)
+        wallet.persist(entry.persister)
 
         // Extract and serialize
         val finalTx = psbt.extractTx()
@@ -1127,7 +1130,7 @@ class BdkBitcoinRepository @Inject constructor(
             }
 
             net.clench.wallet.domain.model.UtxoInfo(
-                txid = outpoint.txid,
+                txid = outpoint.txid.toString(),
                 vout = outpoint.vout.toUInt(),
                 amountSat = amountSat,
                 address = address,
@@ -1155,7 +1158,8 @@ class BdkBitcoinRepository @Inject constructor(
         val walletEntity = walletDao.getById(walletId)
         val isWatchOnly = walletEntity?.isWatchOnly == true
 
-        val builder = if (amountSat == null) {
+        // BDK 2.x: TxBuilder is immutable — every method returns a NEW builder.
+        var builder = if (amountSat == null) {
             TxBuilder()
                 .drainWallet()
                 .drainTo(recipientAddress.scriptPubkey())
@@ -1180,9 +1184,9 @@ class BdkBitcoinRepository @Inject constructor(
             }
             android.util.Log.d("BdkRepo", "createPsbt: watch-only wallet, adding ${utxos.size} UTXOs (${frozenOutpoints.size} frozen/excluded)")
             for (utxo in utxos) {
-                val outpointStr = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
+                val outpointStr = "${utxo.outpoint.txid.toString()}:${utxo.outpoint.vout}"
                 if (!utxo.isSpent && outpointStr !in frozenOutpoints) {
-                    builder.addUtxo(utxo.outpoint)
+                    builder = builder.addUtxo(utxo.outpoint)
                 }
             }
         }
@@ -1211,24 +1215,24 @@ class BdkBitcoinRepository @Inject constructor(
                         android.util.Log.d("BdkRepo", "createPsbt: skipping frozen UTXO $outpointStr")
                         continue
                     }
-                    builder.addUtxo(org.bitcoindevkit.OutPoint(txid, vout))
+                    builder = builder.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(txid), vout))
                 }
             }
-            builder.manuallySelectedOnly()
+            builder = builder.manuallySelectedOnly()
         } else if (utxoTxid != null && utxoVout != null) {
             val outpointStr = "$utxoTxid:$utxoVout"
             if (outpointStr in frozenOutpointsForCoinControl) {
                 android.util.Log.w("BdkRepo", "createPsbt: attempted to spend frozen UTXO $outpointStr")
                 throw IllegalArgumentException("Cannot spend frozen UTXO")
             }
-            builder.addUtxo(org.bitcoindevkit.OutPoint(utxoTxid, utxoVout))
-            builder.manuallySelectedOnly()
+            builder = builder.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(utxoTxid), utxoVout))
+            builder = builder.manuallySelectedOnly()
         }
 
         // Include global xpubs in PSBT — hardware wallets use these to verify
         // derivation paths and identify which keys belong to the signing device.
         // Critical for Coldcard, Keystone, SeedSigner, Passport, Jade.
-        builder.addGlobalXpubs()
+        builder = builder.addGlobalXpubs()
 
         // Build PSBT (unsigned — do NOT sign)
         val psbt = builder.finish(wallet)
@@ -1262,7 +1266,7 @@ class BdkBitcoinRepository @Inject constructor(
         val config = settingsManager.loadElectrumConfig()
         val activeConnection = electrumConnectionFactory.createConnection(config)
         try {
-            activeConnection.client.transactionBroadcast(tx)
+            activeConnection.client.transactionBroadcast(tx).toString()
         } finally {
             activeConnection.close()
         }
@@ -1324,11 +1328,8 @@ class BdkBitcoinRepository @Inject constructor(
 
             // Fee reasonableness check
             try {
-                @Suppress("USELESS_CAST")
-                val feeAmount = signed.fee()
-                val fee = (feeAmount as? Amount)?.toSat()?.toLong()
-                    ?: (feeAmount as? ULong)?.toLong()
-                    ?: -1L
+                // BDK 2.x: Psbt.fee() returns Amount directly
+                val fee = signed.fee().toSat().toLong()
                 if (fee <= 0L) throw Exception("Cannot determine fee")
                 var totalOut = 0L
                 for (i in 0 until signedOutputs.length()) {
@@ -1402,26 +1403,26 @@ class BdkBitcoinRepository @Inject constructor(
         // as the passphrase-derived wallet, so if we loaded from disk here, real wallet data
         // would be visible without any passphrase. In-memory guarantees a clean slate every time.
         if (isPassphraseWallet) {
-            val connection = Connection.newInMemory()
-            val wallet = Wallet(externalDescriptor, changeDescriptor, network, connection)
-            android.util.Log.d("BdkRepo", "loadWallet: passphrase wallet $walletId — using in-memory connection (locked state)")
-            val entry = WalletEntry(wallet, connection)
+            val persister = Persister.newInMemory()
+            val wallet = Wallet(externalDescriptor, changeDescriptor, network, persister)
+            android.util.Log.d("BdkRepo", "loadWallet: passphrase wallet $walletId — using in-memory persister (locked state)")
+            val entry = WalletEntry(wallet, persister)
             walletCache[walletId] = entry
             return entry
         }
 
         // Non-passphrase wallets: load from SQLite (if exists, else create new)
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
-        val connection = Connection(dbPath)
+        val persister = Persister.newSqlite(dbPath)
 
         val wallet = try {
-            Wallet.load(externalDescriptor, changeDescriptor, connection)
-        } catch (e: org.bitcoindevkit.LoadWithPersistException.CouldNotLoad) {
-            // Wallet DB exists but has no persisted state yet — create fresh BDK wallet
-            Wallet(externalDescriptor, changeDescriptor, network, connection)
-        } catch (e: org.bitcoindevkit.LoadWithPersistException.Persist) {
+            Wallet.load(externalDescriptor, changeDescriptor, persister)
+        } catch (e: org.bitcoindevkit.LoadWithPersistError.Persist) {
             // SQLite not found / unable to open — create fresh BDK wallet
-            Wallet(externalDescriptor, changeDescriptor, network, connection)
+            Wallet(externalDescriptor, changeDescriptor, network, persister)
+        } catch (e: org.bitcoindevkit.LoadWithPersistError.InvalidChangeSet) {
+            // Wallet DB exists but changeset is invalid — create fresh BDK wallet
+            Wallet(externalDescriptor, changeDescriptor, network, persister)
         } catch (e: Exception) {
             // Descriptor mismatch, InvalidChangeSet, or other BDK error
             // This can happen after network switch or DB corruption
@@ -1434,8 +1435,8 @@ class BdkBitcoinRepository @Inject constructor(
                 java.io.File(dbFile.path + "-shm").delete()
                 java.io.File(dbFile.path + "-journal").delete()
             } catch (_: Exception) {}
-            val freshConnection = Connection(dbPath)
-            Wallet(externalDescriptor, changeDescriptor, network, freshConnection)
+            val freshPersister = Persister.newSqlite(dbPath)
+            Wallet(externalDescriptor, changeDescriptor, network, freshPersister)
         }
 
         // Debug: log descriptor and first address
@@ -1450,7 +1451,7 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         // Cache and return
-        val entry = WalletEntry(wallet, connection)
+        val entry = WalletEntry(wallet, persister)
         walletCache[walletId] = entry
         return entry
     }
@@ -1716,19 +1717,19 @@ class BdkBitcoinRepository @Inject constructor(
         //
         // Option C — In-memory only wallet for passphrase sessions:
         // Passphrase-derived wallets are NEVER persisted to disk. Each session uses a fresh
-        // in-memory SQLite connection via Connection.newInMemory(). This means:
+        // in-memory SQLite persister via Persister.newInMemory(). This means:
         //   - A decoy wallet (wrong passphrase) starts empty and stays empty unless synced
         //   - No on-disk DB file exists that could reveal whether the real wallet was accessed
         //   - All session data is discarded when lockPassphraseWallet() is called
         //   - A full Electrum sync is required each session (correct — no cached state)
         // This is the correct threat model for a duress/plausible-deniability wallet.
-        val connection = Connection.newInMemory()
-        val wallet = Wallet(externalDescriptor, changeDescriptor, network, connection)
+        val persister = Persister.newInMemory()
+        val wallet = Wallet(externalDescriptor, changeDescriptor, network, persister)
 
         // Cache the in-memory wallet for this session and mark as explicitly unlocked.
         // unlockedPassphraseWallets is the authoritative unlock signal — walletCache alone
         // is not sufficient because loadWallet() pre-populates it with the public-xpub wallet.
-        walletCache[walletId] = WalletEntry(wallet, connection)
+        walletCache[walletId] = WalletEntry(wallet, persister)
         unlockedPassphraseWallets.add(walletId)
         
         android.util.Log.d("BdkRepo", "unlockPassphraseWallet: unlocked wallet $walletId")
@@ -1743,8 +1744,7 @@ class BdkBitcoinRepository @Inject constructor(
         unlockedPassphraseWallets.remove(walletId)
         // Close and discard the in-memory wallet — all session data is destroyed
         walletCache.remove(walletId)?.let { entry ->
-            try { entry.wallet.close() } catch (_: Exception) {}
-            try { entry.connection.close() } catch (_: Exception) {}
+            // BDK 2.x: Wallet and Persister resources released by GC/Drop
         }
         // Wipe Room transaction cache — it contains real wallet tx history which must not be
         // visible before the passphrase is entered next session.

@@ -83,8 +83,8 @@ class EphemeralSeedSigningViewModel @Inject constructor(
                     // Create a temporary signing wallet using cacheDir (OS can clear) instead of default tmpdir
                     tempDbFile = java.io.File.createTempFile("clench_ephemeral_", ".db", appContext.cacheDir)
                     val tempDbPath = tempDbFile!!.absolutePath
-                    val tempConnection = org.bitcoindevkit.Connection(tempDbPath)
-                    val signingWallet = Wallet(externalDesc, internalDesc, network, tempConnection)
+                    val tempPersister = org.bitcoindevkit.Persister.newSqlite(tempDbPath)
+                    val signingWallet = Wallet(externalDesc, internalDesc, network, tempPersister)
 
                     try {
                         // Sign the PSBT
@@ -117,8 +117,7 @@ class EphemeralSeedSigningViewModel @Inject constructor(
                             )
                         }
                     } finally {
-                        // Clean up temp signing wallet
-                        try { signingWallet.close() } catch (_: Exception) {}
+                        // BDK 2.x: Wallet resources released by GC/Drop
                     }
                 } catch (e: Exception) {
                     _uiState.update { it.copy(isLoading = false, error = e.message ?: "Signing failed") }
