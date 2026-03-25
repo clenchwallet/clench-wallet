@@ -29,6 +29,7 @@ fun WalletInfoScreen(
     onBack: () -> Unit,
     onViewAddresses: () -> Unit = {},
     onBackup: () -> Unit = {},
+    onViewSeedPhrase: () -> Unit = {},
     viewModel: WalletInfoViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -246,6 +247,17 @@ fun WalletInfoScreen(
                     onClick = onBackup,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Backup & Export") }
+
+                // ─── View Seed Phrase — only for hot wallets ───
+                if (!uiState.isWatchOnly) {
+                    OutlinedButton(
+                        onClick = onViewSeedPhrase,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) { Text("View Seed Phrase") }
+                }
 
                 // Error
                 uiState.error?.let { err ->

@@ -136,7 +136,11 @@ fun UtxoListScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .combinedClickable(
-                                onClick = { viewModel.toggleSelection(utxo.outpoint) },
+                                onClick = {
+                                    if (!utxo.isFrozen) {
+                                        viewModel.toggleSelection(utxo.outpoint)
+                                    }
+                                },
                                 onLongClick = {
                                     // Show options: freeze/label
                                     viewModel.showLabelDialog(utxo.outpoint)

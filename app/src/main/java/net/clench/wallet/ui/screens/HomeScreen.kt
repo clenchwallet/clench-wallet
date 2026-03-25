@@ -38,7 +38,6 @@ fun HomeScreen(
     onSettings: () -> Unit,
     onWalletList: () -> Unit = {},
     onAddresses: () -> Unit = {},
-    onViewSeedPhrase: () -> Unit = {},
     onUtxoList: () -> Unit = {},
     onSweep: () -> Unit = {},
     onTransactionDetail: (txid: String) -> Unit = {},
@@ -102,15 +101,6 @@ fun HomeScreen(
                                     onAddresses()
                                 }
                             )
-                            if (!uiState.isWatchOnly) {
-                                DropdownMenuItem(
-                                    text = { Text("View Seed Phrase") },
-                                    onClick = {
-                                        showMenu = false
-                                        onViewSeedPhrase()
-                                    }
-                                )
-                            }
                             DropdownMenuItem(
                                 text = { Text("Coin Control (UTXOs)") },
                                 onClick = {

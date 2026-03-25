@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.screens
 
+import android.content.ContextWrapper
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -16,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.viewmodel.SettingsViewModel
@@ -28,10 +30,79 @@ fun SecurityScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+
+    // Resolve FragmentActivity for biometric calls
+    val fragmentActivity = remember(context) {
+        var ctx = context as? android.content.Context
+        while (ctx != null) {
+            if (ctx is FragmentActivity) return@remember ctx
+            ctx = (ctx as? ContextWrapper)?.baseContext
+        }
+        null
+    }
+
     var showPinSetup by remember { mutableStateOf(false) }
     var pinEntry by remember { mutableStateOf("") }
     var pinConfirm by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf<String?>(null) }
+
+    // State for verifying current auth before mode change
+    var pendingModeChange by remember { mutableStateOf<String?>(null) }
+    var verifyPinEntry by remember { mutableStateOf("") }
+    var verifyPinError by remember { mutableStateOf<String?>(null) }
+    var showVerifyPin by remember { mutableStateOf(false) }
+
+    val canBiometric = BiometricHelper.canAuthenticate(context)
+
+    // Helper: attempt a mode change, verifying current auth first if needed
+    fun attemptModeChange(newMode: String) {
+        when (uiState.appLockMode) {
+            "pin" -> {
+                // Must verify current PIN before changing
+                pendingModeChange = newMode
+                showVerifyPin = true
+            }
+            "biometric" -> {
+                // Must verify biometric before changing
+                pendingModeChange = newMode
+                if (fragmentActivity != null) {
+                    BiometricHelper.authenticate(
+                        activity = fragmentActivity,
+                        title = "Verify identity",
+                        subtitle = "Authenticate to change security settings",
+                        onSuccess = {
+                            val mode = pendingModeChange
+                            pendingModeChange = null
+                            when (mode) {
+                                "none" -> { viewModel.setAppLockMode("none"); viewModel.clearPin() }
+                                "pin" -> showPinSetup = true
+                                // biometric → biometric: re-set same mode (no-op visually)
+                                "biometric" -> { viewModel.setAppLockMode("biometric"); viewModel.clearPin() }
+                            }
+                        },
+                        onFailure = { pendingModeChange = null },
+                        onCancel = { pendingModeChange = null }
+                    )
+                } else {
+                    // No FragmentActivity — fall back to direct change
+                    pendingModeChange = null
+                    when (newMode) {
+                        "none" -> { viewModel.setAppLockMode("none"); viewModel.clearPin() }
+                        "pin" -> showPinSetup = true
+                        "biometric" -> if (canBiometric) { viewModel.setAppLockMode("biometric"); viewModel.clearPin() }
+                    }
+                }
+            }
+            else -> {
+                // "none" — no current auth, allow direct change
+                when (newMode) {
+                    "none" -> { viewModel.setAppLockMode("none"); viewModel.clearPin() }
+                    "biometric" -> if (canBiometric) { viewModel.setAppLockMode("biometric"); viewModel.clearPin() }
+                    "pin" -> showPinSetup = true
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -69,7 +140,7 @@ fun SecurityScreen(
                         MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.surfaceVariant
                 ),
-                onClick = { viewModel.setAppLockMode("none"); viewModel.clearPin() }
+                onClick = { attemptModeChange("none") }
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("No lock", fontWeight = FontWeight.Bold)
@@ -82,7 +153,6 @@ fun SecurityScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Biometric
-            val canBiometric = BiometricHelper.canAuthenticate(context)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -90,7 +160,7 @@ fun SecurityScreen(
                         MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.surfaceVariant
                 ),
-                onClick = { if (canBiometric) { viewModel.setAppLockMode("biometric"); viewModel.clearPin() } }
+                onClick = { if (canBiometric) attemptModeChange("biometric") }
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Biometric", fontWeight = FontWeight.Bold)
@@ -114,7 +184,7 @@ fun SecurityScreen(
                         MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.surfaceVariant
                 ),
-                onClick = { showPinSetup = true }
+                onClick = { attemptModeChange("pin") }
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Clench PIN", fontWeight = FontWeight.Bold)
@@ -126,6 +196,7 @@ fun SecurityScreen(
                 }
             }
 
+            // PIN setup dialog (new PIN or change PIN)
             if (showPinSetup) {
                 AlertDialog(
                     onDismissRequest = { showPinSetup = false; pinEntry = ""; pinConfirm = ""; pinError = null },
@@ -173,6 +244,66 @@ fun SecurityScreen(
                     },
                     dismissButton = {
                         OutlinedButton(onClick = { showPinSetup = false; pinEntry = ""; pinConfirm = ""; pinError = null }) { Text("Cancel") }
+                    }
+                )
+            }
+
+            // PIN verification dialog (verify CURRENT pin before changing mode)
+            if (showVerifyPin) {
+                AlertDialog(
+                    onDismissRequest = {
+                        showVerifyPin = false
+                        verifyPinEntry = ""
+                        verifyPinError = null
+                        pendingModeChange = null
+                    },
+                    title = { Text("Verify Current PIN") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "Enter your current PIN to change security settings.",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            OutlinedTextField(
+                                value = verifyPinEntry,
+                                onValueChange = { if (it.length <= 12 && it.all { c -> c.isDigit() }) verifyPinEntry = it },
+                                label = { Text("Current PIN") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            verifyPinError?.let {
+                                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            if (viewModel.verifyPin(verifyPinEntry.toCharArray())) {
+                                showVerifyPin = false
+                                val mode = pendingModeChange
+                                verifyPinEntry = ""
+                                verifyPinError = null
+                                pendingModeChange = null
+                                when (mode) {
+                                    "none" -> { viewModel.setAppLockMode("none"); viewModel.clearPin() }
+                                    "biometric" -> { viewModel.setAppLockMode("biometric"); viewModel.clearPin() }
+                                    "pin" -> showPinSetup = true // Change PIN
+                                }
+                            } else {
+                                verifyPinError = "Incorrect PIN"
+                                verifyPinEntry = ""
+                            }
+                        }) { Text("Verify") }
+                    },
+                    dismissButton = {
+                        OutlinedButton(onClick = {
+                            showVerifyPin = false
+                            verifyPinEntry = ""
+                            verifyPinError = null
+                            pendingModeChange = null
+                        }) { Text("Cancel") }
                     }
                 )
             }

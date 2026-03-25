@@ -354,15 +354,18 @@ fun SendScreen(
                 OutlinedTextField(
                     value = if (uiState.amountUnit == AmountUnit.SATS) uiState.amountSat else uiState.amountDisplay,
                     onValueChange = {
-                        if (uiState.amountUnit == AmountUnit.SATS) viewModel.setAmount(it)
-                        else viewModel.setAmountDisplay(it)
+                        if (!uiState.sendMax) {
+                            if (uiState.amountUnit == AmountUnit.SATS) viewModel.setAmount(it)
+                            else viewModel.setAmountDisplay(it)
+                        }
                     },
                     label = { Text("Amount") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
+                    enabled = !uiState.sendMax,
                     suffix = {
                         TextButton(
-                            onClick = { viewModel.cycleAmountUnit() },
+                            onClick = { if (!uiState.sendMax) viewModel.cycleAmountUnit() },
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                         ) {
                             Text(unitLabel, style = MaterialTheme.typography.bodyMedium)
@@ -370,16 +373,25 @@ fun SendScreen(
                     },
                     keyboardOptions = KeyboardOptions(keyboardType = amountKeyboardType)
                 )
-                Text(
-                    when (uiState.amountUnit) {
-                        AmountUnit.SATS -> ""
-                        AmountUnit.BTC -> uiState.amountSat.toLongOrNull()?.let { "≈ ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(it)} sats" } ?: ""
-                        AmountUnit.USD -> uiState.amountSat.toLongOrNull()?.let { "≈ ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(it)} sats" } ?: ""
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
+                if (uiState.sendMax) {
+                    Text(
+                        "Exact amount determined after fees",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                } else {
+                    Text(
+                        when (uiState.amountUnit) {
+                            AmountUnit.SATS -> ""
+                            AmountUnit.BTC -> uiState.amountSat.toLongOrNull()?.let { "≈ ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(it)} sats" } ?: ""
+                            AmountUnit.USD -> uiState.amountSat.toLongOrNull()?.let { "≈ ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(it)} sats" } ?: ""
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
 
                 if (viewModel.exceedsUtxoSelection(uiState)) {
                     Spacer(modifier = Modifier.height(4.dp))

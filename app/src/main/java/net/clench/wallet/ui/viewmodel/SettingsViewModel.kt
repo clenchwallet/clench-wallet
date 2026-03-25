@@ -122,6 +122,15 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(isPinSet = false) }
     }
 
+    /**
+     * Verify the current PIN. Returns true if the PIN is correct, false otherwise.
+     * Used by SecurityScreen to require current-PIN verification before changing auth mode.
+     */
+    fun verifyPin(pin: CharArray): Boolean {
+        val result = pinManager.verifyPin(pin)
+        return result == null // null means success in PinManager.verifyPin()
+    }
+
     fun setUseCustomServer(use: Boolean) {
         _uiState.update { it.copy(useCustomServer = use) }
         // Auto-save when switching back to public server — the Save button is hidden in public mode

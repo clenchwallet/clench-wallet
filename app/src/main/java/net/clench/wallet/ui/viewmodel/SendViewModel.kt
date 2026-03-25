@@ -386,7 +386,20 @@ class SendViewModel @Inject constructor(
         _uiState.update { it.copy(amountSat = sats?.toString() ?: input) }
     }
     fun setFeeRate(rate: String) = _uiState.update { it.copy(feeRate = rate, selectedFeeTier = FeeTier.CUSTOM) }
-    fun setSendMax(max: Boolean) = _uiState.update { it.copy(sendMax = max, amountSat = if (max) "" else it.amountSat) }
+    fun setSendMax(max: Boolean) {
+        if (max) {
+            // Show the available balance as the amount (fees will reduce it at build time)
+            val balance = _uiState.value.availableBalanceSat
+            _uiState.update { it.copy(
+                sendMax = true,
+                amountSat = if (balance > 0) balance.toString() else "",
+                amountDisplay = if (balance > 0) balance.toString() else "",
+                amountUnit = AmountUnit.SATS
+            ) }
+        } else {
+            _uiState.update { it.copy(sendMax = false, amountSat = "", amountDisplay = "") }
+        }
+    }
     fun setLabel(label: String) = _uiState.update { it.copy(label = label) }
 
     // --- Batch recipient management ---

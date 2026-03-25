@@ -218,7 +218,6 @@ fun ClenchNavHost(navController: NavHostController) {
                 onSettings = { navController.navigate(Routes.Settings.route) },
                 onWalletList = { navController.navigate(Routes.WalletList.route) },
                 onAddresses = { navController.navigate(Routes.WalletInfo.build(walletId)) },
-                onViewSeedPhrase = { navController.navigate(Routes.ViewSeedPhrase.build(walletId)) },
                 onUtxoList = { navController.navigate(Routes.UtxoList.build(walletId)) },
                 onSweep = { navController.navigate(Routes.Sweep.build(walletId)) },
                 onTransactionDetail = { txid ->
@@ -285,9 +284,11 @@ fun ClenchNavHost(navController: NavHostController) {
             NetworkScreen(
                 onBack = { navController.popBackStack() },
                 // R7-6: After network switch, navigate back to loading to re-evaluate startup
+                // Use navController.graph.id to clear the entire graph backstack so no old
+                // wallet screen remains reachable via back-swipe after network change.
                 onNetworkSwitched = {
                     navController.navigate("loading") {
-                        popUpTo(0) { inclusive = true }
+                        popUpTo(navController.graph.id) { inclusive = true }
                     }
                 }
             )
@@ -331,7 +332,8 @@ fun ClenchNavHost(navController: NavHostController) {
                 walletId = walletId,
                 onBack = { navController.popBackStack() },
                 onViewAddresses = { navController.navigate(Routes.AddressList.build(walletId)) },
-                onBackup = { navController.navigate(Routes.Backup.build(walletId)) }
+                onBackup = { navController.navigate(Routes.Backup.build(walletId)) },
+                onViewSeedPhrase = { navController.navigate(Routes.ViewSeedPhrase.build(walletId)) }
             )
         }
 
