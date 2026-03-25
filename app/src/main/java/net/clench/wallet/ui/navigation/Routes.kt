@@ -27,6 +27,7 @@ sealed class Routes(val route: String) {
     object SettingsAbout     : Routes("settings/about")
     object SettingsHardwareWallet : Routes("settings/hardware_wallet")
     object SettingsLicenses  : Routes("settings/licenses")
+    object SettingsPrivacy   : Routes("settings/privacy")
     object Debug        : Routes("debug")
     object WalletList   : Routes("wallet_list")
     // Part 2: Replaced Addresses with WalletInfo and AddressList

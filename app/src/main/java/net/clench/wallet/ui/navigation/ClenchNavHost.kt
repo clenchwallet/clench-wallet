@@ -304,12 +304,17 @@ fun ClenchNavHost(navController: NavHostController) {
         composable(Routes.SettingsAbout.route) {
             AboutScreen(
                 onBack = { navController.popBackStack() },
-                onLicenses = { navController.navigate(Routes.SettingsLicenses.route) }
+                onLicenses = { navController.navigate(Routes.SettingsLicenses.route) },
+                onPrivacyPolicy = { navController.navigate(Routes.SettingsPrivacy.route) }
             )
         }
 
         composable(Routes.SettingsLicenses.route) {
             LicensesScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SettingsPrivacy.route) {
+            PrivacyPolicyScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.Debug.route) {

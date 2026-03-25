@@ -21,7 +21,8 @@ import net.clench.wallet.BuildConfig
 @Composable
 fun AboutScreen(
     onBack: () -> Unit,
-    onLicenses: () -> Unit = {}
+    onLicenses: () -> Unit = {},
+    onPrivacyPolicy: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -76,6 +77,14 @@ fun AboutScreen(
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/clenchwallet/clench-wallet"))
                     context.startActivity(intent)
                 }
+            )
+            HorizontalDivider()
+
+            ListItem(
+                headlineContent = { Text("Privacy Policy", fontWeight = FontWeight.Medium) },
+                supportingContent = { Text("How Clench handles your data", style = MaterialTheme.typography.bodySmall) },
+                trailingContent = { Icon(Icons.Default.KeyboardArrowRight, null) },
+                modifier = Modifier.clickable(onClick = onPrivacyPolicy)
             )
             HorizontalDivider()
 

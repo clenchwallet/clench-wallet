@@ -30,7 +30,6 @@ Clench makes the following network connections during normal operation. All of t
 | **Electrum server** (default: electrum.blockstream.info) | Wallet sync, transaction broadcast | Your wallet addresses and transactions | Configurable — you can point to your own server |
 | **mempool.space** | Fee estimation, block height | Anonymous API requests (no wallet data) | Yes — can be disabled; falls back to Electrum fee estimation |
 | **Coinbase / CoinGecko** | BTC price in your local currency | Anonymous API requests (no wallet data) | Yes — can be disabled in settings |
-| **PayJoin endpoints** | PayJoin (BIP-78) transactions | Transaction data for the specific PayJoin | Only when you initiate a PayJoin — never automatic |
 
 ### About Electrum Servers
 
@@ -39,7 +38,6 @@ When Clench syncs your wallet, it sends your wallet addresses to the configured 
 To maximize privacy:
 - Run your own Electrum server and point Clench to it
 - Enable Tor to hide your IP address from the server
-- Use Silent Payments (BIP-352) to avoid address reuse
 
 ## Third Parties
 

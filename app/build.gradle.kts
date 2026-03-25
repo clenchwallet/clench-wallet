@@ -123,10 +123,6 @@ dependencies {
     // BDK - Bitcoin Dev Kit (Block/Spiral funded)
     implementation(libs.bdk.android)
 
-    // secp256k1 for Silent Payments (BIP-352) ECDH + key tweaking
-    implementation(libs.secp256k1.kmp)
-    implementation(libs.secp256k1.kmp.jni.android)
-
     // BC-UR animated QR for hardware wallet PSBT exchange
     implementation("com.sparrowwallet:hummingbird:1.7.4")
 

@@ -1274,6 +1274,10 @@ class BdkBitcoinRepository @Inject constructor(
         selectedOutpoints: List<String>
     ): String = withContext(Dispatchers.IO) {
         require(recipients.isNotEmpty()) { "At least one recipient is required" }
+        // B-3: Defense-in-depth — toULong() wraps negatives to huge numbers; guard here
+        recipients.forEach { r ->
+            require(r.amountSat > 0) { "Recipient amount must be positive, got ${r.amountSat}" }
+        }
         val entry = loadWallet(walletId)
         val wallet = entry.wallet
         val network = activeNetwork()
@@ -1299,12 +1303,25 @@ class BdkBitcoinRepository @Inject constructor(
             builder = builder.manuallySelectedOnly()
         }
 
-        // Passphrase wallet workaround (same as single-send)
+        // Passphrase wallet workaround + frozen UTXO filtering (B-2)
+        // If it's a passphrase wallet OR there are frozen UTXOs, we must iterate
+        // and manually select only the non-frozen UTXOs to avoid spending either.
         val walletEntity = walletDao.getById(walletId)
-        if (walletEntity?.hasPassphrase == true && selectedOutpoints.isEmpty()) {
-            val utxos = wallet.listUnspent()
-            for (utxo in utxos) {
-                if (!utxo.isSpent) builder = builder.addUtxo(utxo.outpoint)
+        if (selectedOutpoints.isEmpty()) {
+            val frozenOutpoints = try {
+                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
+            } catch (_: Exception) { emptySet() }
+
+            val needsManualSelection = (walletEntity?.hasPassphrase == true) || frozenOutpoints.isNotEmpty()
+            if (needsManualSelection) {
+                val utxos = wallet.listUnspent()
+                for (utxo in utxos) {
+                    val opStr = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
+                    if (!utxo.isSpent && opStr !in frozenOutpoints) {
+                        builder = builder.addUtxo(utxo.outpoint)
+                    }
+                }
+                builder = builder.manuallySelectedOnly()
             }
         }
 
@@ -1321,6 +1338,10 @@ class BdkBitcoinRepository @Inject constructor(
         selectedOutpoints: List<String>
     ): String = withContext(Dispatchers.IO) {
         require(recipients.isNotEmpty()) { "At least one recipient is required" }
+        // B-3: Defense-in-depth — toULong() wraps negatives to huge numbers; guard here
+        recipients.forEach { r ->
+            require(r.amountSat > 0) { "Recipient amount must be positive, got ${r.amountSat}" }
+        }
         val entry = loadWallet(walletId)
         val wallet = entry.wallet
         val network = activeNetwork()
