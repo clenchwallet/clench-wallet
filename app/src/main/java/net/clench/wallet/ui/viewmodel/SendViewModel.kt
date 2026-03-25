@@ -11,10 +11,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.SettingsManager
-import net.clench.wallet.data.network.PayJoinClient
-import net.clench.wallet.data.network.PayJoinException
-import net.clench.wallet.data.util.PayJoinValidator
-import net.clench.wallet.data.util.SilentPayments
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
@@ -34,9 +30,7 @@ data class RecipientEntry(
 class SendViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
     private val settingsManager: SettingsManager,
-    private val psbtStore: PsbtStore,
-    private val torAwareHttpClient: net.clench.wallet.data.network.TorAwareHttpClient,
-    private val payJoinClient: PayJoinClient
+    private val psbtStore: PsbtStore
 ) : ViewModel() {
 
     data class UiState(
@@ -68,14 +62,6 @@ class SendViewModel @Inject constructor(
         val label: String = "",
         val broadcastSuccess: Boolean = false,
         val broadcastTxid: String? = null,
-        // PayJoin (BIP-78) state
-        val payJoinEndpoint: String? = null,
-        val payJoinAvailable: Boolean = false,
-        val usePayJoin: Boolean = true,
-        val payJoinStatus: String? = null,
-        // Silent Payment (BIP-352) state
-        val isSilentPayment: Boolean = false,
-        val silentPaymentError: String? = null,
         val recipients: List<RecipientEntry> = listOf(RecipientEntry())
     )
 
@@ -234,7 +220,6 @@ class SendViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val price = withContext(Dispatchers.IO) {
-                    // H-2: Route price API calls through Tor when enabled
                     fetchPriceFromCoinbase()
                         ?: fetchPriceFromMempoolSpace()
                         ?: fetchPriceFromCoinGecko()
@@ -248,10 +233,20 @@ class SendViewModel @Inject constructor(
         }
     }
 
+    private fun fetchUrl(url: String): String {
+        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        conn.connectTimeout = 5_000
+        conn.readTimeout = 10_000
+        return try {
+            conn.inputStream.bufferedReader().readText()
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     private fun fetchPriceFromCoinbase(): Double? {
         return try {
-            // H-2: Route through Tor when enabled
-            val json = torAwareHttpClient.fetchText("https://api.coinbase.com/v2/prices/BTC-USD/spot")
+            val json = fetchUrl("https://api.coinbase.com/v2/prices/BTC-USD/spot")
             JSONObject(json).getJSONObject("data").getDouble("amount")
         } catch (e: Exception) {
             android.util.Log.w("SendVM", "Coinbase price failed: ${e.message}")
@@ -261,8 +256,7 @@ class SendViewModel @Inject constructor(
 
     private fun fetchPriceFromMempoolSpace(): Double? {
         return try {
-            // H-2: Route through Tor when enabled
-            val json = torAwareHttpClient.fetchText("https://mempool.space/api/v1/prices")
+            val json = fetchUrl("https://mempool.space/api/v1/prices")
             JSONObject(json).getDouble("USD")
         } catch (e: Exception) {
             android.util.Log.w("SendVM", "mempool.space price failed: ${e.message}")
@@ -272,8 +266,7 @@ class SendViewModel @Inject constructor(
 
     private fun fetchPriceFromCoinGecko(): Double? {
         return try {
-            // H-2: Route through Tor when enabled
-            val json = torAwareHttpClient.fetchText("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
+            val json = fetchUrl("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
             JSONObject(json).getJSONObject("bitcoin").getDouble("usd")
         } catch (e: Exception) {
             android.util.Log.w("SendVM", "CoinGecko price failed: ${e.message}")
@@ -308,23 +301,12 @@ class SendViewModel @Inject constructor(
     }
 
     fun setAddress(addr: String) {
-        // Parse BIP-21 URI: bitcoin:address?amount=X&pj=https://...
+        // Parse BIP-21 URI: bitcoin:address?amount=X&label=...
         val parsed = parseBip21(addr)
-        val isSP = SilentPayments.isSilentPaymentAddress(parsed.address)
-        // Silent Payments DISABLED — ECDH derivation not production-ready (see V030_REVIEW.md)
-        val spError = if (isSP) {
-            "Silent Payments are not yet supported. Please use a standard Bitcoin address."
-        } else null
-        // PayJoin DISABLED — validator not production-ready (see V030_REVIEW.md)
         _uiState.update {
             it.copy(
                 toAddress = parsed.address,
-                error = spError,
-                isSilentPayment = isSP,
-                silentPaymentError = spError,
-                payJoinEndpoint = null,  // PayJoin disabled
-                payJoinAvailable = false,
-                usePayJoin = false
+                error = null
             )
         }
         // If BIP-21 included an amount, set it
@@ -337,7 +319,6 @@ class SendViewModel @Inject constructor(
     private data class Bip21Parsed(
         val address: String,
         val amountBtc: Double? = null,
-        val payJoinEndpoint: String? = null,
         val label: String? = null
     )
 
@@ -351,7 +332,6 @@ class SendViewModel @Inject constructor(
         val queryString = if (withoutScheme.contains("?")) withoutScheme.substringAfter("?") else null
 
         var amount: Double? = null
-        var pjEndpoint: String? = null
         var label: String? = null
 
         queryString?.split("&")?.forEach { param ->
@@ -359,13 +339,6 @@ class SendViewModel @Inject constructor(
             val value = param.substringAfter("=", "")
             when (key) {
                 "amount" -> amount = value.toDoubleOrNull()
-                "pj" -> {
-                    val decoded = java.net.URLDecoder.decode(value, "UTF-8")
-                    if (decoded.startsWith("https://", ignoreCase = true) ||
-                        decoded.contains(".onion", ignoreCase = true)) {
-                        pjEndpoint = decoded
-                    }
-                }
                 "label" -> label = java.net.URLDecoder.decode(value, "UTF-8")
             }
         }
@@ -373,10 +346,10 @@ class SendViewModel @Inject constructor(
         return Bip21Parsed(
             address = address,
             amountBtc = amount,
-            payJoinEndpoint = pjEndpoint,
             label = label
         )
     }
+
     fun setError(msg: String) = _uiState.update { it.copy(error = msg) }
     fun setAmount(amt: String) = _uiState.update { it.copy(amountSat = amt) }
 
@@ -415,7 +388,6 @@ class SendViewModel @Inject constructor(
     fun setFeeRate(rate: String) = _uiState.update { it.copy(feeRate = rate, selectedFeeTier = FeeTier.CUSTOM) }
     fun setSendMax(max: Boolean) = _uiState.update { it.copy(sendMax = max, amountSat = if (max) "" else it.amountSat) }
     fun setLabel(label: String) = _uiState.update { it.copy(label = label) }
-    fun togglePayJoin(enabled: Boolean) = _uiState.update { it.copy(usePayJoin = enabled) }
 
     // --- Batch recipient management ---
 
@@ -526,13 +498,6 @@ class SendViewModel @Inject constructor(
                 return@launch
             }
 
-            // BIP-352: Silent Payments require private keys — block for watch-only
-            // Silent Payments disabled — block any attempt to send to sp1... address
-            if (state.isSilentPayment) {
-                _uiState.update { it.copy(isLoading = false, error = "Silent Payments are not yet supported. Please use a standard Bitcoin address.") }
-                return@launch
-            }
-
             try {
                 val txHex = if (isBatch) {
                     val recipients = state.recipients.map { r ->
@@ -548,28 +513,10 @@ class SendViewModel @Inject constructor(
                         selectedOutpoints = state.selectedUtxoOutpoints
                     )
                 } else {
-                    // BIP-352: Resolve Silent Payment address to P2TR before building tx
-                    val resolvedAddress = if (state.isSilentPayment) {
-                        try {
-                            bitcoinRepository.resolveSilentPaymentAddress(
-                                walletId = state.walletId,
-                                silentPaymentAddress = state.toAddress.trim()
-                            )
-                        } catch (e: Exception) {
-                            _uiState.update { it.copy(
-                                isLoading = false,
-                                error = "Silent Payment error: ${e.message}"
-                            ) }
-                            return@launch
-                        }
-                    } else {
-                        state.toAddress.trim()
-                    }
-
                     val amountSat = if (state.sendMax) null else state.amountSat.toLongOrNull()
                     bitcoinRepository.buildTransaction(
                         walletId = state.walletId,
-                        toAddress = resolvedAddress,
+                        toAddress = state.toAddress.trim(),
                         amountSat = amountSat,
                         feeRateSatPerVbyte = state.feeRate.toFloatOrNull() ?: 2f,
                         utxoTxid = state.utxoTxid,
@@ -680,18 +627,10 @@ class SendViewModel @Inject constructor(
         val state = _uiState.value
         val txHex = state.txHex ?: return
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null, payJoinStatus = null) }
-
-            // PayJoin flow: if enabled and endpoint available, attempt BIP-78
-            val finalTxHex = if (state.usePayJoin && state.payJoinEndpoint != null && !state.isSilentPayment) {
-                attemptPayJoin(state) ?: txHex
-            } else {
-                txHex
-            }
-
+            _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val config = settingsManager.loadElectrumConfig()
-                val txid = bitcoinRepository.broadcastTransaction(config, finalTxHex)
+                val txid = bitcoinRepository.broadcastTransaction(config, txHex)
                 android.util.Log.d("SendVM", "Broadcast success: txid=$txid")
                 // Save labels — batch mode: combine all recipient labels; single mode: use label field
                 val isBatch = state.recipients.size > 1
@@ -716,87 +655,16 @@ class SendViewModel @Inject constructor(
                         android.util.Log.w("SendVM", "Failed to save transaction label: ${e.message}")
                     }
                 }
-                // Show confirmation state
-                val usedPayJoin = state.usePayJoin && state.payJoinEndpoint != null && finalTxHex != txHex
                 _uiState.update { it.copy(
                     isLoading = false,
                     broadcastSuccess = true,
-                    broadcastTxid = txid,
-                    payJoinStatus = if (usedPayJoin) "PayJoin applied ✓" else it.payJoinStatus
+                    broadcastTxid = txid
                 ) }
                 // Trigger a sync in background so HomeScreen shows updated balance
                 try { bitcoinRepository.syncWallet(state.walletId, config) } catch (_: Exception) {}
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
-        }
-    }
-
-    /**
-     * BIP-78 PayJoin flow: create PSBT, send to receiver, validate proposal, sign, return tx hex.
-     * Returns the signed PayJoin transaction hex, or null to fall back to original.
-     */
-    private suspend fun attemptPayJoin(state: UiState): String? {
-        val endpoint = state.payJoinEndpoint ?: return null
-
-        try {
-            // Step 1: Create original PSBT (unsigned)
-            _uiState.update { it.copy(payJoinStatus = "Creating PayJoin request…") }
-            android.util.Log.d("SendVM", "PayJoin: creating original PSBT")
-
-            val amountSat = if (state.sendMax) null else state.amountSat.toLongOrNull()
-            val originalPsbtBase64 = bitcoinRepository.createPsbt(
-                walletId = state.walletId,
-                toAddress = state.toAddress.trim(),
-                amountSat = amountSat,
-                feeRateSatPerVbyte = state.feeRate.toFloatOrNull() ?: 2f,
-                utxoTxid = state.utxoTxid,
-                utxoVout = state.utxoVout?.toUInt(),
-                selectedOutpoints = state.selectedUtxoOutpoints
-            )
-
-            // Step 2: Send to PayJoin endpoint
-            _uiState.update { it.copy(payJoinStatus = "Requesting PayJoin…") }
-            android.util.Log.d("SendVM", "PayJoin: sending to endpoint")
-
-            val proposalBase64 = payJoinClient.requestPayJoin(endpoint, originalPsbtBase64)
-
-            // Step 3: Validate the proposal (CRITICAL SECURITY)
-            _uiState.update { it.copy(payJoinStatus = "Validating PayJoin proposal…") }
-            android.util.Log.d("SendVM", "PayJoin: validating proposal")
-
-            PayJoinValidator.validate(
-                originalBase64 = originalPsbtBase64,
-                proposalBase64 = proposalBase64,
-                receiverAddress = state.toAddress.trim(),
-                intendedAmountSat = amountSat
-            )
-
-            // Step 4: Sign the proposal PSBT and extract tx hex
-            _uiState.update { it.copy(payJoinStatus = "Signing PayJoin transaction…") }
-            android.util.Log.d("SendVM", "PayJoin: signing proposal")
-
-            val signedTxHex = bitcoinRepository.signPayJoinProposal(
-                walletId = state.walletId,
-                proposalPsbtBase64 = proposalBase64
-            )
-
-            _uiState.update { it.copy(payJoinStatus = "PayJoin applied ✓") }
-            android.util.Log.d("SendVM", "PayJoin: proposal signed successfully")
-            return signedTxHex
-
-        } catch (e: PayJoinException) {
-            android.util.Log.w("SendVM", "PayJoin failed (network): ${e.message}")
-            _uiState.update { it.copy(payJoinStatus = "PayJoin unavailable — sending normally") }
-            return null
-        } catch (e: SecurityException) {
-            android.util.Log.w("SendVM", "PayJoin REJECTED (security): ${e.message}")
-            _uiState.update { it.copy(payJoinStatus = "PayJoin rejected — sending normally") }
-            return null
-        } catch (e: Exception) {
-            android.util.Log.w("SendVM", "PayJoin failed: ${e.message}")
-            _uiState.update { it.copy(payJoinStatus = "PayJoin failed — sending normally") }
-            return null
         }
     }
 
@@ -829,11 +697,6 @@ class SendViewModel @Inject constructor(
     private fun validateAddressForNetwork(address: String, isTestnet: Boolean): String? {
         val trimmed = address.trim()
 
-        // Silent Payment addresses have their own network validation (handled in setAddress)
-        if (SilentPayments.isSilentPaymentAddress(trimmed)) {
-            return null // SP address validation is done in setAddress via silentPaymentError
-        }
-        
         // Mainnet patterns
         val isMainnetP2PKH = trimmed.startsWith("1")  // Legacy P2PKH
         val isMainnetP2SH = trimmed.startsWith("3")   // P2SH

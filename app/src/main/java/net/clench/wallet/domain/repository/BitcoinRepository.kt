@@ -245,16 +245,6 @@ interface BitcoinRepository {
     fun isPassphraseWalletUnlocked(walletId: String): Boolean
 
     /**
-     * Sign a PayJoin proposal PSBT and return the signed transaction hex.
-     * The proposal PSBT comes from the receiver and contains additional inputs.
-     * The sender only signs their own inputs.
-     * @param walletId wallet that owns the sender's inputs
-     * @param proposalPsbtBase64 base64-encoded proposal PSBT from PayJoin receiver
-     * @return signed transaction hex ready to broadcast
-     */
-    suspend fun signPayJoinProposal(walletId: String, proposalPsbtBase64: String): String
-
-    /**
      * Set a label/note for a transaction.
      * @param walletId wallet that owns the transaction
      * @param txid transaction ID
@@ -267,24 +257,6 @@ interface BitcoinRepository {
      * @return the label text, or null if no label is set
      */
     suspend fun getTransactionLabel(walletId: String, txid: String): String?
-
-    /**
-     * Resolve a Silent Payment (BIP-352) address to a standard P2TR address.
-     *
-     * This derives the actual on-chain output address by performing ECDH between
-     * the sender's input private keys and the receiver's scan public key.
-     *
-     * Only works for hot wallets (requires access to private keys).
-     *
-     * @param walletId the wallet that will fund the transaction
-     * @param silentPaymentAddress the sp1.../tsp1... address to resolve
-     * @return the derived P2TR (bc1p.../tb1p...) address
-     * @throws IllegalStateException if the wallet is watch-only or keys are unavailable
-     */
-    suspend fun resolveSilentPaymentAddress(
-        walletId: String,
-        silentPaymentAddress: String
-    ): String
 
     /**
      * Create a multisig wallet from cosigner xpubs.

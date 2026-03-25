@@ -64,8 +64,7 @@ class BdkBitcoinRepository @Inject constructor(
     private val utxoMetadataDao: UtxoMetadataDao,
     private val keystoreManager: KeystoreManager,
     private val settingsManager: SettingsManager,
-    private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory,
-    private val torAwareHttpClient: net.clench.wallet.data.network.TorAwareHttpClient
+    private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory
 ) : BitcoinRepository {
 
     // Wallet entry with persister for persistence
@@ -448,8 +447,7 @@ class BdkBitcoinRepository @Inject constructor(
                 try {
                     val isTestnet = settingsManager.isTestnet()
                     val baseUrl = if (isTestnet) "https://mempool.space/testnet" else "https://mempool.space"
-                    // H-2: Route mempool.space calls through Tor when enabled
-                    val heightStr = torAwareHttpClient.fetchText("$baseUrl/api/blocks/tip/height")
+                    val heightStr = fetchUrl("$baseUrl/api/blocks/tip/height")
                     tipHeight = heightStr.trim().toUInt()
                     android.util.Log.d("BdkRepo", "tipHeight from mempool.space: $tipHeight")
                 } catch (e: Exception) {
@@ -1044,8 +1042,7 @@ class BdkBitcoinRepository @Inject constructor(
 
         android.util.Log.d("BdkRepo", "Fetching fees from mempool.space: $url")
 
-        // H-2: Route mempool.space calls through Tor when enabled
-        val json = torAwareHttpClient.fetchText(url)
+        val json = fetchUrl(url)
         val obj = org.json.JSONObject(json)
 
         val fastestFee = obj.getDouble("fastestFee").toFloat()
@@ -1106,8 +1103,7 @@ class BdkBitcoinRepository @Inject constructor(
             try {
                 val isTestnet = settingsManager.isTestnet()
                 val baseUrl = if (isTestnet) "https://mempool.space/testnet" else "https://mempool.space"
-                // H-2: Route mempool.space calls through Tor when enabled
-                val heightStr = torAwareHttpClient.fetchText("$baseUrl/api/blocks/tip/height")
+                val heightStr = fetchUrl("$baseUrl/api/blocks/tip/height")
                 tipHeight = heightStr.trim().toUInt()
                 android.util.Log.d("BdkRepo", "listUnspent: tipHeight from mempool.space: $tipHeight")
             } catch (e: Exception) {
@@ -1368,21 +1364,6 @@ class BdkBitcoinRepository @Inject constructor(
         builder = builder.addGlobalXpubs()
         val psbt = builder.finish(wallet)
         psbt.serialize()
-    }
-
-    override suspend fun signPayJoinProposal(walletId: String, proposalPsbtBase64: String): String = withContext(Dispatchers.IO) {
-        val entry = loadWallet(walletId)
-        val wallet = entry.wallet
-
-        // Import the proposal PSBT from the PayJoin receiver
-        val psbt = Psbt(proposalPsbtBase64)
-
-        // Sign only the inputs we own (BDK handles this automatically)
-        wallet.sign(psbt)
-
-        // Extract the signed transaction
-        val finalTx = psbt.extractTx()
-        finalTx.serialize().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
     override suspend fun applyAndBroadcastPsbt(walletId: String, signedPsbtBase64: String, unsignedPsbtBase64: String): String = withContext(Dispatchers.IO) {
@@ -1820,6 +1801,20 @@ class BdkBitcoinRepository @Inject constructor(
         return result
     }
 
+    /**
+     * Simple HTTP GET helper — replaces TorAwareHttpClient for general mempool.space queries.
+     */
+    private fun fetchUrl(url: String, connectTimeoutMs: Int = 5_000, readTimeoutMs: Int = 10_000): String {
+        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        conn.connectTimeout = connectTimeoutMs
+        conn.readTimeout = readTimeoutMs
+        return try {
+            conn.inputStream.bufferedReader().readText()
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     // ========== Multisig Wallet Methods ==========
 
     override suspend fun createMultisigWallet(
@@ -2039,116 +2034,6 @@ class BdkBitcoinRepository @Inject constructor(
 
     override suspend fun getTransactionLabel(walletId: String, txid: String): String? {
         return transactionLabelDao.getByTxid(walletId, txid)?.label
-    }
-
-    // ========== Silent Payment (BIP-352) ==========
-
-    /**
-     * Resolve a Silent Payment (BIP-352) address to a standard P2TR address.
-     *
-     * This derives the actual on-chain output address by:
-     * 1. Getting the wallet's mnemonic to derive private keys
-     * 2. Listing UTXOs that will be spent as inputs
-     * 3. Deriving private keys for each input using BIP-32/84/86 derivation
-     * 4. Performing ECDH with the SP address's scan public key
-     * 5. Deriving the unique output public key
-     *
-     * Only works for hot wallets (mnemonic must be available).
-     */
-    override suspend fun resolveSilentPaymentAddress(
-        walletId: String,
-        silentPaymentAddress: String
-    ): String = withContext(Dispatchers.IO) {
-        val spAddress = net.clench.wallet.data.util.SilentPayments.parseAddress(silentPaymentAddress)
-            ?: throw IllegalArgumentException("Invalid Silent Payment address: $silentPaymentAddress")
-
-        // Check wallet type
-        val walletEntity = walletDao.getById(walletId)
-            ?: throw IllegalStateException("Wallet not found: $walletId")
-
-        if (walletEntity.isWatchOnly) {
-            throw IllegalStateException("Silent Payments require signing keys. Watch-only wallets cannot send to Silent Payment addresses.")
-        }
-
-        // Get mnemonic for key derivation
-        val mnemonicStr = keystoreManager.getMnemonic(walletId)
-            ?: throw IllegalStateException("Mnemonic not available for this wallet. Silent Payments require access to private keys.")
-
-        val network = activeNetwork()
-
-        // Get UTXOs to determine which inputs will be spent
-        val utxos = listUnspent(walletId)
-        if (utxos.isEmpty()) {
-            throw IllegalStateException("No UTXOs available to spend")
-        }
-
-        // For the SP derivation, we need the private keys of the inputs.
-        // Since we can't extract individual private keys from BDK easily,
-        // we use the mnemonic to derive the master key and then derive child keys
-        // matching the UTXOs' derivation paths.
-        //
-        // BIP-352 simplified approach for MVP:
-        // Use the master private key derived from the mnemonic as the "sum of input keys".
-        // This is a simplification — in a full implementation, each input's key would be
-        // derived individually based on its derivation path.
-        
-        val mnemonic = Mnemonic.fromString(mnemonicStr)
-        val secretKey = DescriptorSecretKey(network, mnemonic, "")
-        
-        // Get the secret key bytes from the descriptor secret key
-        // BDK's DescriptorSecretKey provides access to the extended private key
-        val secretKeyStr = secretKey.toString()
-        
-        // Clean up BDK objects
-        try { mnemonic.destroy() } catch (_: Exception) {}
-        try { secretKey.destroy() } catch (_: Exception) {}
-        
-        // For MVP: Derive private key material from the mnemonic using standard BIP-32
-        // The full BIP-352 spec requires summing the private keys of all inputs,
-        // but for a single-key wallet (BIP-84/86), all inputs use keys derived from
-        // the same master key. We derive a deterministic private key for the SP operation.
-        val seed = mnemonicToSeed(mnemonicStr)
-        val masterKey = deriveMasterKey(seed)
-        
-        // Build outpoints from the UTXOs that will be used as inputs
-        val outpoints = utxos.take(1).map { "${it.txid}:${it.vout}" }
-        
-        // Derive the output address
-        val derivedAddress = net.clench.wallet.data.util.SilentPayments.deriveOutputAddress(
-            spAddress = spAddress,
-            senderPrivateKeys = listOf(masterKey),
-            outpoints = outpoints,
-            outputIndex = 0
-        ) ?: throw IllegalStateException(
-            "Failed to derive Silent Payment output address. " +
-            "This may be due to incompatible key types or a cryptographic error."
-        )
-        
-        android.util.Log.d("BdkRepo", "Resolved Silent Payment address to P2TR: ${derivedAddress.take(12)}...")
-        derivedAddress
-    }
-    
-    /**
-     * Convert a BIP-39 mnemonic to a 64-byte seed.
-     * Uses PBKDF2-HMAC-SHA512 with "mnemonic" as salt (no passphrase for MVP).
-     */
-    private fun mnemonicToSeed(mnemonic: String): ByteArray {
-        val password = mnemonic.toCharArray()
-        val salt = "mnemonic".toByteArray(Charsets.UTF_8)
-        val spec = javax.crypto.spec.PBEKeySpec(password, salt, 2048, 512)
-        val factory = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA512")
-        return factory.generateSecret(spec).encoded
-    }
-    
-    /**
-     * Derive the master private key from a BIP-32 seed.
-     * Returns the 32-byte private key (first half of HMAC-SHA512 output).
-     */
-    private fun deriveMasterKey(seed: ByteArray): ByteArray {
-        val mac = javax.crypto.Mac.getInstance("HmacSHA512")
-        mac.init(javax.crypto.spec.SecretKeySpec("Bitcoin seed".toByteArray(Charsets.UTF_8), "HmacSHA512"))
-        val result = mac.doFinal(seed)
-        return result.sliceArray(0 until 32) // First 32 bytes = master private key
     }
 
     /**
