@@ -22,7 +22,10 @@ object BBQrEncoder {
     private const val FILE_TYPE_PSBT = 'P'
     private const val ENCODING_ZLIB_BASE32 = 'Z'
     private const val ENCODING_HEX = 'H'
-    private const val HEADER_LEN = 8 // "B$" + fileType + encoding + 2-char total + 2-char index
+    private const val HEADER_LEN = 8 // "B$" + encoding + fileType + 2-char total(base36) + 2-char index(base36)
+
+    // Base36 digits for total/index fields
+    private const val BASE36_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
     private val BASE32_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUV".toCharArray()
 
@@ -50,42 +53,70 @@ object BBQrEncoder {
         val encoding = if (useZlib) ENCODING_ZLIB_BASE32 else ENCODING_HEX
         val encodedData = if (useZlib) base32Data else hexData
 
+        // BBQr header format: B$ + encoding + filetype + total(base36,2) + index(base36,2)
+        // Note: encoding comes BEFORE filetype per BBQr spec
+
         // Single-frame optimization: if it all fits in one QR (≤2500 chars total)
         val singleFrameLimit = 2500 - HEADER_LEN
         if (encodedData.length <= singleFrameLimit) {
-            val header = "${HEADER_PREFIX}${FILE_TYPE_PSBT}${encoding}0100"
+            val header = "${HEADER_PREFIX}${encoding}${FILE_TYPE_PSBT}${toBase36(1)}${toBase36(0)}"
             return listOf(header + encodedData)
         }
 
-        // Split into chunks
+        // Split into chunks — ensure each chunk has even length for hex,
+        // or decodes to whole bytes for base32
         val totalFrames = ((encodedData.length + maxChunkChars - 1) / maxChunkChars)
-            .coerceIn(1, 255)
+            .coerceIn(1, 1295) // max ZZ in base36
         val chunkSize = (encodedData.length + totalFrames - 1) / totalFrames
+
+        // For hex encoding, ensure chunk size is even
+        val adjustedChunkSize = if (!useZlib && chunkSize % 2 != 0) chunkSize + 1 else chunkSize
 
         val frames = mutableListOf<String>()
         for (i in 0 until totalFrames) {
-            val start = i * chunkSize
-            val end = minOf(start + chunkSize, encodedData.length)
+            val start = i * adjustedChunkSize
+            val end = minOf(start + adjustedChunkSize, encodedData.length)
+            if (start >= encodedData.length) break
             val chunk = encodedData.substring(start, end)
-            val header = "${HEADER_PREFIX}${FILE_TYPE_PSBT}${encoding}" +
-                    "%02X".format(totalFrames) + "%02X".format(i)
+            val header = "${HEADER_PREFIX}${encoding}${FILE_TYPE_PSBT}${toBase36(totalFrames)}${toBase36(i)}"
             frames.add(header + chunk)
         }
         return frames
     }
 
     /**
+     * Encode an integer as 2-digit base36 (00-ZZ).
+     */
+    private fun toBase36(value: Int): String {
+        val high = value / 36
+        val low = value % 36
+        return "${BASE36_CHARS[high]}${BASE36_CHARS[low]}"
+    }
+
+    /**
+     * Decode 2-digit base36 to integer.
+     */
+    private fun fromBase36(s: String): Int? {
+        if (s.length != 2) return null
+        val high = BASE36_CHARS.indexOf(s[0].uppercaseChar())
+        val low = BASE36_CHARS.indexOf(s[1].uppercaseChar())
+        if (high < 0 || low < 0) return null
+        return high * 36 + low
+    }
+
+    /**
      * Parse a single BBQr frame header.
      * Returns null if the string is not a valid BBQr frame.
+     * Header: B$ + encoding + fileType + total(base36,2) + index(base36,2)
      */
     fun parseBBQrFrame(frame: String): BBQrFrame? {
         if (frame.length < HEADER_LEN) return null
         if (!frame.startsWith(HEADER_PREFIX)) return null
 
-        val fileType = frame[2]
-        val encoding = frame[3]
-        val totalFrames = frame.substring(4, 6).toIntOrNull(16) ?: return null
-        val frameIndex = frame.substring(6, 8).toIntOrNull(16) ?: return null
+        val encoding = frame[2]
+        val fileType = frame[3]
+        val totalFrames = fromBase36(frame.substring(4, 6)) ?: return null
+        val frameIndex = fromBase36(frame.substring(6, 8)) ?: return null
         val data = frame.substring(8)
 
         return BBQrFrame(fileType, encoding, totalFrames, frameIndex, data)

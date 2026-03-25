@@ -181,7 +181,14 @@ fun HardwareWalletPsbtScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        AnimatedQrCode(frames = qrFrames)
+                        AnimatedQrCode(
+                            frames = qrFrames,
+                            frameDelayMs = when (deviceType) {
+                                HardwareWalletType.COLDCARD_Q,
+                                HardwareWalletType.COLDCARD_MK4 -> 600L // BBQr: slow for Coldcard scanner
+                                else -> 125L // BC-UR: fast fountain codes
+                            }
+                        )
                     }
                 }
 

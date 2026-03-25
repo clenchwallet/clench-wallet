@@ -55,7 +55,9 @@ fun encodePsbtForDevice(psbtBase64: String, deviceType: HardwareWalletType): Lis
         HardwareWalletType.COLDCARD_Q,
         HardwareWalletType.COLDCARD_MK4 -> {
             val psbtBytes = Base64.decode(psbtBase64, Base64.DEFAULT)
-            BBQrEncoder.encodePsbt(psbtBytes)
+            val frames = BBQrEncoder.encodePsbt(psbtBytes)
+            android.util.Log.d("BBQr", "Encoded ${psbtBytes.size} bytes into ${frames.size} frames, first frame header: ${frames.firstOrNull()?.take(20)}, frame len: ${frames.firstOrNull()?.length}")
+            frames
         }
         else -> psbtToUrFrames(psbtBase64)
     }
@@ -66,7 +68,10 @@ fun encodePsbtForDevice(psbtBase64: String, deviceType: HardwareWalletType): Lis
  */
 private fun encodeQrBitmap(content: String, size: Int = 512): Bitmap {
     val writer = QRCodeWriter()
-    val hints = mapOf(EncodeHintType.MARGIN to 1)
+    val hints = mapOf(
+        EncodeHintType.MARGIN to 1,
+        EncodeHintType.ERROR_CORRECTION to com.google.zxing.qrcode.decoder.ErrorCorrectionLevel.L
+    )
     val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size, hints)
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
     for (x in 0 until size) {
@@ -78,14 +83,18 @@ private fun encodeQrBitmap(content: String, size: Int = 512): Bitmap {
 }
 
 /**
- * Animated QR code composable for BC-UR frames.
- * Cycles through frames at ~8fps. For single frames, shows static QR.
+ * Animated QR code composable for BC-UR or BBQr frames.
+ * Cycles through frames at the given interval. For single frames, shows static QR.
+ *
+ * @param frameDelayMs Milliseconds between frames. 125ms (~8fps) for BC-UR,
+ *                     600ms (~1.7fps) for BBQr (Coldcard Q scans slowly).
  */
 @Composable
 fun AnimatedQrCode(
     frames: List<String>,
     modifier: Modifier = Modifier,
-    qrSize: Int = 512
+    qrSize: Int = 512,
+    frameDelayMs: Long = 125L
 ) {
     if (frames.isEmpty()) return
 
@@ -93,9 +102,9 @@ fun AnimatedQrCode(
     val isAnimated = frames.size > 1
 
     if (isAnimated) {
-        LaunchedEffect(frames) {
+        LaunchedEffect(frames, frameDelayMs) {
             while (true) {
-                delay(125L) // ~8fps
+                delay(frameDelayMs)
                 currentIndex = (currentIndex + 1) % frames.size
             }
         }
