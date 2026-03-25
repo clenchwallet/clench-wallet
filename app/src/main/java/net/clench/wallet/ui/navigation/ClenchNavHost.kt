@@ -472,6 +472,13 @@ fun ClenchNavHost(navController: NavHostController) {
                             isBumping = false
                         }
                     }
+                },
+                onSaveLabel = { labelTxid, label ->
+                    coroutineScope.launch {
+                        homeViewModel.bitcoinRepository.setTransactionLabel(walletId, labelTxid, label)
+                        // Refresh transactions to reflect the new label
+                        homeViewModel.reload(walletId)
+                    }
                 }
             )
         }

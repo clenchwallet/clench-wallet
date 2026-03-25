@@ -6,6 +6,11 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// H-3: Gradle dependency locking — pin resolved versions to lock files
+dependencyLocking {
+    lockAllConfigurations()
+}
+
 android {
     namespace = "net.clench.wallet"
     compileSdk = 36

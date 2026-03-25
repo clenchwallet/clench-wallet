@@ -39,7 +39,8 @@ data class TransactionItem(
     val timestamp: Instant?,
     val confirmations: Int,
     val direction: TxDirection,
-    val address: String?
+    val address: String?,
+    val label: String? = null         // user-defined label/note
 )
 
 /**

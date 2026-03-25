@@ -12,6 +12,7 @@ import net.sqlcipher.database.SupportFactory
 import net.clench.wallet.data.local.ClenchDatabase
 import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.dao.TransactionDao
+import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
 import net.clench.wallet.data.local.dao.WalletDao
 import net.clench.wallet.data.repository.BdkBitcoinRepository
@@ -92,7 +93,7 @@ object DatabaseModule {
         }
 
         return builder
-            .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4, ClenchDatabase.MIGRATION_4_5, ClenchDatabase.MIGRATION_5_6, ClenchDatabase.MIGRATION_6_7, ClenchDatabase.MIGRATION_7_8)
+            .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4, ClenchDatabase.MIGRATION_4_5, ClenchDatabase.MIGRATION_5_6, ClenchDatabase.MIGRATION_6_7, ClenchDatabase.MIGRATION_7_8, ClenchDatabase.MIGRATION_8_9)
             .fallbackToDestructiveMigration() // safety net for any future unhandled versions
             .build()
     }
@@ -105,6 +106,9 @@ object DatabaseModule {
 
     @Provides
     fun provideUtxoMetadataDao(db: ClenchDatabase): UtxoMetadataDao = db.utxoMetadataDao()
+
+    @Provides
+    fun provideTransactionLabelDao(db: ClenchDatabase): TransactionLabelDao = db.transactionLabelDao()
 }
 
 @Module

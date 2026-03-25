@@ -297,6 +297,15 @@ fun HomeScreen(
                             },
                             supportingContent = {
                                 Column {
+                                    // Show label if present (truncated to 40 chars)
+                                    tx.label?.let { label ->
+                                        Text(
+                                            text = if (label.length > 40) label.take(40) + "…" else label,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1
+                                        )
+                                    }
                                     Text(tx.txid.take(8) + "…" + tx.txid.takeLast(6))
                                     // Show fee for sent transactions
                                     if (tx.direction == TxDirection.SENT && tx.feeSat != null) {

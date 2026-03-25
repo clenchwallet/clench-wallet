@@ -196,6 +196,17 @@ fun SendScreen(
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
+
+            // Frozen UTXO advisement
+            if (uiState.frozenUtxoCount > 0 && uiState.utxoTxid == null && uiState.selectedUtxoOutpoints.isEmpty()) {
+                val frozenFmt = java.text.NumberFormat.getNumberInstance()
+                Text(
+                    "❄\uFE0F ${uiState.frozenUtxoCount} frozen UTXO${if (uiState.frozenUtxoCount > 1) "s" else ""} excluded (${frozenFmt.format(uiState.frozenAmountSat)} sats)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
@@ -328,6 +339,18 @@ fun SendScreen(
                 )
                 Text(if (uiState.utxoTxid != null || uiState.selectedUtxoOutpoints.isNotEmpty()) "Drain selected UTXO(s)" else "Send max (drain wallet)")
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Label / Note (optional)
+            OutlinedTextField(
+                value = uiState.label,
+                onValueChange = { viewModel.setLabel(it) },
+                label = { Text("Label (optional)") },
+                placeholder = { Text("e.g. Payment to Alice") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 

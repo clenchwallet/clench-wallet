@@ -192,6 +192,13 @@ class SettingsManager @Inject constructor(
         prefs.edit { putString("balance_unit", unit) }
     }
 
+    // --- BTC Price display (H-5) ---
+
+    fun isBtcPriceEnabled(): Boolean = prefs.getBoolean("btc_price_enabled", true)
+    fun setBtcPriceEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean("btc_price_enabled", enabled) }
+    }
+
     // --- Last viewed wallet ---
 
     fun getLastViewedWalletId(): String? = prefs.getString("last_viewed_wallet_id", null)

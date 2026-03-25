@@ -1,8 +1,10 @@
 package net.clench.wallet.ui.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,6 +29,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SweepViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val bitcoinRepository: BitcoinRepository,
     private val settingsManager: SettingsManager,
     private val electrumConnectionFactory: ElectrumConnectionFactory
@@ -136,8 +139,8 @@ class SweepViewModel @Inject constructor(
                     val externalDesc = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
                     val internalDesc = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, network)
 
-                    // Create temp wallet to sync and get balance
-                    val tempDbPath = java.io.File.createTempFile("clench_sweep_", ".db").absolutePath
+                    // Create temp wallet to sync and get balance — use cacheDir (C-1)
+                    val tempDbPath = java.io.File.createTempFile("clench_sweep_", ".db", appContext.cacheDir).absolutePath
                     val tempPersister = Persister.newSqlite(tempDbPath)
                     val tempWallet = Wallet(externalDesc, internalDesc, network, tempPersister)
 
@@ -164,7 +167,11 @@ class SweepViewModel @Inject constructor(
                         }
                     } finally {
                         // BDK 2.x: Wallet resources released by GC/Drop
+                        // C-1: Clean up temp DB and WAL/SHM/journal files
                         try { java.io.File(tempDbPath).delete() } catch (_: Exception) {}
+                        try { java.io.File(tempDbPath + "-wal").delete() } catch (_: Exception) {}
+                        try { java.io.File(tempDbPath + "-shm").delete() } catch (_: Exception) {}
+                        try { java.io.File(tempDbPath + "-journal").delete() } catch (_: Exception) {}
                     }
                 } catch (e: Exception) {
                     _uiState.update {
@@ -214,7 +221,7 @@ class SweepViewModel @Inject constructor(
                     val config = settingsManager.loadElectrumConfig()
                     val activeConn = electrumConnectionFactory.createConnection(config)
 
-                    val tempDbPath = java.io.File.createTempFile("clench_sweep2_", ".db").absolutePath
+                    val tempDbPath = java.io.File.createTempFile("clench_sweep2_", ".db", appContext.cacheDir).absolutePath
                     val tempPersister = Persister.newSqlite(tempDbPath)
                     val tempWallet = Wallet(externalDesc, internalDesc, network, tempPersister)
 
@@ -261,7 +268,11 @@ class SweepViewModel @Inject constructor(
                         }
                     } finally {
                         // BDK 2.x: Wallet resources released by GC/Drop
+                        // C-1: Clean up temp DB and WAL/SHM/journal files
                         try { java.io.File(tempDbPath).delete() } catch (_: Exception) {}
+                        try { java.io.File(tempDbPath + "-wal").delete() } catch (_: Exception) {}
+                        try { java.io.File(tempDbPath + "-shm").delete() } catch (_: Exception) {}
+                        try { java.io.File(tempDbPath + "-journal").delete() } catch (_: Exception) {}
                     }
                 } catch (e: Exception) {
                     _uiState.update { it.copy(isSweeping = false, error = e.message ?: "Sweep failed") }

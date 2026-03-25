@@ -210,4 +210,18 @@ interface BitcoinRepository {
      * Check if a passphrase wallet is currently unlocked (secret wallet cached).
      */
     fun isPassphraseWalletUnlocked(walletId: String): Boolean
+
+    /**
+     * Set a label/note for a transaction.
+     * @param walletId wallet that owns the transaction
+     * @param txid transaction ID
+     * @param label the label text (empty string removes the label)
+     */
+    suspend fun setTransactionLabel(walletId: String, txid: String, label: String)
+
+    /**
+     * Get the label/note for a transaction.
+     * @return the label text, or null if no label is set
+     */
+    suspend fun getTransactionLabel(walletId: String, txid: String): String?
 }

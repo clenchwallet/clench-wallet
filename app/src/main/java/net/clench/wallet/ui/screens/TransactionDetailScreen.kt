@@ -40,12 +40,15 @@ fun TransactionDetailScreen(
     isOfflineMode: Boolean = false,
     isBumping: Boolean = false,
     bumpError: String? = null,
-    priorityFeeRate: Float? = null
+    priorityFeeRate: Float? = null,
+    onSaveLabel: ((txid: String, label: String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var showFullTxid by remember { mutableStateOf(false) }
     var showBumpFeeDialog by remember { mutableStateOf(false) }
     var bumpFeeRate by remember { mutableStateOf("") }
+    var labelText by remember(transaction?.label) { mutableStateOf(transaction?.label ?: "") }
+    var labelSaved by remember { mutableStateOf(true) }
 
     // Bump fee dialog
     if (showBumpFeeDialog && transaction != null) {
@@ -172,6 +175,41 @@ fun TransactionDetailScreen(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                // Label / Note
+                if (onSaveLabel != null) {
+                    Text("Label", style = MaterialTheme.typography.labelMedium)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = labelText,
+                            onValueChange = {
+                                labelText = it
+                                labelSaved = false
+                            },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("Add label…") },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium
+                        )
+                        if (!labelSaved) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    onSaveLabel(transaction!!.txid, labelText)
+                                    labelSaved = true
+                                },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text("Save")
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
 
                 // Confirmation badge
                 val (badgeColor, badgeText) = when {

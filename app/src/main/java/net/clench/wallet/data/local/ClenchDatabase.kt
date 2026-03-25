@@ -5,21 +5,24 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import net.clench.wallet.data.local.dao.TransactionDao
+import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
 import net.clench.wallet.data.local.dao.WalletDao
 import net.clench.wallet.data.local.entity.TransactionEntity
+import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.local.entity.UtxoMetadataEntity
 import net.clench.wallet.data.local.entity.WalletEntity
 
 @Database(
-    entities = [WalletEntity::class, TransactionEntity::class, UtxoMetadataEntity::class],
-    version = 8,
+    entities = [WalletEntity::class, TransactionEntity::class, UtxoMetadataEntity::class, TransactionLabelEntity::class],
+    version = 9,
     exportSchema = true
 )
 abstract class ClenchDatabase : RoomDatabase() {
     abstract fun walletDao(): WalletDao
     abstract fun transactionDao(): TransactionDao
     abstract fun utxoMetadataDao(): UtxoMetadataDao
+    abstract fun transactionLabelDao(): TransactionLabelDao
 
     companion object {
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -54,6 +57,20 @@ abstract class ClenchDatabase : RoomDatabase() {
                         walletId TEXT NOT NULL,
                         label TEXT,
                         isFrozen INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent())
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS transaction_labels (
+                        key TEXT NOT NULL PRIMARY KEY,
+                        walletId TEXT NOT NULL,
+                        txid TEXT NOT NULL,
+                        label TEXT NOT NULL,
+                        updatedAt INTEGER NOT NULL
                     )
                 """.trimIndent())
             }

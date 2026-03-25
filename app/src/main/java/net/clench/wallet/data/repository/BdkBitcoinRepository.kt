@@ -9,9 +9,11 @@ import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.ScriptType
 import net.clench.wallet.data.local.dao.TransactionDao
+import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
 import net.clench.wallet.data.local.dao.WalletDao
 import net.clench.wallet.data.local.entity.TransactionEntity
+import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.local.entity.WalletEntity
 import net.clench.wallet.domain.model.Address as DomainAddress
 import net.clench.wallet.domain.model.ElectrumConfig
@@ -58,10 +60,12 @@ class BdkBitcoinRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val walletDao: WalletDao,
     private val transactionDao: TransactionDao,
+    private val transactionLabelDao: TransactionLabelDao,
     private val utxoMetadataDao: UtxoMetadataDao,
     private val keystoreManager: KeystoreManager,
     private val settingsManager: SettingsManager,
-    private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory
+    private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory,
+    private val torAwareHttpClient: net.clench.wallet.data.network.TorAwareHttpClient
 ) : BitcoinRepository {
 
     // Wallet entry with persister for persistence
@@ -97,8 +101,16 @@ class BdkBitcoinRepository @Inject constructor(
         // BDK 1.1.0: use Descriptor.newBip84() factory for correct BIP84 wpkh derivation
         val network = activeNetwork()
         val secretKey = DescriptorSecretKey(network, mnemonic, passphrase ?: "")
-        val externalDescriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
-        val changeDescriptor = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, network)
+        val externalDescriptor: Descriptor
+        val changeDescriptor: Descriptor
+        try {
+            externalDescriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
+            changeDescriptor = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, network)
+        } finally {
+            // H-1: Destroy sensitive BDK objects after descriptor derivation
+            try { mnemonic.destroy() } catch (_: Exception) {}
+            try { secretKey.destroy() } catch (_: Exception) {}
+        }
 
         // Generate wallet ID
         val walletId = UUID.randomUUID().toString()
@@ -173,8 +185,16 @@ class BdkBitcoinRepository @Inject constructor(
         // Use the selected script type's BIP derivation
         val network = activeNetwork()
         val secretKey = DescriptorSecretKey(network, mnemonicObj, passphrase ?: "")
-        val externalDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
-        val changeDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
+        val externalDescriptor: Descriptor
+        val changeDescriptor: Descriptor
+        try {
+            externalDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
+            changeDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
+        } finally {
+            // H-1: Destroy sensitive BDK objects after descriptor derivation
+            try { mnemonicObj.destroy() } catch (_: Exception) {}
+            try { secretKey.destroy() } catch (_: Exception) {}
+        }
 
         // Prevent duplicate imports — compare using public descriptor
         val publicDescriptor = externalDescriptor.toString()
@@ -428,12 +448,9 @@ class BdkBitcoinRepository @Inject constructor(
                 try {
                     val isTestnet = settingsManager.isTestnet()
                     val baseUrl = if (isTestnet) "https://mempool.space/testnet" else "https://mempool.space"
-                    val conn = java.net.URL("$baseUrl/api/blocks/tip/height").openConnection() as java.net.HttpURLConnection
-                    conn.connectTimeout = 5_000
-                    conn.readTimeout = 5_000
-                    val height = conn.inputStream.bufferedReader().readText().trim().toUInt()
-                    conn.disconnect()
-                    tipHeight = height
+                    // H-2: Route mempool.space calls through Tor when enabled
+                    val heightStr = torAwareHttpClient.fetchText("$baseUrl/api/blocks/tip/height")
+                    tipHeight = heightStr.trim().toUInt()
                     android.util.Log.d("BdkRepo", "tipHeight from mempool.space: $tipHeight")
                 } catch (e: Exception) {
                     android.util.Log.w("BdkRepo", "Failed to get tip height from mempool.space: ${e.message}")
@@ -590,6 +607,8 @@ class BdkBitcoinRepository @Inject constructor(
         if (walletEntity?.hasPassphrase == true && !unlockedPassphraseWallets.contains(walletId)) {
             return emptyList()
         }
+        // Load labels for this wallet
+        val labels = transactionLabelDao.getForWallet(walletId).associateBy { it.txid }
         return transactionDao.getForWallet(walletId).map { entity ->
             TransactionItem(
                 txid = entity.txid,
@@ -600,7 +619,8 @@ class BdkBitcoinRepository @Inject constructor(
                 },
                 confirmations = entity.confirmations,
                 direction = TxDirection.valueOf(entity.direction),
-                address = entity.address
+                address = entity.address,
+                label = labels[entity.txid]?.label
             )
         }
     }
@@ -1024,7 +1044,8 @@ class BdkBitcoinRepository @Inject constructor(
 
         android.util.Log.d("BdkRepo", "Fetching fees from mempool.space: $url")
 
-        val json = java.net.URL(url).readText()
+        // H-2: Route mempool.space calls through Tor when enabled
+        val json = torAwareHttpClient.fetchText(url)
         val obj = org.json.JSONObject(json)
 
         val fastestFee = obj.getDouble("fastestFee").toFloat()
@@ -1085,12 +1106,9 @@ class BdkBitcoinRepository @Inject constructor(
             try {
                 val isTestnet = settingsManager.isTestnet()
                 val baseUrl = if (isTestnet) "https://mempool.space/testnet" else "https://mempool.space"
-                val conn = java.net.URL("$baseUrl/api/blocks/tip/height").openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 5_000
-                conn.readTimeout = 5_000
-                val height = conn.inputStream.bufferedReader().readText().trim().toUInt()
-                conn.disconnect()
-                tipHeight = height
+                // H-2: Route mempool.space calls through Tor when enabled
+                val heightStr = torAwareHttpClient.fetchText("$baseUrl/api/blocks/tip/height")
+                tipHeight = heightStr.trim().toUInt()
                 android.util.Log.d("BdkRepo", "listUnspent: tipHeight from mempool.space: $tipHeight")
             } catch (e: Exception) {
                 android.util.Log.w("BdkRepo", "listUnspent: Failed to get tip height from mempool.space: ${e.message}")
@@ -1717,8 +1735,16 @@ class BdkBitcoinRepository @Inject constructor(
         val secretKey = DescriptorSecretKey(network, mnemonic, passphrase)
         val scriptType = ScriptType.fromDescriptor(walletEntity.descriptor)
         android.util.Log.d("BdkRepo", "unlockPassphraseWallet: scriptType=$scriptType network=$network")
-        val externalDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
-        val changeDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
+        val externalDescriptor: Descriptor
+        val changeDescriptor: Descriptor
+        try {
+            externalDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
+            changeDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
+        } finally {
+            // H-1: Destroy sensitive BDK objects after descriptor derivation
+            try { mnemonic.destroy() } catch (_: Exception) {}
+            try { secretKey.destroy() } catch (_: Exception) {}
+        }
         
         // Duress wallet design: any passphrase is silently accepted.
         // We derive whatever wallet the passphrase produces and open it.
@@ -1784,6 +1810,28 @@ class BdkBitcoinRepository @Inject constructor(
      */
     override fun isPassphraseWalletUnlocked(walletId: String): Boolean {
         return unlockedPassphraseWallets.contains(walletId)
+    }
+
+    // ========== Transaction Label Methods ==========
+
+    override suspend fun setTransactionLabel(walletId: String, txid: String, label: String) {
+        if (label.isBlank()) {
+            transactionLabelDao.delete(walletId, txid)
+        } else {
+            transactionLabelDao.upsert(
+                TransactionLabelEntity(
+                    key = "$walletId:$txid",
+                    walletId = walletId,
+                    txid = txid,
+                    label = label.trim(),
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    override suspend fun getTransactionLabel(walletId: String, txid: String): String? {
+        return transactionLabelDao.getByTxid(walletId, txid)?.label
     }
 
     /**

@@ -15,7 +15,6 @@ import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
 import org.json.JSONObject
-import java.net.URL
 import javax.inject.Inject
 
 enum class FeeTier { ECONOMY, STANDARD, PRIORITY, CUSTOM }
@@ -25,7 +24,8 @@ enum class AmountUnit { SATS, BTC, USD }
 class SendViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
     private val settingsManager: SettingsManager,
-    private val psbtStore: PsbtStore
+    private val psbtStore: PsbtStore,
+    private val torAwareHttpClient: net.clench.wallet.data.network.TorAwareHttpClient
 ) : ViewModel() {
 
     data class UiState(
@@ -42,6 +42,8 @@ class SendViewModel @Inject constructor(
         val isLoading: Boolean = false,
         val error: String? = null,
         val availableBalanceSat: Long = 0L,
+        val frozenUtxoCount: Int = 0,
+        val frozenAmountSat: Long = 0L,
         val utxoTxid: String? = null,
         val utxoVout: Int? = null,
         val selectedUtxoOutpoints: List<String> = emptyList(),
@@ -52,6 +54,7 @@ class SendViewModel @Inject constructor(
         val feeEstimateError: String? = null,
         val isEstimatingFees: Boolean = false,
         val btcPriceUsd: Double? = null,
+        val label: String = "",
         val broadcastSuccess: Boolean = false,
         val broadcastTxid: String? = null
     )
@@ -121,14 +124,19 @@ class SendViewModel @Inject constructor(
                 }
 
                 // When no coin control is active, subtract frozen UTXO amounts from available balance
+                var frozenCount = 0
+                var frozenSats = 0L
                 val effectiveBalance = if (resolvedAmount != null) {
                     resolvedAmount
                 } else {
                     try {
                         val utxos = bitcoinRepository.listUnspent(walletId)
-                        val frozenAmount = utxos.filter { it.isFrozen }.sumOf { it.amountSat }
+                        val frozenUtxos = utxos.filter { it.isFrozen }
+                        val frozenAmount = frozenUtxos.sumOf { it.amountSat }
+                        frozenCount = frozenUtxos.size
+                        frozenSats = frozenAmount
                         if (frozenAmount > 0) {
-                            android.util.Log.d("SendVM", "Subtracting $frozenAmount frozen sats from available balance")
+                            android.util.Log.d("SendVM", "Subtracting $frozenAmount frozen sats (${frozenUtxos.size} UTXOs) from available balance")
                         }
                         (balance.spendableSat - frozenAmount).coerceAtLeast(0L)
                     } catch (e: Exception) {
@@ -140,7 +148,9 @@ class SendViewModel @Inject constructor(
                 _uiState.update { it.copy(
                     isWatchOnly = wallet?.isWatchOnly ?: false,
                     preferredHardwareWallet = wallet?.preferredHardwareWallet,
-                    availableBalanceSat = effectiveBalance
+                    availableBalanceSat = effectiveBalance,
+                    frozenUtxoCount = frozenCount,
+                    frozenAmountSat = frozenSats
                 ) }
             } catch (e: Exception) { /* show 0 */ }
         }
@@ -195,10 +205,16 @@ class SendViewModel @Inject constructor(
     private fun fetchBtcPrice() {
         // Never phone home in offline mode
         if (settingsManager.isOfflineMode()) return
+        // H-5: Respect user's BTC price preference
+        if (!settingsManager.isBtcPriceEnabled()) {
+            android.util.Log.d("SendVM", "BTC price fetch disabled by user setting")
+            return
+        }
 
         viewModelScope.launch {
             try {
                 val price = withContext(Dispatchers.IO) {
+                    // H-2: Route price API calls through Tor when enabled
                     fetchPriceFromCoinbase()
                         ?: fetchPriceFromMempoolSpace()
                         ?: fetchPriceFromCoinGecko()
@@ -214,11 +230,8 @@ class SendViewModel @Inject constructor(
 
     private fun fetchPriceFromCoinbase(): Double? {
         return try {
-            val conn = URL("https://api.coinbase.com/v2/prices/BTC-USD/spot").openConnection() as java.net.HttpURLConnection
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 5_000
-            val json = conn.inputStream.bufferedReader().readText()
-            conn.disconnect()
+            // H-2: Route through Tor when enabled
+            val json = torAwareHttpClient.fetchText("https://api.coinbase.com/v2/prices/BTC-USD/spot")
             JSONObject(json).getJSONObject("data").getDouble("amount")
         } catch (e: Exception) {
             android.util.Log.w("SendVM", "Coinbase price failed: ${e.message}")
@@ -228,11 +241,8 @@ class SendViewModel @Inject constructor(
 
     private fun fetchPriceFromMempoolSpace(): Double? {
         return try {
-            val conn = URL("https://mempool.space/api/v1/prices").openConnection() as java.net.HttpURLConnection
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 5_000
-            val json = conn.inputStream.bufferedReader().readText()
-            conn.disconnect()
+            // H-2: Route through Tor when enabled
+            val json = torAwareHttpClient.fetchText("https://mempool.space/api/v1/prices")
             JSONObject(json).getDouble("USD")
         } catch (e: Exception) {
             android.util.Log.w("SendVM", "mempool.space price failed: ${e.message}")
@@ -242,11 +252,8 @@ class SendViewModel @Inject constructor(
 
     private fun fetchPriceFromCoinGecko(): Double? {
         return try {
-            val conn = URL("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd").openConnection() as java.net.HttpURLConnection
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 5_000
-            val json = conn.inputStream.bufferedReader().readText()
-            conn.disconnect()
+            // H-2: Route through Tor when enabled
+            val json = torAwareHttpClient.fetchText("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
             JSONObject(json).getJSONObject("bitcoin").getDouble("usd")
         } catch (e: Exception) {
             android.util.Log.w("SendVM", "CoinGecko price failed: ${e.message}")
@@ -318,6 +325,7 @@ class SendViewModel @Inject constructor(
     }
     fun setFeeRate(rate: String) = _uiState.update { it.copy(feeRate = rate, selectedFeeTier = FeeTier.CUSTOM) }
     fun setSendMax(max: Boolean) = _uiState.update { it.copy(sendMax = max, amountSat = if (max) "" else it.amountSat) }
+    fun setLabel(label: String) = _uiState.update { it.copy(label = label) }
 
     fun buildTx() {
         val state = _uiState.value
@@ -439,6 +447,14 @@ class SendViewModel @Inject constructor(
                 val config = settingsManager.loadElectrumConfig()
                 val txid = bitcoinRepository.broadcastTransaction(config, txHex)
                 android.util.Log.d("SendVM", "Broadcast success: txid=$txid")
+                // Save label if user entered one
+                if (state.label.isNotBlank()) {
+                    try {
+                        bitcoinRepository.setTransactionLabel(state.walletId, txid, state.label)
+                    } catch (e: Exception) {
+                        android.util.Log.w("SendVM", "Failed to save transaction label: ${e.message}")
+                    }
+                }
                 // Show confirmation state
                 _uiState.update { it.copy(
                     isLoading = false,

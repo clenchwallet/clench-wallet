@@ -16,3 +16,4 @@ keystore.properties
 app/build/
 build/
 clench/screen.png
+.kotlin/
