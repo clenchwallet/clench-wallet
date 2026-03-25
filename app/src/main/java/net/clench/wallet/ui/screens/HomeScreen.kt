@@ -1,5 +1,8 @@
 package net.clench.wallet.ui.screens
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -42,12 +45,30 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val importResult by viewModel.importResult.collectAsState()
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // BIP-329 import file picker
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { viewModel.importLabels(walletId, it, context) }
+    }
+
+    // Show snackbar on import result
+    LaunchedEffect(importResult) {
+        importResult?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.clearImportResult()
+        }
+    }
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -102,6 +123,20 @@ fun HomeScreen(
                                 onClick = {
                                     showMenu = false
                                     onSweep()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Export Labels (BIP-329)") },
+                                onClick = {
+                                    showMenu = false
+                                    viewModel.exportLabels(walletId, context)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Import Labels (BIP-329)") },
+                                onClick = {
+                                    showMenu = false
+                                    importLauncher.launch(arrayOf("*/*"))
                                 }
                             )
                         }

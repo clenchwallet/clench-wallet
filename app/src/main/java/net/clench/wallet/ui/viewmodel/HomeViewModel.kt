@@ -1,5 +1,9 @@
 package net.clench.wallet.ui.viewmodel
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,11 +17,17 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.local.dao.TransactionLabelDao
+import net.clench.wallet.data.local.entity.TransactionLabelEntity
+import net.clench.wallet.data.util.Bip329
 import net.clench.wallet.domain.model.TransactionItem
 import net.clench.wallet.domain.repository.BitcoinRepository
 import org.json.JSONObject
+import java.io.File
 import java.net.URL
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
 
@@ -26,7 +36,8 @@ enum class BalanceUnit { SATS, BTC, USD, HIDDEN }
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     internal val bitcoinRepository: BitcoinRepository,
-    internal val settingsManager: SettingsManager
+    internal val settingsManager: SettingsManager,
+    private val transactionLabelDao: TransactionLabelDao
 ) : ViewModel() {
 
     data class UiState(
@@ -276,6 +287,78 @@ class HomeViewModel @Inject constructor(
                     else -> e.message ?: "Unknown sync error"
                 }
                 _uiState.update { it.copy(isSyncing = false, syncError = friendlyMsg) }
+            }
+        }
+    }
+
+    // BIP-329 import result message for snackbar
+    private val _importResult = MutableStateFlow<String?>(null)
+    val importResult = _importResult.asStateFlow()
+
+    fun clearImportResult() {
+        _importResult.value = null
+    }
+
+    fun exportLabels(walletId: String, context: Context) {
+        viewModelScope.launch {
+            try {
+                val labels = transactionLabelDao.getForWallet(walletId)
+                if (labels.isEmpty()) {
+                    _importResult.value = "No labels to export"
+                    return@launch
+                }
+                val jsonl = Bip329.exportLabels(labels)
+                val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                val fileName = "clench-labels-$dateStr.jsonl"
+                val file = File(context.cacheDir, fileName)
+                file.writeText(jsonl)
+
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/jsonl"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Export labels"))
+            } catch (e: Exception) {
+                _importResult.value = "Export failed: ${e.message}"
+            }
+        }
+    }
+
+    fun importLabels(walletId: String, uri: Uri, context: Context) {
+        viewModelScope.launch {
+            try {
+                val jsonl = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
+                        ?: throw Exception("Could not read file")
+                }
+                val parsed = Bip329.importLabels(jsonl)
+                if (parsed.isEmpty()) {
+                    _importResult.value = "No transaction labels found in file"
+                    return@launch
+                }
+                withContext(Dispatchers.IO) {
+                    for ((txid, label) in parsed) {
+                        transactionLabelDao.upsert(
+                            TransactionLabelEntity(
+                                key = "$walletId:$txid",
+                                walletId = walletId,
+                                txid = txid,
+                                label = label
+                            )
+                        )
+                    }
+                }
+                _importResult.value = "Imported ${parsed.size} labels"
+                // Reload transactions to show new labels
+                currentWalletId?.let { reload(it) }
+            } catch (e: Exception) {
+                _importResult.value = "Import failed: ${e.message}"
             }
         }
     }
