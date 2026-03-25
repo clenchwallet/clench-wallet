@@ -1,0 +1,48 @@
+Clench is a Bitcoin-only, non-custodial on-chain wallet built with Bitcoin Dev Kit (BDK). Your keys, your coins — no custodians, no accounts, no tracking.
+
+🔑 WALLET FEATURES
+• Create single-sig or multisig (M-of-N) wallets
+• Import watch-only wallets via descriptors
+• BIP-39 seed phrases (12 or 24 words) with optional passphrase
+• Multiple script types: Native SegWit (BIP-84), Nested SegWit (BIP-49), Legacy (BIP-44), Taproot (BIP-86)
+• Full testnet support for development and testing
+
+🔒 HARDWARE WALLET SUPPORT
+Clench works with the hardware wallets you already own:
+• QR-based: SeedSigner, Keystone, Foundation Passport, Blockstream Jade
+• NFC-based: Coldcard Mk4, Coldcard Q
+• Animated QR codes via BC-UR for large PSBTs
+• Full BIP-174 PSBT workflow — build on phone, sign on hardware
+
+🕵️ PRIVACY
+Privacy isn't a feature, it's a right:
+• PayJoin (BIP-78) — breaks the common-input-ownership heuristic that chain analysis firms rely on
+• Silent Payments (BIP-352) — receive to a static address without address reuse
+• Tor support — route all network traffic through SOCKS5 proxy
+• Connect to your own Electrum server — don't trust anyone else's
+• Coin control — manually select and freeze UTXOs
+
+💸 TRANSACTIONS
+• Batch sending — pay multiple recipients in a single transaction, saving fees
+• Transaction labeling with BIP-329 export/import
+• Replace-By-Fee (RBF) fee bumping for stuck transactions
+• Sweep functionality to empty wallets
+• Smart fee estimation via Electrum with mempool.space fallback
+
+🛡️ SECURITY
+• AES-256-GCM encrypted key storage via Android Keystore
+• SQLCipher-encrypted local database
+• Biometric authentication bound to cryptographic keys
+• PIN lock with brute-force protection
+• PSBT output validation prevents address substitution attacks
+
+🚫 NO TRACKING
+Zero analytics. Zero telemetry. Zero third-party SDKs. No Firebase, no Google Analytics, no crash reporting services, no advertising. The app makes no network connections except the ones you configure for wallet sync and optional price/fee data.
+
+⚙️ BUILT WITH
+• Bitcoin Dev Kit (BDK) 2.3.1 — battle-tested Bitcoin library
+• Jetpack Compose — modern Android UI
+• Room + SQLCipher — encrypted local storage
+• 100% open source — audit the code yourself
+
+Clench is free, open source software licensed under the MIT License.

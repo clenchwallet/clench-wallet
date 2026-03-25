@@ -1,0 +1,1 @@
+Bitcoin-only non-custodial on-chain wallet

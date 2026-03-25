@@ -1,100 +1,87 @@
-# Clench Wallet — Android
+# Clench Wallet
 
-Self-custody Bitcoin wallet for Android. Built on [BDK (Bitcoin Dev Kit) 1.1.0](https://bitcoindevkit.org/).
-
-[![Android CI](https://github.com/clenchwallet/clench-wallet/actions/workflows/android.yml/badge.svg)](https://github.com/clenchwallet/clench-wallet/actions/workflows/android.yml)
-
-## Download
-
-Grab the latest debug APK from [Releases](https://github.com/clenchwallet/clench-wallet/releases/latest).
+A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](https://bitcoindevkit.org/) (Bitcoin Dev Kit) 2.3.1.
 
 ## Features
 
-- **Self-custody** — your keys, your coins; BDK-based key management
-- **Hardware wallet support** — Coldcard (Mk4 + Q), SeedSigner, Keystone, Passport, Jade via QR/NFC/SD
-- **Watch-only wallets** — monitor without exposing keys; sign via HWW or ephemeral seed entry
-- **BIP39 passphrase** — Sparrow-style duress wallet design; any passphrase opens a valid wallet, none stored
-- **Coin control** — select UTXOs, freeze outputs, drain selected UTXOs
-- **Wallet sweep** — sweep confirmed funds from any seed phrase
-- **Custom Electrum server** — plain TCP (port 50001) or TLS; self-signed certs not supported (BDK limitation)
-- **App lock** — biometric or Clench PIN with exponential backoff
-- **No analytics** — zero tracking, zero telemetry
+### Core
+- Single-sig and multisig (M-of-N) wallet creation
+- Watch-only wallets via descriptor import
+- BIP-39 seed phrase (12/24 words) with optional passphrase (BIP-39)
+- Multiple script types: Native SegWit (BIP-84), Nested SegWit (BIP-49), Legacy (BIP-44), Taproot (BIP-86)
+- Testnet support
 
-## Versioning
+### Hardware Wallet Support
+- **QR-based:** SeedSigner, Keystone, Foundation Passport, Blockstream Jade
+- **NFC-based:** Coldcard Mk4, Coldcard Q
+- **Animated QR:** BC-UR PSBT exchange
+- Full PSBT (BIP-174) workflow
 
-`versionName` in `app/build.gradle.kts` is the single source of truth.  
-CI tags each master push as `v{versionName}` and publishes a GitHub Release with the APK.  
-Bump `versionName` (and `versionCode`) in `build.gradle.kts` before each meaningful release.
+### Privacy
+- **PayJoin (BIP-78)** — breaks common-input-ownership heuristic
+- **Silent Payments (BIP-352)** — send to static addresses without address reuse
+- **Tor support** — route all connections through SOCKS5 proxy
+- **Custom Electrum server** — connect to your own node
+- **Coin control** — manual UTXO selection and freezing
 
-| Version | Highlights |
-|---------|-----------|
-| 0.7.0 | Fix: stale UTXO state on passphrase lock/re-entry — `LifecycleResumeEffect` clears UTXO screen on every resume/pause |
-| 0.6.0 | Fix: passphrase wallet UTXO leak — `unlockedPassphraseWallets` set as authoritative unlock signal; block `syncWallet`/`listUnspent`/`getTransactions` in locked state |
-| 0.5.0 | WalletList settings button, passphrase back stack fix, clear passphrase on screen resume |
-| 0.4.0 | Fix: passphrase wallet tx cache leak — wipe Room tx cache on lock and cold start |
-| 0.3.0 | Passphrase duress wallet, security onboarding, port defaults, BDK SSL warning |
-| 0.2.0 | In-memory passphrase sessions, live UTXO overflow warning, USD price in Send |
-| 0.1.0 | Initial release — full wallet, HWW, coin control, sweep, Clench PIN |
+### Transactions
+- Batch sending (multiple recipients, single transaction)
+- Transaction labeling with BIP-329 export/import
+- Replace-By-Fee (RBF) fee bumping
+- Sweep functionality
+- Fee estimation via Electrum + mempool.space fallback
+
+### Security
+- AES-256-GCM encrypted key storage via Android Keystore
+- SQLCipher database encryption
+- Crypto-bound biometric authentication
+- PIN lock with brute-force protection
+- PSBT output validation (prevents address substitution attacks)
+- No analytics, no tracking, no third-party SDKs
+
+## Building
+
+### Requirements
+- Android Studio Ladybug or later
+- JDK 21
+- Android SDK 36
+
+### Build
+```bash
+git clone https://github.com/clenchwallet/clench-wallet.git
+cd clench-wallet
+./gradlew assembleDebug
+```
+
+The debug APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
+
+### Release Build
+```bash
+./gradlew assembleRelease
+```
+Requires a signing keystore configured in `keystore.properties`.
 
 ## Architecture
 
-```
-app/src/main/java/net/clench/wallet/
-├── ClenchApplication.kt          ← Hilt entry; wipes passphrase wallet DBs on cold start
-├── data/
-│   ├── local/
-│   │   ├── ClenchDatabase.kt     ← Room DB (clench.db — wallets, txs, UTXO metadata)
-│   │   ├── KeystoreManager.kt    ← Seed/descriptor storage (Android Keystore + AES-256-GCM)
-│   │   ├── PinManager.kt         ← Clench PIN (HMAC-SHA256, exponential throttle)
-│   │   ├── SettingsManager.kt    ← Electrum config, app lock, feature flags
-│   │   └── dao/
-│   └── repository/
-│       └── BdkBitcoinRepository.kt  ← All BDK operations
-├── domain/
-│   ├── model/
-│   └── repository/
-│       └── BitcoinRepository.kt  ← Interface
-├── di/
-│   └── AppModule.kt
-└── ui/
-    ├── MainActivity.kt           ← App lock overlay, NFC PSBT handler
-    ├── navigation/
-    │   ├── Routes.kt
-    │   └── ClenchNavHost.kt
-    ├── screens/                  ← All screens (Send, Receive, Home, Settings, HWW, etc.)
-    └── viewmodel/
-```
+- **BDK 2.3.1** — Bitcoin Dev Kit for wallet operations, transaction building, and Electrum sync
+- **Jetpack Compose** — Modern declarative UI
+- **Room + SQLCipher** — Encrypted local database
+- **Hilt** — Dependency injection
+- **Kotlin Coroutines** — Async operations
 
-## Tech Stack
+## Contributing
 
-| Layer | Library |
-|-------|---------|
-| Bitcoin core | `bdk-android 1.1.0` |
-| UI | Jetpack Compose + Material3 |
-| Navigation | Compose Navigation |
-| DI | Hilt |
-| Database | Room (SQLCipher encrypted) |
-| Secure storage | Android Keystore + EncryptedSharedPreferences |
-| QR scanning | ZXing Android Embedded |
-| Language | Kotlin |
-| Min SDK | 26 (Android 8.0) |
+Contributions welcome. Please open an issue first to discuss significant changes.
 
-## Build
+## Security
 
-```bash
-# Debug APK
-JAVA_HOME=/path/to/jdk-17 ./gradlew assembleDebug
+If you discover a security vulnerability, please report it responsibly by emailing security@clench.net (do NOT open a public issue).
 
-# Install via ADB
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+## License
 
-Requires Android SDK 35, JDK 17+.
+MIT License. See [LICENSE](LICENSE) for details.
 
-## Security Notes
+## Donate
 
-- Seeds stored in Android Keystore (hardware-backed where available)
-- Passphrase wallets: in-memory only — nothing written to disk; full Electrum sync required each session
-- BIP39 passphrase: duress/plausible-deniability design — no stored passphrase, no validation feedback
-- PSBT signing for all hardware wallet flows
-- Debug signing key committed to repo (`app/debug.keystore`) — for development only
+If you find Clench useful, consider donating:
+- Bitcoin: (address TBD)
