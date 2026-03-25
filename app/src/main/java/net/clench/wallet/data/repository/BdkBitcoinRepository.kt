@@ -733,13 +733,22 @@ class BdkBitcoinRepository @Inject constructor(
         // so BDK classifies all their UTXOs as untrustedPending. TxBuilder's default coin
         // selection ignores untrustedPending UTXOs, causing "insufficient funds: 0 btc".
         // Apply the same addUtxo() workaround used for watch-only wallets in createPsbt().
-        if (isPassphraseWallet && !hasManualUtxos) {
-            val utxos = wallet.listUnspent()
-            android.util.Log.d("BdkRepo", "buildTransaction: passphrase wallet, adding ${utxos.size} UTXOs via addUtxo()")
-            for (utxo in utxos) {
-                if (!utxo.isSpent) {
-                    builder = builder.addUtxo(utxo.outpoint)
+        // Also filter frozen UTXOs when no explicit coin control is active.
+        if (!hasManualUtxos) {
+            val frozenOutpoints = try {
+                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
+            } catch (_: Exception) { emptySet() }
+            val needsManualSelection = isPassphraseWallet || frozenOutpoints.isNotEmpty()
+            if (needsManualSelection) {
+                val utxos = wallet.listUnspent()
+                android.util.Log.d("BdkRepo", "buildTransaction: manual UTXO selection (passphrase=$isPassphraseWallet, ${frozenOutpoints.size} frozen)")
+                for (utxo in utxos) {
+                    val opStr = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
+                    if (!utxo.isSpent && opStr !in frozenOutpoints) {
+                        builder = builder.addUtxo(utxo.outpoint)
+                    }
                 }
+                builder = builder.manuallySelectedOnly()
             }
         }
 
@@ -1823,7 +1832,7 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     /**
-     * Simple HTTP GET helper — replaces TorAwareHttpClient for general mempool.space queries.
+     * Simple HTTP GET helper for mempool.space and price API queries.
      */
     private fun fetchUrl(url: String, connectTimeoutMs: Int = 5_000, readTimeoutMs: Int = 10_000): String {
         val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
