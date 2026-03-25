@@ -311,27 +311,20 @@ class SendViewModel @Inject constructor(
         // Parse BIP-21 URI: bitcoin:address?amount=X&pj=https://...
         val parsed = parseBip21(addr)
         val isSP = SilentPayments.isSilentPaymentAddress(parsed.address)
+        // Silent Payments DISABLED — ECDH derivation not production-ready (see V030_REVIEW.md)
         val spError = if (isSP) {
-            // Validate the SP address can be parsed
-            val spAddr = SilentPayments.parseAddress(parsed.address)
-            when {
-                spAddr == null -> "Invalid Silent Payment address"
-                spAddr.isMainnet && settingsManager.isTestnet() ->
-                    "This is a mainnet Silent Payment address, but you're on testnet"
-                spAddr.isTestnet && !settingsManager.isTestnet() ->
-                    "This is a testnet Silent Payment address, but you're on mainnet"
-                else -> null
-            }
+            "Silent Payments are not yet supported. Please use a standard Bitcoin address."
         } else null
+        // PayJoin DISABLED — validator not production-ready (see V030_REVIEW.md)
         _uiState.update {
             it.copy(
                 toAddress = parsed.address,
                 error = spError,
                 isSilentPayment = isSP,
                 silentPaymentError = spError,
-                payJoinEndpoint = parsed.payJoinEndpoint,
-                payJoinAvailable = parsed.payJoinEndpoint != null,
-                usePayJoin = parsed.payJoinEndpoint != null
+                payJoinEndpoint = null,  // PayJoin disabled
+                payJoinAvailable = false,
+                usePayJoin = false
             )
         }
         // If BIP-21 included an amount, set it
@@ -534,8 +527,9 @@ class SendViewModel @Inject constructor(
             }
 
             // BIP-352: Silent Payments require private keys — block for watch-only
-            if (state.isSilentPayment && state.isWatchOnly) {
-                _uiState.update { it.copy(isLoading = false, error = "Silent Payments require signing keys and cannot be sent from watch-only wallets") }
+            // Silent Payments disabled — block any attempt to send to sp1... address
+            if (state.isSilentPayment) {
+                _uiState.update { it.copy(isLoading = false, error = "Silent Payments are not yet supported. Please use a standard Bitcoin address.") }
                 return@launch
             }
 
