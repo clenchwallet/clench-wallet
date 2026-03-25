@@ -14,7 +14,7 @@ import net.clench.wallet.data.network.ElectrumConnectionFactory
 import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
 import org.bitcoindevkit.Amount
-import org.bitcoindevkit.Connection
+import org.bitcoindevkit.Persister
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
 import org.bitcoindevkit.FeeRate
@@ -138,15 +138,15 @@ class SweepViewModel @Inject constructor(
 
                     // Create temp wallet to sync and get balance
                     val tempDbPath = java.io.File.createTempFile("clench_sweep_", ".db").absolutePath
-                    val tempConnection = Connection(tempDbPath)
-                    val tempWallet = Wallet(externalDesc, internalDesc, network, tempConnection)
+                    val tempPersister = Persister.newSqlite(tempDbPath)
+                    val tempWallet = Wallet(externalDesc, internalDesc, network, tempPersister)
 
                     try {
                         // Sync the temp wallet
                         val config = settingsManager.loadElectrumConfig()
                         val activeConn = electrumConnectionFactory.createConnection(config)
                         val fullScanResult = tempWallet.startFullScan().build()
-                        val update = activeConn.client.fullScan(fullScanResult, stopGap = 20u, batchSize = 10u, fetchPrevTxouts = false)
+                        val update = activeConn.client.fullScan(fullScanResult, stopGap = 20uL, batchSize = 10uL, fetchPrevTxouts = false)
                         tempWallet.applyUpdate(update)
                         activeConn.close()
 
@@ -163,7 +163,7 @@ class SweepViewModel @Inject constructor(
                             )
                         }
                     } finally {
-                        try { tempWallet.close() } catch (_: Exception) {}
+                        // BDK 2.x: Wallet resources released by GC/Drop
                         try { java.io.File(tempDbPath).delete() } catch (_: Exception) {}
                     }
                 } catch (e: Exception) {
@@ -215,13 +215,13 @@ class SweepViewModel @Inject constructor(
                     val activeConn = electrumConnectionFactory.createConnection(config)
 
                     val tempDbPath = java.io.File.createTempFile("clench_sweep2_", ".db").absolutePath
-                    val tempConnection = Connection(tempDbPath)
-                    val tempWallet = Wallet(externalDesc, internalDesc, network, tempConnection)
+                    val tempPersister = Persister.newSqlite(tempDbPath)
+                    val tempWallet = Wallet(externalDesc, internalDesc, network, tempPersister)
 
                     try {
                         // Re-sync to get latest UTXOs
                         val fullScanResult = tempWallet.startFullScan().build()
-                        val update = activeConn.client.fullScan(fullScanResult, stopGap = 20u, batchSize = 10u, fetchPrevTxouts = false)
+                        val update = activeConn.client.fullScan(fullScanResult, stopGap = 20uL, batchSize = 10uL, fetchPrevTxouts = false)
                         tempWallet.applyUpdate(update)
 
                         val destAddress = state.destinationAddress
@@ -250,7 +250,7 @@ class SweepViewModel @Inject constructor(
 
                         // Extract and broadcast
                         val tx = psbt.extractTx()
-                        val txid = activeConn.client.transactionBroadcast(tx)
+                        val txid = activeConn.client.transactionBroadcast(tx).toString()
                         activeConn.close()
 
                         _uiState.update {
@@ -260,7 +260,7 @@ class SweepViewModel @Inject constructor(
                             )
                         }
                     } finally {
-                        try { tempWallet.close() } catch (_: Exception) {}
+                        // BDK 2.x: Wallet resources released by GC/Drop
                         try { java.io.File(tempDbPath).delete() } catch (_: Exception) {}
                     }
                 } catch (e: Exception) {

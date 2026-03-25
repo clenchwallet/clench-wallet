@@ -8,7 +8,7 @@ plugins {
 
 android {
     namespace = "net.clench.wallet"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "net.clench.wallet"

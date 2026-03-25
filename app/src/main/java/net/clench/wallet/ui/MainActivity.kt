@@ -191,15 +191,21 @@ class MainActivity : FragmentActivity() {
             val timeoutMs = settingsManager.getLockTimeoutMs()
             val elapsed = System.currentTimeMillis() - lastPauseTimestamp
             if (elapsed > timeoutMs) {
-                val bm = BiometricManager.from(this)
-                val canAuth = bm.canAuthenticate(
-                    BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
-                ) == BiometricManager.BIOMETRIC_SUCCESS
-
-                if (canAuth) {
+                val lockMode = settingsManager.getAppLockMode()
+                if (lockMode == "pin") {
+                    // PIN mode: just show lock screen, don't prompt biometric
                     isLocked.value = true
-                    promptBiometricUnlock()
+                } else {
+                    val bm = BiometricManager.from(this)
+                    val canAuth = bm.canAuthenticate(
+                        BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                    ) == BiometricManager.BIOMETRIC_SUCCESS
+
+                    if (canAuth) {
+                        isLocked.value = true
+                        promptBiometricUnlock()
+                    }
                 }
             }
         }

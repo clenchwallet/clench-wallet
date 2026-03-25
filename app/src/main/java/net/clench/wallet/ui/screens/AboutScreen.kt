@@ -61,7 +61,7 @@ fun AboutScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                "Built with BDK 1.1.0",
+                "Built with BDK 2.3.1",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
