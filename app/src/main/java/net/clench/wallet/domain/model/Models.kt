@@ -61,7 +61,8 @@ data class UtxoInfo(
     val address: String?,
     val confirmations: Int,
     val isSpent: Boolean,
-    val keychain: String  // "EXTERNAL" or "INTERNAL"
+    val keychain: String,  // "EXTERNAL" or "INTERNAL"
+    val isFrozen: Boolean = false
 )
 
 /**

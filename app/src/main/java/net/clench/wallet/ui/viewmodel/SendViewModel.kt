@@ -120,10 +120,27 @@ class SendViewModel @Inject constructor(
                     else -> null
                 }
 
+                // When no coin control is active, subtract frozen UTXO amounts from available balance
+                val effectiveBalance = if (resolvedAmount != null) {
+                    resolvedAmount
+                } else {
+                    try {
+                        val utxos = bitcoinRepository.listUnspent(walletId)
+                        val frozenAmount = utxos.filter { it.isFrozen }.sumOf { it.amountSat }
+                        if (frozenAmount > 0) {
+                            android.util.Log.d("SendVM", "Subtracting $frozenAmount frozen sats from available balance")
+                        }
+                        (balance.spendableSat - frozenAmount).coerceAtLeast(0L)
+                    } catch (e: Exception) {
+                        android.util.Log.w("SendVM", "Could not compute frozen balance: ${e.message}")
+                        balance.spendableSat
+                    }
+                }
+
                 _uiState.update { it.copy(
                     isWatchOnly = wallet?.isWatchOnly ?: false,
                     preferredHardwareWallet = wallet?.preferredHardwareWallet,
-                    availableBalanceSat = resolvedAmount ?: balance.spendableSat
+                    availableBalanceSat = effectiveBalance
                 ) }
             } catch (e: Exception) { /* show 0 */ }
         }

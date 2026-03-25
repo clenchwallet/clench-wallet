@@ -1110,6 +1110,14 @@ class BdkBitcoinRepository @Inject constructor(
             android.util.Log.d("BdkRepo", "listUnspent: tipHeight from wallet txs (fallback): $tipHeight")
         }
 
+        // Load frozen outpoints for this wallet
+        val frozenOutpoints = try {
+            utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
+        } catch (e: Exception) {
+            android.util.Log.w("BdkRepo", "listUnspent: failed to get frozen UTXOs: ${e.message}")
+            emptySet()
+        }
+
         utxos.map { localOutput ->
             val outpoint = localOutput.outpoint
             val txout = localOutput.txout
@@ -1129,6 +1137,7 @@ class BdkBitcoinRepository @Inject constructor(
                 else -> 0
             }
 
+            val outpointStr = "${outpoint.txid.toString()}:${outpoint.vout}"
             net.clench.wallet.domain.model.UtxoInfo(
                 txid = outpoint.txid.toString(),
                 vout = outpoint.vout.toUInt(),
@@ -1136,7 +1145,8 @@ class BdkBitcoinRepository @Inject constructor(
                 address = address,
                 confirmations = confirmations,
                 isSpent = localOutput.isSpent,
-                keychain = localOutput.keychain.name
+                keychain = localOutput.keychain.name,
+                isFrozen = outpointStr in frozenOutpoints
             )
         }
     }
