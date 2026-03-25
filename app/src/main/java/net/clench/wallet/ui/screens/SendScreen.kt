@@ -34,6 +34,7 @@ import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.viewmodel.EphemeralSeedSigningViewModel
 import net.clench.wallet.ui.viewmodel.AmountUnit
 import net.clench.wallet.ui.viewmodel.FeeTier
+import net.clench.wallet.ui.viewmodel.RecipientEntry
 import net.clench.wallet.ui.viewmodel.SendViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -77,11 +78,8 @@ fun SendScreen(
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         try {
             result.contents?.let { scanned ->
-                // Parse BIP21 URI format: bitcoin:bc1q...?amount=0.001&label=...
-                val address = if (scanned.startsWith("bitcoin:", ignoreCase = true)) {
-                    scanned.substringAfter(":").substringBefore("?")
-                } else scanned
-                viewModel.setAddress(address)
+                // Pass full BIP-21 URI to setAddress — it handles pj= and amount parsing
+                viewModel.setAddress(scanned)
                 // Dismiss keyboard after scan fills the address
                 focusManager.clearFocus()
             }
@@ -243,114 +241,301 @@ fun SendScreen(
                 }
             }
 
-            OutlinedTextField(
-                value = uiState.toAddress,
-                onValueChange = { viewModel.setAddress(it) },
-                label = { Text("Bitcoin address") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                trailingIcon = {
-                    TextButton(onClick = {
-                        cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
-                    }) {
-                        Text("Scan")
+            // --- Recipients section ---
+            val isBatchMode = uiState.recipients.size > 1
+
+            if (isBatchMode) {
+                // Batch mode: dynamic list of recipients
+                uiState.recipients.forEachIndexed { index, recipient ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Recipient ${index + 1}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (uiState.recipients.size > 1) {
+                                    IconButton(
+                                        onClick = { viewModel.removeRecipient(index) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Text("✕", style = MaterialTheme.typography.bodyLarge)
+                                    }
+                                }
+                            }
+                            OutlinedTextField(
+                                value = recipient.address,
+                                onValueChange = { viewModel.updateRecipientAddress(index, it) },
+                                label = { Text("Bitcoin address") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                trailingIcon = {
+                                    if (index == 0) {
+                                        TextButton(onClick = {
+                                            cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                        }) { Text("Scan") }
+                                    }
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = recipient.amountSat,
+                                onValueChange = { viewModel.updateRecipientAmount(index, it) },
+                                label = { Text("Amount (sats)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = recipient.label,
+                                onValueChange = { viewModel.updateRecipientLabel(index, it) },
+                                label = { Text("Label (optional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                        }
                     }
                 }
-            )
 
-            Spacer(modifier = Modifier.height(12.dp))
+                // Total amount display
+                val totalSats = viewModel.batchTotalSats()
+                if (totalSats > 0) {
+                    val fmt = java.text.NumberFormat.getNumberInstance(java.util.Locale.US)
+                    Text(
+                        "Total: ${fmt.format(totalSats)} sats (${uiState.recipients.size} recipients)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+                }
 
-            val unitLabel = when (uiState.amountUnit) {
-                AmountUnit.SATS -> "sats"
-                AmountUnit.BTC -> "BTC"
-                AmountUnit.USD -> "USD"
-            }
-            val amountKeyboardType = when (uiState.amountUnit) {
-                AmountUnit.SATS -> KeyboardType.Number
-                else -> KeyboardType.Decimal
-            }
-            OutlinedTextField(
-                value = if (uiState.amountUnit == AmountUnit.SATS) uiState.amountSat else uiState.amountDisplay,
-                onValueChange = {
-                    if (uiState.amountUnit == AmountUnit.SATS) viewModel.setAmount(it)
-                    else viewModel.setAmountDisplay(it)
-                },
-                label = { Text("Amount") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                suffix = {
-                    TextButton(
-                        onClick = { viewModel.cycleAmountUnit() },
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                    ) {
-                        Text(unitLabel, style = MaterialTheme.typography.bodyMedium)
-                    }
-                },
-                keyboardOptions = KeyboardOptions(keyboardType = amountKeyboardType)
-            )
-            Text(
-                when (uiState.amountUnit) {
-                    AmountUnit.SATS -> ""
-                    AmountUnit.BTC -> uiState.amountSat.toLongOrNull()?.let { "≈ ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(it)} sats" } ?: ""
-                    AmountUnit.USD -> uiState.amountSat.toLongOrNull()?.let { "≈ ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(it)} sats" } ?: ""
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-
-            if (viewModel.exceedsUtxoSelection(uiState)) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("⚠ ", style = MaterialTheme.typography.bodyMedium)
-                        val fmt = java.text.NumberFormat.getNumberInstance(java.util.Locale.US)
-                        val availableFormatted = when (uiState.amountUnit) {
-                            AmountUnit.SATS -> "${fmt.format(uiState.availableBalanceSat)} sats"
-                            AmountUnit.BTC -> {
-                                val btc = uiState.availableBalanceSat / 100_000_000.0
-                                String.format("%.8f", btc).trimEnd('0').trimEnd('.') + " BTC"
-                            }
-                            AmountUnit.USD -> uiState.btcPriceUsd?.let {
-                                "$%.2f".format(uiState.availableBalanceSat / 100_000_000.0 * it)
-                            } ?: "${fmt.format(uiState.availableBalanceSat)} sats"
+                TextButton(onClick = { viewModel.addRecipient() }) {
+                    Text("+ Add Recipient")
+                }
+            } else {
+                // Single recipient mode (original UI)
+                OutlinedTextField(
+                    value = uiState.toAddress,
+                    onValueChange = { viewModel.setAddress(it) },
+                    label = { Text("Bitcoin address") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    trailingIcon = {
+                        TextButton(onClick = {
+                            cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                        }) {
+                            Text("Scan")
                         }
+                    }
+                )
+
+                // PayJoin indicator and toggle
+                if (uiState.payJoinAvailable) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Surface(
+                            color = if (uiState.usePayJoin) Color(0xFF2E7D32).copy(alpha = 0.15f)
+                                    else MaterialTheme.colorScheme.surfaceVariant,
+                            shape = MaterialTheme.shapes.small
+                        ) {
+                            Text(
+                                text = if (uiState.usePayJoin) "PayJoin ✓" else "PayJoin off",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (uiState.usePayJoin) Color(0xFF2E7D32)
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "Exceeds selected UTXO(s) — $availableFormatted available",
+                            text = "Enhanced privacy",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(
+                            checked = uiState.usePayJoin,
+                            onCheckedChange = { viewModel.togglePayJoin(it) },
+                            modifier = Modifier.height(24.dp)
                         )
                     }
+                }
+
+                // PayJoin status message
+                uiState.payJoinStatus?.let { status ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (status.contains("✓")) Color(0xFF2E7D32)
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // BIP-352: Silent Payment indicator
+                if (uiState.isSilentPayment) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFF7B1FA2).copy(alpha = 0.12f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Silent Payment 🤫",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF7B1FA2)
+                                )
+                            }
+                            if (uiState.isWatchOnly) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "⚠️ Silent Payments require signing keys — not available for watch-only wallets",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            } else {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Each payment creates a unique on-chain address for enhanced privacy",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    uiState.silentPaymentError?.let { spErr ->
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = spErr,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val unitLabel = when (uiState.amountUnit) {
+                    AmountUnit.SATS -> "sats"
+                    AmountUnit.BTC -> "BTC"
+                    AmountUnit.USD -> "USD"
+                }
+                val amountKeyboardType = when (uiState.amountUnit) {
+                    AmountUnit.SATS -> KeyboardType.Number
+                    else -> KeyboardType.Decimal
+                }
+                OutlinedTextField(
+                    value = if (uiState.amountUnit == AmountUnit.SATS) uiState.amountSat else uiState.amountDisplay,
+                    onValueChange = {
+                        if (uiState.amountUnit == AmountUnit.SATS) viewModel.setAmount(it)
+                        else viewModel.setAmountDisplay(it)
+                    },
+                    label = { Text("Amount") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    suffix = {
+                        TextButton(
+                            onClick = { viewModel.cycleAmountUnit() },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) {
+                            Text(unitLabel, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = amountKeyboardType)
+                )
+                Text(
+                    when (uiState.amountUnit) {
+                        AmountUnit.SATS -> ""
+                        AmountUnit.BTC -> uiState.amountSat.toLongOrNull()?.let { "≈ ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(it)} sats" } ?: ""
+                        AmountUnit.USD -> uiState.amountSat.toLongOrNull()?.let { "≈ ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(it)} sats" } ?: ""
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+
+                if (viewModel.exceedsUtxoSelection(uiState)) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("⚠ ", style = MaterialTheme.typography.bodyMedium)
+                            val fmt = java.text.NumberFormat.getNumberInstance(java.util.Locale.US)
+                            val availableFormatted = when (uiState.amountUnit) {
+                                AmountUnit.SATS -> "${fmt.format(uiState.availableBalanceSat)} sats"
+                                AmountUnit.BTC -> {
+                                    val btc = uiState.availableBalanceSat / 100_000_000.0
+                                    String.format("%.8f", btc).trimEnd('0').trimEnd('.') + " BTC"
+                                }
+                                AmountUnit.USD -> uiState.btcPriceUsd?.let {
+                                    "$%.2f".format(uiState.availableBalanceSat / 100_000_000.0 * it)
+                                } ?: "${fmt.format(uiState.availableBalanceSat)} sats"
+                            }
+                            Text(
+                                "Exceeds selected UTXO(s) — $availableFormatted available",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+
+                // "Add recipient" button to switch to batch mode
+                TextButton(onClick = { viewModel.addRecipient() }) {
+                    Text("+ Add Recipient")
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Checkbox(
-                    checked = uiState.sendMax,
-                    onCheckedChange = { viewModel.setSendMax(it) }
-                )
-                Text(if (uiState.utxoTxid != null || uiState.selectedUtxoOutpoints.isNotEmpty()) "Drain selected UTXO(s)" else "Send max (drain wallet)")
+            // Send max — disabled in batch mode
+            if (!isBatchMode) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = uiState.sendMax,
+                        onCheckedChange = { viewModel.setSendMax(it) }
+                    )
+                    Text(if (uiState.utxoTxid != null || uiState.selectedUtxoOutpoints.isNotEmpty()) "Drain selected UTXO(s)" else "Send max (drain wallet)")
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Label / Note (optional)
-            OutlinedTextField(
-                value = uiState.label,
-                onValueChange = { viewModel.setLabel(it) },
-                label = { Text("Label (optional)") },
-                placeholder = { Text("e.g. Payment to Alice") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
+            // Label / Note (optional) — only in single mode; batch mode has per-recipient labels
+            if (!isBatchMode) {
+                OutlinedTextField(
+                    value = uiState.label,
+                    onValueChange = { viewModel.setLabel(it) },
+                    label = { Text("Label (optional)") },
+                    placeholder = { Text("e.g. Payment to Alice") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 

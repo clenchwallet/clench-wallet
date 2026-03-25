@@ -14,6 +14,7 @@ coroutines = "1.10.2"
 zxing = "4.3.0"
 biometric = "1.1.0"
 bdk = "2.3.1"
+secp256k1Kmp = "0.16.0"
 materialIconsExtended = "1.6.0"
 
 [libraries]
@@ -39,6 +40,8 @@ coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutin
 zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxing" }
 biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 bdk-android = { group = "org.bitcoindevkit", name = "bdk-android", version.ref = "bdk" }
+secp256k1-kmp = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp", version.ref = "secp256k1Kmp" }
+secp256k1-kmp-jni-android = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jni-android", version.ref = "secp256k1Kmp" }
 material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended", version.ref = "materialIconsExtended" }
 
 [plugins]

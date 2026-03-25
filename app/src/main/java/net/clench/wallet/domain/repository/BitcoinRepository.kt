@@ -5,6 +5,11 @@ import net.clench.wallet.domain.model.ScriptType
 import org.bitcoindevkit.KeychainKind
 
 /**
+ * A recipient for batch transactions.
+ */
+data class Recipient(val address: String, val amountSat: Long)
+
+/**
  * Core Bitcoin wallet operations.
  * Implemented by BdkBitcoinRepository (BDK-backed).
  */
@@ -163,6 +168,34 @@ interface BitcoinRepository {
     ): String
 
     /**
+     * Build and sign a batch transaction with multiple recipients.
+     * @param recipients list of address/amount pairs
+     * @param feeRateSatPerVbyte fee rate
+     * @param selectedOutpoints optional: list of specific UTXO outpoints to spend
+     * @return signed transaction hex ready to broadcast
+     */
+    suspend fun buildBatchTransaction(
+        walletId: String,
+        recipients: List<Recipient>,
+        feeRateSatPerVbyte: Float,
+        selectedOutpoints: List<String> = emptyList()
+    ): String
+
+    /**
+     * Create an unsigned PSBT with multiple recipients for hardware wallet signing.
+     * @param recipients list of address/amount pairs
+     * @param feeRateSatPerVbyte fee rate
+     * @param selectedOutpoints optional: list of specific UTXO outpoints to spend
+     * @return base64-encoded PSBT string
+     */
+    suspend fun createBatchPsbt(
+        walletId: String,
+        recipients: List<Recipient>,
+        feeRateSatPerVbyte: Float,
+        selectedOutpoints: List<String> = emptyList()
+    ): String
+
+    /**
      * Estimate fee rates for different confirmation targets.
      * Returns FeeEstimates with priority/standard/economy tiers.
      * Falls back to reasonable defaults if estimation fails.
@@ -212,6 +245,16 @@ interface BitcoinRepository {
     fun isPassphraseWalletUnlocked(walletId: String): Boolean
 
     /**
+     * Sign a PayJoin proposal PSBT and return the signed transaction hex.
+     * The proposal PSBT comes from the receiver and contains additional inputs.
+     * The sender only signs their own inputs.
+     * @param walletId wallet that owns the sender's inputs
+     * @param proposalPsbtBase64 base64-encoded proposal PSBT from PayJoin receiver
+     * @return signed transaction hex ready to broadcast
+     */
+    suspend fun signPayJoinProposal(walletId: String, proposalPsbtBase64: String): String
+
+    /**
      * Set a label/note for a transaction.
      * @param walletId wallet that owns the transaction
      * @param txid transaction ID
@@ -224,4 +267,38 @@ interface BitcoinRepository {
      * @return the label text, or null if no label is set
      */
     suspend fun getTransactionLabel(walletId: String, txid: String): String?
+
+    /**
+     * Resolve a Silent Payment (BIP-352) address to a standard P2TR address.
+     *
+     * This derives the actual on-chain output address by performing ECDH between
+     * the sender's input private keys and the receiver's scan public key.
+     *
+     * Only works for hot wallets (requires access to private keys).
+     *
+     * @param walletId the wallet that will fund the transaction
+     * @param silentPaymentAddress the sp1.../tsp1... address to resolve
+     * @return the derived P2TR (bc1p.../tb1p...) address
+     * @throws IllegalStateException if the wallet is watch-only or keys are unavailable
+     */
+    suspend fun resolveSilentPaymentAddress(
+        walletId: String,
+        silentPaymentAddress: String
+    ): String
+
+    /**
+     * Create a multisig wallet from cosigner xpubs.
+     * Builds a wsh(sortedmulti(M, ...)) descriptor and creates the wallet.
+     *
+     * @param name wallet display name
+     * @param threshold M-of-N threshold (minimum signatures required)
+     * @param signerXpubs list of xpubs with origin info, e.g. [fingerprint/path]xpub...
+     * @param network Bitcoin network
+     * @return the created WalletData
+     */
+    suspend fun createMultisigWallet(
+        name: String,
+        threshold: Int,
+        signerXpubs: List<String>
+    ): WalletData
 }

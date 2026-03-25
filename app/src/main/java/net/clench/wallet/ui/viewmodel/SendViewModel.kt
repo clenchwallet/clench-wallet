@@ -11,6 +11,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.network.PayJoinClient
+import net.clench.wallet.data.network.PayJoinException
+import net.clench.wallet.data.util.PayJoinValidator
+import net.clench.wallet.data.util.SilentPayments
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
@@ -20,12 +24,19 @@ import javax.inject.Inject
 enum class FeeTier { ECONOMY, STANDARD, PRIORITY, CUSTOM }
 enum class AmountUnit { SATS, BTC, USD }
 
+data class RecipientEntry(
+    val address: String = "",
+    val amountSat: String = "",
+    val label: String = ""
+)
+
 @HiltViewModel
 class SendViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
     private val settingsManager: SettingsManager,
     private val psbtStore: PsbtStore,
-    private val torAwareHttpClient: net.clench.wallet.data.network.TorAwareHttpClient
+    private val torAwareHttpClient: net.clench.wallet.data.network.TorAwareHttpClient,
+    private val payJoinClient: PayJoinClient
 ) : ViewModel() {
 
     data class UiState(
@@ -56,7 +67,16 @@ class SendViewModel @Inject constructor(
         val btcPriceUsd: Double? = null,
         val label: String = "",
         val broadcastSuccess: Boolean = false,
-        val broadcastTxid: String? = null
+        val broadcastTxid: String? = null,
+        // PayJoin (BIP-78) state
+        val payJoinEndpoint: String? = null,
+        val payJoinAvailable: Boolean = false,
+        val usePayJoin: Boolean = true,
+        val payJoinStatus: String? = null,
+        // Silent Payment (BIP-352) state
+        val isSilentPayment: Boolean = false,
+        val silentPaymentError: String? = null,
+        val recipients: List<RecipientEntry> = listOf(RecipientEntry())
     )
 
     // Helper to distinguish single-UTXO mode from full wallet drain
@@ -287,7 +307,83 @@ class SendViewModel @Inject constructor(
         _uiState.update { it.copy(selectedUtxoOutpoints = outpoints) }
     }
 
-    fun setAddress(addr: String) = _uiState.update { it.copy(toAddress = addr, error = null) }
+    fun setAddress(addr: String) {
+        // Parse BIP-21 URI: bitcoin:address?amount=X&pj=https://...
+        val parsed = parseBip21(addr)
+        val isSP = SilentPayments.isSilentPaymentAddress(parsed.address)
+        val spError = if (isSP) {
+            // Validate the SP address can be parsed
+            val spAddr = SilentPayments.parseAddress(parsed.address)
+            when {
+                spAddr == null -> "Invalid Silent Payment address"
+                spAddr.isMainnet && settingsManager.isTestnet() ->
+                    "This is a mainnet Silent Payment address, but you're on testnet"
+                spAddr.isTestnet && !settingsManager.isTestnet() ->
+                    "This is a testnet Silent Payment address, but you're on mainnet"
+                else -> null
+            }
+        } else null
+        _uiState.update {
+            it.copy(
+                toAddress = parsed.address,
+                error = spError,
+                isSilentPayment = isSP,
+                silentPaymentError = spError,
+                payJoinEndpoint = parsed.payJoinEndpoint,
+                payJoinAvailable = parsed.payJoinEndpoint != null,
+                usePayJoin = parsed.payJoinEndpoint != null
+            )
+        }
+        // If BIP-21 included an amount, set it
+        parsed.amountBtc?.let { btcAmount ->
+            val sats = (btcAmount * 100_000_000).toLong()
+            if (sats > 0) setAmount(sats.toString())
+        }
+    }
+
+    private data class Bip21Parsed(
+        val address: String,
+        val amountBtc: Double? = null,
+        val payJoinEndpoint: String? = null,
+        val label: String? = null
+    )
+
+    private fun parseBip21(input: String): Bip21Parsed {
+        val trimmed = input.trim()
+        if (!trimmed.startsWith("bitcoin:", ignoreCase = true)) {
+            return Bip21Parsed(address = trimmed)
+        }
+        val withoutScheme = trimmed.substringAfter(":")
+        val address = withoutScheme.substringBefore("?")
+        val queryString = if (withoutScheme.contains("?")) withoutScheme.substringAfter("?") else null
+
+        var amount: Double? = null
+        var pjEndpoint: String? = null
+        var label: String? = null
+
+        queryString?.split("&")?.forEach { param ->
+            val key = param.substringBefore("=").lowercase()
+            val value = param.substringAfter("=", "")
+            when (key) {
+                "amount" -> amount = value.toDoubleOrNull()
+                "pj" -> {
+                    val decoded = java.net.URLDecoder.decode(value, "UTF-8")
+                    if (decoded.startsWith("https://", ignoreCase = true) ||
+                        decoded.contains(".onion", ignoreCase = true)) {
+                        pjEndpoint = decoded
+                    }
+                }
+                "label" -> label = java.net.URLDecoder.decode(value, "UTF-8")
+            }
+        }
+
+        return Bip21Parsed(
+            address = address,
+            amountBtc = amount,
+            payJoinEndpoint = pjEndpoint,
+            label = label
+        )
+    }
     fun setError(msg: String) = _uiState.update { it.copy(error = msg) }
     fun setAmount(amt: String) = _uiState.update { it.copy(amountSat = amt) }
 
@@ -326,29 +422,100 @@ class SendViewModel @Inject constructor(
     fun setFeeRate(rate: String) = _uiState.update { it.copy(feeRate = rate, selectedFeeTier = FeeTier.CUSTOM) }
     fun setSendMax(max: Boolean) = _uiState.update { it.copy(sendMax = max, amountSat = if (max) "" else it.amountSat) }
     fun setLabel(label: String) = _uiState.update { it.copy(label = label) }
+    fun togglePayJoin(enabled: Boolean) = _uiState.update { it.copy(usePayJoin = enabled) }
+
+    // --- Batch recipient management ---
+
+    fun addRecipient() {
+        _uiState.update { it.copy(recipients = it.recipients + RecipientEntry()) }
+    }
+
+    fun removeRecipient(index: Int) {
+        _uiState.update { state ->
+            if (state.recipients.size <= 1) state
+            else state.copy(recipients = state.recipients.filterIndexed { i, _ -> i != index })
+        }
+    }
+
+    fun updateRecipientAddress(index: Int, address: String) {
+        _uiState.update { state ->
+            state.copy(recipients = state.recipients.mapIndexed { i, r ->
+                if (i == index) r.copy(address = address) else r
+            }, error = null)
+        }
+    }
+
+    fun updateRecipientAmount(index: Int, amount: String) {
+        _uiState.update { state ->
+            state.copy(recipients = state.recipients.mapIndexed { i, r ->
+                if (i == index) r.copy(amountSat = amount) else r
+            }, error = null)
+        }
+    }
+
+    fun updateRecipientLabel(index: Int, label: String) {
+        _uiState.update { state ->
+            state.copy(recipients = state.recipients.mapIndexed { i, r ->
+                if (i == index) r.copy(label = label) else r
+            })
+        }
+    }
+
+    /** True when batch mode is active (more than 1 recipient) */
+    val isBatchMode: Boolean get() = _uiState.value.recipients.size > 1
+
+    /** Sum of all recipient amounts in sats (for display) */
+    fun batchTotalSats(): Long {
+        return _uiState.value.recipients.sumOf { it.amountSat.toLongOrNull() ?: 0L }
+    }
 
     fun buildTx() {
         val state = _uiState.value
+        val isBatch = state.recipients.size > 1
 
-        // Validate inputs before building transaction
-        if (!state.sendMax) {
-            val amount = state.amountSat.toLongOrNull()
-            if (amount == null || amount <= 0) {
-                _uiState.update { it.copy(error = "Please enter a valid amount in satoshis") }
+        if (isBatch) {
+            // --- Batch mode validation ---
+            if (state.sendMax) {
+                _uiState.update { it.copy(error = "Send max is not available with multiple recipients") }
                 return
             }
-        }
+            for ((idx, r) in state.recipients.withIndex()) {
+                if (r.address.isBlank()) {
+                    _uiState.update { it.copy(error = "Recipient ${idx + 1}: Please enter an address") }
+                    return
+                }
+                val addrErr = validateAddressForNetwork(r.address, settingsManager.isTestnet())
+                if (addrErr != null) {
+                    _uiState.update { it.copy(error = "Recipient ${idx + 1}: $addrErr") }
+                    return
+                }
+                val amt = r.amountSat.toLongOrNull()
+                if (amt == null || amt <= 0) {
+                    _uiState.update { it.copy(error = "Recipient ${idx + 1}: Please enter a valid amount") }
+                    return
+                }
+            }
+        } else {
+            // --- Single recipient validation (legacy path) ---
+            if (!state.sendMax) {
+                val amount = state.amountSat.toLongOrNull()
+                if (amount == null || amount <= 0) {
+                    _uiState.update { it.copy(error = "Please enter a valid amount in satoshis") }
+                    return
+                }
+            }
 
-        if (state.toAddress.isBlank()) {
-            _uiState.update { it.copy(error = "Please enter a recipient address") }
-            return
-        }
+            if (state.toAddress.isBlank()) {
+                _uiState.update { it.copy(error = "Please enter a recipient address") }
+                return
+            }
 
-        // R7-21: Validate address for current network before calling BDK
-        val addressValidation = validateAddressForNetwork(state.toAddress, settingsManager.isTestnet())
-        if (addressValidation != null) {
-            _uiState.update { it.copy(error = addressValidation) }
-            return
+            // R7-21: Validate address for current network before calling BDK
+            val addressValidation = validateAddressForNetwork(state.toAddress, settingsManager.isTestnet())
+            if (addressValidation != null) {
+                _uiState.update { it.copy(error = addressValidation) }
+                return
+            }
         }
 
         val feeRate = state.feeRate.toFloatOrNull()
@@ -366,17 +533,56 @@ class SendViewModel @Inject constructor(
                 return@launch
             }
 
+            // BIP-352: Silent Payments require private keys — block for watch-only
+            if (state.isSilentPayment && state.isWatchOnly) {
+                _uiState.update { it.copy(isLoading = false, error = "Silent Payments require signing keys and cannot be sent from watch-only wallets") }
+                return@launch
+            }
+
             try {
-                val amountSat = if (state.sendMax) null else state.amountSat.toLongOrNull()
-                val txHex = bitcoinRepository.buildTransaction(
-                    walletId = state.walletId,
-                    toAddress = state.toAddress.trim(),
-                    amountSat = amountSat,
-                    feeRateSatPerVbyte = state.feeRate.toFloatOrNull() ?: 2f,
-                    utxoTxid = state.utxoTxid,
-                    utxoVout = state.utxoVout?.toUInt(),
-                    selectedOutpoints = state.selectedUtxoOutpoints
-                )
+                val txHex = if (isBatch) {
+                    val recipients = state.recipients.map { r ->
+                        net.clench.wallet.domain.repository.Recipient(
+                            address = r.address.trim(),
+                            amountSat = r.amountSat.toLongOrNull() ?: 0L
+                        )
+                    }
+                    bitcoinRepository.buildBatchTransaction(
+                        walletId = state.walletId,
+                        recipients = recipients,
+                        feeRateSatPerVbyte = feeRate,
+                        selectedOutpoints = state.selectedUtxoOutpoints
+                    )
+                } else {
+                    // BIP-352: Resolve Silent Payment address to P2TR before building tx
+                    val resolvedAddress = if (state.isSilentPayment) {
+                        try {
+                            bitcoinRepository.resolveSilentPaymentAddress(
+                                walletId = state.walletId,
+                                silentPaymentAddress = state.toAddress.trim()
+                            )
+                        } catch (e: Exception) {
+                            _uiState.update { it.copy(
+                                isLoading = false,
+                                error = "Silent Payment error: ${e.message}"
+                            ) }
+                            return@launch
+                        }
+                    } else {
+                        state.toAddress.trim()
+                    }
+
+                    val amountSat = if (state.sendMax) null else state.amountSat.toLongOrNull()
+                    bitcoinRepository.buildTransaction(
+                        walletId = state.walletId,
+                        toAddress = resolvedAddress,
+                        amountSat = amountSat,
+                        feeRateSatPerVbyte = state.feeRate.toFloatOrNull() ?: 2f,
+                        utxoTxid = state.utxoTxid,
+                        utxoVout = state.utxoVout?.toUInt(),
+                        selectedOutpoints = state.selectedUtxoOutpoints
+                    )
+                }
                 _uiState.update { it.copy(txHex = txHex, isLoading = false) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
@@ -390,25 +596,48 @@ class SendViewModel @Inject constructor(
      */
     fun createPsbt(onPsbtReady: (psbtBase64: String) -> Unit) {
         val state = _uiState.value
+        val isBatch = state.recipients.size > 1
 
-        if (!state.sendMax) {
-            val amount = state.amountSat.toLongOrNull()
-            if (amount == null || amount <= 0) {
-                _uiState.update { it.copy(error = "Please enter a valid amount in satoshis") }
+        if (isBatch) {
+            if (state.sendMax) {
+                _uiState.update { it.copy(error = "Send max is not available with multiple recipients") }
                 return
             }
-        }
+            for ((idx, r) in state.recipients.withIndex()) {
+                if (r.address.isBlank()) {
+                    _uiState.update { it.copy(error = "Recipient ${idx + 1}: Please enter an address") }
+                    return
+                }
+                val addrErr = validateAddressForNetwork(r.address, settingsManager.isTestnet())
+                if (addrErr != null) {
+                    _uiState.update { it.copy(error = "Recipient ${idx + 1}: $addrErr") }
+                    return
+                }
+                val amt = r.amountSat.toLongOrNull()
+                if (amt == null || amt <= 0) {
+                    _uiState.update { it.copy(error = "Recipient ${idx + 1}: Please enter a valid amount") }
+                    return
+                }
+            }
+        } else {
+            if (!state.sendMax) {
+                val amount = state.amountSat.toLongOrNull()
+                if (amount == null || amount <= 0) {
+                    _uiState.update { it.copy(error = "Please enter a valid amount in satoshis") }
+                    return
+                }
+            }
 
-        if (state.toAddress.isBlank()) {
-            _uiState.update { it.copy(error = "Please enter a recipient address") }
-            return
-        }
+            if (state.toAddress.isBlank()) {
+                _uiState.update { it.copy(error = "Please enter a recipient address") }
+                return
+            }
 
-        // R7-21: Validate address for current network before calling BDK
-        val addressValidation = validateAddressForNetwork(state.toAddress, settingsManager.isTestnet())
-        if (addressValidation != null) {
-            _uiState.update { it.copy(error = addressValidation) }
-            return
+            val addressValidation = validateAddressForNetwork(state.toAddress, settingsManager.isTestnet())
+            if (addressValidation != null) {
+                _uiState.update { it.copy(error = addressValidation) }
+                return
+            }
         }
 
         val feeRate = state.feeRate.toFloatOrNull()
@@ -420,16 +649,31 @@ class SendViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                val amountSat = if (state.sendMax) null else state.amountSat.toLongOrNull()
-                val psbtBase64 = bitcoinRepository.createPsbt(
-                    walletId = state.walletId,
-                    toAddress = state.toAddress.trim(),
-                    amountSat = amountSat,
-                    feeRateSatPerVbyte = feeRate,
-                    utxoTxid = state.utxoTxid,
-                    utxoVout = state.utxoVout?.toUInt(),
-                    selectedOutpoints = state.selectedUtxoOutpoints
-                )
+                val psbtBase64 = if (isBatch) {
+                    val recipients = state.recipients.map { r ->
+                        net.clench.wallet.domain.repository.Recipient(
+                            address = r.address.trim(),
+                            amountSat = r.amountSat.toLongOrNull() ?: 0L
+                        )
+                    }
+                    bitcoinRepository.createBatchPsbt(
+                        walletId = state.walletId,
+                        recipients = recipients,
+                        feeRateSatPerVbyte = feeRate,
+                        selectedOutpoints = state.selectedUtxoOutpoints
+                    )
+                } else {
+                    val amountSat = if (state.sendMax) null else state.amountSat.toLongOrNull()
+                    bitcoinRepository.createPsbt(
+                        walletId = state.walletId,
+                        toAddress = state.toAddress.trim(),
+                        amountSat = amountSat,
+                        feeRateSatPerVbyte = feeRate,
+                        utxoTxid = state.utxoTxid,
+                        utxoVout = state.utxoVout?.toUInt(),
+                        selectedOutpoints = state.selectedUtxoOutpoints
+                    )
+                }
                 _uiState.update { it.copy(isLoading = false) }
                 onPsbtReady(psbtBase64)
             } catch (e: Exception) {
@@ -442,13 +686,36 @@ class SendViewModel @Inject constructor(
         val state = _uiState.value
         val txHex = state.txHex ?: return
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = true, error = null, payJoinStatus = null) }
+
+            // PayJoin flow: if enabled and endpoint available, attempt BIP-78
+            val finalTxHex = if (state.usePayJoin && state.payJoinEndpoint != null && !state.isSilentPayment) {
+                attemptPayJoin(state) ?: txHex
+            } else {
+                txHex
+            }
+
             try {
                 val config = settingsManager.loadElectrumConfig()
-                val txid = bitcoinRepository.broadcastTransaction(config, txHex)
+                val txid = bitcoinRepository.broadcastTransaction(config, finalTxHex)
                 android.util.Log.d("SendVM", "Broadcast success: txid=$txid")
-                // Save label if user entered one
-                if (state.label.isNotBlank()) {
+                // Save labels — batch mode: combine all recipient labels; single mode: use label field
+                val isBatch = state.recipients.size > 1
+                if (isBatch) {
+                    val batchLabels = state.recipients
+                        .filter { it.label.isNotBlank() }
+                        .mapIndexed { idx, r -> "${r.address.take(8)}…: ${r.label}" }
+                    if (batchLabels.isNotEmpty()) {
+                        try {
+                            bitcoinRepository.setTransactionLabel(
+                                state.walletId, txid,
+                                "Batch send: " + batchLabels.joinToString("; ")
+                            )
+                        } catch (e: Exception) {
+                            android.util.Log.w("SendVM", "Failed to save batch labels: ${e.message}")
+                        }
+                    }
+                } else if (state.label.isNotBlank()) {
                     try {
                         bitcoinRepository.setTransactionLabel(state.walletId, txid, state.label)
                     } catch (e: Exception) {
@@ -456,16 +723,86 @@ class SendViewModel @Inject constructor(
                     }
                 }
                 // Show confirmation state
+                val usedPayJoin = state.usePayJoin && state.payJoinEndpoint != null && finalTxHex != txHex
                 _uiState.update { it.copy(
                     isLoading = false,
                     broadcastSuccess = true,
-                    broadcastTxid = txid
+                    broadcastTxid = txid,
+                    payJoinStatus = if (usedPayJoin) "PayJoin applied ✓" else it.payJoinStatus
                 ) }
                 // Trigger a sync in background so HomeScreen shows updated balance
                 try { bitcoinRepository.syncWallet(state.walletId, config) } catch (_: Exception) {}
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
+        }
+    }
+
+    /**
+     * BIP-78 PayJoin flow: create PSBT, send to receiver, validate proposal, sign, return tx hex.
+     * Returns the signed PayJoin transaction hex, or null to fall back to original.
+     */
+    private suspend fun attemptPayJoin(state: UiState): String? {
+        val endpoint = state.payJoinEndpoint ?: return null
+
+        try {
+            // Step 1: Create original PSBT (unsigned)
+            _uiState.update { it.copy(payJoinStatus = "Creating PayJoin request…") }
+            android.util.Log.d("SendVM", "PayJoin: creating original PSBT")
+
+            val amountSat = if (state.sendMax) null else state.amountSat.toLongOrNull()
+            val originalPsbtBase64 = bitcoinRepository.createPsbt(
+                walletId = state.walletId,
+                toAddress = state.toAddress.trim(),
+                amountSat = amountSat,
+                feeRateSatPerVbyte = state.feeRate.toFloatOrNull() ?: 2f,
+                utxoTxid = state.utxoTxid,
+                utxoVout = state.utxoVout?.toUInt(),
+                selectedOutpoints = state.selectedUtxoOutpoints
+            )
+
+            // Step 2: Send to PayJoin endpoint
+            _uiState.update { it.copy(payJoinStatus = "Requesting PayJoin…") }
+            android.util.Log.d("SendVM", "PayJoin: sending to endpoint")
+
+            val proposalBase64 = payJoinClient.requestPayJoin(endpoint, originalPsbtBase64)
+
+            // Step 3: Validate the proposal (CRITICAL SECURITY)
+            _uiState.update { it.copy(payJoinStatus = "Validating PayJoin proposal…") }
+            android.util.Log.d("SendVM", "PayJoin: validating proposal")
+
+            PayJoinValidator.validate(
+                originalBase64 = originalPsbtBase64,
+                proposalBase64 = proposalBase64,
+                receiverAddress = state.toAddress.trim(),
+                intendedAmountSat = amountSat
+            )
+
+            // Step 4: Sign the proposal PSBT and extract tx hex
+            _uiState.update { it.copy(payJoinStatus = "Signing PayJoin transaction…") }
+            android.util.Log.d("SendVM", "PayJoin: signing proposal")
+
+            val signedTxHex = bitcoinRepository.signPayJoinProposal(
+                walletId = state.walletId,
+                proposalPsbtBase64 = proposalBase64
+            )
+
+            _uiState.update { it.copy(payJoinStatus = "PayJoin applied ✓") }
+            android.util.Log.d("SendVM", "PayJoin: proposal signed successfully")
+            return signedTxHex
+
+        } catch (e: PayJoinException) {
+            android.util.Log.w("SendVM", "PayJoin failed (network): ${e.message}")
+            _uiState.update { it.copy(payJoinStatus = "PayJoin unavailable — sending normally") }
+            return null
+        } catch (e: SecurityException) {
+            android.util.Log.w("SendVM", "PayJoin REJECTED (security): ${e.message}")
+            _uiState.update { it.copy(payJoinStatus = "PayJoin rejected — sending normally") }
+            return null
+        } catch (e: Exception) {
+            android.util.Log.w("SendVM", "PayJoin failed: ${e.message}")
+            _uiState.update { it.copy(payJoinStatus = "PayJoin failed — sending normally") }
+            return null
         }
     }
 
@@ -497,6 +834,11 @@ class SendViewModel @Inject constructor(
      */
     private fun validateAddressForNetwork(address: String, isTestnet: Boolean): String? {
         val trimmed = address.trim()
+
+        // Silent Payment addresses have their own network validation (handled in setAddress)
+        if (SilentPayments.isSilentPaymentAddress(trimmed)) {
+            return null // SP address validation is done in setAddress via silentPaymentError
+        }
         
         // Mainnet patterns
         val isMainnetP2PKH = trimmed.startsWith("1")  // Legacy P2PKH

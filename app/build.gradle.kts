@@ -19,8 +19,8 @@ android {
         applicationId = "net.clench.wallet"
         minSdk = 26
         targetSdk = 35
-        versionCode = 201
-        versionName = "0.2.1"
+        versionCode = 300
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -122,6 +122,10 @@ dependencies {
 
     // BDK - Bitcoin Dev Kit (Block/Spiral funded)
     implementation(libs.bdk.android)
+
+    // secp256k1 for Silent Payments (BIP-352) ECDH + key tweaking
+    implementation(libs.secp256k1.kmp)
+    implementation(libs.secp256k1.kmp.jni.android)
 
     // BC-UR animated QR for hardware wallet PSBT exchange
     implementation("com.sparrowwallet:hummingbird:1.7.4")

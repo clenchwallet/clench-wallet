@@ -132,7 +132,8 @@ fun ClenchNavHost(navController: NavHostController) {
                 onBack = if (canGoBack) {
                     { navController.popBackStack() }
                 } else null,
-                onSettings = { navController.navigate(Routes.Settings.route) }
+                onSettings = { navController.navigate(Routes.Settings.route) },
+                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) }
             )
         }
 
@@ -180,6 +181,17 @@ fun ClenchNavHost(navController: NavHostController) {
             }
 
             // PassphraseConfirm route removed - passphrase wallets can only be created via Import flow
+        }
+
+        composable(Routes.CreateMultisig.route) {
+            CreateMultisigScreen(
+                onWalletCreated = { walletId ->
+                    navController.navigate(Routes.Home.build(walletId)) {
+                        popUpTo(Routes.Welcome.route) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
         }
 
         composable(Routes.ImportWallet.route) {

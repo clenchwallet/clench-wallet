@@ -18,7 +18,8 @@ fun WelcomeScreen(
     onCreateWallet: () -> Unit,
     onImportWallet: () -> Unit,
     onBack: (() -> Unit)? = null,
-    onSettings: (() -> Unit)? = null
+    onSettings: (() -> Unit)? = null,
+    onCreateMultisig: (() -> Unit)? = null
 ) {
     Scaffold(
         topBar = {
@@ -71,6 +72,17 @@ fun WelcomeScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Import Existing Wallet")
+            }
+
+            if (onCreateMultisig != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(
+                    onClick = onCreateMultisig,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Create Multisig Wallet")
+                }
             }
         }
     }

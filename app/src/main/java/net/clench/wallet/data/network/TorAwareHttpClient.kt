@@ -53,6 +53,43 @@ class TorAwareHttpClient @Inject constructor(
     }
 
     /**
+     * POST text content to a URL, Tor-aware.
+     * @param url target URL
+     * @param body request body string
+     * @param contentType Content-Type header value
+     * @param connectTimeoutMs connection timeout
+     * @param readTimeoutMs read timeout
+     * @return response body as text
+     * @throws java.io.IOException on HTTP errors or connection failures
+     */
+    fun postText(
+        url: String,
+        body: String,
+        contentType: String,
+        connectTimeoutMs: Int = 15_000,
+        readTimeoutMs: Int = 30_000
+    ): String {
+        val conn = openConnection(url, connectTimeoutMs, readTimeoutMs)
+        return try {
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", contentType)
+            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+
+            val responseCode = conn.responseCode
+            if (responseCode !in 200..299) {
+                val errorBody = try {
+                    conn.errorStream?.bufferedReader()?.readText() ?: ""
+                } catch (_: Exception) { "" }
+                throw java.io.IOException("HTTP $responseCode: $errorBody")
+            }
+            conn.inputStream.bufferedReader().readText()
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /**
      * Check if Tor is currently enabled.
      */
     fun isTorEnabled(): Boolean = settingsManager.isTorEnabled()

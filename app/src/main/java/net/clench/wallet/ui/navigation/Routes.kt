@@ -62,4 +62,5 @@ sealed class Routes(val route: String) {
         fun build(walletId: String) = "sweep/$walletId"
     }
     object SecurityOnboarding : Routes("security_onboarding")
+    object CreateMultisig : Routes("create_multisig")
 }
