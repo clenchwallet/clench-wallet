@@ -325,7 +325,14 @@ class SendViewModel @Inject constructor(
     private fun parseBip21(input: String): Bip21Parsed {
         val trimmed = input.trim()
         if (!trimmed.startsWith("bitcoin:", ignoreCase = true)) {
-            return Bip21Parsed(address = trimmed)
+            // Normalize bech32 to lowercase when scanned as plain address
+            val addr = if (trimmed.startsWith("bc1", ignoreCase = true) ||
+                trimmed.startsWith("tb1", ignoreCase = true)) {
+                trimmed.lowercase()
+            } else {
+                trimmed
+            }
+            return Bip21Parsed(address = addr)
         }
         val withoutScheme = trimmed.substringAfter(":")
         val address = withoutScheme.substringBefore("?")
@@ -343,8 +350,18 @@ class SendViewModel @Inject constructor(
             }
         }
 
+        // Bech32/bech32m addresses are case-insensitive (BIP-173/BIP-350).
+        // QR codes encode them uppercase for efficiency. Normalize to lowercase
+        // since lowercase is the canonical convention.
+        val normalizedAddress = if (address.startsWith("bc1", ignoreCase = true) ||
+            address.startsWith("tb1", ignoreCase = true)) {
+            address.lowercase()
+        } else {
+            address
+        }
+
         return Bip21Parsed(
-            address = address,
+            address = normalizedAddress,
             amountBtc = amount,
             label = label
         )
@@ -631,6 +648,7 @@ class SendViewModel @Inject constructor(
                 _uiState.update { it.copy(isLoading = false) }
                 onPsbtReady(psbtBase64)
             } catch (e: Exception) {
+                android.util.Log.e("SendVM", "createPsbt failed: ${e.javaClass.simpleName}: ${e.message}", e)
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
         }

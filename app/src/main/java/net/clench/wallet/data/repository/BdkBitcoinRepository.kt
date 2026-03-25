@@ -1264,11 +1264,17 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Include global xpubs in PSBT — hardware wallets use these to verify
         // derivation paths and identify which keys belong to the signing device.
-        // Critical for Coldcard, Keystone, SeedSigner, Passport, Jade.
-        builder = builder.addGlobalXpubs()
-
-        // Build PSBT (unsigned — do NOT sign)
-        val psbt = builder.finish(wallet)
+        // Some watch-only descriptors lack key origin info (e.g. bare xpub without
+        // [fingerprint/path] prefix), causing MissingKeyOrigin at finish().
+        // Try with global xpubs first; if finish() fails, retry without them.
+        // Hardware wallets fall back to per-input bip32_derivation fields.
+        val psbt = try {
+            val builderWithXpubs = builder.addGlobalXpubs()
+            builderWithXpubs.finish(wallet)
+        } catch (e: Exception) {
+            android.util.Log.w("BdkRepo", "createPsbt: build with globalXpubs failed, retrying without: ${e.message?.take(80)}")
+            builder.finish(wallet)
+        }
 
         android.util.Log.d("BdkRepo", "createPsbt: built PSBT for ${if (isWatchOnly) "watch-only" else "full"} wallet, base64 len=${psbt.serialize().length}")
 
@@ -1391,8 +1397,13 @@ class BdkBitcoinRepository @Inject constructor(
             builder = builder.manuallySelectedOnly()
         }
 
-        builder = builder.addGlobalXpubs()
-        val psbt = builder.finish(wallet)
+        val psbt = try {
+            val builderWithXpubs = builder.addGlobalXpubs()
+            builderWithXpubs.finish(wallet)
+        } catch (e: Exception) {
+            android.util.Log.w("BdkRepo", "createBatchPsbt: build with globalXpubs failed, retrying without: ${e.message?.take(80)}")
+            builder.finish(wallet)
+        }
         psbt.serialize()
     }
 

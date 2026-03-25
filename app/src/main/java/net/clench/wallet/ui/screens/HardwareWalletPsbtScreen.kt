@@ -26,7 +26,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.components.AnimatedQrCode
 import net.clench.wallet.ui.components.QrScanner
-import net.clench.wallet.ui.components.psbtToUrFrames
+import net.clench.wallet.ui.components.encodePsbtForDevice
 import net.clench.wallet.ui.viewmodel.HardwareWalletPsbtViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,9 +54,11 @@ fun HardwareWalletPsbtScreen(
     val storeData = remember { viewModel.initFromStore() }
     val psbtBase64 = uiState.psbtBase64
 
-    // Pre-compute BC-UR frames for QR devices
-    val urFrames = remember(psbtBase64) {
-        if (psbtBase64.isNotEmpty() && deviceType.supportsQr) psbtToUrFrames(psbtBase64) else emptyList()
+    // Pre-compute QR frames: BBQr for Coldcard, BC-UR for others
+    val qrFrames = remember(psbtBase64, deviceType) {
+        if (psbtBase64.isNotEmpty() && deviceType.supportsQr) {
+            encodePsbtForDevice(psbtBase64, deviceType)
+        } else emptyList()
     }
 
     // File picker for importing signed PSBT (Coldcard Mk4 SD card flow)
@@ -179,7 +181,7 @@ fun HardwareWalletPsbtScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        AnimatedQrCode(frames = urFrames)
+                        AnimatedQrCode(frames = qrFrames)
                     }
                 }
 

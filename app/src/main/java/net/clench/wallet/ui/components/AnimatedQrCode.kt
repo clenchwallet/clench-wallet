@@ -19,19 +19,46 @@ import com.sparrowwallet.hummingbird.UR
 import com.sparrowwallet.hummingbird.UREncoder
 import com.sparrowwallet.hummingbird.registry.CryptoPSBT
 import kotlinx.coroutines.delay
+import net.clench.wallet.domain.model.HardwareWalletType
 
 /**
- * Convert a base64 PSBT into BC-UR animated QR frames.
+ * Convert a base64 PSBT into BC-UR QR frames.
+ * If the UR fits in a single QR code (~2.9KB PSBT), returns one static frame.
+ * Otherwise returns animated fountain-coded frames.
  */
-fun psbtToUrFrames(psbtBase64: String, maxFragmentLen: Int = 200): List<String> {
+fun psbtToUrFrames(psbtBase64: String, maxFragmentLen: Int = 500): List<String> {
     val psbtBytes = Base64.decode(psbtBase64, Base64.DEFAULT)
     val cryptoPsbt = CryptoPSBT(psbtBytes)
     val ur = cryptoPsbt.toUR()
+
+    // Single-frame threshold: QR alphanumeric mode caps at ~4296 chars,
+    // but we use a conservative limit for reliable scanning.
+    val singleFrameUr = ur.toString()
+    if (singleFrameUr.length <= 2500) {
+        return listOf(singleFrameUr.uppercase())
+    }
+
     val encoder = UREncoder(ur, maxFragmentLen, 10, 0)
     val frames = mutableListOf<String>()
     val fragmentCount = encoder.seqLen
     repeat(maxOf(fragmentCount * 2, 1)) { frames.add(encoder.nextPart()) }
     return frames
+}
+
+/**
+ * Encode a PSBT for QR display, using the appropriate format for the target device.
+ * - Coldcard Q/Mk4: BBQr format (ZLIB compressed, Base32)
+ * - All others: BC-UR (ur:crypto-psbt)
+ */
+fun encodePsbtForDevice(psbtBase64: String, deviceType: HardwareWalletType): List<String> {
+    return when (deviceType) {
+        HardwareWalletType.COLDCARD_Q,
+        HardwareWalletType.COLDCARD_MK4 -> {
+            val psbtBytes = Base64.decode(psbtBase64, Base64.DEFAULT)
+            BBQrEncoder.encodePsbt(psbtBytes)
+        }
+        else -> psbtToUrFrames(psbtBase64)
+    }
 }
 
 /**

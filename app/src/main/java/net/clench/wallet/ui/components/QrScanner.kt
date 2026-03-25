@@ -87,6 +87,11 @@ fun QrScanner(
     var progress by remember { mutableFloatStateOf(0f) }
     var isProcessing by remember { mutableStateOf(false) }
 
+    // BBQr accumulator for Coldcard Q animated frames
+    val bbqrFrames = remember { mutableMapOf<Int, String>() }
+    var bbqrTotalFrames by remember { mutableIntStateOf(0) }
+    var bbqrEncoding by remember { mutableStateOf(' ') }
+
     // Check camera permission
     val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
@@ -158,7 +163,33 @@ fun QrScanner(
                                 val result = multiReader.decodeWithState(binaryBitmap)
                                 val text = result.text
 
-                                if (text.lowercase().startsWith("ur:")) {
+                                if (BBQrEncoder.isBBQr(text)) {
+                                    // BBQr animated frame (Coldcard Q)
+                                    val frame = BBQrEncoder.parseBBQrFrame(text)
+                                    if (frame != null) {
+                                        bbqrTotalFrames = frame.totalFrames
+                                        bbqrEncoding = frame.encoding
+                                        bbqrFrames[frame.frameIndex] = frame.data
+                                        progress = bbqrFrames.size.toFloat() / frame.totalFrames.toFloat()
+
+                                        if (bbqrFrames.size == frame.totalFrames) {
+                                            isProcessing = true
+                                            val orderedChunks = (0 until frame.totalFrames).map { i ->
+                                                bbqrFrames[i] ?: ""
+                                            }
+                                            try {
+                                                val rawBytes = BBQrEncoder.reassemble(orderedChunks, bbqrEncoding)
+                                                val psbtBase64 = Base64.encodeToString(rawBytes, Base64.NO_WRAP)
+                                                onResult(psbtBase64)
+                                            } catch (_: Exception) {
+                                                // Reset on decode error and keep scanning
+                                                bbqrFrames.clear()
+                                                bbqrTotalFrames = 0
+                                                isProcessing = false
+                                            }
+                                        }
+                                    }
+                                } else if (text.lowercase().startsWith("ur:")) {
                                     // BC-UR animated frame
                                     urDecoder.receivePart(text)
                                     progress = urDecoder.estimatedPercentComplete.toFloat()
