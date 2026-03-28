@@ -12,7 +12,18 @@ import javax.inject.Singleton
 class PsbtStore @Inject constructor() {
     private var pending: Triple<String, String, String>? = null  // (walletId, psbtBase64, deviceType)
 
+    /**
+     * Store a PSBT for hardware wallet signing.
+     * @throws IllegalStateException if a PSBT is already pending (race condition protection)
+     */
     fun store(walletId: String, psbtBase64: String, deviceType: String) {
+        val current = pending
+        if (current != null) {
+            throw IllegalStateException(
+                "A PSBT is already pending for wallet ${current.first}. " +
+                "Complete or cancel the current hardware wallet signing flow before starting a new send."
+            )
+        }
         pending = Triple(walletId, psbtBase64, deviceType)
     }
 
@@ -31,4 +42,11 @@ class PsbtStore @Inject constructor() {
      * Used by the screen to access the original unsigned PSBT for validation.
      */
     fun peekPsbtBase64(): String? = pending?.second
+
+    /**
+     * Force-clear any pending PSBT. Use when the user explicitly cancels the signing flow.
+     */
+    fun clear() {
+        pending = null
+    }
 }

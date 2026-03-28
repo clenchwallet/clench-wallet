@@ -64,4 +64,5 @@ sealed class Routes(val route: String) {
     }
     object SecurityOnboarding : Routes("security_onboarding")
     object CreateMultisig : Routes("create_multisig")
+    object ImportHardwareWallet : Routes("import_wallet_hw")
 }

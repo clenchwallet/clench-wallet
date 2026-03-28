@@ -19,7 +19,8 @@ fun WelcomeScreen(
     onImportWallet: () -> Unit,
     onBack: (() -> Unit)? = null,
     onSettings: (() -> Unit)? = null,
-    onCreateMultisig: (() -> Unit)? = null
+    onCreateMultisig: (() -> Unit)? = null,
+    onConnectHardwareWallet: (() -> Unit)? = null
 ) {
     Scaffold(
         topBar = {
@@ -72,6 +73,21 @@ fun WelcomeScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Import Existing Wallet")
+            }
+
+            if (onConnectHardwareWallet != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = onConnectHardwareWallet,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary,
+                        contentColor = MaterialTheme.colorScheme.onSecondary
+                    )
+                ) {
+                    Text("Connect Hardware Wallet")
+                }
             }
 
             if (onCreateMultisig != null) {

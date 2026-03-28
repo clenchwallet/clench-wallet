@@ -133,7 +133,8 @@ fun ClenchNavHost(navController: NavHostController) {
                     { navController.popBackStack() }
                 } else null,
                 onSettings = { navController.navigate(Routes.Settings.route) },
-                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) }
+                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) },
+                onConnectHardwareWallet = { navController.navigate(Routes.ImportHardwareWallet.route) }
             )
         }
 
@@ -203,6 +204,20 @@ fun ClenchNavHost(navController: NavHostController) {
                 },
                 onBack = { navController.popBackStack() },
                 onSettings = { navController.navigate(Routes.Settings.route) }
+            )
+        }
+
+
+        composable(Routes.ImportHardwareWallet.route) {
+            ImportWalletScreen(
+                onWalletImported = { walletId ->
+                    navController.navigate(Routes.Home.build(walletId)) {
+                        popUpTo(Routes.Welcome.route) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() },
+                onSettings = { navController.navigate(Routes.Settings.route) },
+                hardwareWalletMode = true
             )
         }
 

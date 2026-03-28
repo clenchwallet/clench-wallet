@@ -47,7 +47,9 @@ object BBQrEncoder {
         val base32Data = base32Encode(compressed)
 
         // Fallback: raw hex if compression made it bigger
-        val hexData = psbtBytes.joinToString("") { "%02X".format(it) }
+        val rawHexData = psbtBytes.joinToString("") { "%02X".format(it) }
+        // Fix 4: Pad hex data to even length before splitting into chunks
+        val hexData = if (rawHexData.length % 2 != 0) rawHexData + "0" else rawHexData
 
         val useZlib = base32Data.length <= hexData.length
         val encoding = if (useZlib) ENCODING_ZLIB_BASE32 else ENCODING_HEX
@@ -65,8 +67,15 @@ object BBQrEncoder {
 
         // Split into chunks — ensure each chunk has even length for hex,
         // or decodes to whole bytes for base32
-        val totalFrames = ((encodedData.length + maxChunkChars - 1) / maxChunkChars)
-            .coerceIn(1, 1295) // max ZZ in base36
+        val rawFrames = (encodedData.length + maxChunkChars - 1) / maxChunkChars
+
+        // Fix 3: Replace silent coerceIn with a descriptive error if frames exceed max base36 (ZZ = 1295)
+        require(rawFrames <= 1295) {
+            "PSBT too large for BBQr: requires $rawFrames frames (max 1295). " +
+            "Try reducing the number of inputs or use SD card transfer for Coldcard Mk4."
+        }
+        val totalFrames = rawFrames
+
         val chunkSize = (encodedData.length + totalFrames - 1) / totalFrames
 
         // For hex encoding, ensure chunk size is even

@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
@@ -87,21 +88,27 @@ private fun encodeQrBitmap(content: String, size: Int = 512): Bitmap {
  * Cycles through frames at the given interval. For single frames, shows static QR.
  *
  * @param frameDelayMs Milliseconds between frames. 125ms (~8fps) for BC-UR,
- *                     600ms (~1.7fps) for BBQr (Coldcard Q scans slowly).
+ *                     1000ms (~1fps) for BBQr (Coldcard Q scans slowly).
+ * @param qrSizeDp Display size of the QR code. Default 360.dp (increased from 280.dp
+ *                  for better scanning at typical hardware wallet reading distances).
+ * @param autoAdvance Whether to auto-advance frames. When false, use onNextFrame callback.
+ * @param onNextFrame Callback to expose current frame index for manual control.
  */
 @Composable
 fun AnimatedQrCode(
     frames: List<String>,
     modifier: Modifier = Modifier,
     qrSize: Int = 512,
-    frameDelayMs: Long = 125L
+    qrSizeDp: Dp = 360.dp,
+    frameDelayMs: Long = 125L,
+    autoAdvance: Boolean = true
 ) {
     if (frames.isEmpty()) return
 
     var currentIndex by remember { mutableIntStateOf(0) }
     val isAnimated = frames.size > 1
 
-    if (isAnimated) {
+    if (isAnimated && autoAdvance) {
         LaunchedEffect(frames, frameDelayMs) {
             while (true) {
                 delay(frameDelayMs)
@@ -121,7 +128,7 @@ fun AnimatedQrCode(
         Image(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = "QR Code",
-            modifier = Modifier.size(280.dp)
+            modifier = Modifier.size(qrSizeDp)
         )
         if (isAnimated) {
             Spacer(modifier = Modifier.height(8.dp))

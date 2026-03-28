@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.WalletFingerprint
 import net.clench.wallet.ui.viewmodel.ImportWalletViewModel
@@ -31,6 +33,7 @@ fun ImportWalletScreen(
     onWalletImported: (String) -> Unit,
     onBack: () -> Unit,
     onSettings: (() -> Unit)? = null,
+    hardwareWalletMode: Boolean = false,
     viewModel: ImportWalletViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -39,13 +42,47 @@ fun ImportWalletScreen(
 
     var showScanner by remember { mutableStateOf(false) }
 
+    // HW wallet mode state
+    var selectedDevice by remember { mutableStateOf<HardwareWalletType?>(null) }
+    var showDevicePicker by remember { mutableStateOf(hardwareWalletMode) }
+
     val isSeedPhrase = uiState.detectedType == ImportWalletViewModel.DetectedType.SEED_12 ||
             uiState.detectedType == ImportWalletViewModel.DetectedType.SEED_24
+
+    // In HW wallet mode, auto-launch scanner after device selection
+    LaunchedEffect(selectedDevice) {
+        if (hardwareWalletMode && selectedDevice != null && uiState.input.isBlank()) {
+            delay(300) // Brief pause so user sees the instructions
+            showScanner = true
+        }
+    }
+
+    // Device picker bottom sheet
+    if (showDevicePicker) {
+        HardwareWalletPickerSheet(
+            onDismiss = {
+                showDevicePicker = false
+                if (selectedDevice == null) onBack()
+            },
+            onDeviceSelected = { device ->
+                selectedDevice = device
+                showDevicePicker = false
+            }
+        )
+    }
+
+    val screenTitle = if (hardwareWalletMode && selectedDevice != null) {
+        "Connect ${selectedDevice!!.displayName}"
+    } else if (hardwareWalletMode) {
+        "Connect Hardware Wallet"
+    } else {
+        "Import Wallet"
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Import Wallet") },
+                title = { Text(screenTitle) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -69,6 +106,38 @@ fun ImportWalletScreen(
                 .verticalScroll(scrollState)
                 .imePadding()
         ) {
+            // HW wallet mode: device-specific instructions
+            if (hardwareWalletMode && selectedDevice != null) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Export your public key from ${selectedDevice!!.displayName}",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            getDeviceInstructions(selectedDevice!!),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Change device link
+                TextButton(onClick = { showDevicePicker = true }) {
+                    Text("Change device")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Wallet name
             OutlinedTextField(
                 value = uiState.walletName,
@@ -80,24 +149,57 @@ fun ImportWalletScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Single unified input field
-            OutlinedTextField(
-                value = uiState.input,
-                onValueChange = { viewModel.setInput(it) },
-                label = { Text("Enter seed phrase, xpub, zpub, or descriptor") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp),
-                placeholder = { Text("word1 word2 word3 … or zpub… or wpkh(…)") },
-                trailingIcon = {
-                    IconButton(onClick = { showScanner = true }) {
-                        Icon(
-                            Icons.Default.CameraAlt,
-                            contentDescription = "Scan QR code"
-                        )
+            // In HW wallet mode, hide the seed phrase label and show xpub-focused label
+            if (hardwareWalletMode) {
+                OutlinedTextField(
+                    value = uiState.input,
+                    onValueChange = { viewModel.setInput(it) },
+                    label = { Text("Scan or paste xpub / zpub / descriptor") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    placeholder = { Text("zpub… or xpub… or wpkh(…)") },
+                    trailingIcon = {
+                        IconButton(onClick = { showScanner = true }) {
+                            Icon(
+                                Icons.Default.CameraAlt,
+                                contentDescription = "Scan QR code"
+                            )
+                        }
                     }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Prominent scan button for HW wallet mode
+                Button(
+                    onClick = { showScanner = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Scan QR Code from ${selectedDevice?.displayName ?: "Device"}")
                 }
-            )
+            } else {
+                // Standard import: single unified input field
+                OutlinedTextField(
+                    value = uiState.input,
+                    onValueChange = { viewModel.setInput(it) },
+                    label = { Text("Enter seed phrase, xpub, zpub, or descriptor") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    placeholder = { Text("word1 word2 word3 … or zpub… or wpkh(…)") },
+                    trailingIcon = {
+                        IconButton(onClick = { showScanner = true }) {
+                            Icon(
+                                Icons.Default.CameraAlt,
+                                contentDescription = "Scan QR code"
+                            )
+                        }
+                    }
+                )
+            }
 
             // Detection status line
             if (uiState.detectedLabel.isNotEmpty()) {
@@ -110,8 +212,8 @@ fun ImportWalletScreen(
                 )
             }
 
-            // Collapsible passphrase section — only for seed phrases
-            if (isSeedPhrase) {
+            // Collapsible passphrase section — only for seed phrases, hidden in HW wallet mode
+            if (isSeedPhrase && !hardwareWalletMode) {
                 Spacer(modifier = Modifier.height(12.dp))
 
                 var passphraseExpanded by remember { mutableStateOf(false) }
@@ -212,7 +314,7 @@ fun ImportWalletScreen(
                 enabled = !uiState.isLoading
             ) {
                 if (uiState.isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                else Text("Import Wallet")
+                else Text(if (hardwareWalletMode) "Connect Wallet" else "Import Wallet")
             }
 
             uiState.error?.let { err ->
@@ -231,5 +333,19 @@ fun ImportWalletScreen(
                 onCancel = { showScanner = false }
             )
         }
+    }
+}
+
+/**
+ * Device-specific instructions for exporting the public key via QR.
+ */
+private fun getDeviceInstructions(device: HardwareWalletType): String {
+    return when (device) {
+        HardwareWalletType.COLDCARD_Q -> "On your Coldcard Q:\nSettings → Wallet → Export → QR Code\n\nThis will display a QR code containing your wallet's extended public key (xpub/zpub)."
+        HardwareWalletType.COLDCARD_MK4 -> "On your Coldcard Mk4:\nAdvanced/Tools → Export Wallet → Generic JSON\n\nSave to SD card, then paste the xpub/zpub from the file."
+        HardwareWalletType.SEEDSIGNER -> "On your SeedSigner:\nExport Xpub → Select wallet format (Native SegWit recommended)\n\nScan the animated QR code displayed on screen."
+        HardwareWalletType.KEYSTONE -> "On your Keystone:\nMenu (☰) → Multisig Wallet or watch-only setup\n\nThe device will display a QR code with your extended public key."
+        HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport:\nManage Account → Connect Wallet → QR Code\n\nScan the animated QR code displayed on screen."
+        HardwareWalletType.JADE -> "On your Jade:\nOptions → Xpub Export\n\nScan the QR code displayed on screen."
     }
 }

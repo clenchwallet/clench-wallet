@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.domain.model.HardwareWalletType
@@ -54,12 +55,77 @@ fun HardwareWalletPsbtScreen(
     val storeData = remember { viewModel.initFromStore() }
     val psbtBase64 = uiState.psbtBase64
 
+    // Fix 6: Empty PSBT error state — if psbtBase64 is empty, show error
+    if (psbtBase64.isEmpty() && uiState.txid == null && !uiState.isBroadcasting) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Sign with ${deviceType.displayName}") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                )
+            }
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "PSBT data was lost.",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "This can happen if the app was backgrounded. Go back and try again.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedButton(
+                    onClick = onBack,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Go Back")
+                }
+            }
+        }
+        return
+    }
+
     // Pre-compute QR frames: BBQr for Coldcard, BC-UR for others
     val qrFrames = remember(psbtBase64, deviceType) {
         if (psbtBase64.isNotEmpty() && deviceType.supportsQr) {
             encodePsbtForDevice(psbtBase64, deviceType)
         } else emptyList()
     }
+
+    // Manual frame advance state for BBQr
+    var autoAdvance by remember { mutableStateOf(true) }
+    var manualFrameIndex by remember { mutableIntStateOf(0) }
+
+    val isBBQr = deviceType == HardwareWalletType.COLDCARD_Q || deviceType == HardwareWalletType.COLDCARD_MK4
 
     // File picker for importing signed PSBT (Coldcard Mk4 SD card flow)
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -180,15 +246,62 @@ fun HardwareWalletPsbtScreen(
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // "Hold phone steady" cue for BBQr (Coldcard)
+                        if (isBBQr && qrFrames.size > 1) {
+                            Text(
+                                "📱 Hold phone steady — ${deviceType.displayName} needs to scan all frames",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
                         AnimatedQrCode(
                             frames = qrFrames,
+                            qrSizeDp = if (isBBQr) 400.dp else 360.dp,
                             frameDelayMs = when (deviceType) {
-                                HardwareWalletType.COLDCARD_Q,
-                                HardwareWalletType.COLDCARD_MK4 -> 600L // BBQr: slow for Coldcard scanner
+                                HardwareWalletType.COLDCARD_Q -> 1000L  // BBQr: slow for Coldcard Q scanner (was 600ms)
+                                HardwareWalletType.COLDCARD_MK4 -> 1000L // BBQr: slow for Coldcard scanner
                                 else -> 125L // BC-UR: fast fountain codes
-                            }
+                            },
+                            autoAdvance = autoAdvance
                         )
+
+                        // Manual frame control toggle for BBQr
+                        if (isBBQr && qrFrames.size > 1) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    "Auto-advance",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Switch(
+                                    checked = autoAdvance,
+                                    onCheckedChange = { autoAdvance = it }
+                                )
+                            }
+                            if (!autoAdvance) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = {
+                                        manualFrameIndex = (manualFrameIndex + 1) % qrFrames.size
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Next Frame")
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -273,12 +386,6 @@ fun HardwareWalletPsbtScreen(
                             onClick = { filePickerLauncher.launch("*/*") },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("Import Signed PSBT") }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            "Or tap Coldcard to your phone (NFC)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
             }

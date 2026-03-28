@@ -33,6 +33,7 @@ class CreateMultisigViewModel @Inject constructor(
         val currentStep: Int = 1,
         val isCreating: Boolean = false,
         val error: String? = null,
+        val warning: String? = null,
         val createdWalletId: String? = null,
         val showQrScanner: Boolean = false,
         val qrScannerTargetIndex: Int = -1
@@ -136,19 +137,23 @@ class CreateMultisigViewModel @Inject constructor(
     fun nextStep() {
         _uiState.update { state ->
             val next = (state.currentStep + 1).coerceAtMost(3)
-            state.copy(currentStep = next, error = null)
+            state.copy(currentStep = next, error = null, warning = null)
         }
     }
 
     fun previousStep() {
         _uiState.update { state ->
             val prev = (state.currentStep - 1).coerceAtLeast(1)
-            state.copy(currentStep = prev, error = null)
+            state.copy(currentStep = prev, error = null, warning = null)
         }
     }
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    fun clearWarning() {
+        _uiState.update { it.copy(warning = null) }
     }
 
     /**
@@ -167,22 +172,74 @@ class CreateMultisigViewModel @Inject constructor(
         return "wsh(sortedmulti(${state.threshold},$keys))"
     }
 
+    companion object {
+        // Valid extended key prefixes for Bitcoin multisig
+        // xpub/xprv = BIP44 mainnet, tpub/tprv = BIP44 testnet
+        // ypub/Ypub = BIP49 (nested segwit), zpub/Zpub = BIP84 (native segwit)
+        // Vpub/Upub = multisig testnet variants
+        private val VALID_KEY_PREFIXES = listOf(
+            "xpub", "ypub", "zpub", "tpub",
+            "Zpub", "Ypub", "Vpub", "Upub",
+            "xprv", "yprv", "zprv", "tprv"
+        )
+    }
+
     /**
      * Validate current step before allowing navigation to next.
      */
     fun validateCurrentStep(): Boolean {
         val state = _uiState.value
+        _uiState.update { it.copy(warning = null) }
+
         return when (state.currentStep) {
             1 -> {
                 // Config step is always valid (constrained by UI)
                 true
             }
             2 -> {
-                // All signers must have xpubs
-                val allFilled = state.signers.all { it.xpub.isNotBlank() }
-                if (!allFilled) {
-                    _uiState.update { it.copy(error = "All signers must have an extended public key") }
-                    return false
+                // Fix 7: Validate each signer's key format
+                var hasWarning = false
+                state.signers.forEachIndexed { index, signer ->
+                    val xpub = signer.xpub.trim()
+                    if (xpub.isBlank()) {
+                        _uiState.update { it.copy(error = "Signer ${index + 1}: extended public key is required") }
+                        return false
+                    }
+
+                    // Check if key has origin info [fingerprint/path]
+                    val hasOrigin = xpub.startsWith("[")
+                    val keyPart = if (hasOrigin) {
+                        val closeBracket = xpub.indexOf(']')
+                        if (closeBracket < 0) {
+                            _uiState.update { it.copy(error = "Signer ${index + 1}: malformed key origin — missing closing ']'") }
+                            return false
+                        }
+                        xpub.substring(closeBracket + 1)
+                    } else {
+                        xpub
+                    }
+
+                    // Check for valid key prefix (unless it's a full descriptor)
+                    val isDescriptor = xpub.startsWith("wsh(") || xpub.startsWith("wpkh(") || xpub.startsWith("sh(")
+                    if (!isDescriptor) {
+                        val hasValidPrefix = VALID_KEY_PREFIXES.any { keyPart.startsWith(it) }
+                        if (!hasValidPrefix) {
+                            _uiState.update {
+                                it.copy(error = "Signer ${index + 1}: unrecognized key format. " +
+                                    "Expected xpub, zpub, tpub, or similar extended public key.")
+                            }
+                            return false
+                        }
+                    }
+
+                    // Warn (not block) if key origin is missing — HW wallets need it to verify derivation
+                    if (!hasOrigin && !isDescriptor) {
+                        hasWarning = true
+                        _uiState.update {
+                            it.copy(warning = "Signer ${index + 1}: no key origin [fingerprint/path]. " +
+                                "Hardware wallets may not be able to verify this signer's derivation path.")
+                        }
+                    }
                 }
                 true
             }
