@@ -162,7 +162,7 @@ fun ImportWalletScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            "📷 No camera detected. Paste your key from your hardware wallet's export screen.",
+                            "📷 No camera detected. Paste your xpub or descriptor below.",
                             modifier = Modifier.padding(12.dp),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Medium,

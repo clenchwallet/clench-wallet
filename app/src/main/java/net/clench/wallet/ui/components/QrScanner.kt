@@ -3,6 +3,7 @@ package net.clench.wallet.ui.components
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraManager
 import android.util.Base64
 import android.util.Size
 import androidx.camera.core.CameraSelector
@@ -74,10 +75,21 @@ fun decodeSeedQr(context: Context, raw: String): String? {
 
 /**
  * Check whether the device has any camera available.
- * Uses PackageManager feature check as the primary signal.
+ * Uses PackageManager feature check AND CameraManager enumeration
+ * to avoid false positives on emulators/devices that report the feature
+ * but have no actual camera hardware.
  */
 fun hasCameraAvailable(context: Context): Boolean {
-    return context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
+    if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+        return false
+    }
+    // Double-check with CameraManager — getCameraIdList() works without CAMERA permission
+    return try {
+        val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+        cameraManager?.cameraIdList?.isNotEmpty() == true
+    } catch (_: Exception) {
+        false
+    }
 }
 
 /**
