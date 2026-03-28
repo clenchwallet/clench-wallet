@@ -119,6 +119,29 @@ class ImportWalletViewModel @Inject constructor(
             return
         }
 
+        // Check for key-origin-prefixed xpub: [fingerprint/path]xpub...
+        val originPattern = Regex("^\\[([0-9a-fA-F]{8})/[^]]+\\](.+)")
+        val originMatch = originPattern.find(text)
+        if (originMatch != null) {
+            val keyPart = originMatch.groupValues[2].lowercase()
+            val fingerprint = originMatch.groupValues[1]
+            if (keyPart.startsWith("xpub") || keyPart.startsWith("zpub") || keyPart.startsWith("ypub") ||
+                keyPart.startsWith("vpub") || keyPart.startsWith("tpub")) {
+                _uiState.update { it.copy(
+                    detectedType = DetectedType.XPUB_WATCH_ONLY,
+                    detectedLabel = "Detected: ${keyPart.take(4)} with origin [$fingerprint] (watch-only)"
+                ) }
+                return
+            }
+            if (keyPart.startsWith("xprv") || keyPart.startsWith("zprv") || keyPart.startsWith("tprv")) {
+                _uiState.update { it.copy(
+                    detectedType = DetectedType.PRIVATE_DESCRIPTOR,
+                    detectedLabel = "Detected: private key with origin [$fingerprint]"
+                ) }
+                return
+            }
+        }
+
         // Check for xpub/zpub/ypub/vpub/tpub
         if (lower.startsWith("xpub") || lower.startsWith("zpub") || lower.startsWith("ypub") ||
             lower.startsWith("vpub") || lower.startsWith("tpub")) {
