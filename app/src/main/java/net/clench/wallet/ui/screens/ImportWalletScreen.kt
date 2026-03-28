@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -25,6 +26,7 @@ import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.WalletFingerprint
+import net.clench.wallet.ui.components.hasCameraAvailable
 import net.clench.wallet.ui.viewmodel.ImportWalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -39,8 +41,13 @@ fun ImportWalletScreen(
     val uiState by viewModel.uiState.collectAsState()
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     var showScanner by remember { mutableStateOf(false) }
+    var cameraErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Check camera availability once
+    val hasCamera = remember { hasCameraAvailable(context) }
 
     // HW wallet mode state
     var selectedDevice by remember { mutableStateOf<HardwareWalletType?>(null) }
@@ -49,11 +56,25 @@ fun ImportWalletScreen(
     val isSeedPhrase = uiState.detectedType == ImportWalletViewModel.DetectedType.SEED_12 ||
             uiState.detectedType == ImportWalletViewModel.DetectedType.SEED_24
 
-    // In HW wallet mode, auto-launch scanner after device selection
+    // Snackbar host for camera error messages
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Show snackbar when camera error occurs
+    LaunchedEffect(cameraErrorMessage) {
+        cameraErrorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            cameraErrorMessage = null
+        }
+    }
+
+    // In HW wallet mode, auto-launch scanner after device selection — only if camera available
     LaunchedEffect(selectedDevice) {
         if (hardwareWalletMode && selectedDevice != null && uiState.input.isBlank()) {
-            delay(300) // Brief pause so user sees the instructions
-            showScanner = true
+            if (hasCamera) {
+                delay(300) // Brief pause so user sees the instructions
+                showScanner = true
+            }
+            // If no camera, we just stay on the manual input screen (with the note shown below)
         }
     }
 
@@ -96,7 +117,8 @@ fun ImportWalletScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -131,6 +153,25 @@ fun ImportWalletScreen(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
 
+                // No camera warning — shown in HW wallet mode when camera unavailable
+                if (!hasCamera) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFFFFF3E0)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "📷 No camera detected. Paste your key from your hardware wallet's export screen.",
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF5D4037)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
                 // Change device link
                 TextButton(onClick = { showDevicePicker = true }) {
                     Text("Change device")
@@ -160,25 +201,29 @@ fun ImportWalletScreen(
                         .height(120.dp),
                     placeholder = { Text("zpub… or xpub… or wpkh(…)") },
                     trailingIcon = {
-                        IconButton(onClick = { showScanner = true }) {
-                            Icon(
-                                Icons.Default.CameraAlt,
-                                contentDescription = "Scan QR code"
-                            )
+                        if (hasCamera) {
+                            IconButton(onClick = { showScanner = true }) {
+                                Icon(
+                                    Icons.Default.CameraAlt,
+                                    contentDescription = "Scan QR code"
+                                )
+                            }
                         }
                     }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Prominent scan button for HW wallet mode
-                Button(
-                    onClick = { showScanner = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Scan QR Code from ${selectedDevice?.displayName ?: "Device"}")
+                // Prominent scan button for HW wallet mode — only show if camera available
+                if (hasCamera) {
+                    Button(
+                        onClick = { showScanner = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Scan QR Code from ${selectedDevice?.displayName ?: "Device"}")
+                    }
                 }
             } else {
                 // Standard import: single unified input field
@@ -191,11 +236,13 @@ fun ImportWalletScreen(
                         .height(120.dp),
                     placeholder = { Text("word1 word2 word3 … or zpub… or wpkh(…)") },
                     trailingIcon = {
-                        IconButton(onClick = { showScanner = true }) {
-                            Icon(
-                                Icons.Default.CameraAlt,
-                                contentDescription = "Scan QR code"
-                            )
+                        if (hasCamera) {
+                            IconButton(onClick = { showScanner = true }) {
+                                Icon(
+                                    Icons.Default.CameraAlt,
+                                    contentDescription = "Scan QR code"
+                                )
+                            }
                         }
                     }
                 )
@@ -330,7 +377,10 @@ fun ImportWalletScreen(
                     viewModel.setInput(result)
                     showScanner = false
                 },
-                onCancel = { showScanner = false }
+                onCancel = { showScanner = false },
+                onError = { errorMsg ->
+                    cameraErrorMessage = errorMsg
+                }
             )
         }
     }

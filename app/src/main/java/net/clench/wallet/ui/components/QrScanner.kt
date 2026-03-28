@@ -2,6 +2,7 @@ package net.clench.wallet.ui.components
 
 import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.util.Base64
 import android.util.Size
 import androidx.camera.core.CameraSelector
@@ -72,13 +73,25 @@ fun decodeSeedQr(context: Context, raw: String): String? {
 }
 
 /**
+ * Check whether the device has any camera available.
+ * Uses PackageManager feature check as the primary signal.
+ */
+fun hasCameraAvailable(context: Context): Boolean {
+    return context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
+}
+
+/**
  * QR Scanner composable that handles both static QR and BC-UR animated QR (PSBT).
  * Requires CAMERA permission granted before showing.
+ *
+ * @param onError optional callback invoked when the camera fails to initialize
+ *                (e.g. no camera hardware). The scanner auto-cancels after calling this.
  */
 @Composable
 fun QrScanner(
     onResult: (String) -> Unit,
     onCancel: () -> Unit,
+    onError: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -86,11 +99,23 @@ fun QrScanner(
     var hasPermission by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var isProcessing by remember { mutableStateOf(false) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
 
     // BBQr accumulator for Coldcard Q animated frames
     val bbqrFrames = remember { mutableMapOf<Int, String>() }
     var bbqrTotalFrames by remember { mutableIntStateOf(0) }
     var bbqrEncoding by remember { mutableStateOf(' ') }
+
+    // Early camera availability check
+    LaunchedEffect(Unit) {
+        if (!hasCameraAvailable(context)) {
+            val msg = "Camera not available. Paste your xpub or descriptor below instead."
+            cameraError = msg
+            onError?.invoke(msg)
+            onCancel()
+            return@LaunchedEffect
+        }
+    }
 
     // Check camera permission
     val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -101,12 +126,25 @@ fun QrScanner(
     }
 
     LaunchedEffect(Unit) {
+        if (!hasCameraAvailable(context)) return@LaunchedEffect // skip if no camera
         val result = androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
-        if (result == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        if (result == PackageManager.PERMISSION_GRANTED) {
             hasPermission = true
         } else {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         }
+    }
+
+    // Show error state if camera failed
+    if (cameraError != null) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(cameraError!!, style = MaterialTheme.typography.bodyMedium)
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedButton(onClick = onCancel) { Text("OK") }
+            }
+        }
+        return
     }
 
     if (!hasPermission) {
@@ -130,7 +168,16 @@ fun QrScanner(
                     val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                     cameraProviderFuture.addListener({
-                        val cameraProvider = cameraProviderFuture.get()
+                        val cameraProvider = try {
+                            cameraProviderFuture.get()
+                        } catch (e: Exception) {
+                            val msg = "Camera initialization failed. Paste your xpub or descriptor below instead."
+                            cameraError = msg
+                            onError?.invoke(msg)
+                            onCancel()
+                            return@addListener
+                        }
+
                         val preview = Preview.Builder().build().also {
                             it.setSurfaceProvider(previewView.surfaceProvider)
                         }
@@ -228,7 +275,13 @@ fun QrScanner(
                                 preview,
                                 imageAnalysis
                             )
-                        } catch (_: Exception) { }
+                        } catch (e: Exception) {
+                            // Camera binding failed — no usable camera on this device
+                            val msg = "Camera not available. Paste your xpub or descriptor below instead."
+                            cameraError = msg
+                            onError?.invoke(msg)
+                            onCancel()
+                        }
                     }, androidx.core.content.ContextCompat.getMainExecutor(ctx))
 
                     previewView
