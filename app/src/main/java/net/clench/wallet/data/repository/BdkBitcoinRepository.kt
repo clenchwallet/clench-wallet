@@ -1652,6 +1652,39 @@ class BdkBitcoinRepository @Inject constructor(
             return Pair(external, change)
         }
 
+        // Key with origin info: [fingerprint/path]zpub... or [fingerprint/path]xpub...
+        // Standard format exported by hardware wallets (Coldcard, SeedSigner, Keystone, etc.)
+        val originRegex = Regex("^(\\[[0-9a-fA-F]{8}/[^\\]]+\\])(.+)")
+        val originMatch = originRegex.find(input)
+        if (originMatch != null) {
+            val origin = originMatch.groupValues[1]  // e.g., [D3E95C19/84'/0'/0']
+            val keyPart = originMatch.groupValues[2]  // e.g., zpub6qvYv2g...
+
+            // Reject multisig keys with origin — need full descriptor
+            if (keyPart.startsWith("Zpub") || keyPart.startsWith("Ypub")) {
+                throw IllegalArgumentException(
+                    "Multisig extended keys (Zpub/Ypub) are not supported. " +
+                    "Please provide a full descriptor for multisig wallets, e.g. wsh(multi(2,xpub1.../0/*,xpub2.../0/*))"
+                )
+            }
+
+            // Convert key and determine script type
+            val (originXpub, originScriptType) = when {
+                keyPart.startsWith("zpub") -> Pair(convertZpubToXpub(keyPart), "wpkh")
+                keyPart.startsWith("ypub") -> Pair(convertZpubToXpub(keyPart), "sh_wpkh")
+                keyPart.startsWith("xpub") -> Pair(keyPart, "wpkh")
+                keyPart.startsWith("tpub") -> Pair(keyPart, "wpkh")
+                keyPart.startsWith("vpub") -> Pair(convertZpubToXpub(keyPart), "wpkh")
+                keyPart.startsWith("upub") -> Pair(convertZpubToXpub(keyPart), "sh_wpkh")
+                else -> Pair(keyPart, "wpkh")
+            }
+
+            return when (originScriptType) {
+                "sh_wpkh" -> Pair("sh(wpkh(${origin}${originXpub}/0/*))", "sh(wpkh(${origin}${originXpub}/1/*))")
+                else -> Pair("wpkh(${origin}${originXpub}/0/*)", "wpkh(${origin}${originXpub}/1/*)")
+            }
+        }
+
         // Bare extended public key — convert to xpub and wrap in wpkh descriptor
         // Zpub (capital Z) = P2WSH multisig and Ypub (capital Y) = P2SH-P2WSH multisig
         // These are not supported as single-sig watch-only imports
