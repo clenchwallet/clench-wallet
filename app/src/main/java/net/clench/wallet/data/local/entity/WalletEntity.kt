@@ -15,5 +15,8 @@ data class WalletEntity(
     val network: String = "mainnet",  // "mainnet" or "testnet"
     val preferredHardwareWallet: String? = null,
     val hasPassphrase: Boolean = false,
-    val identiconBytes: ByteArray? = null   // 8-byte identicon hash (SHA-256 of masterFp + passphrase), drives visual fingerprint
+    val identiconBytes: ByteArray? = null,   // 8-byte identicon hash (SHA-256 of masterFp + passphrase), drives visual fingerprint
+    val masterFingerprint: String? = null,    // e.g., "D3E95C19" — extracted from descriptor origin at import
+    val derivationPath: String? = null,       // e.g., "84'/0'/0'" — extracted from descriptor origin at import
+    val importedViaDevice: String? = null     // e.g., "COLDCARD_Q" — HardwareWalletType enum name used at import
 )

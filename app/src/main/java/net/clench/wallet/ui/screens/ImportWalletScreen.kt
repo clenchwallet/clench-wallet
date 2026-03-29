@@ -88,6 +88,8 @@ fun ImportWalletScreen(
             onDeviceSelected = { device ->
                 selectedDevice = device
                 showDevicePicker = false
+                // Store selected device in viewModel so it gets passed to importWatchOnly
+                viewModel.setHardwareDeviceType(device.name)
             }
         )
     }

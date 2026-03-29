@@ -37,6 +37,7 @@ class ImportWalletViewModel @Inject constructor(
         val walletName: String = "",
         val input: String = "",
         val passphrase: String = "",
+        val hardwareDeviceType: String? = null,  // HardwareWalletType.name when in HW wallet mode
         val isLoading: Boolean = false,
         val error: String? = null,
         val fingerprintBytes: ByteArray? = null,
@@ -48,7 +49,8 @@ class ImportWalletViewModel @Inject constructor(
             if (this === other) return true
             if (other !is UiState) return false
             return walletName == other.walletName && input == other.input &&
-                passphrase == other.passphrase && isLoading == other.isLoading &&
+                passphrase == other.passphrase && hardwareDeviceType == other.hardwareDeviceType &&
+                isLoading == other.isLoading &&
                 error == other.error && fingerprintBytes.contentEquals(other.fingerprintBytes) &&
                 masterFingerprintBytes.contentEquals(other.masterFingerprintBytes) &&
                 detectedType == other.detectedType && detectedLabel == other.detectedLabel
@@ -57,6 +59,7 @@ class ImportWalletViewModel @Inject constructor(
             var result = walletName.hashCode()
             result = 31 * result + input.hashCode()
             result = 31 * result + passphrase.hashCode()
+            result = 31 * result + (hardwareDeviceType?.hashCode() ?: 0)
             result = 31 * result + isLoading.hashCode()
             result = 31 * result + (error?.hashCode() ?: 0)
             result = 31 * result + (fingerprintBytes?.contentHashCode() ?: 0)
@@ -78,6 +81,8 @@ class ImportWalletViewModel @Inject constructor(
     }
 
     fun setWalletName(name: String) = _uiState.update { it.copy(walletName = name) }
+
+    fun setHardwareDeviceType(deviceType: String?) = _uiState.update { it.copy(hardwareDeviceType = deviceType) }
 
     fun setInput(text: String) {
         _uiState.update { it.copy(input = text, error = null) }
@@ -251,14 +256,16 @@ class ImportWalletViewModel @Inject constructor(
                     DetectedType.XPUB_WATCH_ONLY, DetectedType.DESCRIPTOR -> {
                         bitcoinRepository.importWatchOnly(
                             name = state.walletName.ifBlank { "Watch-only Wallet" },
-                            descriptor = state.input.trim()
+                            descriptor = state.input.trim(),
+                            deviceType = state.hardwareDeviceType
                         )
                     }
                     DetectedType.PRIVATE_DESCRIPTOR -> {
                         // Private descriptor — import as full wallet via descriptor
                         bitcoinRepository.importWatchOnly(
                             name = state.walletName.ifBlank { "Imported Wallet" },
-                            descriptor = state.input.trim()
+                            descriptor = state.input.trim(),
+                            deviceType = state.hardwareDeviceType
                         )
                     }
                     DetectedType.NONE -> {

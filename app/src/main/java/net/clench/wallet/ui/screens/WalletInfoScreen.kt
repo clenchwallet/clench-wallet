@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.components.QrCodeImage
+import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.viewmodel.WalletInfoViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -175,6 +176,87 @@ fun WalletInfoScreen(
                             Text(uiState.derivationPath, style = MaterialTheme.typography.bodyMedium.copy(
                                 fontFamily = FontFamily.Monospace
                             ))
+                        }
+                    }
+                }
+
+
+                // ─── Hardware Wallet Info ───
+                // Only show if wallet was imported via a hardware wallet
+                if (uiState.importedViaDevice != null) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Hardware Wallet",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Device name with connection method badge
+                            val hwType = try {
+                                HardwareWalletType.valueOf(uiState.importedViaDevice!!)
+                            } catch (_: Exception) { null }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Device: ", style = MaterialTheme.typography.labelMedium)
+                                Text(
+                                    hwType?.displayName ?: uiState.importedViaDevice!!,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                if (hwType != null) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Surface(
+                                        shape = MaterialTheme.shapes.small,
+                                        color = MaterialTheme.colorScheme.secondaryContainer
+                                    ) {
+                                        Text(
+                                            hwType.connectionMethod,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Master fingerprint
+                            uiState.masterFingerprint?.let { fp ->
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row {
+                                    Text("Master Fingerprint: ", style = MaterialTheme.typography.labelMedium)
+                                    Text(fp,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontFamily = FontFamily.Monospace
+                                        ))
+                                }
+                            }
+
+                            // Derivation path (from stored origin, not derived)
+                            uiState.storedDerivationPath?.let { path ->
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row {
+                                    Text("Origin Path: ", style = MaterialTheme.typography.labelMedium)
+                                    Text("m/$path",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontFamily = FontFamily.Monospace
+                                        ))
+                                }
+                            }
+
+                            // Script type (derived from descriptor prefix)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row {
+                                Text("Script Type: ", style = MaterialTheme.typography.labelMedium)
+                                val scriptType = when {
+                                    uiState.descriptor.startsWith("wpkh(") -> "Native SegWit (P2WPKH)"
+                                    uiState.descriptor.startsWith("tr(") -> "Taproot (P2TR)"
+                                    uiState.descriptor.startsWith("sh(wpkh(") -> "Nested SegWit (P2SH-P2WPKH)"
+                                    uiState.descriptor.startsWith("pkh(") -> "Legacy (P2PKH)"
+                                    uiState.descriptor.startsWith("wsh(") -> "SegWit Multisig (P2WSH)"
+                                    else -> "Unknown"
+                                }
+                                Text(scriptType, style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                     }
                 }

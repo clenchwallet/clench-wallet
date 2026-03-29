@@ -16,7 +16,10 @@ data class WalletData(
     val network: String = "mainnet",  // "mainnet" or "testnet"
     val preferredHardwareWallet: String? = null,
     val hasPassphrase: Boolean = false,
-    val identiconBytes: ByteArray? = null
+    val identiconBytes: ByteArray? = null,
+    val masterFingerprint: String? = null,    // e.g., "D3E95C19"
+    val derivationPath: String? = null,       // e.g., "84'/0'/0'"
+    val importedViaDevice: String? = null     // e.g., "COLDCARD_Q"
 )
 
 /**

@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
 import javax.inject.Inject
@@ -32,6 +33,9 @@ class WalletInfoViewModel @Inject constructor(
         val accountXpub: String = "",
         val xpubLabel: String = "zpub",
         val preferredHardwareWallet: String? = null,
+        val masterFingerprint: String? = null,        // stored HW fingerprint, e.g. "D3E95C19"
+        val storedDerivationPath: String? = null,     // stored HW derivation path
+        val importedViaDevice: String? = null,        // e.g. "COLDCARD_Q"
         val fingerprint: String = "",
         val fingerprintColors: List<Int> = emptyList(),
         val fingerprintBytes: ByteArray? = null,
@@ -92,6 +96,9 @@ class WalletInfoViewModel @Inject constructor(
                     accountXpub = xpub,
                     xpubLabel = xpubLabel,
                     preferredHardwareWallet = wallet.preferredHardwareWallet,
+                    masterFingerprint = wallet.masterFingerprint,
+                    storedDerivationPath = wallet.derivationPath,
+                    importedViaDevice = wallet.importedViaDevice,
                     fingerprint = fingerprint,
                     fingerprintColors = fingerprintColors,
                     fingerprintBytes = fpBytes,

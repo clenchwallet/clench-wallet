@@ -42,7 +42,8 @@ interface BitcoinRepository {
      */
     suspend fun importWatchOnly(
         name: String,
-        descriptor: String
+        descriptor: String,
+        deviceType: String? = null
     ): WalletData
 
     /**

@@ -93,7 +93,7 @@ object DatabaseModule {
         }
 
         return builder
-            .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4, ClenchDatabase.MIGRATION_4_5, ClenchDatabase.MIGRATION_5_6, ClenchDatabase.MIGRATION_6_7, ClenchDatabase.MIGRATION_7_8, ClenchDatabase.MIGRATION_8_9)
+            .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4, ClenchDatabase.MIGRATION_4_5, ClenchDatabase.MIGRATION_5_6, ClenchDatabase.MIGRATION_6_7, ClenchDatabase.MIGRATION_7_8, ClenchDatabase.MIGRATION_8_9, ClenchDatabase.MIGRATION_9_10)
             .fallbackToDestructiveMigration() // safety net for any future unhandled versions
             .build()
     }

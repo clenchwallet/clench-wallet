@@ -70,6 +70,16 @@ class BdkBitcoinRepository @Inject constructor(
     // Wallet entry with persister for persistence
     private data class WalletEntry(val wallet: Wallet, val persister: Persister)
 
+    /**
+     * Result of normalizing a descriptor input, including extracted key origin info.
+     */
+    private data class NormalizedDescriptor(
+        val externalDescriptor: String,
+        val changeDescriptor: String,
+        val masterFingerprint: String? = null,  // e.g., "D3E95C19"
+        val derivationPath: String? = null       // e.g., "84'/0'/0'"
+    )
+
     // In-memory wallet cache to avoid reopening SQLite on every call
     private val walletCache = ConcurrentHashMap<String, WalletEntry>()
 
@@ -260,12 +270,16 @@ class BdkBitcoinRepository @Inject constructor(
 
     override suspend fun importWatchOnly(
         name: String,
-        descriptor: String
+        descriptor: String,
+        deviceType: String?
     ): WalletData = withContext(Dispatchers.IO) {
         android.util.Log.d("BdkRepo", "importWatchOnly: name=$name input=(redacted)")
         // Normalize input — handle bare zpub/ypub/xpub and full descriptor strings
-        val (externalDescriptorStr, changeDescriptorStr) = normalizeDescriptor(descriptor.trim())
+        val normalized = normalizeDescriptor(descriptor.trim())
+        val externalDescriptorStr = normalized.externalDescriptor
+        val changeDescriptorStr = normalized.changeDescriptor
         android.util.Log.d("BdkRepo", "importWatchOnly: normalized external descriptor (redacted)")
+        android.util.Log.d("BdkRepo", "importWatchOnly: origin fingerprint=${normalized.masterFingerprint} path=${normalized.derivationPath} device=$deviceType")
 
         val network = activeNetwork()
         android.util.Log.d("BdkRepo", "importWatchOnly: network=$network")
@@ -308,7 +322,11 @@ class BdkBitcoinRepository @Inject constructor(
             isWatchOnly = true,
             isMultisig = false,
             createdAtEpochMs = System.currentTimeMillis(),
-            network = activeNetwork
+            network = activeNetwork,
+            masterFingerprint = normalized.masterFingerprint,
+            derivationPath = normalized.derivationPath,
+            importedViaDevice = deviceType,
+            preferredHardwareWallet = deviceType  // Set per-wallet HW preference at import time
         )
         walletDao.insert(walletEntity)
 
@@ -321,7 +339,11 @@ class BdkBitcoinRepository @Inject constructor(
             isWatchOnly = true,
             isMultisig = false,
             createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
-            network = activeNetwork
+            network = activeNetwork,
+            preferredHardwareWallet = deviceType,
+            masterFingerprint = normalized.masterFingerprint,
+            derivationPath = normalized.derivationPath,
+            importedViaDevice = deviceType
         )
     }
 
@@ -798,7 +820,10 @@ class BdkBitcoinRepository @Inject constructor(
                 createdAt = java.time.Instant.ofEpochMilli(entity.createdAtEpochMs),
                 network = entity.network,
                 preferredHardwareWallet = entity.preferredHardwareWallet,
-                hasPassphrase = entity.hasPassphrase
+                hasPassphrase = entity.hasPassphrase,
+                masterFingerprint = entity.masterFingerprint,
+                derivationPath = entity.derivationPath,
+                importedViaDevice = entity.importedViaDevice
             )
         }
     }
@@ -925,7 +950,10 @@ class BdkBitcoinRepository @Inject constructor(
             network = entity.network,
             preferredHardwareWallet = entity.preferredHardwareWallet,
             hasPassphrase = entity.hasPassphrase,
-            identiconBytes = entity.identiconBytes
+            identiconBytes = entity.identiconBytes,
+            masterFingerprint = entity.masterFingerprint,
+            derivationPath = entity.derivationPath,
+            importedViaDevice = entity.importedViaDevice
         )
     }
 
@@ -1277,6 +1305,24 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         android.util.Log.d("BdkRepo", "createPsbt: built PSBT for ${if (isWatchOnly) "watch-only" else "full"} wallet, base64 len=${psbt.serialize().length}")
+
+        // Log PSBT origin info for debugging — helps verify hardware wallet compatibility
+        try {
+            val psbtJson = org.json.JSONObject(psbt.jsonSerialize())
+            val inputs = psbtJson.optJSONArray("inputs")
+            if (inputs != null && inputs.length() > 0) {
+                val firstInput = inputs.getJSONObject(0)
+                val bip32 = firstInput.optJSONArray("bip32_derivation")
+                    ?: firstInput.optJSONArray("bip32_derivations")
+                if (bip32 != null && bip32.length() > 0) {
+                    android.util.Log.d("BdkRepo", "createPsbt: bip32_derivation[0] = ${bip32.getJSONObject(0)}")
+                } else {
+                    android.util.Log.d("BdkRepo", "createPsbt: no bip32_derivation in first input")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.d("BdkRepo", "createPsbt: could not log bip32_derivation: ${e.message}")
+        }
 
         // Return base64-encoded PSBT
         psbt.serialize()
@@ -1630,9 +1676,9 @@ class BdkBitcoinRepository @Inject constructor(
         return "$protocol://$host:${config.port}"
     }
 
-    // Normalize watch-only input into a pair of (externalDescriptor, changeDescriptor) strings.
+    // Normalize watch-only input into descriptors + extracted origin info.
     // Handles zpub, ypub, xpub, and full descriptor strings.
-    private fun normalizeDescriptor(input: String): Pair<String, String> {
+    private fun normalizeDescriptor(input: String): NormalizedDescriptor {
         // Already a full descriptor string — but may still contain a zpub/ypub that needs converting
         if (input.startsWith("wpkh(") || input.startsWith("pkh(") ||
             input.startsWith("sh(wpkh(") || input.startsWith("tr(")) {
@@ -1649,7 +1695,15 @@ class BdkBitcoinRepository @Inject constructor(
                 converted.trimEnd(')') + "/0/*)"
             } else converted
             val change = external.replace("/0/*", "/1/*")
-            return Pair(external, change)
+            // Extract origin info from full descriptor
+            val originRegexInner = Regex("""\[([0-9a-fA-F]{8})/([^\]]+)\]""")
+            val originMatchInner = originRegexInner.find(external)
+            return NormalizedDescriptor(
+                externalDescriptor = external,
+                changeDescriptor = change,
+                masterFingerprint = originMatchInner?.groupValues?.get(1)?.uppercase(),
+                derivationPath = originMatchInner?.groupValues?.get(2)?.replace("h", "'")
+            )
         }
 
         // Key with origin info: [fingerprint/path]zpub... or [fingerprint/path]xpub...
@@ -1679,9 +1733,25 @@ class BdkBitcoinRepository @Inject constructor(
                 else -> Pair(keyPart, "wpkh")
             }
 
+            // Extract fingerprint and path from the origin bracket
+            val fpPathRegex = Regex("""\[([0-9a-fA-F]{8})/([^\]]+)\]""")
+            val fpPathMatch = fpPathRegex.find(origin)
+            val extractedFp = fpPathMatch?.groupValues?.get(1)?.uppercase()
+            val extractedPath = fpPathMatch?.groupValues?.get(2)?.replace("h", "'")
+
             return when (originScriptType) {
-                "sh_wpkh" -> Pair("sh(wpkh(${origin}${originXpub}/0/*))", "sh(wpkh(${origin}${originXpub}/1/*))")
-                else -> Pair("wpkh(${origin}${originXpub}/0/*)", "wpkh(${origin}${originXpub}/1/*)")
+                "sh_wpkh" -> NormalizedDescriptor(
+                    externalDescriptor = "sh(wpkh(${origin}${originXpub}/0/*))",
+                    changeDescriptor = "sh(wpkh(${origin}${originXpub}/1/*))",
+                    masterFingerprint = extractedFp,
+                    derivationPath = extractedPath
+                )
+                else -> NormalizedDescriptor(
+                    externalDescriptor = "wpkh(${origin}${originXpub}/0/*)",
+                    changeDescriptor = "wpkh(${origin}${originXpub}/1/*)",
+                    masterFingerprint = extractedFp,
+                    derivationPath = extractedPath
+                )
             }
         }
 
@@ -1705,9 +1775,16 @@ class BdkBitcoinRepository @Inject constructor(
             else -> Pair(input, "wpkh")  // try as-is
         }
 
+        // Bare keys don't have origin info (no fingerprint/path)
         return when (scriptType) {
-            "sh_wpkh" -> Pair("sh(wpkh($xpub/0/*))", "sh(wpkh($xpub/1/*))")
-            else -> Pair("wpkh($xpub/0/*)", "wpkh($xpub/1/*)")
+            "sh_wpkh" -> NormalizedDescriptor(
+                externalDescriptor = "sh(wpkh($xpub/0/*))",
+                changeDescriptor = "sh(wpkh($xpub/1/*))"
+            )
+            else -> NormalizedDescriptor(
+                externalDescriptor = "wpkh($xpub/0/*)",
+                changeDescriptor = "wpkh($xpub/1/*)"
+            )
         }
     }
 

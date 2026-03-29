@@ -15,7 +15,7 @@ import net.clench.wallet.data.local.entity.WalletEntity
 
 @Database(
     entities = [WalletEntity::class, TransactionEntity::class, UtxoMetadataEntity::class, TransactionLabelEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 abstract class ClenchDatabase : RoomDatabase() {
@@ -73,6 +73,15 @@ abstract class ClenchDatabase : RoomDatabase() {
                         updatedAt INTEGER NOT NULL
                     )
                 """.trimIndent())
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Additive only — safe for existing wallets with real funds
+                database.execSQL("ALTER TABLE wallets ADD COLUMN masterFingerprint TEXT DEFAULT NULL")
+                database.execSQL("ALTER TABLE wallets ADD COLUMN derivationPath TEXT DEFAULT NULL")
+                database.execSQL("ALTER TABLE wallets ADD COLUMN importedViaDevice TEXT DEFAULT NULL")
             }
         }
 
