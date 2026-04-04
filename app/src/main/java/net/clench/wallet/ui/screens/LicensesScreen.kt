@@ -50,6 +50,18 @@ fun LicensesScreen(onBack: () -> Unit) {
                 
                 Room Persistence Library — Apache 2.0
                 https://developer.android.com/jetpack/androidx/releases/room
+                
+                SQLCipher for Android — BSD License
+                https://github.com/sqlcipher/android-database-sqlcipher
+                
+                Hummingbird (BC-UR) — Apache 2.0
+                https://github.com/sparrowwallet/hummingbird
+                
+                CameraX — Apache 2.0
+                https://developer.android.com/jetpack/androidx/releases/camera
+                
+                Kotlinx Coroutines — Apache 2.0
+                https://github.com/Kotlin/kotlinx.coroutines
             """.trimIndent()
 
             Text(
