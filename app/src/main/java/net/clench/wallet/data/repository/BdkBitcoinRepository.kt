@@ -67,6 +67,12 @@ class BdkBitcoinRepository @Inject constructor(
     private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory
 ) : BitcoinRepository {
 
+    // [S-4] SECURITY: Gate sensitive debug logging in release builds.
+    // In release, suppress logs that would expose wallet metadata, addresses, txids,
+    // connection details, or recovery internals. Keep non-sensitive operational logs.
+    private val logSensitive = android.util.Log.isLoggable("BdkRepo", android.util.Log.DEBUG)
+        && (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
     // Wallet entry with persister for persistence
     private data class WalletEntry(val wallet: Wallet, val persister: Persister)
 
@@ -273,16 +279,23 @@ class BdkBitcoinRepository @Inject constructor(
         descriptor: String,
         deviceType: String?
     ): WalletData = withContext(Dispatchers.IO) {
-        android.util.Log.d("BdkRepo", "importWatchOnly: name=$name input=(redacted)")
+        // [S-4] Gate: wallet name and import details
+        if (logSensitive) {
+            android.util.Log.d("BdkRepo", "importWatchOnly: name=$name input=(redacted)")
+        }
         // Normalize input — handle bare zpub/ypub/xpub and full descriptor strings
         val normalized = normalizeDescriptor(descriptor.trim())
         val externalDescriptorStr = normalized.externalDescriptor
         val changeDescriptorStr = normalized.changeDescriptor
-        android.util.Log.d("BdkRepo", "importWatchOnly: normalized external descriptor (redacted)")
-        android.util.Log.d("BdkRepo", "importWatchOnly: origin fingerprint=${normalized.masterFingerprint} path=${normalized.derivationPath} device=$deviceType")
+        if (logSensitive) {
+            android.util.Log.d("BdkRepo", "importWatchOnly: normalized external descriptor (redacted)")
+            android.util.Log.d("BdkRepo", "importWatchOnly: origin fingerprint=${normalized.masterFingerprint} path=${normalized.derivationPath} device=$deviceType")
+        }
 
         val network = activeNetwork()
-        android.util.Log.d("BdkRepo", "importWatchOnly: network=$network")
+        if (logSensitive) {
+            android.util.Log.d("BdkRepo", "importWatchOnly: network=$network")
+        }
         val externalDescriptor = try {
             Descriptor(externalDescriptorStr, network)
         } catch (e: Exception) {
@@ -389,10 +402,16 @@ class BdkBitcoinRepository @Inject constructor(
 
             // Build Electrum connection
             val connectionStr = buildElectrumUrl(effectiveConfig)
-            android.util.Log.d("BdkRepo", "syncWallet: url=${effectiveConfig.serverUrl}, port=${effectiveConfig.port}, ssl=${effectiveConfig.useSsl}, custom=${effectiveConfig.isCustom}, tor=${effectiveConfig.useTor}, pinnedCert=${effectiveConfig.pinnedCert != null}")
+            // [S-4] Gate: server connection details are sensitive (host reconnaissance)
+            if (logSensitive) {
+                android.util.Log.d("BdkRepo", "syncWallet: url=${effectiveConfig.serverUrl}, port=${effectiveConfig.port}, ssl=${effectiveConfig.useSsl}, custom=${effectiveConfig.isCustom}, tor=${effectiveConfig.useTor}, pinnedCert=${effectiveConfig.pinnedCert != null}")
+            }
 
             // Load wallet first (fast, local operation)
-            android.util.Log.d("BdkRepo", "syncWallet: loading wallet $walletId")
+            // [S-4] Gate: wallet ID exposure
+            if (logSensitive) {
+                android.util.Log.d("BdkRepo", "syncWallet: loading wallet $walletId")
+            }
             val entry = loadWallet(walletId)
             val wallet = entry.wallet
             android.util.Log.d("BdkRepo", "syncWallet: wallet loaded OK")
@@ -405,7 +424,10 @@ class BdkBitcoinRepository @Inject constructor(
             try {
                 // Create ElectrumClient via connection factory (handles TLS pinning + Tor relay)
                 val resolved = electrumConnectionFactory.resolveConnection(effectiveConfig)
-                android.util.Log.d("BdkRepo", "syncWallet: creating ElectrumClient mode=${resolved.mode} (timeout=${timeoutMs}ms)")
+                // [S-4] Gate: connection mode details
+                if (logSensitive) {
+                    android.util.Log.d("BdkRepo", "syncWallet: creating ElectrumClient mode=${resolved.mode} (timeout=${timeoutMs}ms)")
+                }
                 val connectFuture = executor.submit(java.util.concurrent.Callable {
                     electrumConnectionFactory.createConnection(effectiveConfig)
                 })
@@ -461,7 +483,10 @@ class BdkBitcoinRepository @Inject constructor(
             // IMPORTANT: Wallet's own transactions are stale for wallets that haven't received funds recently
             // (e.g. a 2022 wallet shows 66 confs instead of ~184,000). Always fetch current tip first.
             val transactions = wallet.transactions()
-            android.util.Log.d("BdkRepo", "syncWallet: got ${transactions.size} transactions")
+            // [S-4] Gate: tx count reveals wallet activity level
+            if (logSensitive) {
+                android.util.Log.d("BdkRepo", "syncWallet: got ${transactions.size} transactions")
+            }
             
             // Priority 1: Try mempool.space API for current tip height
             var tipHeight: UInt = 0u
@@ -510,15 +535,22 @@ class BdkBitcoinRepository @Inject constructor(
                         val ts = pos.confirmationBlockTime.confirmationTime.toLong() * 1000L
                         val txHeight = pos.confirmationBlockTime.blockId.height
                         val confs = if (tipHeight >= txHeight) (tipHeight - txHeight + 1u).toInt() else 1
-                        android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... CONFIRMED height=$txHeight confs=$confs")
+                        // [S-4] Gate: txid fragments expose wallet activity
+                        if (logSensitive) {
+                            android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... CONFIRMED height=$txHeight confs=$confs")
+                        }
                         Pair(ts, confs)
                     }
                     is ChainPosition.Unconfirmed -> {
-                        android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNCONFIRMED lastSeen=${pos.timestamp}")
+                        if (logSensitive) {
+                            android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNCONFIRMED lastSeen=${pos.timestamp}")
+                        }
                         Pair(pos.timestamp?.let { it.toLong() * 1000L }, 0)
                     }
                     else -> {
-                        android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNKNOWN pos=${pos.javaClass.simpleName}")
+                        if (logSensitive) {
+                            android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNKNOWN pos=${pos.javaClass.simpleName}")
+                        }
                         Pair(null, 0)
                     }
                 }
@@ -555,7 +587,10 @@ class BdkBitcoinRepository @Inject constructor(
                 }
 
                 if (trulyUnknown.isNotEmpty()) {
-                    android.util.Log.d("BdkRepo", "Watch-only: ${unconfirmedTxs.size} unconfirmed, ${trulyUnknown.size} need lookup")
+                    // [S-4] Gate: tx count exposure
+                    if (logSensitive) {
+                        android.util.Log.d("BdkRepo", "Watch-only: ${unconfirmedTxs.size} unconfirmed, ${trulyUnknown.size} need lookup")
+                    }
                     // Batch query via raw Electrum protocol (single socket, all txs)
                     val txConfirmations = batchElectrumTxLookup(trulyUnknown.map { it.txid }, connectionStr, tipHeight)
                     transactionEntities.map { txEntity ->
@@ -596,7 +631,10 @@ class BdkBitcoinRepository @Inject constructor(
             // Return balance
             val balance = wallet.balance()
             val txCount = transactions.size
-            android.util.Log.d("BdkRepo", "syncWallet: balance confirmed=${balance.confirmed.toSat()} trustedPending=${balance.trustedPending.toSat()} untrustedPending=${balance.untrustedPending.toSat()} immature=${balance.immature.toSat()} txCount=$txCount")
+            // [S-4] Gate: balance + tx count expose wallet activity and funds
+            if (logSensitive) {
+                android.util.Log.d("BdkRepo", "syncWallet: balance confirmed=${balance.confirmed.toSat()} trustedPending=${balance.trustedPending.toSat()} untrustedPending=${balance.untrustedPending.toSat()} immature=${balance.immature.toSat()} txCount=$txCount")
+            }
             WalletBalance(
                 confirmedSat = balance.confirmed.toSat().toLong(),
                 trustedPendingSat = balance.trustedPending.toSat().toLong(),
@@ -805,9 +843,11 @@ class BdkBitcoinRepository @Inject constructor(
         val network = settingsManager.getNetwork()
         val allWallets = walletDao.getAll()
         val networkWallets = walletDao.getAllByNetwork(network)
-        android.util.Log.d("BdkRepo", "listWallets: network=$network total=${allWallets.size} forNetwork=${networkWallets.size}")
-        allWallets.forEach { w ->
-            android.util.Log.d("BdkRepo", "  wallet: id=${w.id.take(8)} name=${w.name} network=${w.network} watchOnly=${w.isWatchOnly}")
+        if (logSensitive) {
+            android.util.Log.d("BdkRepo", "listWallets: network=$network total=${allWallets.size} forNetwork=${networkWallets.size}")
+            allWallets.forEach { w ->
+                android.util.Log.d("BdkRepo", "  wallet: id=${w.id.take(8)} name=${w.name} network=${w.network} watchOnly=${w.isWatchOnly}")
+            }
         }
         return networkWallets.map { entity ->
             WalletData(
@@ -865,7 +905,10 @@ class BdkBitcoinRepository @Inject constructor(
             wallet.derivationIndex(keychain)?.toInt() ?: 0
         } catch (_: Exception) { 0 }
 
-        android.util.Log.d("BdkRepo", "getAddresses: keychain=$keychain lastRevealed=$lastRevealedIndex unused=${unusedAddresses.size}")
+        // [S-4] Gate: keychain and index info exposure
+        if (logSensitive) {
+            android.util.Log.d("BdkRepo", "getAddresses: keychain=$keychain lastRevealed=$lastRevealedIndex unused=${unusedAddresses.size}")
+        }
 
         val addresses = mutableListOf<DomainAddress>()
         for (i in 0 until count) {
@@ -878,7 +921,10 @@ class BdkBitcoinRepository @Inject constructor(
             //   - address in unusedAddresses = definitively not used
             val nothingRevealed = lastRevealedIndex == 0 && unusedAddresses.isEmpty()
             val isUsed = !nothingRevealed && i <= lastRevealedIndex && addrStr !in unusedAddresses
-            if (i < 5) android.util.Log.d("BdkRepo", "  addr[$i]=$addrStr revealed=${i <= lastRevealedIndex} inUnused=${addrStr in unusedAddresses} used=$isUsed")
+            // [S-4] Gate: address exposure (even partial addresses reveal wallet activity)
+            if (logSensitive && i < 5) {
+                android.util.Log.d("BdkRepo", "  addr[$i]=$addrStr revealed=${i <= lastRevealedIndex} inUnused=${addrStr in unusedAddresses} used=$isUsed")
+            }
             addresses.add(
                 DomainAddress(
                     address = addrStr,
@@ -1131,7 +1177,10 @@ class BdkBitcoinRepository @Inject constructor(
         val entry = loadWallet(walletId)
         val wallet = entry.wallet
         val utxos = wallet.listUnspent()
-        android.util.Log.d("BdkRepo", "listUnspent: walletId=${walletId.take(8)} rawUtxoCount=${utxos.size} unlocked=${unlockedPassphraseWallets.contains(walletId)}")
+        // [S-4] Gate: UTXO count and unlock status expose wallet balance info
+        if (logSensitive) {
+            android.util.Log.d("BdkRepo", "listUnspent: walletId=${walletId.take(8)} rawUtxoCount=${utxos.size} unlocked=${unlockedPassphraseWallets.contains(walletId)}")
+        }
 
         // Calculate tip height for confirmation count
         // Priority 1: Try mempool.space API for current tip height
@@ -1650,14 +1699,17 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         // Debug: log descriptor and first address
-        android.util.Log.d("BdkRepo", "loadWallet: id=$walletId network=${walletEntity.network} watchOnly=${walletEntity.isWatchOnly}")
-        android.util.Log.d("BdkRepo", "loadWallet: descriptor=(redacted)")
-        android.util.Log.d("BdkRepo", "loadWallet: changeDesc=(redacted)")
-        try {
-            val addr0 = wallet.revealAddressesTo(org.bitcoindevkit.KeychainKind.EXTERNAL, 0u)
-            android.util.Log.d("BdkRepo", "loadWallet: addr[0]=${addr0}")
-        } catch (e: Exception) {
-            android.util.Log.w("BdkRepo", "loadWallet: could not derive addr[0]: ${e.message}")
+        // [S-4] Gate: wallet ID and address exposure
+        if (logSensitive) {
+            android.util.Log.d("BdkRepo", "loadWallet: id=$walletId network=${walletEntity.network} watchOnly=${walletEntity.isWatchOnly}")
+            android.util.Log.d("BdkRepo", "loadWallet: descriptor=(redacted)")
+            android.util.Log.d("BdkRepo", "loadWallet: changeDesc=(redacted)")
+            try {
+                val addr0 = wallet.revealAddressesTo(org.bitcoindevkit.KeychainKind.EXTERNAL, 0u)
+                android.util.Log.d("BdkRepo", "loadWallet: addr[0]=${addr0}")
+            } catch (e: Exception) {
+                android.util.Log.w("BdkRepo", "loadWallet: could not derive addr[0]: ${e.message}")
+            }
         }
 
         // Cache and return

@@ -53,11 +53,19 @@ object DatabaseModule {
                     testDb.close()
                     android.util.Log.d("ClenchDB", "Encrypted DB verified OK")
                 } catch (e: Exception) {
-                    android.util.Log.e("ClenchDB", "DB verification FAILED (${e.javaClass.simpleName}: ${e.message}) — DELETING DATABASE")
-                    dbFile.delete()
-                    context.getDatabasePath("clench.db-journal").delete()
-                    context.getDatabasePath("clench.db-shm").delete()
-                    context.getDatabasePath("clench.db-wal").delete()
+                    // [S-2] SECURITY: in release builds, fail-closed rather than destructively
+                    // deleting the database on verification failure. An unreadable encrypted DB
+                    // should surface as a recovery-required state, not silently delete wallet data.
+                    if (isDebug) {
+                        android.util.Log.w("ClenchDB", "DB verification FAILED in debug — deleting (${e.javaClass.simpleName})")
+                        dbFile.delete()
+                        context.getDatabasePath("clench.db-journal").delete()
+                        context.getDatabasePath("clench.db-shm").delete()
+                        context.getDatabasePath("clench.db-wal").delete()
+                    } else {
+                        android.util.Log.e("ClenchDB", "DB verification FAILED in release — failing closed.")
+                        throw e
+                    }
                 }
             }
         }
@@ -94,7 +102,14 @@ object DatabaseModule {
 
         return builder
             .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4, ClenchDatabase.MIGRATION_4_5, ClenchDatabase.MIGRATION_5_6, ClenchDatabase.MIGRATION_6_7, ClenchDatabase.MIGRATION_7_8, ClenchDatabase.MIGRATION_8_9, ClenchDatabase.MIGRATION_9_10)
-            .fallbackToDestructiveMigration() // safety net for any future unhandled versions
+            // [S-1] SECURITY: fail-closed on unknown schema versions. In debug, -1 means Room
+            // will use destructive migration as a dev convenience. In release, -1 still allows
+            // fallback (Room interprets -1 as "no max"), so we explicitly set the max to
+            // schema version 9 (current) — any upgrade from 9→10+ will throw instead of
+            // destructively resetting.
+            // Destructive migration permanently deletes wallet metadata on any unhandled schema version.
+            // In release builds, fail closed: surface an explicit recovery-needed state instead.
+            .setMaxUnsupportedDbVersion(if (isDebug) -1 else 9)
             .build()
     }
 

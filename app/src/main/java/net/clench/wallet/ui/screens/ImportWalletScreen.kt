@@ -299,21 +299,48 @@ fun ImportWalletScreen(
 
                 AnimatedVisibility(visible = passphraseExpanded) {
                     Column(modifier = Modifier.padding(top = 8.dp)) {
-                        // Warning about passphrase for import
+                        // [H-4] Strengthened passphrase warning for import screen
                         Card(
                             colors = CardDefaults.cardColors(
-                                containerColor = Color(0xFFFFF3E0)
+                                containerColor = Color(0xFFFFEBEE)  // Red tint — more alarming than orange
                             ),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                "Any passphrase opens a valid wallet — there is no 'wrong passphrase' error by design. " +
-                                "Check the fingerprint and identicon below match what you see every time you unlock.",
-                                modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFF5D4037)
-                            )
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    "⚠️  WARNING: Passphrase wallets cannot be recovered.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB71C1C)
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    "• Any passphrase opens a valid wallet — there is NO wrong passphrase error by design.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF5D4037)
+                                )
+                                Text(
+                                    "• Your funds can ONLY be accessed with the exact same passphrase.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF5D4037)
+                                )
+                                Text(
+                                    "• If you forget the passphrase, ALL FUNDS ARE PERMANENTLY LOST.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB71C1C)
+                                )
+                                Text(
+                                    "• Check the fingerprint and identicon below — they must match EVERY time you unlock.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF5D4037)
+                                )
+                                Text(
+                                    "• Store the passphrase separately from the seed phrase.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF5D4037)
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -357,8 +384,56 @@ fun ImportWalletScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // [H-4] Confirmation dialog for passphrase wallet imports
+            var showPassphraseConfirmDialog by remember { mutableStateOf(false) }
+
+            if (showPassphraseConfirmDialog) {
+                AlertDialog(
+                    onDismissRequest = { showPassphraseConfirmDialog = false },
+                    title = { Text("Import Passphrase Wallet?") },
+                    text = {
+                        Column {
+                            Text("You are about to import a wallet with a passphrase.")
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "⚠️  This wallet cannot be recovered without the passphrase.",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Make sure you:")
+                            Text("• Have securely stored the passphrase separately")
+                            Text("• Will remember it or have a backup")
+                            Text("• Understand there is NO passphrase recovery")
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showPassphraseConfirmDialog = false
+                                viewModel.importWallet(onWalletImported)
+                            }
+                        ) {
+                            Text("I Understand — Import")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showPassphraseConfirmDialog = false }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
+
             Button(
-                onClick = { viewModel.importWallet(onWalletImported) },
+                onClick = {
+                    // [H-4] Require confirmation before importing passphrase wallets
+                    if (isSeedPhrase && uiState.passphrase.isNotBlank() && !hardwareWalletMode) {
+                        showPassphraseConfirmDialog = true
+                    } else {
+                        viewModel.importWallet(onWalletImported)
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !uiState.isLoading
             ) {

@@ -22,6 +22,10 @@ class ClenchApplication : Application() {
     @Inject lateinit var walletDao: WalletDao
     @Inject lateinit var transactionDao: net.clench.wallet.data.local.dao.TransactionDao
 
+    // [S-4] Gate sensitive debug logging in release builds.
+    private val logSensitive = android.util.Log.isLoggable("ClenchApp", android.util.Log.DEBUG)
+        && (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
     override fun onCreate() {
         super.onCreate()
         installCrashHandler()
@@ -44,92 +48,80 @@ class ClenchApplication : Application() {
                 java.io.File(dbFile.path + "-wal").delete()
                 java.io.File(dbFile.path + "-shm").delete()
                 java.io.File(dbFile.path + "-journal").delete()
-                Log.d("ClenchApp", "Startup: wiped on-disk DB for passphrase wallet ${wallet.id}")
+                // [S-4] Gate: wallet ID exposure
+                if (logSensitive) {
+                    Log.d("ClenchApp", "Startup: wiped on-disk DB for passphrase wallet ${wallet.id}")
+                }
                 // Wipe Room transaction cache — same reason: real tx history must not be visible
                 // before the passphrase is entered
                 kotlinx.coroutines.runBlocking {
                     try { transactionDao.deleteForWallet(wallet.id) } catch (_: Exception) {}
                 }
-                Log.d("ClenchApp", "Startup: wiped Room tx cache for passphrase wallet ${wallet.id}")
+                if (logSensitive) {
+                    Log.d("ClenchApp", "Startup: wiped Room tx cache for passphrase wallet ${wallet.id}")
+                }
             }
         } catch (e: Exception) {
             Log.w("ClenchApp", "Passphrase wallet DB wipe failed (non-fatal): ${e.message}")
         }
 
-        // Recovery: rebuild Room wallet records from orphaned BDK wallet files
-        // This handles the case where SQLCipher migration wiped Room but BDK files + Keystore secrets survived
-        try {
-            recoverOrphanedWallets()
-        } catch (e: Exception) {
-            Log.w("ClenchApp", "Wallet recovery failed (non-fatal)", e)
-        }
+        // [H-3] Orphan wallet auto-recovery is disabled.
+        // We do not silently reconstruct wallet records on startup because that can
+        // misclassify passphrase wallets and create misleading state.
+        // If recovery tooling is ever added back, it should be explicit and user-driven.
     }
 
     /**
-     * Recover wallets that have BDK database files + Keystore secrets but no Room record.
-     * This can happen when the Room database is recreated (e.g., SQLCipher migration).
+     * Orphan wallet detection (no auto-recovery).
+     * Logs orphaned wallet DB files without modifying Room.
+     *
+     * This remains intentionally unused by default. Recovery for wallet state should be
+     * explicit and user-driven, especially for passphrase-backed wallets.
      */
+    @Suppress("UNUSED")
     private fun recoverOrphanedWallets() = runBlocking {
         val dbDir = getDatabasePath("clench.db").parentFile ?: return@runBlocking
         val walletFiles = dbDir.listFiles { f -> f.name.startsWith("wallet_") && f.name.endsWith(".db") } ?: return@runBlocking
 
         val existingIds = walletDao.getAll().map { it.id }.toSet()
-        var recovered = 0
+        var detected = 0
 
         for (file in walletFiles) {
             val walletId = file.name.removePrefix("wallet_").removeSuffix(".db")
-            if (walletId in existingIds) continue  // already in Room
+            if (walletId in existingIds) continue  // already in Room — not an orphan
 
             // Check if we have secrets for this wallet in Keystore
             val secretDescriptor = keystoreManager.getSecretDescriptor(walletId)
             val hasMnemonic = keystoreManager.hasMnemonic(walletId)
 
-            // Get the public descriptor — derive from secret if available
-            val publicDescriptor: String
-            val publicChangeDescriptor: String
-            val isWatchOnly: Boolean
+            // [H-3] Determine passphrase status safely.
+            // Passphrase wallets store mnemonic but NOT secret descriptors (derived on-the-fly).
+            // Regular (non-passphrase) wallets store BOTH mnemonic AND secret descriptors.
+            val isPassphraseWallet = hasMnemonic && secretDescriptor == null
+            val isRegularWallet = hasMnemonic && secretDescriptor != null
+            val isWatchOnly = !hasMnemonic && secretDescriptor != null
 
-            if (secretDescriptor != null) {
-                // Strip xprv to get public descriptor
-                publicDescriptor = secretDescriptor
-                    .replace(Regex("xprv[1-9A-HJ-NP-Za-km-z]+")) { key ->
-                        // Can't easily convert xprv→xpub without BDK, so store the secret descriptor
-                        // and let the app derive the public one on first sync
-                        key.value
-                    }
-                publicChangeDescriptor = keystoreManager.getSecretChangeDescriptor(walletId) ?: ""
-                isWatchOnly = false
-            } else {
-                // No secret descriptor — skip, we can't recover without keys
-                Log.w("ClenchApp", "Skipping orphan $walletId — no keystore secrets found")
-                continue
+            val walletType = when {
+                isPassphraseWallet -> "passphrase wallet"
+                isRegularWallet -> "regular wallet"
+                isWatchOnly -> "watch-only wallet"
+                else -> "unknown type"
             }
 
-            // Determine network from descriptor (testnet uses tprv/tpub)
-            val network = if (secretDescriptor.contains("tprv") || secretDescriptor.contains("tpub")) "testnet" else "mainnet"
-
-            // Check if wallet had a passphrase (we can't know for sure, default to false)
-            val hasPassphrase = false
-
-            val entity = WalletEntity(
-                id = walletId,
-                name = "Recovered Wallet",
-                descriptor = publicDescriptor,
-                changeDescriptor = publicChangeDescriptor,
-                isWatchOnly = isWatchOnly,
-                isMultisig = false,
-                createdAtEpochMs = file.lastModified(),
-                network = network,
-                hasPassphrase = hasPassphrase
-            )
-
-            walletDao.insert(entity)
-            recovered++
-            Log.i("ClenchApp", "Recovered orphaned wallet: $walletId (network=$network, watchOnly=$isWatchOnly)")
+            // [H-3] Do NOT auto-insert wallet records. Log only (when logSensitive).
+            // Passphrase wallets: cannot recover without the passphrase — user must re-unlock
+            // Regular wallets: user should re-import via seed phrase (safe and verified)
+            // Watch-only: user should re-import via descriptor
+            if (logSensitive) {
+                Log.w("ClenchApp", "Orphan detected: $walletId ($walletType, mtime=${file.lastModified()}) — " +
+                    "requires explicit re-import by user")
+            }
+            detected++
         }
 
-        if (recovered > 0) {
-            Log.i("ClenchApp", "Recovered $recovered orphaned wallet(s)")
+        if (detected > 0) {
+            // [S-4] Gate: count-only log, safe to keep
+            Log.i("ClenchApp", "Detected $detected orphaned wallet DB(s) — manual re-import required")
         }
     }
 
