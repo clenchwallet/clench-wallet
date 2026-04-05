@@ -331,6 +331,18 @@ fun ImportWalletScreen(
                                     color = Color(0xFFB71C1C)
                                 )
                                 Text(
+                                    "• Clench NEVER stores your passphrase for you.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF5D4037)
+                                )
+                                Text(
+                                    "• This is NOT a password reset feature — a different passphrase creates a different wallet.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF5D4037)
+                                )
+                                Text(
                                     "• Check the fingerprint and identicon below — they must match EVERY time you unlock.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color(0xFF5D4037)
@@ -402,8 +414,10 @@ fun ImportWalletScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text("Make sure you:")
+                            Text("• Understand Clench will NOT store this passphrase")
                             Text("• Have securely stored the passphrase separately")
-                            Text("• Will remember it or have a backup")
+                            Text("• Know this is NOT a password reset flow")
+                            Text("• Understand a different passphrase opens a different wallet")
                             Text("• Understand there is NO passphrase recovery")
                         }
                     },
