@@ -11,9 +11,9 @@ This document describes the security hardening implemented in this release, addr
 
 **Problem:** Room's `fallbackToDestructiveMigration()` was enabled in release builds, causing the database to be wiped and recreated if any migration was missing or failed. This could silently delete all wallet metadata and secrets on first migration failure.
 
-**Fix:** Replaced with `setMaxUnsupportedDbVersion(if (isDebug) -1 else 9)`. In release builds, this fails closed — any attempt to open a database with schema version 10+ throws instead of destructively resetting. Debug builds retain dev-friendly destructive migration.
+**Fix:** Removed `fallbackToDestructiveMigration()` entirely. With the Room version used by this repo, the compatible fail-closed approach is to rely on explicit migrations only. If a future schema upgrade is added without a corresponding migration, Room throws instead of destructively resetting.
 
-**Tradeoff:** If a future schema upgrade is added without a corresponding migration, release builds will throw rather than auto-recover. This is intentional — it surfaces the missing migration as an error rather than silently wiping data.
+**Tradeoff:** If a future schema upgrade is added without a corresponding migration, builds will fail closed at runtime rather than auto-recover. This is intentional — it surfaces the missing migration as an error rather than silently wiping data.
 
 ---
 
@@ -75,7 +75,7 @@ This document describes the security hardening implemented in this release, addr
 
 ## Verification Checklist
 
-- [x] `fallbackToDestructiveMigration()` replaced with fail-closed `setMaxUnsupportedDbVersion`
+- [x] `fallbackToDestructiveMigration()` removed so Room fails closed on missing migrations
 - [x] DB verification failure no longer deletes database in release
 - [x] Orphan recovery safe-passphrase detection prevents misclassification
 - [x] Sensitive logging gated behind `FLAG_DEBUGGABLE` check

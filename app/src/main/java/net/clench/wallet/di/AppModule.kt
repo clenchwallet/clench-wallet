@@ -102,14 +102,9 @@ object DatabaseModule {
 
         return builder
             .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4, ClenchDatabase.MIGRATION_4_5, ClenchDatabase.MIGRATION_5_6, ClenchDatabase.MIGRATION_6_7, ClenchDatabase.MIGRATION_7_8, ClenchDatabase.MIGRATION_8_9, ClenchDatabase.MIGRATION_9_10)
-            // [S-1] SECURITY: fail-closed on unknown schema versions. In debug, -1 means Room
-            // will use destructive migration as a dev convenience. In release, -1 still allows
-            // fallback (Room interprets -1 as "no max"), so we explicitly set the max to
-            // schema version 9 (current) — any upgrade from 9→10+ will throw instead of
-            // destructively resetting.
-            // Destructive migration permanently deletes wallet metadata on any unhandled schema version.
-            // In release builds, fail closed: surface an explicit recovery-needed state instead.
-            .setMaxUnsupportedDbVersion(if (isDebug) -1 else 9)
+            // [S-1] SECURITY: remove destructive migration fallback entirely.
+            // With Room 2.6.1, the compatible fail-closed approach is simply to avoid
+            // fallbackToDestructiveMigration() so missing/invalid migrations throw.
             .build()
     }
 
