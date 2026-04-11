@@ -393,6 +393,11 @@ class ElectrumConnectionFactory @Inject constructor(
 
         return try {
             val sslSocket = sslSocketFactory.createSocket(socket, host, socket.port, true) as javax.net.ssl.SSLSocket
+            if (pinnedCertDer == null) {
+                val sslParameters = sslSocket.sslParameters
+                sslParameters.endpointIdentificationAlgorithm = "HTTPS"
+                sslSocket.sslParameters = sslParameters
+            }
             sslSocket.startHandshake()
             Log.d(TAG, "TLS handshake complete with $host (pinned=${pinnedCertDer != null})")
             sslSocket
