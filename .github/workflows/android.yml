@@ -81,23 +81,30 @@ jobs:
           make_latest: true
 
       - name: Upload APK artifact
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: clench-${{ steps.version.outputs.VERSION }}-debug
           path: app/build/outputs/apk/debug/clench-${{ steps.version.outputs.VERSION }}-debug.apk
+          retention-days: 3
 
       - name: Upload Test Results
-        if: always()
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: app/build/reports/tests/
           if-no-files-found: warn
+          retention-days: 3
 
       - name: Upload Lint Results
-        if: always()
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: lint-results
           path: app/build/reports/lint-results-debug.html
           if-no-files-found: warn
+          retention-days: 3
