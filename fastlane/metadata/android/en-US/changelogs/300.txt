@@ -2,14 +2,13 @@ v0.3.0 — Initial public release
 
 • Single-sig and multisig wallet creation
 • Hardware wallet support: SeedSigner, Keystone, Passport, Jade (QR), Coldcard (NFC)
-• PayJoin (BIP-78) support
-• Silent Payments (BIP-352) support
-• Tor integration (SOCKS5 proxy)
+• Tor-enabled Electrum support (SOCKS5 proxy)
 • Custom Electrum server configuration
 • Coin control with UTXO freezing
 • Batch sending to multiple recipients
 • Transaction labeling with BIP-329 export/import
 • Replace-By-Fee (RBF) fee bumping
+• Sweep functionality
 • Biometric and PIN authentication
 • AES-256-GCM encrypted key storage
 • SQLCipher database encryption

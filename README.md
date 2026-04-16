@@ -18,11 +18,10 @@ A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](http
 - Full PSBT (BIP-174) workflow
 
 ### Privacy
-- **PayJoin (BIP-78)** — breaks common-input-ownership heuristic
-- **Silent Payments (BIP-352)** — send to static addresses without address reuse
-- **Tor support** — route all connections through SOCKS5 proxy
+- **Tor support for Electrum** — route wallet sync traffic through a SOCKS5 proxy
 - **Custom Electrum server** — connect to your own node
 - **Coin control** — manual UTXO selection and freezing
+- **No analytics** — no third-party tracking SDKs
 
 ### Transactions
 - Batch sending (multiple recipients, single transaction)

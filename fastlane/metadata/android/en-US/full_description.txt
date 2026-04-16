@@ -16,17 +16,16 @@ Clench works with the hardware wallets you already own:
 
 🕵️ PRIVACY
 Privacy isn't a feature, it's a right:
-• PayJoin (BIP-78) — breaks the common-input-ownership heuristic that chain analysis firms rely on
-• Silent Payments (BIP-352) — receive to a static address without address reuse
-• Tor support — route all network traffic through SOCKS5 proxy
+• Tor-enabled Electrum support via SOCKS5 proxy
 • Connect to your own Electrum server — don't trust anyone else's
 • Coin control — manually select and freeze UTXOs
+• No analytics, no tracking, no third-party SDKs
 
 💸 TRANSACTIONS
 • Batch sending — pay multiple recipients in a single transaction, saving fees
 • Transaction labeling with BIP-329 export/import
 • Replace-By-Fee (RBF) fee bumping for stuck transactions
-• Sweep functionality to empty wallets
+• Sweep functionality to empty a wallet into a destination address
 • Smart fee estimation via Electrum with mempool.space fallback
 
 🛡️ SECURITY
