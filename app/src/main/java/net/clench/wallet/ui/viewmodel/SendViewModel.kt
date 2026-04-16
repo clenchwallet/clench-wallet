@@ -11,6 +11,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.network.TorAwareHttpClient
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
@@ -30,7 +31,8 @@ data class RecipientEntry(
 class SendViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
     private val settingsManager: SettingsManager,
-    private val psbtStore: PsbtStore
+    private val psbtStore: PsbtStore,
+    private val torAwareHttpClient: TorAwareHttpClient
 ) : ViewModel() {
 
     data class UiState(
@@ -233,20 +235,9 @@ class SendViewModel @Inject constructor(
         }
     }
 
-    private fun fetchUrl(url: String): String {
-        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-        conn.connectTimeout = 5_000
-        conn.readTimeout = 10_000
-        return try {
-            conn.inputStream.bufferedReader().readText()
-        } finally {
-            conn.disconnect()
-        }
-    }
-
     private fun fetchPriceFromCoinbase(): Double? {
         return try {
-            val json = fetchUrl("https://api.coinbase.com/v2/prices/BTC-USD/spot")
+            val json = torAwareHttpClient.fetchText("https://api.coinbase.com/v2/prices/BTC-USD/spot")
             JSONObject(json).getJSONObject("data").getDouble("amount")
         } catch (e: Exception) {
             android.util.Log.w("SendVM", "Coinbase price failed: ${e.message}")
@@ -256,7 +247,7 @@ class SendViewModel @Inject constructor(
 
     private fun fetchPriceFromMempoolSpace(): Double? {
         return try {
-            val json = fetchUrl("https://mempool.space/api/v1/prices")
+            val json = torAwareHttpClient.fetchText("https://mempool.space/api/v1/prices")
             JSONObject(json).getDouble("USD")
         } catch (e: Exception) {
             android.util.Log.w("SendVM", "mempool.space price failed: ${e.message}")
@@ -266,7 +257,7 @@ class SendViewModel @Inject constructor(
 
     private fun fetchPriceFromCoinGecko(): Double? {
         return try {
-            val json = fetchUrl("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
+            val json = torAwareHttpClient.fetchText("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
             JSONObject(json).getJSONObject("bitcoin").getDouble("usd")
         } catch (e: Exception) {
             android.util.Log.w("SendVM", "CoinGecko price failed: ${e.message}")

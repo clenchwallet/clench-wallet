@@ -19,12 +19,12 @@ import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.entity.TransactionLabelEntity
+import net.clench.wallet.data.network.TorAwareHttpClient
 import net.clench.wallet.data.util.Bip329
 import net.clench.wallet.domain.model.TransactionItem
 import net.clench.wallet.domain.repository.BitcoinRepository
 import org.json.JSONObject
 import java.io.File
-import java.net.URL
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -37,7 +37,8 @@ enum class BalanceUnit { SATS, BTC, USD, HIDDEN }
 class HomeViewModel @Inject constructor(
     internal val bitcoinRepository: BitcoinRepository,
     internal val settingsManager: SettingsManager,
-    private val transactionLabelDao: TransactionLabelDao
+    private val transactionLabelDao: TransactionLabelDao,
+    private val torAwareHttpClient: TorAwareHttpClient
 ) : ViewModel() {
 
     data class UiState(
@@ -127,8 +128,10 @@ class HomeViewModel @Inject constructor(
                 // Then sync in background
                 syncWallet(walletId)
 
-                // Fetch BTC price for USD display
-                fetchBtcPrice()
+                // H-5: Only auto-fetch BTC price on load if price display is enabled AND unit is USD
+                if (settingsManager.isBtcPriceEnabled() && effectiveUnit == BalanceUnit.USD) {
+                    fetchBtcPrice()
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
@@ -161,8 +164,8 @@ class HomeViewModel @Inject constructor(
                 BalanceUnit.USD -> BalanceUnit.HIDDEN
                 BalanceUnit.HIDDEN -> BalanceUnit.SATS
             }
-            // Refresh price when cycling to USD if stale
-            if (next == BalanceUnit.USD) {
+            // H-5: Refresh price when cycling to USD if BTC price is enabled
+            if (next == BalanceUnit.USD && settingsManager.isBtcPriceEnabled()) {
                 fetchBtcPrice()
             }
             settingsManager.setBalanceUnit(next.name)
@@ -205,11 +208,7 @@ class HomeViewModel @Inject constructor(
 
     private fun fetchPriceFromCoinbase(): Double? {
         return try {
-            val conn = URL("https://api.coinbase.com/v2/prices/BTC-USD/spot").openConnection() as java.net.HttpURLConnection
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 5_000
-            val json = conn.inputStream.bufferedReader().readText()
-            conn.disconnect()
+            val json = torAwareHttpClient.fetchText("https://api.coinbase.com/v2/prices/BTC-USD/spot", 5_000, 5_000)
             JSONObject(json).getJSONObject("data").getDouble("amount")
         } catch (e: Exception) {
             android.util.Log.w("HomeVM", "Coinbase price failed: ${e.message}")
@@ -219,11 +218,7 @@ class HomeViewModel @Inject constructor(
 
     private fun fetchPriceFromMempoolSpace(): Double? {
         return try {
-            val conn = URL("https://mempool.space/api/v1/prices").openConnection() as java.net.HttpURLConnection
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 5_000
-            val json = conn.inputStream.bufferedReader().readText()
-            conn.disconnect()
+            val json = torAwareHttpClient.fetchText("https://mempool.space/api/v1/prices", 5_000, 5_000)
             JSONObject(json).getDouble("USD")
         } catch (e: Exception) {
             android.util.Log.w("HomeVM", "mempool.space price failed: ${e.message}")
@@ -233,11 +228,7 @@ class HomeViewModel @Inject constructor(
 
     private fun fetchPriceFromCoinGecko(): Double? {
         return try {
-            val conn = URL("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd").openConnection() as java.net.HttpURLConnection
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 5_000
-            val json = conn.inputStream.bufferedReader().readText()
-            conn.disconnect()
+            val json = torAwareHttpClient.fetchText("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", 5_000, 5_000)
             JSONObject(json).getJSONObject("bitcoin").getDouble("usd")
         } catch (e: Exception) {
             android.util.Log.w("HomeVM", "CoinGecko price failed: ${e.message}")

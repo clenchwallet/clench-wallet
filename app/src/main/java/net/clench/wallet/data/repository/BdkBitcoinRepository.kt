@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.network.TorAwareHttpClient
 import net.clench.wallet.domain.model.ScriptType
 import net.clench.wallet.data.local.dao.TransactionDao
 import net.clench.wallet.data.local.dao.TransactionLabelDao
@@ -64,7 +65,8 @@ class BdkBitcoinRepository @Inject constructor(
     private val utxoMetadataDao: UtxoMetadataDao,
     private val keystoreManager: KeystoreManager,
     private val settingsManager: SettingsManager,
-    private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory
+    private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory,
+    private val torAwareHttpClient: TorAwareHttpClient
 ) : BitcoinRepository {
 
     // [S-4] SECURITY: Gate sensitive debug logging in release builds.
@@ -494,7 +496,7 @@ class BdkBitcoinRepository @Inject constructor(
                 try {
                     val isTestnet = settingsManager.isTestnet()
                     val baseUrl = if (isTestnet) "https://mempool.space/testnet" else "https://mempool.space"
-                    val heightStr = fetchUrl("$baseUrl/api/blocks/tip/height")
+                    val heightStr = torAwareHttpClient.fetchText("$baseUrl/api/blocks/tip/height")
                     tipHeight = heightStr.trim().toUInt()
                     android.util.Log.d("BdkRepo", "tipHeight from mempool.space: $tipHeight")
                 } catch (e: Exception) {
@@ -1125,7 +1127,7 @@ class BdkBitcoinRepository @Inject constructor(
 
         android.util.Log.d("BdkRepo", "Fetching fees from mempool.space: $url")
 
-        val json = fetchUrl(url)
+        val json = torAwareHttpClient.fetchText(url)
         val obj = org.json.JSONObject(json)
 
         val fastestFee = obj.getDouble("fastestFee").toFloat()
@@ -1189,7 +1191,7 @@ class BdkBitcoinRepository @Inject constructor(
             try {
                 val isTestnet = settingsManager.isTestnet()
                 val baseUrl = if (isTestnet) "https://mempool.space/testnet" else "https://mempool.space"
-                val heightStr = fetchUrl("$baseUrl/api/blocks/tip/height")
+                val heightStr = torAwareHttpClient.fetchText("$baseUrl/api/blocks/tip/height")
                 tipHeight = heightStr.trim().toUInt()
                 android.util.Log.d("BdkRepo", "listUnspent: tipHeight from mempool.space: $tipHeight")
             } catch (e: Exception) {

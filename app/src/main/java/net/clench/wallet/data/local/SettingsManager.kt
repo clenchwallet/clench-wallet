@@ -194,7 +194,7 @@ class SettingsManager @Inject constructor(
 
     // --- BTC Price display (H-5) ---
 
-    fun isBtcPriceEnabled(): Boolean = prefs.getBoolean("btc_price_enabled", true)
+    fun isBtcPriceEnabled(): Boolean = prefs.getBoolean("btc_price_enabled", false)
     fun setBtcPriceEnabled(enabled: Boolean) {
         prefs.edit { putBoolean("btc_price_enabled", enabled) }
     }
