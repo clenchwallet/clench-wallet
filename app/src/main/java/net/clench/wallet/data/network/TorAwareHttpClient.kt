@@ -27,20 +27,16 @@ class TorAwareHttpClient @Inject constructor(
         connectTimeoutMs: Int = 5_000,
         readTimeoutMs: Int = 10_000
     ): String {
-        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-
-        if (settingsManager.isTorEnabled()) {
+        val conn = if (settingsManager.isTorEnabled()) {
             val proxyHost = settingsManager.getTorProxyHost()
             val proxyPort = settingsManager.getTorProxyPort()
             val proxy = java.net.Proxy(
                 java.net.Proxy.Type.SOCKS,
                 java.net.InetSocketAddress(proxyHost, proxyPort)
             )
-            // Re-open with proxy
-            val proxyConn = java.net.URL(url).openConnection(proxy) as java.net.HttpURLConnection
-            proxyConn.connectTimeout = connectTimeoutMs
-            proxyConn.readTimeout = readTimeoutMs
-            return fetchWithConnection(proxyConn)
+            java.net.URL(url).openConnection(proxy) as java.net.HttpURLConnection
+        } else {
+            java.net.URL(url).openConnection() as java.net.HttpURLConnection
         }
 
         conn.connectTimeout = connectTimeoutMs
