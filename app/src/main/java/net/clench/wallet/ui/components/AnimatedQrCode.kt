@@ -91,8 +91,8 @@ private fun encodeQrBitmap(content: String, size: Int = 512): Bitmap {
  *                     1000ms (~1fps) for BBQr (Coldcard Q scans slowly).
  * @param qrSizeDp Display size of the QR code. Default 360.dp (increased from 280.dp
  *                  for better scanning at typical hardware wallet reading distances).
- * @param autoAdvance Whether to auto-advance frames. When false, use onNextFrame callback.
- * @param onNextFrame Callback to expose current frame index for manual control.
+ * @param autoAdvance Whether to auto-advance frames.
+ * @param forcedFrameIndex When non-null, display this frame instead of the internal timer index.
  */
 @Composable
 fun AnimatedQrCode(
@@ -101,14 +101,16 @@ fun AnimatedQrCode(
     qrSize: Int = 512,
     qrSizeDp: Dp = 360.dp,
     frameDelayMs: Long = 125L,
-    autoAdvance: Boolean = true
+    autoAdvance: Boolean = true,
+    forcedFrameIndex: Int? = null
 ) {
     if (frames.isEmpty()) return
 
     var currentIndex by remember { mutableIntStateOf(0) }
     val isAnimated = frames.size > 1
+    val displayIndex = forcedFrameIndex?.floorMod(frames.size) ?: currentIndex
 
-    if (isAnimated && autoAdvance) {
+    if (isAnimated && autoAdvance && forcedFrameIndex == null) {
         LaunchedEffect(frames, frameDelayMs) {
             while (true) {
                 delay(frameDelayMs)
@@ -117,8 +119,8 @@ fun AnimatedQrCode(
         }
     }
 
-    val bitmap = remember(frames, currentIndex) {
-        encodeQrBitmap(frames[currentIndex], qrSize)
+    val bitmap = remember(frames, displayIndex) {
+        encodeQrBitmap(frames[displayIndex], qrSize)
     }
 
     Column(
@@ -133,10 +135,12 @@ fun AnimatedQrCode(
         if (isAnimated) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "${currentIndex + 1} / ${frames.size}",
+                "${displayIndex + 1} / ${frames.size}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
 }
+
+private fun Int.floorMod(modulus: Int): Int = ((this % modulus) + modulus) % modulus

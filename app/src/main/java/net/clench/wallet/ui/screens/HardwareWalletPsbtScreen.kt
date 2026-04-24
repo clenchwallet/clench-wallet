@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.ui.MainActivity
 import net.clench.wallet.ui.components.AnimatedQrCode
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.encodePsbtForDevice
@@ -126,6 +127,18 @@ fun HardwareWalletPsbtScreen(
     var manualFrameIndex by remember { mutableIntStateOf(0) }
 
     val isBBQr = deviceType == HardwareWalletType.COLDCARD_Q || deviceType == HardwareWalletType.COLDCARD_MK4
+
+    LaunchedEffect(qrFrames) {
+        manualFrameIndex = 0
+    }
+
+    // Collect signed PSBTs delivered by NFC while this signing screen is active.
+    LaunchedEffect(context, walletId) {
+        val activity = context as? MainActivity ?: return@LaunchedEffect
+        activity.nfcPsbtFlow.collect { signedPsbtBase64 ->
+            viewModel.onSignedPsbtReceived(walletId, signedPsbtBase64)
+        }
+    }
 
     // File picker for importing signed PSBT (Coldcard Mk4 SD card flow)
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -269,7 +282,8 @@ fun HardwareWalletPsbtScreen(
                                 HardwareWalletType.COLDCARD_MK4 -> 1000L // BBQr: slow for Coldcard scanner
                                 else -> 125L // BC-UR: fast fountain codes
                             },
-                            autoAdvance = autoAdvance
+                            autoAdvance = autoAdvance,
+                            forcedFrameIndex = if (isBBQr && !autoAdvance) manualFrameIndex else null
                         )
 
                         // Manual frame control toggle for BBQr
