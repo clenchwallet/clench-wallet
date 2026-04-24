@@ -114,7 +114,9 @@ class CreateWalletViewModel @Inject constructor(
                 val walletData = bitcoinRepository.createWallet(
                     name = _uiState.value.walletName,
                     wordCount = _uiState.value.wordCount,
-                    passphrase = null
+                    passphrase = null,
+                    mnemonicWords = mnemonicWords,
+                    scriptType = _uiState.value.scriptType
                 )
 
                 pendingMnemonic = null

@@ -103,7 +103,7 @@ class SettingsViewModel @Inject constructor(
                 torProxyPort = settingsManager.getTorProxyPort().toString(),
                 isPinSet = pinManager.isPinSet(),
                 pinnedCert = validatedConfig.pinnedCert,
-                useServerTor = validatedConfig.useTor,
+                useServerTor = validatedConfig.useTor || validatedConfig.serverUrl.endsWith(".onion"),
                 connectionModeLabel = computeConnectionModeLabel(validatedConfig)
             )
         }
@@ -169,7 +169,8 @@ class SettingsViewModel @Inject constructor(
                 serverUrl = current.serverUrl,
                 port = current.port,
                 useSsl = current.useSsl,
-                isCustom = false
+                isCustom = false,
+                useTor = state.useServerTor || current.serverUrl.endsWith(".onion")
             )
         }
         settingsManager.saveElectrumConfig(config)
@@ -346,16 +347,21 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun selectPublicServer(server: PublicServer) {
+        val state = _uiState.value
+        val useTor = state.useServerTor || server.host.endsWith(".onion")
         val config = ElectrumConfig(
             serverUrl = server.host,
             port = server.port,
             useSsl = server.useSsl,
-            isCustom = false
+            isCustom = false,
+            useTor = useTor
         )
         settingsManager.saveElectrumConfig(config)
         _uiState.update { it.copy(
             publicServer = "${server.host}:${server.port}",
-            savedSuccess = true
+            useServerTor = useTor,
+            savedSuccess = true,
+            connectionModeLabel = computeConnectionModeLabel(config)
         ) }
         viewModelScope.launch {
             kotlinx.coroutines.delay(3000)
@@ -441,6 +447,11 @@ class SettingsViewModel @Inject constructor(
 
     fun setUseServerTor(enabled: Boolean) {
         _uiState.update { it.copy(useServerTor = enabled) }
+
+        // Public-server mode has no Save button, so persist route changes immediately.
+        if (!_uiState.value.useCustomServer) {
+            saveServerSettings()
+        }
     }
 
     // ─── Connection mode label ───

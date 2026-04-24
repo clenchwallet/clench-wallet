@@ -108,21 +108,28 @@ class BdkBitcoinRepository @Inject constructor(
     override suspend fun createWallet(
         name: String,
         wordCount: Int,
-        passphrase: String?
+        passphrase: String?,
+        mnemonicWords: List<String>?,
+        scriptType: ScriptType
     ): Pair<List<String>, WalletData> = withContext(Dispatchers.IO) {
-        // Generate mnemonic
-        val wordCountEnum = if (wordCount == 12) WordCount.WORDS12 else WordCount.WORDS24
-        val mnemonic = Mnemonic(wordCountEnum)
-        val mnemonicWords = mnemonic.toString().split(" ")
+        // Use the already-displayed/verified mnemonic when provided. Otherwise preserve the
+        // legacy repository behavior of generating a fresh mnemonic for direct repository callers.
+        val mnemonic = if (mnemonicWords != null) {
+            Mnemonic.fromString(mnemonicWords.joinToString(" "))
+        } else {
+            val wordCountEnum = if (wordCount == 12) WordCount.WORDS12 else WordCount.WORDS24
+            Mnemonic(wordCountEnum)
+        }
+        val walletMnemonicWords = mnemonicWords ?: mnemonic.toString().split(" ")
 
-        // BDK 1.1.0: use Descriptor.newBip84() factory for correct BIP84 wpkh derivation
+        // Derive descriptors for the selected script type.
         val network = activeNetwork()
         val secretKey = DescriptorSecretKey(network, mnemonic, passphrase ?: "")
         val externalDescriptor: Descriptor
         val changeDescriptor: Descriptor
         try {
-            externalDescriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
-            changeDescriptor = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, network)
+            externalDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
+            changeDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
         } finally {
             // H-1: Destroy sensitive BDK objects after descriptor derivation
             try { mnemonic.destroy() } catch (_: Exception) {}
@@ -141,7 +148,7 @@ class BdkBitcoinRepository @Inject constructor(
         // Store mnemonic in encrypted keystore
         // NOTE: JVM String is immutable — mnemonic cannot be securely zeroed. This is a known JVM limitation.
         // For production, consider using a native library that handles key material in off-heap memory.
-        keystoreManager.storeMnemonic(walletId, mnemonicWords.joinToString(" "))
+        keystoreManager.storeMnemonic(walletId, walletMnemonicWords.joinToString(" "))
 
         // For passphrase wallets: store ONLY the mnemonic in keystore, NOT secret descriptors.
         // The secret descriptors are derived on-the-fly when the user enters their passphrase to unlock.
@@ -187,7 +194,7 @@ class BdkBitcoinRepository @Inject constructor(
             hasPassphrase = !passphrase.isNullOrBlank()
         )
 
-        Pair(mnemonicWords, walletData)
+        Pair(walletMnemonicWords, walletData)
     }
 
     override suspend fun importWallet(
@@ -362,6 +369,89 @@ class BdkBitcoinRepository @Inject constructor(
         )
     }
 
+    override suspend fun importPrivateDescriptor(
+        name: String,
+        descriptor: String
+    ): WalletData = withContext(Dispatchers.IO) {
+        if (!containsPrivateKeyMaterial(descriptor)) {
+            throw IllegalArgumentException("Private descriptor import requires a private descriptor or private extended key.")
+        }
+
+        val normalized = normalizeDescriptor(descriptor.trim())
+        val externalDescriptorStr = normalized.externalDescriptor
+        val changeDescriptorStr = normalized.changeDescriptor
+
+        if (!containsPrivateKeyMaterial(externalDescriptorStr) || !containsPrivateKeyMaterial(changeDescriptorStr)) {
+            throw IllegalArgumentException("Private descriptor import requires private key material for both receive and change descriptors.")
+        }
+
+        val network = activeNetwork()
+        val externalDescriptor = try {
+            Descriptor(externalDescriptorStr, network)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("Invalid private descriptor. Please check the format and try again.\n\nDetails: ${e.message}")
+        }
+        val changeDescriptor = try {
+            Descriptor(changeDescriptorStr, network)
+        } catch (e: Exception) {
+            throw IllegalArgumentException("Invalid private change descriptor. Please check the format and try again.\n\nDetails: ${e.message}")
+        }
+
+        val publicDescriptor = externalDescriptor.toString()
+        val publicChangeDescriptor = changeDescriptor.toString()
+        val secretDescriptor = externalDescriptor.toStringWithSecret()
+        val secretChangeDescriptor = changeDescriptor.toStringWithSecret()
+
+        // Prevent duplicate imports — compare public descriptors on the current network only.
+        val activeNetwork = settingsManager.getNetwork()
+        val existing = walletDao.getAllByNetwork(activeNetwork)
+        if (existing.any { it.descriptor == publicDescriptor }) {
+            throw IllegalArgumentException("A wallet with this descriptor is already in your wallet list.")
+        }
+
+        val walletId = UUID.randomUUID().toString()
+
+        // Create BDK wallet with secret descriptors so this wallet can sign.
+        val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
+        val persister = Persister.newSqlite(dbPath)
+        val wallet = Wallet(externalDescriptor, changeDescriptor, network, persister)
+        walletCache[walletId] = WalletEntry(wallet, persister)
+
+        // Store secret descriptors only in encrypted keystore. Room receives public descriptors below.
+        keystoreManager.storeSecretDescriptor(walletId, secretDescriptor)
+        keystoreManager.storeSecretChangeDescriptor(walletId, secretChangeDescriptor)
+
+        val walletEntity = WalletEntity(
+            id = walletId,
+            name = name,
+            descriptor = publicDescriptor,
+            changeDescriptor = publicChangeDescriptor,
+            isWatchOnly = false,
+            isMultisig = false,
+            createdAtEpochMs = System.currentTimeMillis(),
+            network = activeNetwork,
+            masterFingerprint = normalized.masterFingerprint,
+            derivationPath = normalized.derivationPath,
+            hasPassphrase = false,
+            identiconBytes = computeIdenticonBytes(publicDescriptor, null)
+        )
+        walletDao.insert(walletEntity)
+
+        WalletData(
+            id = walletId,
+            name = name,
+            descriptor = publicDescriptor,
+            changeDescriptor = publicChangeDescriptor,
+            isWatchOnly = false,
+            isMultisig = false,
+            createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
+            network = activeNetwork,
+            masterFingerprint = normalized.masterFingerprint,
+            derivationPath = normalized.derivationPath,
+            hasPassphrase = false
+        )
+    }
+
     override suspend fun syncWallet(walletId: String, config: ElectrumConfig?): WalletBalance = withContext(Dispatchers.IO) {
         // Offline mode — skip sync entirely, return cached balance
         if (settingsManager.isOfflineMode()) {
@@ -494,13 +584,12 @@ class BdkBitcoinRepository @Inject constructor(
             var tipHeight: UInt = 0u
             if (!settingsManager.isOfflineMode()) {
                 try {
-                    val isTestnet = settingsManager.isTestnet()
-                    val baseUrl = if (isTestnet) "https://mempool.space/testnet" else "https://mempool.space"
+                    val baseUrl = mempoolApiBaseUrlForActiveNetwork()
                     val heightStr = torAwareHttpClient.fetchText("$baseUrl/api/blocks/tip/height")
                     tipHeight = heightStr.trim().toUInt()
-                    android.util.Log.d("BdkRepo", "tipHeight from mempool.space: $tipHeight")
+                    android.util.Log.d("BdkRepo", "tipHeight from mempool API: $tipHeight")
                 } catch (e: Exception) {
-                    android.util.Log.w("BdkRepo", "Failed to get tip height from mempool.space: ${e.message}")
+                    android.util.Log.w("BdkRepo", "Failed to get tip height from mempool API: ${e.message}")
                 }
             }
             
@@ -1121,11 +1210,10 @@ class BdkBitcoinRepository @Inject constructor(
      * Returns: { fastestFee, halfHourFee, hourFee, economyFee } in sat/vB
      */
     private suspend fun estimateFeesFromMempoolSpace(): FeeEstimates {
-        val isTestnet = settingsManager.isTestnet()
-        val baseUrl = if (isTestnet) "https://mempool.space/testnet" else "https://mempool.space"
+        val baseUrl = mempoolApiBaseUrlForActiveNetwork()
         val url = "$baseUrl/api/v1/fees/recommended"
 
-        android.util.Log.d("BdkRepo", "Fetching fees from mempool.space: $url")
+        android.util.Log.d("BdkRepo", "Fetching fees from mempool API: $url")
 
         val json = torAwareHttpClient.fetchText(url)
         val obj = org.json.JSONObject(json)
@@ -1189,13 +1277,12 @@ class BdkBitcoinRepository @Inject constructor(
         var tipHeight: UInt = 0u
         if (!settingsManager.isOfflineMode()) {
             try {
-                val isTestnet = settingsManager.isTestnet()
-                val baseUrl = if (isTestnet) "https://mempool.space/testnet" else "https://mempool.space"
+                val baseUrl = mempoolApiBaseUrlForActiveNetwork()
                 val heightStr = torAwareHttpClient.fetchText("$baseUrl/api/blocks/tip/height")
                 tipHeight = heightStr.trim().toUInt()
-                android.util.Log.d("BdkRepo", "listUnspent: tipHeight from mempool.space: $tipHeight")
+                android.util.Log.d("BdkRepo", "listUnspent: tipHeight from mempool API: $tipHeight")
             } catch (e: Exception) {
-                android.util.Log.w("BdkRepo", "listUnspent: Failed to get tip height from mempool.space: ${e.message}")
+                android.util.Log.w("BdkRepo", "listUnspent: Failed to get tip height from mempool API: ${e.message}")
             }
         }
         
@@ -1841,6 +1928,23 @@ class BdkBitcoinRepository @Inject constructor(
                 externalDescriptor = "wpkh($xpub/0/*)",
                 changeDescriptor = "wpkh($xpub/1/*)"
             )
+        }
+    }
+
+    private fun containsPrivateKeyMaterial(input: String): Boolean {
+        val lower = input.lowercase()
+        return listOf("xprv", "yprv", "zprv", "tprv", "uprv", "vprv").any { lower.contains(it) }
+    }
+
+    private fun mempoolApiBaseUrlForActiveNetwork(): String {
+        val baseUrl = settingsManager.getMempoolUrl().trim().trimEnd('/')
+        if (!settingsManager.isTestnet()) return baseUrl
+
+        val lower = baseUrl.lowercase()
+        return if (lower.endsWith("/testnet") || lower.contains("/testnet/")) {
+            baseUrl
+        } else {
+            "$baseUrl/testnet"
         }
     }
 

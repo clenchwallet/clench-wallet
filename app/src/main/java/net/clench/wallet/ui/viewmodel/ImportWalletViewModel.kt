@@ -158,7 +158,7 @@ class ImportWalletViewModel @Inject constructor(
         }
 
         // Check for xprv/zprv
-        if (lower.startsWith("xprv") || lower.startsWith("zprv")) {
+        if (lower.startsWith("xprv") || lower.startsWith("zprv") || lower.startsWith("tprv")) {
             _uiState.update { it.copy(
                 detectedType = DetectedType.PRIVATE_DESCRIPTOR,
                 detectedLabel = "Detected: private key"
@@ -261,11 +261,9 @@ class ImportWalletViewModel @Inject constructor(
                         )
                     }
                     DetectedType.PRIVATE_DESCRIPTOR -> {
-                        // Private descriptor — import as full wallet via descriptor
-                        bitcoinRepository.importWatchOnly(
+                        bitcoinRepository.importPrivateDescriptor(
                             name = state.walletName.ifBlank { "Imported Wallet" },
-                            descriptor = state.input.trim(),
-                            deviceType = state.hardwareDeviceType
+                            descriptor = state.input.trim()
                         )
                     }
                     DetectedType.NONE -> {

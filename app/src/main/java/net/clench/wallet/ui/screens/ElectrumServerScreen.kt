@@ -229,8 +229,63 @@ fun ElectrumServerScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            val routeTargetLabel = if (uiState.useCustomServer) "private/custom node" else "public server"
+            val activeServerHost = if (uiState.useCustomServer) {
+                uiState.customServerUrl.trim()
+            } else {
+                uiState.publicServer.substringBefore(":").trim()
+            }
+            val activeHostIsOnion = activeServerHost.endsWith(".onion")
+
+            // Auto-enable Tor for .onion nodes, public or private.
+            LaunchedEffect(uiState.useCustomServer, activeServerHost) {
+                if (activeHostIsOnion && !uiState.useServerTor) {
+                    viewModel.setUseServerTor(true)
+                }
+            }
+
+            // ─── Independent transport choice ───
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Checkbox(
+                        checked = uiState.useServerTor || activeHostIsOnion,
+                        onCheckedChange = { if (!activeHostIsOnion) viewModel.setUseServerTor(it) },
+                        enabled = !activeHostIsOnion
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("🧅 Connect over Tor", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            when {
+                                activeHostIsOnion -> "Required for .onion $routeTargetLabel."
+                                uiState.useServerTor && uiState.useCustomServer -> "Use Tor SOCKS5 for this private/custom node."
+                                uiState.useServerTor -> "Hides your IP from this public server; the server can still see wallet queries."
+                                else -> "Use clearnet/direct connection for this $routeTargetLabel."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "Public Tor can mean Tor-to-clearnet unless the selected server itself is .onion.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             if (!uiState.useCustomServer) {
-                // Public server picker - show info card for testnet instead of servers
+                // Public server picker for the active network.
                 if (uiState.useTestnet) {
                     Card(
                         colors = CardDefaults.cardColors(
@@ -243,49 +298,48 @@ fun ElectrumServerScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                "Testnet requires your own Electrum server.",
+                                "Public testnet servers are convenience defaults.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                "Public servers are not offered for testnet. Enable 'Use custom server' above to configure your node.",
+                                "They may be less private or lag behind chain tip. For serious testing, use a self-hosted Electrum server.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                         }
                     }
-                    // Auto-enable custom server for testnet
-                    LaunchedEffect(Unit) {
-                        if (!uiState.useCustomServer) {
-                            viewModel.setUseCustomServer(true)
-                        }
-                    }
-                } else {
-                    // Show public servers for mainnet
-                    Text("Select public server", style = MaterialTheme.typography.labelLarge)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    PublicElectrumServers.forNetwork(uiState.useTestnet).forEach { server ->
-                        val isSelected = uiState.publicServer == "${server.host}:${server.port}"
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected)
-                                    MaterialTheme.colorScheme.primaryContainer
-                                else
-                                    MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp),
-                            onClick = { viewModel.selectPublicServer(server) }
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(server.name, style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    "${server.host}:${server.port}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                Text("Select public server", style = MaterialTheme.typography.labelLarge)
+                Spacer(modifier = Modifier.height(8.dp))
+                PublicElectrumServers.forNetwork(uiState.useTestnet).forEach { server ->
+                    val isSelected = uiState.publicServer == "${server.host}:${server.port}"
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected)
+                                MaterialTheme.colorScheme.primaryContainer
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                        onClick = { viewModel.selectPublicServer(server) }
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(server.name, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "${server.host}:${server.port}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                server.description,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -408,33 +462,6 @@ fun ElectrumServerScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    }
-                }
-
-                // ─── Per-server Tor toggle ───
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = uiState.useServerTor,
-                        onCheckedChange = { viewModel.setUseServerTor(it) }
-                    )
-                    Column {
-                        Text("🧅 Route via Tor")
-                        Text(
-                            if (uiState.customServerUrl.endsWith(".onion"))
-                                "Required for .onion addresses (always enabled)"
-                            else
-                                "Route this server's traffic through Tor SOCKS5 proxy",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                // Auto-enable Tor for .onion addresses
-                LaunchedEffect(uiState.customServerUrl) {
-                    if (uiState.customServerUrl.trim().endsWith(".onion") && !uiState.useServerTor) {
-                        viewModel.setUseServerTor(true)
                     }
                 }
 

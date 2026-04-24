@@ -94,7 +94,7 @@ class ElectrumConnectionFactory @Inject constructor(
         val host = config.serverUrl.removePrefix("ssl://").removePrefix("tcp://").trim()
         val isOnion = host.endsWith(".onion")
         val torEnabled = settingsManager.isTorEnabled()
-        val useTor = isOnion || torEnabled
+        val useTor = isOnion || config.useTor || torEnabled
         val pinnedCertBase64 = config.pinnedCert
         val pinnedCertDer = if (!pinnedCertBase64.isNullOrBlank()) {
             try {

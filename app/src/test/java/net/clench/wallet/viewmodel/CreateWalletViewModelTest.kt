@@ -1,5 +1,18 @@
 package net.clench.wallet.viewmodel
 
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import net.clench.wallet.domain.model.ScriptType
+import net.clench.wallet.domain.model.WalletData
+import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -10,6 +23,67 @@ import org.junit.Test
  * Tests for CreateWalletViewModel companion object functions — pure functions.
  */
 class CreateWalletViewModelTest {
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `confirmAndSave creates wallet from displayed mnemonic and selected script type`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val repository = mockk<BitcoinRepository>()
+            var savedMnemonic: List<String>? = null
+
+            coEvery {
+                repository.createWallet(
+                    name = any(),
+                    wordCount = any(),
+                    passphrase = null,
+                    mnemonicWords = any(),
+                    scriptType = ScriptType.TAPROOT
+                )
+            } coAnswers {
+                @Suppress("UNCHECKED_CAST")
+                val mnemonicArg = invocation.args[3] as List<String>
+                savedMnemonic = mnemonicArg
+                mnemonicArg to WalletData(
+                    id = "wallet-1",
+                    name = "My Wallet",
+                    descriptor = "tr(test)",
+                    changeDescriptor = "tr(test-change)"
+                )
+            }
+
+            val viewModel = CreateWalletViewModel(repository)
+            val preparedMnemonic = listOf(
+                "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
+                "abandon", "abandon", "abandon", "abandon", "abandon", "about"
+            )
+            CreateWalletViewModel::class.java
+                .getDeclaredField("pendingMnemonic")
+                .apply { isAccessible = true }
+                .set(viewModel, preparedMnemonic)
+
+            viewModel.setScriptType(ScriptType.TAPROOT)
+
+            var createdWalletId: String? = null
+            viewModel.confirmAndSave { createdWalletId = it }
+            advanceUntilIdle()
+
+            assertEquals(preparedMnemonic, savedMnemonic)
+            assertEquals("wallet-1", createdWalletId)
+            coVerify(exactly = 1) {
+                repository.createWallet(
+                    name = "My Wallet",
+                    wordCount = 24,
+                    passphrase = null,
+                    mnemonicWords = preparedMnemonic,
+                    scriptType = ScriptType.TAPROOT
+                )
+            }
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
 
     @Test
     fun `extractMasterFingerprint from valid descriptor`() {

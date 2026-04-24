@@ -218,10 +218,11 @@ class HomeViewModel @Inject constructor(
 
     private fun fetchPriceFromMempoolSpace(): Double? {
         return try {
-            val json = torAwareHttpClient.fetchText("https://mempool.space/api/v1/prices", 5_000, 5_000)
+            val baseUrl = settingsManager.getMempoolUrl().trim().trimEnd('/')
+            val json = torAwareHttpClient.fetchText("$baseUrl/api/v1/prices", 5_000, 5_000)
             JSONObject(json).getDouble("USD")
         } catch (e: Exception) {
-            android.util.Log.w("HomeVM", "mempool.space price failed: ${e.message}")
+            android.util.Log.w("HomeVM", "mempool API price failed: ${e.message}")
             null
         }
     }
