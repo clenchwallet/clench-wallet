@@ -1559,8 +1559,10 @@ class BdkBitcoinRepository @Inject constructor(
                 ?: signedJson.optJSONObject("unsigned_tx")?.optJSONArray("output")
 
             if (unsignedOutputs == null || signedOutputs == null) {
-                android.util.Log.w("BdkRepo", "PSBT output validation: could not parse outputs from JSON, allowing broadcast")
-                return
+                throw SecurityException(
+                    "PSBT output validation failed: unable to parse transaction outputs. " +
+                    "Refusing to broadcast — re-create the PSBT and try again."
+                )
             }
 
             if (unsignedOutputs.length() != signedOutputs.length()) {

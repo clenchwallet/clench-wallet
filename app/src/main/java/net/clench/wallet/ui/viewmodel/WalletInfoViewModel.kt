@@ -1,7 +1,5 @@
 package net.clench.wallet.ui.viewmodel
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -14,6 +12,7 @@ import kotlinx.coroutines.launch
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.ui.util.copyToClipboardWithAutoClear
 import javax.inject.Inject
 
 @HiltViewModel
@@ -151,18 +150,11 @@ class WalletInfoViewModel @Inject constructor(
     }
 
     fun copyToClipboard(text: String, label: String = "Copied") {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+        copyToClipboardWithAutoClear(context, label, text)
         _uiState.update { it.copy(copied = true) }
         viewModelScope.launch {
             kotlinx.coroutines.delay(2000L)
             _uiState.update { it.copy(copied = false) }
-            // Auto-clear clipboard after 60 seconds
-            kotlinx.coroutines.delay(58_000L)
-            val current = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
-            if (current == text) {
-                clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
-            }
         }
     }
 

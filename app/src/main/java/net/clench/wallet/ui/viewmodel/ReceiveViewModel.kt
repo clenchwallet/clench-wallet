@@ -1,7 +1,5 @@
 package net.clench.wallet.ui.viewmodel
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.ui.util.copyToClipboardWithAutoClear
 import javax.inject.Inject
 
 @HiltViewModel
@@ -75,18 +74,7 @@ class ReceiveViewModel @Inject constructor(
     fun copyAddress() {
         val address = _uiState.value.address
         if (address.isBlank()) return
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Bitcoin Address", address))
-
-        // Auto-clear clipboard after 60 seconds
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(60_000L)
-            // Only clear if it still contains our address
-            val current = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
-            if (current == address) {
-                clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
-            }
-        }
+        copyToClipboardWithAutoClear(context, "Bitcoin Address", address)
     }
 
     fun setAmount(amount: String) {
@@ -117,16 +105,6 @@ class ReceiveViewModel @Inject constructor(
     fun copyBip21Uri() {
         val uri = getBip21Uri()
         if (uri.isBlank()) return
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Bitcoin BIP21 URI", uri))
-
-        // Auto-clear clipboard after 60 seconds
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(60_000L)
-            val current = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
-            if (current == uri) {
-                clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
-            }
-        }
+        copyToClipboardWithAutoClear(context, "Bitcoin BIP21 URI", uri)
     }
 }

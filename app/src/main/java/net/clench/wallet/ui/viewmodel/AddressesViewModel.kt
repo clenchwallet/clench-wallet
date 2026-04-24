@@ -1,7 +1,5 @@
 package net.clench.wallet.ui.viewmodel
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -13,6 +11,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.domain.model.Address
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.ui.util.copyToClipboardWithAutoClear
 import javax.inject.Inject
 
 @HiltViewModel
@@ -44,23 +43,13 @@ class AddressesViewModel @Inject constructor(
     }
 
     fun copyAddress(index: Int, address: String) {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Bitcoin Address", address))
+        copyToClipboardWithAutoClear(context, "Bitcoin Address", address)
         _uiState.update { it.copy(copiedIndex = index) }
 
         // Clear copied indicator after 2 seconds
         viewModelScope.launch {
             kotlinx.coroutines.delay(2000L)
             _uiState.update { it.copy(copiedIndex = null) }
-        }
-
-        // Auto-clear clipboard after 60 seconds
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(60_000L)
-            val current = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
-            if (current == address) {
-                clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
-            }
         }
     }
 }
