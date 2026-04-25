@@ -369,6 +369,65 @@ class BdkBitcoinRepository @Inject constructor(
         )
     }
 
+    override suspend fun convertWatchOnlyToHot(
+        walletId: String,
+        mnemonic: List<String>,
+        passphrase: String?
+    ): Unit = withContext(Dispatchers.IO) {
+        val walletEntity = walletDao.getById(walletId)
+            ?: throw IllegalArgumentException("Wallet not found")
+        if (!walletEntity.isWatchOnly) {
+            throw IllegalArgumentException("This wallet already has signing capability")
+        }
+        if (mnemonic.size != 12 && mnemonic.size != 24) {
+            throw IllegalArgumentException("Enter a 12 or 24 word seed phrase")
+        }
+
+        val network = if (walletEntity.network == "testnet") Network.TESTNET else Network.BITCOIN
+        val mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
+        var secretKey: DescriptorSecretKey? = null
+        try {
+            val passphraseValue = passphrase.orEmpty()
+            secretKey = DescriptorSecretKey(network, mnemonicObj, passphraseValue)
+            val scriptType = ScriptType.fromDescriptor(walletEntity.descriptor)
+            val externalDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
+            val changeDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
+
+            val expectedXpub = Regex("[xt]pub[1-9A-HJ-NP-Za-km-z]+").find(walletEntity.descriptor)?.value
+            val derivedXpub = Regex("[xt]pub[1-9A-HJ-NP-Za-km-z]+").find(externalDescriptor.toString())?.value
+            val descriptorsMatch = if (expectedXpub != null && derivedXpub != null) {
+                expectedXpub == derivedXpub
+            } else {
+                walletEntity.descriptor.trim().substringBefore("#") == externalDescriptor.toString().trim().substringBefore("#")
+            }
+
+            if (!descriptorsMatch) {
+                throw IllegalArgumentException("That seed phrase does not match this watch-only wallet")
+            }
+
+            keystoreManager.storeMnemonic(walletId, mnemonic.joinToString(" "))
+            val hasPassphrase = !passphrase.isNullOrBlank()
+            if (!hasPassphrase) {
+                keystoreManager.storeSecretDescriptor(walletId, externalDescriptor.toStringWithSecret())
+                keystoreManager.storeSecretChangeDescriptor(walletId, changeDescriptor.toStringWithSecret())
+            }
+
+            walletDao.setWatchOnlyAndPassphrase(walletId, isWatchOnly = false, hasPassphrase = hasPassphrase)
+
+            // Evict the public-only cached wallet so future signing loads the secret descriptors.
+            walletCache.remove(walletId)
+            if (hasPassphrase) {
+                val persister = Persister.newInMemory()
+                val wallet = Wallet(externalDescriptor, changeDescriptor, network, persister)
+                walletCache[walletId] = WalletEntry(wallet, persister)
+                unlockedPassphraseWallets.add(walletId)
+            }
+        } finally {
+            try { mnemonicObj.destroy() } catch (_: Exception) {}
+            try { secretKey?.destroy() } catch (_: Exception) {}
+        }
+    }
+
     override suspend fun importPrivateDescriptor(
         name: String,
         descriptor: String

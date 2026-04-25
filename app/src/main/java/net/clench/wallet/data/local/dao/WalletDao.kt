@@ -46,6 +46,9 @@ interface WalletDao {
     @Query("UPDATE wallets SET isWatchOnly = :isWatchOnly WHERE id = :walletId")
     suspend fun setWatchOnly(walletId: String, isWatchOnly: Boolean)
 
+    @Query("UPDATE wallets SET isWatchOnly = :isWatchOnly, hasPassphrase = :hasPassphrase WHERE id = :walletId")
+    suspend fun setWatchOnlyAndPassphrase(walletId: String, isWatchOnly: Boolean, hasPassphrase: Boolean)
+
     @Query("UPDATE wallets SET masterFingerprint = :fingerprint, derivationPath = :path, importedViaDevice = :device WHERE id = :walletId")
     suspend fun updateHardwareWalletInfo(walletId: String, fingerprint: String?, path: String?, device: String?)
 }

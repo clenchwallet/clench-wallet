@@ -44,7 +44,9 @@ class WalletInfoViewModel @Inject constructor(
         val isEditing: Boolean = false,
         val editName: String = "",
         val descriptor: String = "",
-        val copied: Boolean = false
+        val copied: Boolean = false,
+        val isConvertingToHot: Boolean = false,
+        val convertedToHot: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -147,6 +149,49 @@ class WalletInfoViewModel @Inject constructor(
                 _uiState.update { it.copy(error = e.message) }
             }
         }
+    }
+
+    fun convertWatchOnlyToHot(mnemonicWords: CharArray, passphrase: CharArray?) {
+        val walletId = _uiState.value.walletId
+        val words = String(mnemonicWords).trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
+        val passphraseString = passphrase?.let { String(it) }?.ifBlank { null }
+        if (words.size != 12 && words.size != 24) {
+            mnemonicWords.fill('0')
+            passphrase?.fill('0')
+            _uiState.update { it.copy(error = "Enter a 12 or 24 word seed phrase") }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isConvertingToHot = true, error = null, convertedToHot = false) }
+            try {
+                bitcoinRepository.convertWatchOnlyToHot(walletId, words, passphraseString)
+                _uiState.update {
+                    it.copy(
+                        isConvertingToHot = false,
+                        convertedToHot = true,
+                        isWatchOnly = false,
+                        hasPassphrase = passphraseString != null,
+                        error = null
+                    )
+                }
+                load(walletId)
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isConvertingToHot = false,
+                        error = e.message ?: "Could not add seed phrase"
+                    )
+                }
+            } finally {
+                mnemonicWords.fill('0')
+                passphrase?.fill('0')
+            }
+        }
+    }
+
+    fun clearConversionSuccess() {
+        _uiState.update { it.copy(convertedToHot = false) }
     }
 
     fun copyToClipboard(text: String, label: String = "Copied") {

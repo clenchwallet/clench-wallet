@@ -246,6 +246,25 @@ fun HardwareWalletPsbtScreen(
                 return@Column
             }
 
+            if (deviceType == HardwareWalletType.COLDCARD_Q) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Coldcard airgap method",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Use the QR flow below by default: Coldcard Q → Scan QR → review → sign → show signed QR. You can also save an unsigned PSBT file for microSD transfer. Signed PSBT import works by QR, file, or NFC when Android receives a Coldcard NFC payload.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             // QR-based flow (SeedSigner, Keystone, Passport, Coldcard Q, Jade)
             if (deviceType.supportsQr) {
                 // Step 1: Show PSBT as animated QR
@@ -341,8 +360,8 @@ fun HardwareWalletPsbtScreen(
                 }
             }
 
-            // SD Card / NFC flow (Coldcard Mk4)
-            if (deviceType == HardwareWalletType.COLDCARD_MK4) {
+            // SD Card / file flow (Coldcard Q and Mk4)
+            if (deviceType == HardwareWalletType.COLDCARD_Q || deviceType == HardwareWalletType.COLDCARD_MK4) {
                 // Step 1: Save PSBT file
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
@@ -350,7 +369,10 @@ fun HardwareWalletPsbtScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            "Step 1: Save PSBT to file, transfer to Coldcard via SD card",
+                            if (deviceType == HardwareWalletType.COLDCARD_Q)
+                                "Optional: Save PSBT file for microSD transfer"
+                            else
+                                "Step 1: Save PSBT to file, transfer to Coldcard via SD card",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -391,7 +413,10 @@ fun HardwareWalletPsbtScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            "Step 2: After signing on Coldcard, import the signed PSBT",
+                            if (deviceType == HardwareWalletType.COLDCARD_Q)
+                                "After signing on Coldcard, import the signed PSBT file"
+                            else
+                                "Step 2: After signing on Coldcard, import the signed PSBT",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )

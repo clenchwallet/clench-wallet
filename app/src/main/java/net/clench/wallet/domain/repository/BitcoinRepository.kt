@@ -49,6 +49,16 @@ interface BitcoinRepository {
     ): WalletData
 
     /**
+     * Convert an existing watch-only wallet to a hot wallet by storing the matching seed phrase.
+     * The seed must derive the wallet's current account descriptor; otherwise this throws.
+     */
+    suspend fun convertWatchOnlyToHot(
+        walletId: String,
+        mnemonic: List<String>,
+        passphrase: String? = null
+    )
+
+    /**
      * Import a signing wallet from a private descriptor or private extended key.
      * Secret descriptors must be stored only in encrypted keystore; Room stores public descriptors.
      */

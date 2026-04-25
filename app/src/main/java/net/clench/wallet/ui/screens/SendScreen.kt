@@ -31,7 +31,6 @@ import com.journeyapps.barcodescanner.ScanOptions
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.util.BiometricHelper
-import net.clench.wallet.ui.viewmodel.EphemeralSeedSigningViewModel
 import net.clench.wallet.ui.viewmodel.AmountUnit
 import net.clench.wallet.ui.viewmodel.FeeTier
 import net.clench.wallet.ui.viewmodel.RecipientEntry
@@ -50,8 +49,6 @@ fun SendScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showHardwareWalletPicker by remember { mutableStateOf(false) }
     var showWatchOnlySheet by remember { mutableStateOf(false) }
-    val ephemeralViewModel: EphemeralSeedSigningViewModel = hiltViewModel()
-    val ephemeralState by ephemeralViewModel.uiState.collectAsState()
 
     // FLAG_SECURE — prevent screenshots of balance/addresses
     val context = LocalContext.current
@@ -728,15 +725,10 @@ fun SendScreen(
                 Text(err, color = MaterialTheme.colorScheme.error)
             }
 
-            // Show ephemeral signing errors
-            ephemeralState.error?.let { err ->
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(err, color = MaterialTheme.colorScheme.error)
-            }
         }
     }
 
-    // Watch-only send sheet: choose hardware wallet or seed phrase signing
+    // Watch-only send sheet: choose the configured hardware signing path
     if (showWatchOnlySheet) {
         WatchOnlySendSheet(
             onDismiss = { showWatchOnlySheet = false },
@@ -752,27 +744,7 @@ fun SendScreen(
                     onNavigateHardwarePsbt?.invoke(walletId, psbtBase64, deviceType)
                 }
             },
-            onSeedProvided = { mnemonic, passphrase, saveAsHotWallet ->
-                showWatchOnlySheet = false
-                // First build the PSBT, then sign it with the ephemeral key
-                viewModel.createPsbt { psbtBase64 ->
-                    ephemeralViewModel.signAndBroadcast(
-                        walletId = walletId,
-                        psbtBase64 = psbtBase64,
-                        mnemonicWords = mnemonic,
-                        passphrase = passphrase,
-                        saveAsHotWallet = saveAsHotWallet
-                    )
-                }
-            },
             preferredDevice = uiState.preferredHardwareWallet
         )
-    }
-
-    // Navigate back after ephemeral broadcast success
-    LaunchedEffect(ephemeralState.broadcastTxid) {
-        if (ephemeralState.broadcastTxid != null) {
-            onBack()
-        }
     }
 }

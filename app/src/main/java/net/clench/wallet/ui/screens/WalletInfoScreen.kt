@@ -2,6 +2,7 @@ package net.clench.wallet.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -16,6 +17,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -35,9 +38,32 @@ fun WalletInfoScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showQrDialog by remember { mutableStateOf(false) }
+    var showSeedImportSheet by remember { mutableStateOf(false) }
     var expandedXpub by remember { mutableStateOf(false) }
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
+
+    if (showSeedImportSheet) {
+        AddSeedPhraseToWalletSheet(
+            isLoading = uiState.isConvertingToHot,
+            onDismiss = { showSeedImportSheet = false },
+            onConfirm = { mnemonic, passphrase ->
+                showSeedImportSheet = false
+                viewModel.convertWatchOnlyToHot(mnemonic, passphrase)
+            }
+        )
+    }
+
+    if (uiState.convertedToHot) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearConversionSuccess() },
+            title = { Text("Seed Phrase Added") },
+            text = { Text("This wallet now has signing capability. Seed phrase entry remains a wallet-management action, not part of transaction signing.") },
+            confirmButton = {
+                Button(onClick = { viewModel.clearConversionSuccess() }) { Text("OK") }
+            }
+        )
+    }
 
     // QR Dialog
     if (showQrDialog && uiState.accountXpub.isNotEmpty()) {
@@ -310,6 +336,37 @@ fun WalletInfoScreen(
                     }
                 }
 
+                // ─── Signing Method / Seed Phrase Access ───
+                if (uiState.isWatchOnly) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "Signing Method",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "This watch-only wallet signs with its configured hardware wallet during Send. If you want to convert it to a hot wallet, add the matching seed phrase here instead of at signing time.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedButton(
+                                onClick = { showSeedImportSheet = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !uiState.isConvertingToHot,
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error
+                                )
+                            ) {
+                                if (uiState.isConvertingToHot) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                                else Text("Add Seed Phrase")
+                            }
+                        }
+                    }
+                }
+
                 // ─── Addresses ───
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Row(
@@ -348,6 +405,107 @@ fun WalletInfoScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddSeedPhraseToWalletSheet(
+    isLoading: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (mnemonic: CharArray, passphrase: CharArray?) -> Unit
+) {
+    var seedInput by remember { mutableStateOf("") }
+    var passphraseInput by remember { mutableStateOf("") }
+    var showPassphrase by remember { mutableStateOf(false) }
+    var seedError by remember { mutableStateOf<String?>(null) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Text("Add Seed Phrase", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0))) {
+                Text(
+                    "Only enter the seed phrase if you intentionally want this watch-only wallet to become a hot wallet on this device. Clench will verify that the seed matches this wallet before saving it.",
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF5D4037)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = seedInput,
+                onValueChange = { seedInput = it; seedError = null },
+                label = { Text("Seed phrase (12 or 24 words)") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp),
+                placeholder = { Text("word1 word2 word3…") },
+                enabled = !isLoading
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = showPassphrase,
+                    onCheckedChange = { showPassphrase = it },
+                    enabled = !isLoading
+                )
+                Text("BIP39 passphrase (optional)")
+            }
+            if (showPassphrase) {
+                OutlinedTextField(
+                    value = passphraseInput,
+                    onValueChange = { passphraseInput = it },
+                    label = { Text("Passphrase") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = !isLoading
+                )
+            }
+
+            seedError?.let {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = {
+                    val words = seedInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
+                    if (words.size != 12 && words.size != 24) {
+                        seedError = "Enter 12 or 24 words"
+                        return@Button
+                    }
+                    val mnemonic = seedInput.trim().toCharArray()
+                    val passphrase = if (showPassphrase && passphraseInput.isNotBlank()) passphraseInput.toCharArray() else null
+                    seedInput = ""
+                    passphraseInput = ""
+                    onConfirm(mnemonic, passphrase)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isLoading
+            ) {
+                if (isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                else Text("Verify & Add Seed Phrase")
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isLoading
+            ) { Text("Cancel") }
         }
     }
 }

@@ -640,8 +640,13 @@ class SendViewModel @Inject constructor(
                 _uiState.update { it.copy(isLoading = false) }
                 onPsbtReady(psbtBase64)
             } catch (e: Exception) {
-                android.util.Log.e("SendVM", "createPsbt failed: ${e.javaClass.simpleName}: ${e.message}", e)
-                _uiState.update { it.copy(isLoading = false, error = e.message) }
+                android.util.Log.w("SendVM", "createPsbt failed: ${e.javaClass.simpleName}")
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = "Could not create the unsigned transaction. Check the recipient, amount, fee rate, and selected UTXO, then try again."
+                    )
+                }
             }
         }
     }
