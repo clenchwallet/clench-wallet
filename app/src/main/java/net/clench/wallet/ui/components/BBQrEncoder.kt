@@ -7,10 +7,10 @@ import java.util.zip.Inflater
  * BBQr encoder/decoder for Coldcard Q/Mk4 hardware wallets.
  *
  * BBQr frame format:
- *   B$ <file_type> <encoding> <total_hex2> <index_hex2> <data_chunk>
+ *   B$ <encoding> <file_type> <total_base36_2> <index_base36_2> <data_chunk>
  *
  * File types: P=PSBT, T=Transaction
- * Encodings: Z=ZLIB+Base32, H=Hex, 2=ZLIB+Hex
+ * Encodings: Z=raw DEFLATE+Base32, H=Hex, 2=Base32
  *
  * Base32 alphabet: 0123456789ABCDEFGHIJKLMNOPQRSTUV
  *
@@ -22,7 +22,7 @@ object BBQrEncoder {
     private const val FILE_TYPE_PSBT = 'P'
     private const val ENCODING_ZLIB_BASE32 = 'Z'
     private const val ENCODING_HEX = 'H'
-    private const val HEADER_LEN = 8 // "B$" + fileType + encoding + 2-char total(base36) + 2-char index(base36)
+    private const val HEADER_LEN = 8 // "B$" + encoding + fileType + 2-char total(base36) + 2-char index(base36)
 
     // Base36 digits for total/index fields
     private const val BASE36_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -42,31 +42,31 @@ object BBQrEncoder {
      * @param maxChunkChars Max data chars per frame (excluding 8-char header). Default 800.
      */
     fun encodePsbt(psbtBytes: ByteArray, maxChunkChars: Int = 800): List<String> {
-        // Try ZLIB + Base32 first
+        // Try raw DEFLATE + Base32 first. If compression does not help, BBQr
+        // falls back to uncompressed Base32 (encoding '2'), not hex.
         val compressed = zlibCompress(psbtBytes)
         val base32Data = base32Encode(compressed)
+        val rawBase32Data = base32Encode(psbtBytes)
 
-        // Fallback: raw hex if compression made it bigger
-        val rawHexData = psbtBytes.joinToString("") { "%02X".format(it) }
-        // Fix 4: Pad hex data to even length before splitting into chunks
-        val hexData = if (rawHexData.length % 2 != 0) rawHexData + "0" else rawHexData
-
-        val useZlib = base32Data.length <= hexData.length
-        val encoding = if (useZlib) ENCODING_ZLIB_BASE32 else ENCODING_HEX
-        val encodedData = if (useZlib) base32Data else hexData
-
-        // BBQr header format: B$ + filetype + encoding + total(base36,2) + index(base36,2)
+        val useZlib = compressed.size < psbtBytes.size
+        val encoding = if (useZlib) ENCODING_ZLIB_BASE32 else '2'
+        val encodedData = if (useZlib) base32Data else rawBase32Data
+        // BBQr header format: B$ + encoding + filetype + total(base36,2) + index(base36,2)
 
         // Single-frame optimization: if it all fits in one QR (≤2500 chars total)
         val singleFrameLimit = 2500 - HEADER_LEN
         if (encodedData.length <= singleFrameLimit) {
-            val header = "${HEADER_PREFIX}${FILE_TYPE_PSBT}${encoding}${toBase36(1)}${toBase36(0)}"
+            val header = "${HEADER_PREFIX}${encoding}${FILE_TYPE_PSBT}${toBase36(1)}${toBase36(0)}"
             return listOf(header + encodedData)
         }
 
-        // Split into chunks — ensure each chunk has even length for hex,
-        // or decodes to whole bytes for base32
-        val rawFrames = (encodedData.length + maxChunkChars - 1) / maxChunkChars
+        // Split into chunks. BBQr reference decoder decodes each chunk separately,
+        // so non-final Base32 chunks must be split on 8-character boundaries and
+        // hex chunks on 2-character boundaries.
+        val splitMod = if (encoding == ENCODING_HEX) 2 else 8
+        val chunkCapacity = maxChunkChars - (maxChunkChars % splitMod)
+        require(chunkCapacity > 0) { "maxChunkChars must be at least $splitMod for BBQr encoding $encoding" }
+        val rawFrames = (encodedData.length + chunkCapacity - 1) / chunkCapacity
 
         // Fix 3: Replace silent coerceIn with a descriptive error if frames exceed max base36 (ZZ = 1295)
         require(rawFrames <= 1295) {
@@ -75,18 +75,13 @@ object BBQrEncoder {
         }
         val totalFrames = rawFrames
 
-        val chunkSize = (encodedData.length + totalFrames - 1) / totalFrames
-
-        // For hex encoding, ensure chunk size is even
-        val adjustedChunkSize = if (!useZlib && chunkSize % 2 != 0) chunkSize + 1 else chunkSize
-
         val frames = mutableListOf<String>()
         for (i in 0 until totalFrames) {
-            val start = i * adjustedChunkSize
-            val end = minOf(start + adjustedChunkSize, encodedData.length)
+            val start = i * chunkCapacity
+            val end = minOf(start + chunkCapacity, encodedData.length)
             if (start >= encodedData.length) break
             val chunk = encodedData.substring(start, end)
-            val header = "${HEADER_PREFIX}${FILE_TYPE_PSBT}${encoding}${toBase36(totalFrames)}${toBase36(i)}"
+            val header = "${HEADER_PREFIX}${encoding}${FILE_TYPE_PSBT}${toBase36(totalFrames)}${toBase36(i)}"
             frames.add(header + chunk)
         }
         return frames
@@ -115,14 +110,14 @@ object BBQrEncoder {
     /**
      * Parse a single BBQr frame header.
      * Returns null if the string is not a valid BBQr frame.
-     * Header: B$ + fileType + encoding + total(base36,2) + index(base36,2)
+     * Header: B$ + encoding + fileType + total(base36,2) + index(base36,2)
      */
     fun parseBBQrFrame(frame: String): BBQrFrame? {
         if (frame.length < HEADER_LEN) return null
         if (!frame.startsWith(HEADER_PREFIX)) return null
 
-        val fileType = frame[2]
-        val encoding = frame[3]
+        val encoding = frame[2]
+        val fileType = frame[3]
         val totalFrames = fromBase36(frame.substring(4, 6)) ?: return null
         val frameIndex = fromBase36(frame.substring(6, 8)) ?: return null
         val data = frame.substring(8)
@@ -149,9 +144,8 @@ object BBQrEncoder {
                 hexDecode(combined)
             }
             '2' -> {
-                // ZLIB + Hex
-                val compressed = hexDecode(combined)
-                zlibDecompress(compressed)
+                // Base32, uncompressed
+                base32Decode(combined)
             }
             else -> throw IllegalArgumentException("Unknown BBQr encoding: $encoding")
         }
@@ -212,7 +206,8 @@ object BBQrEncoder {
     }
 
     private fun zlibCompress(data: ByteArray): ByteArray {
-        val deflater = Deflater()
+        // BBQr uses raw DEFLATE (Python zlib wbits=-10), not a zlib-wrapped stream.
+        val deflater = Deflater(Deflater.DEFAULT_COMPRESSION, true)
         try {
             deflater.setInput(data)
             deflater.finish()
@@ -225,7 +220,8 @@ object BBQrEncoder {
     }
 
     private fun zlibDecompress(data: ByteArray): ByteArray {
-        val inflater = Inflater()
+        // BBQr uses raw DEFLATE (Python zlib wbits=-10), not a zlib-wrapped stream.
+        val inflater = Inflater(true)
         try {
             inflater.setInput(data)
             val output = ByteArray(data.size * 4) // initial estimate

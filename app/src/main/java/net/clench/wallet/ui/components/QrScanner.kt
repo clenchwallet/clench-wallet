@@ -223,9 +223,12 @@ fun QrScanner(
                                 val text = result.text
 
                                 if (BBQrEncoder.isBBQr(text)) {
-                                    // BBQr animated frame (Coldcard Q)
+                                    // BBQr animated frame (Coldcard Q): file type P is a PSBT,
+                                    // file type T is a finalized transaction. Both are returned
+                                    // as base64 raw bytes; the repository decides whether to
+                                    // finalize a PSBT or broadcast a transaction after validation.
                                     val frame = BBQrEncoder.parseBBQrFrame(text)
-                                    if (frame != null) {
+                                    if (frame != null && (frame.fileType == 'P' || frame.fileType == 'T')) {
                                         bbqrTotalFrames = frame.totalFrames
                                         bbqrEncoding = frame.encoding
                                         bbqrFrames[frame.frameIndex] = frame.data

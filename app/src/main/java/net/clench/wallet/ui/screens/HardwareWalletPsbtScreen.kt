@@ -127,6 +127,10 @@ fun HardwareWalletPsbtScreen(
     var manualFrameIndex by remember { mutableIntStateOf(0) }
 
     val isBBQr = deviceType == HardwareWalletType.COLDCARD_Q || deviceType == HardwareWalletType.COLDCARD_MK4
+    val supportsFileTransfer = deviceType == HardwareWalletType.COLDCARD_Q ||
+        deviceType == HardwareWalletType.COLDCARD_MK4 ||
+        deviceType == HardwareWalletType.KEYSTONE ||
+        deviceType == HardwareWalletType.FOUNDATION_PASSPORT
 
     LaunchedEffect(qrFrames) {
         manualFrameIndex = 0
@@ -355,6 +359,82 @@ fun HardwareWalletPsbtScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
+            if (deviceType == HardwareWalletType.COLDCARD_MK4) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Coldcard Mk4 signing steps",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Use NFC or microSD. On Coldcard: Advanced/Tools → NFC Tools → Sign PSBT, or save the PSBT file to microSD and choose Ready To Sign. After signing, import the returned signed PSBT or transaction into Clench, then confirm Broadcast Transaction.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            if (deviceType == HardwareWalletType.KEYSTONE) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Keystone signing steps",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Keystone expects the QR as BC-UR crypto-psbt. Scan this QR, review and approve on Keystone, then scan Keystone’s signed PSBT QR back into Clench. File import/export is also available below if you prefer .psbt transfer.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            if (deviceType == HardwareWalletType.FOUNDATION_PASSPORT) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Foundation Passport signing steps",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Passport accepts PSBTs as animated UR2/BC-UR QR and can return a signed PSBT QR. For large transactions, use the optional microSD-style file flow below and then import the signed PSBT before broadcasting.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            if (deviceType == HardwareWalletType.JADE) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Blockstream Jade signing steps",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Jade QR mode signs Bitcoin PSBTs as BC-UR crypto-psbt. Scan this QR with Jade, review and approve, then scan Jade’s signed PSBT QR back into Clench and explicitly confirm broadcast.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             // QR-based flow (SeedSigner, Keystone, Passport, Coldcard Q, Jade)
             if (deviceType.supportsQr) {
                 // Step 1: Show PSBT as animated QR
@@ -450,8 +530,8 @@ fun HardwareWalletPsbtScreen(
                 }
             }
 
-            // SD Card / file flow (Coldcard Q and Mk4)
-            if (deviceType == HardwareWalletType.COLDCARD_Q || deviceType == HardwareWalletType.COLDCARD_MK4) {
+            // File flow (Coldcard SD/virtual disk, Keystone file transfer, Passport microSD)
+            if (supportsFileTransfer) {
                 // Step 1: Save PSBT file
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
@@ -459,10 +539,10 @@ fun HardwareWalletPsbtScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            if (deviceType == HardwareWalletType.COLDCARD_Q)
+                            if (deviceType.supportsQr)
                                 "Optional: Save PSBT file for microSD transfer"
                             else
-                                "Step 1: Save PSBT to file, transfer to Coldcard via SD card",
+                                "Step 1: Save PSBT to file, transfer to ${deviceType.displayName}",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -503,10 +583,10 @@ fun HardwareWalletPsbtScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            if (deviceType == HardwareWalletType.COLDCARD_Q)
-                                "After signing on Coldcard, import the signed PSBT file"
+                            if (deviceType.supportsQr)
+                                "Optional: after signing on ${deviceType.displayName}, import the signed PSBT file"
                             else
-                                "Step 2: After signing on Coldcard, import the signed PSBT",
+                                "Step 2: After signing on ${deviceType.displayName}, import the signed PSBT or transaction",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )

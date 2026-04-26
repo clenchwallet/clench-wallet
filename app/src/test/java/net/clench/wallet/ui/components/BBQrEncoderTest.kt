@@ -28,10 +28,12 @@ class BBQrEncoderTest {
         val frames = BBQrEncoder.encodePsbt(fakePsbt)
 
         assertEquals(1, frames.size)
-        assertTrue(frames[0].startsWith("B\$P"))
-        // Should be ZLIB or Hex
-        val encoding = frames[0][3]
-        assertTrue(encoding == 'Z' || encoding == 'H')
+        assertTrue(frames[0].startsWith("B\$"))
+        // Should be raw DEFLATE+Base32 or uncompressed Base32
+        val encoding = frames[0][2]
+        val fileType = frames[0][3]
+        assertTrue(encoding == 'Z' || encoding == '2')
+        assertEquals('P', fileType)
         // Total frames = 01, index = 00
         assertEquals("01", frames[0].substring(4, 6))
         assertEquals("00", frames[0].substring(6, 8))
@@ -46,7 +48,7 @@ class BBQrEncoderTest {
 
         assertTrue("Should have multiple frames, got ${frames.size}", frames.size > 1)
         for ((i, frame) in frames.withIndex()) {
-            assertTrue(frame.startsWith("B\$P"))
+            assertTrue(frame.startsWith("B\$"))
             val parsed = BBQrEncoder.parseBBQrFrame(frame)
             assertNotNull(parsed)
             assertEquals(frames.size, parsed!!.totalFrames)
@@ -85,8 +87,8 @@ class BBQrEncoderTest {
 
     @Test
     fun `isBBQr detection`() {
-        assertTrue(BBQrEncoder.isBBQr("B\$PZ0100ABCDEF"))
-        assertTrue(BBQrEncoder.isBBQr("B\$PH0100ABCDEF"))
+        assertTrue(BBQrEncoder.isBBQr("B\$ZP0100ABCDEF"))
+        assertTrue(BBQrEncoder.isBBQr("B\$HP0100ABCDEF"))
         assertFalse(BBQrEncoder.isBBQr("ur:crypto-psbt/..."))
         assertFalse(BBQrEncoder.isBBQr("hello"))
         assertFalse(BBQrEncoder.isBBQr("B\$"))
@@ -99,9 +101,19 @@ class BBQrEncoderTest {
         // B$ prefix
         assertEquals('B', frame[0])
         assertEquals('$', frame[1])
+        // Z or 2 for encoding
+        assertTrue(frame[2] == 'Z' || frame[2] == '2')
         // P for PSBT
-        assertEquals('P', frame[2])
-        // Z or H for encoding
-        assertTrue(frame[3] == 'Z' || frame[3] == 'H')
+        assertEquals('P', frame[3])
+    }
+
+    @Test
+    fun `parse transaction file type frame`() {
+        val frame = BBQrEncoder.parseBBQrFrame("B\$2T0100NBSWY3DPEB3W64TMMQ")
+        assertNotNull(frame)
+        assertEquals('2', frame!!.encoding)
+        assertEquals('T', frame.fileType)
+        assertEquals(1, frame.totalFrames)
+        assertEquals(0, frame.frameIndex)
     }
 }

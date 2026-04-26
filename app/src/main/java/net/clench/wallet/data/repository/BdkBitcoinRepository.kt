@@ -1,6 +1,7 @@
 package net.clench.wallet.data.repository
 
 import android.content.Context
+import android.util.Base64
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -68,6 +69,16 @@ class BdkBitcoinRepository @Inject constructor(
     private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory,
     private val torAwareHttpClient: TorAwareHttpClient
 ) : BitcoinRepository {
+
+    private data class TransactionFingerprint(
+        val inputs: List<String>,
+        val outputs: List<OutputFingerprint>
+    )
+
+    private data class OutputFingerprint(
+        val valueSat: Long,
+        val scriptPubkeyHex: String
+    )
 
     // [S-4] SECURITY: Gate sensitive debug logging in release builds.
     // In release, suppress logs that would expose wallet metadata, addresses, txids,
@@ -1655,21 +1666,33 @@ class BdkBitcoinRepository @Inject constructor(
             throw IllegalStateException("Cannot broadcast in offline mode")
         }
 
-        // Validate that signed PSBT outputs match the original unsigned PSBT
-        validatePsbtOutputsMatch(unsignedPsbtBase64, signedPsbtBase64)
-
-        // Import the signed PSBT
-        val signedPsbt = Psbt(signedPsbtBase64)
-
-        // Finalize the PSBT
-        val finalizeResult = signedPsbt.finalize()
-        if (!finalizeResult.couldFinalize) {
-            val errorMsgs = finalizeResult.errors?.joinToString(", ") { it.toString() } ?: "Unknown error"
-            throw IllegalStateException("Could not finalize PSBT: $errorMsgs")
+        // Hardware wallets do not all return the same payload after signing:
+        // SeedSigner/Keystone/Passport/Jade generally return a signed PSBT, while
+        // COLDCARD can return either a signed PSBT or a finalized transaction
+        // (BBQr file type T / .txn), depending on the export path and settings.
+        val signedPsbt = try {
+            Psbt(signedPsbtBase64)
+        } catch (_: Exception) {
+            null
         }
 
-        // Extract and broadcast the finalized transaction
-        val tx = finalizeResult.psbt.extractTx()
+        val tx = if (signedPsbt != null) {
+            // Finalize the PSBT before comparing the resulting transaction to
+            // the original unsigned PSBT. This is stricter than comparing PSBT
+            // metadata and covers QR, NFC, and file-import paths uniformly.
+            val finalizeResult = signedPsbt.finalize()
+            if (!finalizeResult.couldFinalize) {
+                val errorMsgs = finalizeResult.errors?.joinToString(", ") { it.toString() } ?: "Unknown error"
+                throw IllegalStateException("Could not finalize PSBT: $errorMsgs")
+            }
+            finalizeResult.psbt.extractTx()
+        } else {
+            // Not a PSBT; treat it as a finalized raw transaction payload.
+            Transaction(decodeTransactionPayload(signedPsbtBase64))
+        }
+
+        validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, tx)
+
         val config = settingsManager.loadElectrumConfig()
         val activeConnection = electrumConnectionFactory.createConnection(config)
         try {
@@ -1679,81 +1702,72 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
-    /**
-     * Validate that signed PSBT outputs match the original unsigned PSBT.
-     * Prevents a compromised hardware wallet from substituting output addresses/amounts.
-     * Compares serialized PSBT bytes: unsigned_tx is immutable across signing,
-     * so the serialized bytes of the unsigned portion must match.
-     */
-    private fun validatePsbtOutputsMatch(unsignedBase64: String, signedBase64: String) {
-        val unsigned = Psbt(unsignedBase64)
-        val signed = Psbt(signedBase64)
+    private fun decodeTransactionPayload(payload: String): ByteArray {
+        val trimmed = payload.trim()
+        if (trimmed.matches(Regex("^[0-9a-fA-F]+$")) && trimmed.length % 2 == 0) {
+            return trimmed.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        }
+        return Base64.decode(trimmed, Base64.DEFAULT)
+    }
 
-        // BDK 1.1.0: Psbt.serialize() returns base64. Compare the underlying transaction
-        // by re-serializing both PSBTs and checking that the signed one is strictly larger
-        // (signatures add bytes). More importantly, compare output structure via JSON if available.
+    /**
+     * Validate that the transaction produced by a hardware wallet matches the
+     * original unsigned PSBT before broadcasting. Prevents a compromised signer
+     * or transport from substituting recipient addresses, amounts, or inputs.
+     */
+    private fun validateTransactionMatchesUnsignedPsbt(unsignedBase64: String, signedTx: Transaction) {
+        val unsigned = Psbt(unsignedBase64)
+
+        val expected = try {
+            fingerprintTransaction(unsigned.extractTx())
+        } catch (e: Exception) {
+            // Some BDK/rust-bitcoin versions refuse to extract a non-final PSBT.
+            // Fall back to JSON output validation rather than broadcasting blind.
+            android.util.Log.w("BdkRepo", "Unsigned PSBT transaction extraction failed, falling back to JSON output validation: ${e.message}")
+            null
+        }
+
+        val actual = fingerprintTransaction(signedTx)
+
+        if (expected != null) {
+            if (expected.inputs != actual.inputs) {
+                throw SecurityException("PSBT tampered: transaction inputs changed")
+            }
+            compareOutputs(expected.outputs, actual.outputs)
+            android.util.Log.d("BdkRepo", "PSBT validation passed: ${actual.outputs.size} outputs and ${actual.inputs.size} inputs match")
+            return
+        }
+
+        // Last-resort fallback for environments where unsigned.extractTx() is not
+        // available. This preserves the old safety behavior: compare output count,
+        // amounts, and scriptPubKeys from BDK's PSBT JSON and refuse if unavailable.
         try {
             val unsignedJson = org.json.JSONObject(unsigned.jsonSerialize())
-            val signedJson = org.json.JSONObject(signed.jsonSerialize())
-
-            // Try multiple known JSON keys for the outputs array
             val unsignedOutputs = unsignedJson.optJSONArray("outputs")
                 ?: unsignedJson.optJSONArray("tx_outputs")
                 ?: unsignedJson.optJSONObject("unsigned_tx")?.optJSONArray("output")
-            val signedOutputs = signedJson.optJSONArray("outputs")
-                ?: signedJson.optJSONArray("tx_outputs")
-                ?: signedJson.optJSONObject("unsigned_tx")?.optJSONArray("output")
 
-            if (unsignedOutputs == null || signedOutputs == null) {
+            if (unsignedOutputs == null) {
                 throw SecurityException(
                     "PSBT output validation failed: unable to parse transaction outputs. " +
                     "Refusing to broadcast — re-create the PSBT and try again."
                 )
             }
 
-            if (unsignedOutputs.length() != signedOutputs.length()) {
-                throw SecurityException("PSBT tampered: output count changed (${unsignedOutputs.length()} → ${signedOutputs.length()})")
-            }
+            val expectedOutputs = mutableListOf<OutputFingerprint>()
 
-            // Compare each output's value and script
             for (i in 0 until unsignedOutputs.length()) {
                 val uOut = unsignedOutputs.getJSONObject(i)
-                val sOut = signedOutputs.getJSONObject(i)
-
-                // Amount check
-                val uAmt = uOut.optLong("value", -1)
-                val sAmt = sOut.optLong("value", -1)
-                if (uAmt != sAmt && uAmt != -1L && sAmt != -1L) {
-                    throw SecurityException("PSBT tampered: output $i amount changed ($uAmt → $sAmt)")
+                val amount = uOut.optLong("value", -1)
+                val script = uOut.optString("script_pubkey", "")
+                if (amount < 0 || script.isBlank()) {
+                    throw SecurityException("PSBT output validation failed: output $i missing amount or script")
                 }
-
-                // Script pubkey check (hex comparison)
-                val uScript = uOut.optString("script_pubkey", "")
-                val sScript = sOut.optString("script_pubkey", "")
-                if (uScript.isNotEmpty() && sScript.isNotEmpty() && uScript != sScript) {
-                    throw SecurityException("PSBT tampered: output $i script_pubkey changed")
-                }
+                expectedOutputs.add(OutputFingerprint(amount, script.lowercase()))
             }
 
-            // Fee reasonableness check
-            try {
-                // BDK 2.x: Psbt.fee() returns ULong (sat) directly
-                val fee = signed.fee().toLong()
-                if (fee <= 0L) throw Exception("Cannot determine fee")
-                var totalOut = 0L
-                for (i in 0 until signedOutputs.length()) {
-                    totalOut += signedOutputs.getJSONObject(i).optLong("value", 0)
-                }
-                if (totalOut > 0 && fee > totalOut / 2) {
-                    throw SecurityException("PSBT fee ($fee sat) exceeds 50% of output value ($totalOut sat) — possible fee attack")
-                }
-            } catch (e: SecurityException) {
-                throw e
-            } catch (e: Exception) {
-                android.util.Log.w("BdkRepo", "Fee validation skipped: ${e.message}")
-            }
-
-            android.util.Log.d("BdkRepo", "PSBT validation passed: ${unsignedOutputs.length()} outputs match")
+            compareOutputs(expectedOutputs, actual.outputs)
+            android.util.Log.d("BdkRepo", "PSBT validation passed: ${actual.outputs.size} outputs match")
         } catch (e: SecurityException) {
             throw e
         } catch (e: Exception) {
@@ -1764,6 +1778,36 @@ class BdkBitcoinRepository @Inject constructor(
             )
         }
     }
+
+    private fun fingerprintTransaction(tx: Transaction): TransactionFingerprint {
+        val inputs = tx.input().map { input ->
+            val previousOutput = input.previousOutput
+            "${previousOutput.txid}:${previousOutput.vout}"
+        }
+        val outputs = tx.output().map { output ->
+            OutputFingerprint(
+                valueSat = output.value.toSat().toLong(),
+                scriptPubkeyHex = output.scriptPubkey.toBytes().toHexString()
+            )
+        }
+        return TransactionFingerprint(inputs, outputs)
+    }
+
+    private fun compareOutputs(expected: List<OutputFingerprint>, actual: List<OutputFingerprint>) {
+        if (expected.size != actual.size) {
+            throw SecurityException("PSBT tampered: output count changed (${expected.size} → ${actual.size})")
+        }
+        expected.zip(actual).forEachIndexed { i, (uOut, sOut) ->
+            if (uOut.valueSat != sOut.valueSat) {
+                throw SecurityException("PSBT tampered: output $i amount changed (${uOut.valueSat} → ${sOut.valueSat})")
+            }
+            if (uOut.scriptPubkeyHex.lowercase() != sOut.scriptPubkeyHex.lowercase()) {
+                throw SecurityException("PSBT tampered: output $i script_pubkey changed")
+            }
+        }
+    }
+
+    private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 
     /**
      * Load wallet from cache or SQLite.
