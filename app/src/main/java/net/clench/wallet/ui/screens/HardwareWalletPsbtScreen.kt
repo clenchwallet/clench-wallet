@@ -246,6 +246,96 @@ fun HardwareWalletPsbtScreen(
                 return@Column
             }
 
+            // Signed PSBT ready state — require explicit user confirmation before broadcast.
+            if (uiState.signedPsbtBase64 != null) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "Signed PSBT Ready",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Clench scanned the signed PSBT from your ${deviceType.displayName}. Broadcast only after you have verified the transaction on your signer.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { viewModel.broadcastSignedPsbt(walletId) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Broadcast Transaction") }
+                        if (deviceType.supportsQr) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { showScanner = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Scan Signed PSBT Again") }
+                        }
+                        if (deviceType == HardwareWalletType.COLDCARD_Q || deviceType == HardwareWalletType.COLDCARD_MK4) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { filePickerLauncher.launch("*/*") },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Import Different Signed PSBT") }
+                        }
+                    }
+                }
+
+                uiState.error?.let { error ->
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "Error: $error",
+                            modifier = Modifier.padding(16.dp),
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                OutlinedButton(
+                    onClick = onBack,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Cancel") }
+                return@Column
+            }
+
+            if (deviceType == HardwareWalletType.SEEDSIGNER) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "SeedSigner signing steps",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "On SeedSigner: choose Scan transaction, scan this QR, review and approve, then show the signed PSBT QR and scan it back into Clench.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             if (deviceType == HardwareWalletType.COLDCARD_Q) {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
