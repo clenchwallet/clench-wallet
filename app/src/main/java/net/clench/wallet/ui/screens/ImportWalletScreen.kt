@@ -484,6 +484,7 @@ private fun getDeviceInstructions(device: HardwareWalletType): String {
     return when (device) {
         HardwareWalletType.COLDCARD_Q -> "On your Coldcard Q:\nSettings → Wallet → Export → QR Code\n\nThis will display a QR code containing your wallet's extended public key (xpub/zpub)."
         HardwareWalletType.COLDCARD_MK4 -> "On your Coldcard Mk4:\nAdvanced/Tools → Export Wallet → Generic JSON\n\nSave to SD card, then paste the xpub/zpub from the file."
+        HardwareWalletType.COLDCARD_MK5 -> "On your Coldcard Mk5:\nAdvanced/Tools → Export Wallet → Generic JSON\n\nSave to SD card or virtual disk, then paste the xpub/zpub from the file."
         HardwareWalletType.SEEDSIGNER -> "On your SeedSigner:\nExport Xpub → Select wallet format (Native SegWit recommended)\n\nScan the animated QR code displayed on screen."
         HardwareWalletType.KEYSTONE -> "On your Keystone:\nMenu (☰) → Multisig Wallet or watch-only setup\n\nThe device will display a QR code with your extended public key."
         HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport:\nManage Account → Connect Wallet → QR Code\n\nScan the animated QR code displayed on screen."

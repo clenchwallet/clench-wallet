@@ -3,6 +3,7 @@ package net.clench.wallet.ui
 import android.content.Intent
 import android.nfc.NdefMessage
 import android.nfc.NfcAdapter
+import android.nfc.NdefRecord
 import android.os.Bundle
 import android.util.Base64
 import androidx.activity.compose.setContent
@@ -162,13 +163,41 @@ class MainActivity : FragmentActivity() {
             val rawMsgs = intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES)
             if (rawMsgs != null && rawMsgs.isNotEmpty()) {
                 val ndefMessage = rawMsgs[0] as NdefMessage
-                val payload = ndefMessage.records.firstOrNull()?.payload
-                if (payload != null) {
-                    val psbtBase64 = Base64.encodeToString(payload, Base64.NO_WRAP)
-                    _nfcPsbtFlow.tryEmit(psbtBase64)
+                for (record in ndefMessage.records) {
+                    val payload = decodeNfcSigningPayload(record)
+                    if (payload != null) {
+                        _nfcPsbtFlow.tryEmit(payload)
+                        break
+                    }
                 }
             }
         }
+    }
+
+    private fun decodeNfcSigningPayload(record: NdefRecord): String? {
+        val payload = record.payload ?: return null
+        if (payload.isEmpty()) return null
+
+        if (record.tnf == NdefRecord.TNF_WELL_KNOWN && record.type.contentEquals(NdefRecord.RTD_TEXT)) {
+            return decodeNdefText(payload)?.trim()?.takeIf { it.isNotBlank() }
+        }
+
+        val asText = payload.toString(Charsets.UTF_8).trim()
+        val looksLikeBase64Psbt = asText.startsWith("cHNid", ignoreCase = true)
+        val looksLikeHex = asText.length % 2 == 0 && asText.matches(Regex("^[0-9a-fA-F]+$"))
+        if (looksLikeBase64Psbt || looksLikeHex) return asText
+
+        return Base64.encodeToString(payload, Base64.NO_WRAP)
+    }
+
+    private fun decodeNdefText(payload: ByteArray): String? {
+        if (payload.isEmpty()) return null
+        val status = payload[0].toInt()
+        val languageCodeLength = status and 0x3F
+        val textStart = 1 + languageCodeLength
+        if (textStart >= payload.size) return null
+        val charset = if ((status and 0x80) != 0) Charsets.UTF_16 else Charsets.UTF_8
+        return String(payload, textStart, payload.size - textStart, charset)
     }
 
     override fun onPause() {

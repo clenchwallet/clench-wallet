@@ -115,7 +115,8 @@ fun HardwareWalletPsbtScreen(
         return
     }
 
-    // Pre-compute QR frames: BBQr for Coldcard, BC-UR for others
+    // Pre-compute QR frames: BBQr for Coldcard Q, BC-UR for other QR devices.
+    // Coldcard Mk4/Mk5 do not have a camera; use NFC or SD card file transfer.
     val qrFrames = remember(psbtBase64, deviceType) {
         if (psbtBase64.isNotEmpty() && deviceType.supportsQr) {
             encodePsbtForDevice(psbtBase64, deviceType)
@@ -126,9 +127,13 @@ fun HardwareWalletPsbtScreen(
     var autoAdvance by remember { mutableStateOf(true) }
     var manualFrameIndex by remember { mutableIntStateOf(0) }
 
-    val isBBQr = deviceType == HardwareWalletType.COLDCARD_Q || deviceType == HardwareWalletType.COLDCARD_MK4
+    val isBBQr = deviceType == HardwareWalletType.COLDCARD_Q
+    val isColdcardFileDevice = deviceType == HardwareWalletType.COLDCARD_Q ||
+        deviceType == HardwareWalletType.COLDCARD_MK4 ||
+        deviceType == HardwareWalletType.COLDCARD_MK5
     val supportsFileTransfer = deviceType == HardwareWalletType.COLDCARD_Q ||
         deviceType == HardwareWalletType.COLDCARD_MK4 ||
+        deviceType == HardwareWalletType.COLDCARD_MK5 ||
         deviceType == HardwareWalletType.KEYSTONE ||
         deviceType == HardwareWalletType.FOUNDATION_PASSPORT
 
@@ -263,14 +268,14 @@ fun HardwareWalletPsbtScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            "Signed PSBT Ready",
+                            "Signed Transaction Ready",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Clench scanned the signed PSBT from your ${deviceType.displayName}. Broadcast only after you have verified the transaction on your signer.",
+                            "Clench imported signed transaction data from your ${deviceType.displayName}. Broadcast only after you have verified the transaction on your signer.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSecondaryContainer,
                             textAlign = TextAlign.Center
@@ -287,12 +292,12 @@ fun HardwareWalletPsbtScreen(
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text("Scan Signed PSBT Again") }
                         }
-                        if (deviceType == HardwareWalletType.COLDCARD_Q || deviceType == HardwareWalletType.COLDCARD_MK4) {
+                        if (isColdcardFileDevice) {
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedButton(
                                 onClick = { filePickerLauncher.launch("*/*") },
                                 modifier = Modifier.fillMaxWidth()
-                            ) { Text("Import Different Signed PSBT") }
+                            ) { Text("Import Different Signed File") }
                         }
                     }
                 }
@@ -359,17 +364,17 @@ fun HardwareWalletPsbtScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            if (deviceType == HardwareWalletType.COLDCARD_MK4) {
+            if (deviceType == HardwareWalletType.COLDCARD_MK4 || deviceType == HardwareWalletType.COLDCARD_MK5) {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            "Coldcard Mk4 signing steps",
+                            "${deviceType.displayName} signing steps",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Use NFC or microSD. On Coldcard: Advanced/Tools → NFC Tools → Sign PSBT, or save the PSBT file to microSD and choose Ready To Sign. After signing, import the returned signed PSBT or transaction into Clench, then confirm Broadcast Transaction.",
+                            "Use microSD/virtual disk for the most reliable flow: save the PSBT file, open Ready To Sign on Coldcard, review and sign, then import the returned signed PSBT or finalized transaction into Clench. NFC file share can also be used for the signed return when Android receives the Coldcard payload. Confirm Broadcast Transaction only after reviewing on the device.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -468,7 +473,8 @@ fun HardwareWalletPsbtScreen(
                             qrSizeDp = if (isBBQr) 400.dp else 360.dp,
                             frameDelayMs = when (deviceType) {
                                 HardwareWalletType.COLDCARD_Q -> 1000L  // BBQr: slow for Coldcard Q scanner (was 600ms)
-                                HardwareWalletType.COLDCARD_MK4 -> 1000L // BBQr: slow for Coldcard scanner
+                                HardwareWalletType.COLDCARD_MK4,
+                                HardwareWalletType.COLDCARD_MK5 -> 1000L
                                 else -> 125L // BC-UR: fast fountain codes
                             },
                             autoAdvance = autoAdvance,
@@ -594,7 +600,7 @@ fun HardwareWalletPsbtScreen(
                         Button(
                             onClick = { filePickerLauncher.launch("*/*") },
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text("Import Signed PSBT") }
+                        ) { Text("Import Signed File") }
                     }
                 }
             }

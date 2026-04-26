@@ -1670,11 +1670,7 @@ class BdkBitcoinRepository @Inject constructor(
         // SeedSigner/Keystone/Passport/Jade generally return a signed PSBT, while
         // COLDCARD can return either a signed PSBT or a finalized transaction
         // (BBQr file type T / .txn), depending on the export path and settings.
-        val signedPsbt = try {
-            Psbt(signedPsbtBase64)
-        } catch (_: Exception) {
-            null
-        }
+        val signedPsbt = parseSignedPsbtPayload(signedPsbtBase64)
 
         val tx = if (signedPsbt != null) {
             // Finalize the PSBT before comparing the resulting transaction to
@@ -1707,7 +1703,49 @@ class BdkBitcoinRepository @Inject constructor(
         if (trimmed.matches(Regex("^[0-9a-fA-F]+$")) && trimmed.length % 2 == 0) {
             return trimmed.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         }
-        return Base64.decode(trimmed, Base64.DEFAULT)
+        val decoded = Base64.decode(trimmed, Base64.DEFAULT)
+        val decodedText = decoded.toString(Charsets.UTF_8).trim()
+        if (decodedText.matches(Regex("^[0-9a-fA-F]+$")) && decodedText.length % 2 == 0) {
+            return decodedText.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        }
+        if (decodedText.startsWith("02000000") || decodedText.startsWith("01000000") || decodedText.startsWith("psbt", ignoreCase = true)) {
+            return Base64.decode(decodedText, Base64.DEFAULT)
+        }
+        return decoded
+    }
+
+    private fun parseSignedPsbtPayload(payload: String): Psbt? {
+        for (candidate in psbtBase64Candidates(payload)) {
+            try {
+                return Psbt(candidate)
+            } catch (_: Exception) {
+                // Try the next representation. Coldcard/Keystone/Passport file
+                // imports may be binary PSBT, base64 text, or a base64-wrapped
+                // text file depending on how Android delivered the file/NFC data.
+            }
+        }
+        return null
+    }
+
+    private fun psbtBase64Candidates(payload: String): List<String> {
+        val candidates = linkedSetOf(payload.trim())
+        try {
+            val decoded = Base64.decode(payload.trim(), Base64.DEFAULT)
+            if (decoded.size >= 5 && decoded[0] == 0x70.toByte() && decoded[1] == 0x73.toByte() && decoded[2] == 0x62.toByte() && decoded[3] == 0x74.toByte()) {
+                candidates.add(Base64.encodeToString(decoded, Base64.NO_WRAP))
+            }
+            val text = decoded.toString(Charsets.UTF_8).trim()
+            if (text.isNotBlank()) {
+                candidates.add(text)
+                if (text.matches(Regex("^[0-9a-fA-F]+$")) && text.length % 2 == 0) {
+                    val bytes = text.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                    candidates.add(Base64.encodeToString(bytes, Base64.NO_WRAP))
+                }
+            }
+        } catch (_: Exception) {
+            // payload was not base64; the original string remains as a candidate
+        }
+        return candidates.toList()
     }
 
     /**

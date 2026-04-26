@@ -48,13 +48,12 @@ fun psbtToUrFrames(psbtBase64: String, maxFragmentLen: Int = 500): List<String> 
 
 /**
  * Encode a PSBT for QR display, using the appropriate format for the target device.
- * - Coldcard Q/Mk4: BBQr format (ZLIB compressed, Base32)
+ * - Coldcard Q: BBQr format (raw DEFLATE compressed, Base32)
  * - All others: BC-UR (ur:crypto-psbt)
  */
 fun encodePsbtForDevice(psbtBase64: String, deviceType: HardwareWalletType): List<String> {
     return when (deviceType) {
-        HardwareWalletType.COLDCARD_Q,
-        HardwareWalletType.COLDCARD_MK4 -> {
+        HardwareWalletType.COLDCARD_Q -> {
             val psbtBytes = Base64.decode(psbtBase64, Base64.DEFAULT)
             val frames = BBQrEncoder.encodePsbt(psbtBytes)
             android.util.Log.d("BBQr", "Encoded ${psbtBytes.size} bytes into ${frames.size} frames, first frame header: ${frames.firstOrNull()?.take(20)}, frame len: ${frames.firstOrNull()?.length}")
