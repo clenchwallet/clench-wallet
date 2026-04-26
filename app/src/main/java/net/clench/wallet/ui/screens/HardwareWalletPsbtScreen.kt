@@ -1,12 +1,14 @@
 package net.clench.wallet.ui.screens
 
 import android.content.ContentValues
+import android.nfc.NfcAdapter
 import android.os.Environment
 import android.provider.MediaStore
 import android.app.Activity
 import android.util.Base64
 import android.view.WindowManager
 import android.widget.Toast
+import android.nfc.tech.Ndef
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -27,9 +29,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.MainActivity
 import net.clench.wallet.ui.components.AnimatedQrCode
+import net.clench.wallet.ui.components.ColdcardNfcPayload
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.encodePsbtForDevice
 import net.clench.wallet.ui.viewmodel.HardwareWalletPsbtViewModel
+
+private enum class ColdcardNfcMode { Idle, SendUnsigned, ReceiveSigned }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,6 +47,14 @@ fun HardwareWalletPsbtScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     var showScanner by remember { mutableStateOf(false) }
+    val activity = context as? Activity
+    val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
+    val coldcardSupportsNfc = deviceType == HardwareWalletType.COLDCARD_Q ||
+        deviceType == HardwareWalletType.COLDCARD_MK4 ||
+        deviceType == HardwareWalletType.COLDCARD_MK5
+    var nfcMode by remember { mutableStateOf(ColdcardNfcMode.Idle) }
+    var nfcStatus by remember { mutableStateOf<String?>(null) }
+    var nfcError by remember { mutableStateOf<String?>(null) }
 
     // R7-20: FLAG_SECURE — prevent screenshots of PSBT data
     DisposableEffect(Unit) {
@@ -55,6 +68,70 @@ fun HardwareWalletPsbtScreen(
     // Initialize PSBT from in-memory store (not nav args)
     val storeData = remember { viewModel.initFromStore() }
     val psbtBase64 = uiState.psbtBase64
+
+    DisposableEffect(nfcMode, psbtBase64, walletId, deviceType) {
+        val hostActivity = activity
+        val adapter = nfcAdapter
+        if (nfcMode == ColdcardNfcMode.Idle || hostActivity == null || adapter == null || !adapter.isEnabled) {
+            onDispose { }
+        } else {
+            val flags = NfcAdapter.FLAG_READER_NFC_V or NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
+            adapter.enableReaderMode(
+                hostActivity,
+                { tag ->
+                    try {
+                        when (nfcMode) {
+                            ColdcardNfcMode.SendUnsigned -> {
+                                val ndef = Ndef.get(tag) ?: error("NFC tag does not support NDEF writes")
+                                ndef.connect()
+                                try {
+                                    if (!ndef.isWritable) error("Coldcard NFC tag is not writable right now")
+                                    val message = ColdcardNfcPayload.unsignedPsbtMessage(psbtBase64)
+                                    if (ndef.maxSize > 0 && message.toByteArray().size > ndef.maxSize) {
+                                        error("PSBT is too large for this NFC transfer; use SD card or QR instead")
+                                    }
+                                    ndef.writeNdefMessage(message)
+                                } finally {
+                                    ndef.close()
+                                }
+                                hostActivity.runOnUiThread {
+                                    nfcError = null
+                                    nfcStatus = "Unsigned PSBT sent. Review and sign on ${deviceType.displayName}, then tap Receive Signed NFC Return when Coldcard is sharing the signed payload."
+                                    nfcMode = ColdcardNfcMode.Idle
+                                }
+                            }
+                            ColdcardNfcMode.ReceiveSigned -> {
+                                val ndef = Ndef.get(tag) ?: error("NFC tag does not expose an NDEF message")
+                                ndef.connect()
+                                val message = try {
+                                    ndef.ndefMessage ?: ndef.cachedNdefMessage
+                                } finally {
+                                    ndef.close()
+                                } ?: error("No signed PSBT or transaction found on NFC tag")
+                                val payload = ColdcardNfcPayload.extractSigningPayload(message)
+                                    ?: error("NFC payload did not include a signed PSBT or transaction")
+                                hostActivity.runOnUiThread {
+                                    nfcError = null
+                                    nfcStatus = "Signed transaction data imported from ${deviceType.displayName}. Review in Clench before broadcasting."
+                                    nfcMode = ColdcardNfcMode.Idle
+                                    viewModel.onSignedPsbtReceived(walletId, payload)
+                                }
+                            }
+                            ColdcardNfcMode.Idle -> Unit
+                        }
+                    } catch (e: Exception) {
+                        hostActivity.runOnUiThread {
+                            nfcError = e.message ?: "NFC transfer failed"
+                            nfcStatus = null
+                        }
+                    }
+                },
+                flags,
+                null
+            )
+            onDispose { adapter.disableReaderMode(hostActivity) }
+        }
+    }
 
     // Fix 6: Empty PSBT error state — if psbtBase64 is empty, show error
     if (psbtBase64.isEmpty() && uiState.txid == null && !uiState.isBroadcasting) {
@@ -374,7 +451,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Use microSD/virtual disk for the most reliable flow: save the PSBT file, open Ready To Sign on Coldcard, review and sign, then import the returned signed PSBT or finalized transaction into Clench. NFC file share can also be used for the signed return when Android receives the Coldcard payload. Confirm Broadcast Transaction only after reviewing on the device.",
+                            "Use NFC for a phone-only flow: on Coldcard choose Advanced/Tools → NFC Tools → Sign PSBT, tap Send PSBT via NFC in Clench, review and sign, then tap again to import the signed return. SD card or virtual disk remains the fallback for large transactions.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -532,6 +609,91 @@ fun HardwareWalletPsbtScreen(
                             onClick = { showScanner = true },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("Scan Signed PSBT") }
+                    }
+                }
+            }
+
+            if (coldcardSupportsNfc) {
+                if (deviceType.supportsQr) Spacer(modifier = Modifier.height(16.dp))
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            if (deviceType.supportsQr) "Optional: NFC transfer" else "NFC transfer",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Enable NFC on ${deviceType.displayName}. To sign: choose NFC Tools → Sign PSBT, tap the device to send this PSBT, review/sign on Coldcard, then use Receive Signed NFC Return when Coldcard shares the signed PSBT or transaction.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        when {
+                            nfcAdapter == null -> Text(
+                                "This phone does not report NFC hardware.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+                            !nfcAdapter.isEnabled -> Text(
+                                "NFC is off in Android settings.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+                            else -> {
+                                Button(
+                                    onClick = {
+                                        nfcError = null
+                                        nfcStatus = "Ready to send. Hold the phone's NFC antenna against ${deviceType.displayName}."
+                                        nfcMode = ColdcardNfcMode.SendUnsigned
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Send PSBT via NFC") }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        nfcError = null
+                                        nfcStatus = "Ready to receive. Tap ${deviceType.displayName} when it is sharing the signed PSBT or transaction."
+                                        nfcMode = ColdcardNfcMode.ReceiveSigned
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Receive Signed NFC Return") }
+                                if (nfcMode != ColdcardNfcMode.Idle) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    TextButton(
+                                        onClick = {
+                                            nfcMode = ColdcardNfcMode.Idle
+                                            nfcStatus = null
+                                            nfcError = null
+                                        }
+                                    ) { Text("Cancel NFC") }
+                                }
+                            }
+                        }
+                        nfcStatus?.let { status ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                status,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        nfcError?.let { error ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 }
             }

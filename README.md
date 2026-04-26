@@ -14,7 +14,7 @@ A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](http
 ### Hardware Wallet Support
 - **QR-based:** SeedSigner, Keystone, Foundation Passport, Blockstream Jade
 - **Coldcard Q:** BBQr QR, NFC, and file-based PSBT transfer
-- **Coldcard Mk4:** NFC and SD card PSBT transfer
+- **Coldcard Mk4/Mk5:** NFC, SD card, and virtual disk PSBT transfer
 - **Signed-return support:** signed PSBT import, plus finalized transaction returns where supported
 - Explicit broadcast confirmation after hardware-wallet signing
 - Full PSBT (BIP-174) workflow

@@ -4,9 +4,9 @@ enum class HardwareWalletType(val displayName: String, val connectionMethod: Str
     SEEDSIGNER("SeedSigner", "QR"),
     KEYSTONE("Keystone", "QR"),
     FOUNDATION_PASSPORT("Foundation Passport", "QR"),
-    COLDCARD_Q("Coldcard Q", "QR / NFC"),
-    COLDCARD_MK4("Coldcard Mk4", "NFC / SD Card"),
-    COLDCARD_MK5("Coldcard Mk5", "NFC / SD Card"),
+    COLDCARD_Q("Coldcard Q", "QR / NFC / File"),
+    COLDCARD_MK4("Coldcard Mk4", "NFC / SD Card / Virtual Disk"),
+    COLDCARD_MK5("Coldcard Mk5", "NFC / SD Card / Virtual Disk"),
     JADE("Blockstream Jade", "QR");
 
     val supportsQr: Boolean get() = connectionMethod.contains("QR")

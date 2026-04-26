@@ -59,9 +59,9 @@ fun HardwareWalletSettingsScreen(
                 "SEEDSIGNER" to "SeedSigner" to "QR",
                 "KEYSTONE" to "Keystone" to "QR",
                 "FOUNDATION_PASSPORT" to "Foundation Passport" to "QR",
-                "COLDCARD_Q" to "Coldcard Q" to "QR / NFC",
-                "COLDCARD_MK4" to "Coldcard Mk4" to "NFC / SD Card",
-                "COLDCARD_MK5" to "Coldcard Mk5" to "NFC / SD Card",
+                "COLDCARD_Q" to "Coldcard Q" to "QR / NFC / File",
+                "COLDCARD_MK4" to "Coldcard Mk4" to "NFC / SD Card / Virtual Disk",
+                "COLDCARD_MK5" to "Coldcard Mk5" to "NFC / SD Card / Virtual Disk",
                 "JADE" to "Blockstream Jade" to "QR"
             )
 
