@@ -640,7 +640,7 @@ class SendViewModel @Inject constructor(
                 _uiState.update { it.copy(isLoading = false) }
                 onPsbtReady(psbtBase64)
             } catch (e: Exception) {
-                android.util.Log.w("SendVM", "createPsbt failed: ${e.javaClass.simpleName}")
+                android.util.Log.w("SendVM", "createPsbt failed: ${e.javaClass.simpleName}: ${e.message}", e)
                 _uiState.update {
                     it.copy(
                         isLoading = false,

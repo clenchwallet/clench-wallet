@@ -1428,15 +1428,45 @@ class BdkBitcoinRepository @Inject constructor(
         val isWatchOnly = walletEntity?.isWatchOnly == true
 
         // BDK 2.x: TxBuilder is immutable — every method returns a NEW builder.
-        var builder = if (amountSat == null) {
-            TxBuilder()
-                .drainWallet()
-                .drainTo(recipientAddress.scriptPubkey())
-                .feeRate(feeRate)
-        } else {
-            TxBuilder()
-                .addRecipient(recipientAddress.scriptPubkey(), Amount.fromSat(amountSat.toULong()))
-                .feeRate(feeRate)
+        // Keep this branch structure in sync with buildTransaction(): selected-UTXO
+        // drains must drain only the selected inputs, not start from drainWallet().
+        var builder = when {
+            // Drain a specific UTXO only
+            amountSat == null && utxoTxid != null && utxoVout != null -> {
+                TxBuilder()
+                    .addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(utxoTxid), utxoVout))
+                    .drainTo(recipientAddress.scriptPubkey())
+                    .feeRate(feeRate)
+                    .manuallySelectedOnly()
+            }
+            // Drain specific selected UTXOs
+            amountSat == null && selectedOutpoints.isNotEmpty() -> {
+                var b = TxBuilder()
+                    .drainTo(recipientAddress.scriptPubkey())
+                    .feeRate(feeRate)
+                for (op in selectedOutpoints) {
+                    val parts = op.split(":")
+                    if (parts.size == 2) {
+                        val txid = parts[0]
+                        val vout = parts[1].toUIntOrNull() ?: continue
+                        b = b.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(txid), vout))
+                    }
+                }
+                b.manuallySelectedOnly()
+            }
+            // Drain whole wallet
+            amountSat == null -> {
+                TxBuilder()
+                    .drainWallet()
+                    .drainTo(recipientAddress.scriptPubkey())
+                    .feeRate(feeRate)
+            }
+            // Send specific amount
+            else -> {
+                TxBuilder()
+                    .addRecipient(recipientAddress.scriptPubkey(), Amount.fromSat(amountSat.toULong()))
+                    .feeRate(feeRate)
+            }
         }
 
         // For watch-only wallets, BDK classifies all UTXOs as untrustedPending
@@ -1472,7 +1502,7 @@ class BdkBitcoinRepository @Inject constructor(
             emptySet()
         }
         
-        if (selectedOutpoints.isNotEmpty()) {
+        if (amountSat != null && selectedOutpoints.isNotEmpty()) {
             for (op in selectedOutpoints) {
                 val parts = op.split(":")
                 if (parts.size == 2) {
@@ -1488,7 +1518,7 @@ class BdkBitcoinRepository @Inject constructor(
                 }
             }
             builder = builder.manuallySelectedOnly()
-        } else if (utxoTxid != null && utxoVout != null) {
+        } else if (amountSat != null && utxoTxid != null && utxoVout != null) {
             val outpointStr = "$utxoTxid:$utxoVout"
             if (outpointStr in frozenOutpointsForCoinControl) {
                 android.util.Log.w("BdkRepo", "createPsbt: attempted to spend frozen UTXO $outpointStr")
