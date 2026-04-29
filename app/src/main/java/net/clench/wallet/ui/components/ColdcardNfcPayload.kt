@@ -31,6 +31,24 @@ object ColdcardNfcPayload {
     }
 
     /**
+     * Returns the first textual/URI payload from an NFC message. Used for hardware
+     * wallet onboarding where a device may share an xpub, descriptor, or JSON export.
+     */
+    fun extractTextPayload(message: NdefMessage): String? {
+        for (record in message.records) {
+            val text = record.asTextOrUri()?.trim().orEmpty()
+            if (text.isNotBlank()) return text
+        }
+        for (record in message.records) {
+            if (record.tnf == NdefRecord.TNF_EXTERNAL_TYPE || record.tnf == NdefRecord.TNF_MIME_MEDIA) {
+                val text = runCatching { record.payload.toString(Charsets.UTF_8).trim() }.getOrNull().orEmpty()
+                if (text.isNotBlank()) return text
+            }
+        }
+        return null
+    }
+
+    /**
      * Returns base64 PSBT/transaction bytes suitable for the existing validation path.
      * Text/URI PushTx payloads are accepted but still require Clench confirmation.
      */

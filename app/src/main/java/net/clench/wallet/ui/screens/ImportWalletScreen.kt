@@ -1,5 +1,10 @@
 package net.clench.wallet.ui.screens
 
+import android.app.Activity
+import android.nfc.NfcAdapter
+import android.nfc.tech.Ndef
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -23,6 +28,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.ui.components.ColdcardNfcPayload
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.WalletFingerprint
@@ -46,8 +52,32 @@ fun ImportWalletScreen(
     var showScanner by remember { mutableStateOf(false) }
     var cameraErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Check camera availability once
+    // Check camera/NFC availability once
     val hasCamera = remember { hasCameraAvailable(context) }
+    val activity = context as? Activity
+    val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
+    var nfcReaderActive by remember { mutableStateOf(false) }
+    var nfcStatus by remember { mutableStateOf<String?>(null) }
+    var nfcError by remember { mutableStateOf<String?>(null) }
+
+    val hardwareFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            try {
+                val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader -> reader.readText() }
+                if (text.isNullOrBlank()) {
+                    nfcError = "Selected file was empty"
+                } else {
+                    viewModel.setInput(text.trim())
+                    nfcStatus = "Loaded hardware wallet export file"
+                    nfcError = null
+                }
+            } catch (e: Exception) {
+                nfcError = "Could not read file: ${e.message}"
+            }
+        }
+    }
 
     // HW wallet mode state
     var selectedDevice by remember { mutableStateOf<HardwareWalletType?>(null) }
@@ -67,14 +97,46 @@ fun ImportWalletScreen(
         }
     }
 
-    // In HW wallet mode, auto-launch scanner after device selection — only if camera available
-    LaunchedEffect(selectedDevice) {
-        if (hardwareWalletMode && selectedDevice != null && uiState.input.isBlank()) {
-            if (hasCamera) {
-                delay(300) // Brief pause so user sees the instructions
-                showScanner = true
-            }
-            // If no camera, we just stay on the manual input screen (with the note shown below)
+    // Hardware wallet onboarding is choice-based: select file, scan QR, or NFC explicitly.
+    DisposableEffect(nfcReaderActive, selectedDevice) {
+        val hostActivity = activity
+        val adapter = nfcAdapter
+        if (!nfcReaderActive || hostActivity == null || adapter == null || !adapter.isEnabled) {
+            onDispose { }
+        } else {
+            val flags = NfcAdapter.FLAG_READER_NFC_V or
+                NfcAdapter.FLAG_READER_NFC_A or
+                NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
+            adapter.enableReaderMode(
+                hostActivity,
+                { tag ->
+                    try {
+                        val ndef = Ndef.get(tag) ?: error("NFC tag does not expose an NDEF message")
+                        ndef.connect()
+                        val message = try {
+                            ndef.ndefMessage ?: ndef.cachedNdefMessage
+                        } finally {
+                            ndef.close()
+                        } ?: error("No NDEF payload found on NFC tag")
+                        val payload = ColdcardNfcPayload.extractTextPayload(message)
+                            ?: error("NFC payload did not contain an xpub, descriptor, or readable text export")
+                        hostActivity.runOnUiThread {
+                            viewModel.setInput(payload.trim())
+                            nfcStatus = "Loaded hardware wallet data from NFC"
+                            nfcError = null
+                            nfcReaderActive = false
+                        }
+                    } catch (e: Exception) {
+                        hostActivity.runOnUiThread {
+                            nfcError = e.message ?: "NFC import failed"
+                            nfcStatus = null
+                        }
+                    }
+                },
+                flags,
+                null
+            )
+            onDispose { adapter.disableReaderMode(hostActivity) }
         }
     }
 
@@ -194,39 +256,80 @@ fun ImportWalletScreen(
 
             // In HW wallet mode, hide the seed phrase label and show xpub-focused label
             if (hardwareWalletMode) {
+                Text(
+                    "Choose how to import from ${selectedDevice?.displayName ?: "your hardware wallet"}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { hardwareFileLauncher.launch(arrayOf("*/*")) },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Load File") }
+                    Button(
+                        onClick = { showScanner = true },
+                        enabled = hasCamera,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Scan")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            when {
+                                nfcAdapter == null -> nfcError = "This phone does not report NFC hardware"
+                                !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
+                                activity == null -> nfcError = "NFC reader is unavailable in this view"
+                                else -> {
+                                    nfcError = null
+                                    nfcStatus = "Ready for NFC. Hold ${selectedDevice?.displayName ?: "the device"} against the phone."
+                                    nfcReaderActive = true
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("NFC") }
+                }
+                if (!hasCamera) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Camera unavailable — use file, NFC, or paste manually.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (nfcReaderActive) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = {
+                            nfcReaderActive = false
+                            nfcStatus = null
+                            nfcError = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Cancel NFC") }
+                }
+                nfcStatus?.let { status ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+                nfcError?.let { error ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = uiState.input,
                     onValueChange = { viewModel.setInput(it) },
-                    label = { Text("Scan or paste xpub / zpub / descriptor") },
+                    label = { Text("xpub / zpub / descriptor") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(120.dp),
-                    placeholder = { Text("zpub… or xpub… or wpkh(…)") },
-                    trailingIcon = {
-                        if (hasCamera) {
-                            IconButton(onClick = { showScanner = true }) {
-                                Icon(
-                                    Icons.Default.CameraAlt,
-                                    contentDescription = "Scan QR code"
-                                )
-                            }
-                        }
-                    }
+                    placeholder = { Text("zpub… or xpub… or wpkh(…)") }
                 )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Prominent scan button for HW wallet mode — only show if camera available
-                if (hasCamera) {
-                    Button(
-                        onClick = { showScanner = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Scan QR Code from ${selectedDevice?.displayName ?: "Device"}")
-                    }
-                }
             } else {
                 // Standard import: single unified input field
                 OutlinedTextField(
@@ -482,7 +585,7 @@ fun ImportWalletScreen(
  */
 private fun getDeviceInstructions(device: HardwareWalletType): String {
     return when (device) {
-        HardwareWalletType.COLDCARD_Q -> "On your Coldcard Q:\nSettings → Wallet → Export → QR Code\n\nThis will display a QR code containing your wallet's extended public key (xpub/zpub)."
+        HardwareWalletType.COLDCARD_Q -> "On your Coldcard Q, export the public key using whichever method is easiest: QR code, a Generic JSON file, or NFC if your firmware exposes the account export over NFC. Then choose Load File, Scan, or NFC below."
         HardwareWalletType.COLDCARD_MK4 -> "On your Coldcard Mk4:\nAdvanced/Tools → Export Wallet → Generic JSON\n\nSave to SD card, then paste the xpub/zpub from the file."
         HardwareWalletType.COLDCARD_MK5 -> "On your Coldcard Mk5:\nAdvanced/Tools → Export Wallet → Generic JSON\n\nSave to SD card or virtual disk, then paste the xpub/zpub from the file."
         HardwareWalletType.SEEDSIGNER -> "On your SeedSigner:\nExport Xpub → Select wallet format (Native SegWit recommended)\n\nScan the animated QR code displayed on screen."

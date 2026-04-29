@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.local.dao.TransactionLabelDao
+import net.clench.wallet.data.local.dao.UtxoMetadataDao
 import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.network.TorAwareHttpClient
 import net.clench.wallet.data.util.Bip329
@@ -38,6 +39,7 @@ class HomeViewModel @Inject constructor(
     internal val bitcoinRepository: BitcoinRepository,
     internal val settingsManager: SettingsManager,
     private val transactionLabelDao: TransactionLabelDao,
+    private val utxoMetadataDao: UtxoMetadataDao,
     private val torAwareHttpClient: TorAwareHttpClient
 ) : ViewModel() {
 
@@ -46,6 +48,8 @@ class HomeViewModel @Inject constructor(
         val balanceSat: Long = 0L,
         val confirmedSat: Long = 0L,
         val pendingSat: Long = 0L,
+        val frozenSat: Long = 0L,
+        val frozenUtxoCount: Int = 0,
         val transactions: List<TransactionItem> = emptyList(),
         val isLoading: Boolean = false,
         val isSyncing: Boolean = false,
@@ -105,6 +109,7 @@ class HomeViewModel @Inject constructor(
                 // First show cached balance and transactions
                 val balance = bitcoinRepository.getBalance(walletId)
                 val txs = bitcoinRepository.getTransactions(walletId)
+                val (frozenSat, frozenUtxoCount) = loadFrozenUtxoSummary(walletId)
                 // For watch-only wallets, BDK classifies all incoming funds as "untrustedPending"
                 // because it can't verify they were created by this wallet's keys.
                 // Treat untrustedPending as confirmed for display since the chain confirms them.
@@ -120,6 +125,8 @@ class HomeViewModel @Inject constructor(
                         balanceSat = balance.totalSat,
                         confirmedSat = displayConfirmed,
                         pendingSat = displayPending,
+                        frozenSat = frozenSat,
+                        frozenUtxoCount = frozenUtxoCount,
                         transactions = txs,
                         isLoading = false
                     )
@@ -244,6 +251,7 @@ class HomeViewModel @Inject constructor(
                 val config = settingsManager.loadElectrumConfig()
                 val balance = bitcoinRepository.syncWallet(walletId, config)
                 val txs = bitcoinRepository.getTransactions(walletId)
+                val (frozenSat, frozenUtxoCount) = loadFrozenUtxoSummary(walletId)
 
                 // Update balance and transactions after successful sync
                 val isWO = _uiState.value.isWatchOnly
@@ -254,6 +262,8 @@ class HomeViewModel @Inject constructor(
                         balanceSat = balance.totalSat,
                         confirmedSat = syncConfirmed,
                         pendingSat = syncPending,
+                        frozenSat = frozenSat,
+                        frozenUtxoCount = frozenUtxoCount,
                         transactions = txs,
                         isSyncing = false,
                         syncError = null
@@ -281,6 +291,19 @@ class HomeViewModel @Inject constructor(
                 _uiState.update { it.copy(isSyncing = false, syncError = friendlyMsg) }
             }
         }
+    }
+
+    private suspend fun loadFrozenUtxoSummary(walletId: String): Pair<Long, Int> = withContext(Dispatchers.IO) {
+        val frozenOutpoints = utxoMetadataDao.getForWallet(walletId)
+            .filter { it.isFrozen }
+            .map { it.outpoint }
+            .toSet()
+        if (frozenOutpoints.isEmpty()) return@withContext 0L to 0
+
+        val frozenUtxos = bitcoinRepository.listUnspent(walletId).filter { utxo ->
+            "${utxo.txid}:${utxo.vout}" in frozenOutpoints
+        }
+        frozenUtxos.sumOf { it.amountSat } to frozenUtxos.size
     }
 
     // BIP-329 import result message for snackbar

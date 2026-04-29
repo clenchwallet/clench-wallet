@@ -1,5 +1,7 @@
 package net.clench.wallet.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -40,8 +42,22 @@ fun WalletInfoScreen(
     var showQrDialog by remember { mutableStateOf(false) }
     var showSeedImportSheet by remember { mutableStateOf(false) }
     var expandedXpub by remember { mutableStateOf(false) }
+    var showHardwareWalletMenu by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val labelImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { viewModel.importLabels(it) }
+    }
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
+
+    LaunchedEffect(uiState.labelImportExportResult) {
+        uiState.labelImportExportResult?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearLabelImportExportResult()
+        }
+    }
 
     if (showSeedImportSheet) {
         AddSeedPhraseToWalletSheet(
@@ -98,6 +114,7 @@ fun WalletInfoScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(uiState.walletName.ifEmpty { "Wallet Info" }) },
@@ -283,6 +300,90 @@ fun WalletInfoScreen(
                                 }
                                 Text(scriptType, style = MaterialTheme.typography.bodyMedium)
                             }
+                        }
+                    }
+                }
+
+                // ─── Per-wallet Hardware Wallet Preference ───
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Hardware Wallet for Signing",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Choose the device this wallet should use when signing PSBTs. This is saved per wallet, which helps multisig setups use the right signer.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        val preferredType = uiState.preferredHardwareWallet?.let { device ->
+                            runCatching { HardwareWalletType.valueOf(device) }.getOrNull()
+                        }
+                        ExposedDropdownMenuBox(
+                            expanded = showHardwareWalletMenu,
+                            onExpandedChange = { showHardwareWalletMenu = !showHardwareWalletMenu }
+                        ) {
+                            OutlinedTextField(
+                                value = preferredType?.displayName ?: "None",
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Preferred device") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showHardwareWalletMenu) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = showHardwareWalletMenu,
+                                onDismissRequest = { showHardwareWalletMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("None") },
+                                    onClick = {
+                                        viewModel.setPreferredHardwareWallet(null)
+                                        showHardwareWalletMenu = false
+                                    }
+                                )
+                                HardwareWalletType.entries.forEach { device ->
+                                    DropdownMenuItem(
+                                        text = { Text("${device.displayName} — ${device.connectionMethod}") },
+                                        onClick = {
+                                            viewModel.setPreferredHardwareWallet(device.name)
+                                            showHardwareWalletMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ─── Labels ───
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Labels",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Import or export this wallet’s transaction labels using BIP-329 JSONL.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { labelImportLauncher.launch(arrayOf("*/*")) },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Import Labels") }
+                            Button(
+                                onClick = { viewModel.exportLabels() },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Export Labels") }
                         }
                     }
                 }

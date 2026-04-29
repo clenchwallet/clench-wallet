@@ -174,14 +174,31 @@ fun UtxoListScreen(
                             Spacer(modifier = Modifier.width(12.dp))
 
                             Column(modifier = Modifier.weight(1f)) {
-                                // Amount
-                                Text(
-                                    "${fmt.format(utxo.amountSat)} sats",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (utxo.isFrozen) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                                    else MaterialTheme.colorScheme.onSurface
-                                )
+                                // Amount and frozen badge
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "${fmt.format(utxo.amountSat)} sats",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (utxo.isFrozen) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (utxo.isFrozen) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Surface(
+                                            shape = MaterialTheme.shapes.small,
+                                            color = MaterialTheme.colorScheme.errorContainer
+                                        ) {
+                                            Text(
+                                                "Frozen",
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
 
                                 // Address (truncated)
                                 utxo.address?.let { addr ->

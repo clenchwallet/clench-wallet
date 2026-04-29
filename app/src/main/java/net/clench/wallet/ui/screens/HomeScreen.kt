@@ -1,8 +1,5 @@
 package net.clench.wallet.ui.screens
 
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,7 +15,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -44,25 +40,8 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val importResult by viewModel.importResult.collectAsState()
-    val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
-
-    // BIP-329 import file picker
-    val importLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let { viewModel.importLabels(walletId, it, context) }
-    }
-
-    // Show snackbar on import result
-    LaunchedEffect(importResult) {
-        importResult?.let { msg ->
-            snackbarHostState.showSnackbar(msg)
-            viewModel.clearImportResult()
-        }
-    }
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
 
@@ -113,20 +92,6 @@ fun HomeScreen(
                                 onClick = {
                                     showMenu = false
                                     onSweep()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Export Labels (BIP-329)") },
-                                onClick = {
-                                    showMenu = false
-                                    viewModel.exportLabels(walletId, context)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Import Labels (BIP-329)") },
-                                onClick = {
-                                    showMenu = false
-                                    importLauncher.launch(arrayOf("*/*"))
                                 }
                             )
                         }
@@ -219,6 +184,30 @@ fun HomeScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                        if (uiState.frozenUtxoCount > 0) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "❄️ Frozen: ${HomeViewModel.formatBalance(uiState.frozenSat, uiState.balanceUnit, uiState.btcPriceUsd, uiState.priceStale)} (${uiState.frozenUtxoCount} UTXO${if (uiState.frozenUtxoCount == 1) "" else "s"})",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Spendable: ${HomeViewModel.formatBalance((uiState.balanceSat - uiState.frozenSat).coerceAtLeast(0L), uiState.balanceUnit, uiState.btcPriceUsd, uiState.priceStale)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                         if (uiState.isSyncing) {
                             Spacer(modifier = Modifier.height(4.dp))

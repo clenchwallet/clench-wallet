@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.repository.BitcoinRepository
+import org.json.JSONObject
 import javax.inject.Inject
 
 @HiltViewModel
@@ -90,7 +91,7 @@ class CreateMultisigViewModel @Inject constructor(
             val signers = state.signers.toMutableList()
             if (index in signers.indices) {
                 val current = signers[index]
-                val newXpub = xpub ?: current.xpub
+                val newXpub = xpub?.let { normalizeHardwareExportForMultisig(it) } ?: current.xpub
                 val newFingerprint = if (xpub != null) extractFingerprint(newXpub) else current.fingerprint
                 signers[index] = current.copy(
                     label = label ?: current.label,
@@ -172,15 +173,65 @@ class CreateMultisigViewModel @Inject constructor(
         return "wsh(sortedmulti(${state.threshold},$keys))"
     }
 
+    private fun normalizeHardwareExportForMultisig(text: String): String {
+        val trimmed = text.trim()
+        if (!trimmed.startsWith("{")) return trimmed
+
+        return runCatching {
+            val root = JSONObject(trimmed)
+            val candidates = listOf(
+                "p2wsh", "bip48", "bip48_2", "p2sh_p2wsh", "p2sh-p2wsh",
+                "p2wpkh", "bip84", "native_segwit"
+            )
+            for (key in candidates) {
+                val obj = root.optJSONObject(key) ?: continue
+                val normalized = xpubWithOriginFromJsonObject(obj, root)
+                if (normalized != null) return@runCatching normalized
+            }
+            xpubWithOriginFromJsonObject(root, root) ?: trimmed
+        }.getOrDefault(trimmed)
+    }
+
+    private fun xpubWithOriginFromJsonObject(obj: JSONObject, root: JSONObject): String? {
+        val xpub = obj.optString("xpub")
+            .ifBlank { obj.optString("Zpub") }
+            .ifBlank { obj.optString("Ypub") }
+            .ifBlank { obj.optString("zpub") }
+            .ifBlank { obj.optString("ypub") }
+            .ifBlank { obj.optString("pub") }
+            .ifBlank { obj.optString("key") }
+            .takeIf { it.isNotBlank() }
+            ?: return null
+        val xfp = obj.optString("xfp")
+            .ifBlank { obj.optString("fingerprint") }
+            .ifBlank { root.optString("xfp") }
+            .ifBlank { root.optString("fingerprint") }
+        val deriv = obj.optString("deriv")
+            .ifBlank { obj.optString("derivation") }
+            .ifBlank { obj.optString("path") }
+        return if (xfp.isNotBlank() && deriv.isNotBlank()) {
+            "[${xfp.removePrefix("0x").uppercase()}/${deriv.removePrefix("m/")}]$xpub"
+        } else xpub
+    }
+
+    private fun canonicalSignerKey(raw: String): String {
+        val trimmed = raw.trim()
+        val key = if (trimmed.startsWith("[")) {
+            val closeBracket = trimmed.indexOf(']')
+            if (closeBracket >= 0) trimmed.substring(closeBracket + 1) else trimmed
+        } else trimmed
+        return key
+            .removeSuffix("/0/*")
+            .removeSuffix("/1/*")
+            .lowercase()
+    }
+
     companion object {
-        // Valid extended key prefixes for Bitcoin multisig
-        // xpub/xprv = BIP44 mainnet, tpub/tprv = BIP44 testnet
-        // ypub/Ypub = BIP49 (nested segwit), zpub/Zpub = BIP84 (native segwit)
-        // Vpub/Upub = multisig testnet variants
+        // Valid public extended key prefixes for Bitcoin multisig. Private extended keys are
+        // intentionally rejected so this watch-only flow never persists signer secrets.
         private val VALID_KEY_PREFIXES = listOf(
             "xpub", "ypub", "zpub", "tpub",
-            "Zpub", "Ypub", "Vpub", "Upub",
-            "xprv", "yprv", "zprv", "tprv"
+            "Zpub", "Ypub", "Vpub", "Upub"
         )
     }
 
@@ -219,27 +270,39 @@ class CreateMultisigViewModel @Inject constructor(
                         xpub
                     }
 
-                    // Check for valid key prefix (unless it's a full descriptor)
+                    // Require public extended keys, not full descriptors or private keys.
                     val isDescriptor = xpub.startsWith("wsh(") || xpub.startsWith("wpkh(") || xpub.startsWith("sh(")
-                    if (!isDescriptor) {
-                        val hasValidPrefix = VALID_KEY_PREFIXES.any { keyPart.startsWith(it) }
-                        if (!hasValidPrefix) {
-                            _uiState.update {
-                                it.copy(error = "Signer ${index + 1}: unrecognized key format. " +
-                                    "Expected xpub, zpub, tpub, or similar extended public key.")
-                            }
-                            return false
+                    if (isDescriptor) {
+                        _uiState.update { it.copy(error = "Signer ${index + 1}: paste the signer public key, not a full descriptor") }
+                        return false
+                    }
+                    if (keyPart.startsWith("xprv") || keyPart.startsWith("yprv") ||
+                        keyPart.startsWith("zprv") || keyPart.startsWith("tprv")) {
+                        _uiState.update { it.copy(error = "Signer ${index + 1}: private extended keys are not allowed") }
+                        return false
+                    }
+                    val hasValidPrefix = VALID_KEY_PREFIXES.any { keyPart.startsWith(it) }
+                    if (!hasValidPrefix) {
+                        _uiState.update {
+                            it.copy(error = "Signer ${index + 1}: unrecognized key format. " +
+                                "Expected xpub, Zpub, tpub, or similar public extended key.")
                         }
+                        return false
                     }
 
                     // Warn (not block) if key origin is missing — HW wallets need it to verify derivation
-                    if (!hasOrigin && !isDescriptor) {
+                    if (!hasOrigin) {
                         hasWarning = true
                         _uiState.update {
                             it.copy(warning = "Signer ${index + 1}: no key origin [fingerprint/path]. " +
                                 "Hardware wallets may not be able to verify this signer's derivation path.")
                         }
                     }
+                }
+                val canonicalKeys = state.signers.map { canonicalSignerKey(it.xpub) }
+                if (canonicalKeys.distinct().size != canonicalKeys.size) {
+                    _uiState.update { it.copy(error = "Duplicate cosigner key detected. Each signer must be unique.") }
+                    return false
                 }
                 true
             }
@@ -256,6 +319,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun createMultisigWallet(onCreated: (String) -> Unit) {
+        if (!validateCurrentStep()) return
         viewModelScope.launch {
             _uiState.update { it.copy(isCreating = true, error = null) }
             try {

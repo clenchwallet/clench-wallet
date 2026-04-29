@@ -171,7 +171,13 @@ fun QrScanner(
             val urDecoder = remember { URDecoder() }
             val executor = remember { Executors.newSingleThreadExecutor() }
             val multiReader = remember { MultiFormatReader().apply {
-                setHints(mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE)))
+                setHints(
+                    mapOf(
+                        DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
+                        DecodeHintType.TRY_HARDER to true,
+                        DecodeHintType.CHARACTER_SET to "UTF-8"
+                    )
+                )
             }}
 
             AndroidView(
@@ -195,7 +201,7 @@ fun QrScanner(
                         }
 
                         val imageAnalysis = ImageAnalysis.Builder()
-                            .setTargetResolution(Size(1280, 720))
+                            .setTargetResolution(Size(1920, 1080))
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
 

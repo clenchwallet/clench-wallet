@@ -55,7 +55,9 @@ fun encodePsbtForDevice(psbtBase64: String, deviceType: HardwareWalletType): Lis
     return when (deviceType) {
         HardwareWalletType.COLDCARD_Q -> {
             val psbtBytes = Base64.decode(psbtBase64, Base64.DEFAULT)
-            val frames = BBQrEncoder.encodePsbt(psbtBytes)
+            // Coldcard Q's scanner is more reliable with lower-density BBQr frames.
+            // Smaller chunks create more frames, but each QR is easier for the Q to lock onto.
+            val frames = BBQrEncoder.encodePsbt(psbtBytes, maxChunkChars = 480)
             android.util.Log.d("BBQr", "Encoded ${psbtBytes.size} bytes into ${frames.size} frames, first frame header: ${frames.firstOrNull()?.take(20)}, frame len: ${frames.firstOrNull()?.length}")
             frames
         }

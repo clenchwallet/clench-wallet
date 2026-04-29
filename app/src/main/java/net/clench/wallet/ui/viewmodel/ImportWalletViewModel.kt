@@ -13,6 +13,7 @@ import org.bitcoindevkit.DescriptorSecretKey
 import org.bitcoindevkit.KeychainKind
 import org.bitcoindevkit.Mnemonic
 import org.bitcoindevkit.Network
+import org.json.JSONObject
 import java.security.MessageDigest
 import javax.inject.Inject
 
@@ -85,7 +86,8 @@ class ImportWalletViewModel @Inject constructor(
     fun setHardwareDeviceType(deviceType: String?) = _uiState.update { it.copy(hardwareDeviceType = deviceType) }
 
     fun setInput(text: String) {
-        _uiState.update { it.copy(input = text, error = null) }
+        val normalized = normalizeHardwareExport(text)
+        _uiState.update { it.copy(input = normalized, error = null) }
         detectInputType()
         updateFingerprint()
     }
@@ -93,6 +95,46 @@ class ImportWalletViewModel @Inject constructor(
     fun setPassphrase(pass: String) {
         _uiState.update { it.copy(passphrase = pass) }
         updateFingerprint()
+    }
+
+    private fun normalizeHardwareExport(text: String): String {
+        val trimmed = text.trim()
+        if (!trimmed.startsWith("{")) return trimmed
+
+        return runCatching {
+            val root = JSONObject(trimmed)
+            val candidates = listOf(
+                "p2wpkh", "bip84", "bip84_p2wpkh", "native_segwit",
+                "p2sh_p2wpkh", "p2sh-p2wpkh", "bip49",
+                "p2wsh", "bip48", "bip48_2", "p2sh_p2wsh", "p2sh-p2wsh"
+            )
+            for (key in candidates) {
+                val obj = root.optJSONObject(key) ?: continue
+                val normalized = xpubWithOriginFromJsonObject(obj, root)
+                if (normalized != null) return@runCatching normalized
+            }
+            xpubWithOriginFromJsonObject(root, root) ?: trimmed
+        }.getOrDefault(trimmed)
+    }
+
+    private fun xpubWithOriginFromJsonObject(obj: JSONObject, root: JSONObject): String? {
+        val xpub = obj.optString("xpub")
+            .ifBlank { obj.optString("zpub") }
+            .ifBlank { obj.optString("ypub") }
+            .ifBlank { obj.optString("pub") }
+            .ifBlank { obj.optString("key") }
+            .takeIf { it.isNotBlank() }
+            ?: return null
+        val xfp = obj.optString("xfp")
+            .ifBlank { obj.optString("fingerprint") }
+            .ifBlank { root.optString("xfp") }
+            .ifBlank { root.optString("fingerprint") }
+        val deriv = obj.optString("deriv")
+            .ifBlank { obj.optString("derivation") }
+            .ifBlank { obj.optString("path") }
+        return if (xfp.isNotBlank() && deriv.isNotBlank()) {
+            "[${xfp.removePrefix("0x").uppercase()}/${deriv.removePrefix("m/")}]$xpub"
+        } else xpub
     }
 
     /**

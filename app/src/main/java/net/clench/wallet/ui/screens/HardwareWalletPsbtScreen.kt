@@ -432,7 +432,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Use the QR flow below by default: Coldcard Q → Scan QR → review → sign → show signed QR. You can also save an unsigned PSBT file for microSD transfer. Signed PSBT import works by QR, file, or NFC when Android receives a Coldcard NFC payload.",
+                            "Use the QR flow below by default: Coldcard Q → Scan QR → review → sign → show signed QR. Clench shows the unsigned BBQr separately from the return scanner so the phone is never trying to display and scan at the same time. If QR is slow, turn off Auto-advance and tap through frames manually. You can also use file or NFC transfer.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -547,9 +547,10 @@ fun HardwareWalletPsbtScreen(
 
                         AnimatedQrCode(
                             frames = qrFrames,
-                            qrSizeDp = if (isBBQr) 400.dp else 360.dp,
+                            qrSize = if (isBBQr) 768 else 512,
+                            qrSizeDp = if (isBBQr) 420.dp else 360.dp,
                             frameDelayMs = when (deviceType) {
-                                HardwareWalletType.COLDCARD_Q -> 1000L  // BBQr: slow for Coldcard Q scanner (was 600ms)
+                                HardwareWalletType.COLDCARD_Q -> 1400L  // BBQr: slower, lower-density frames for Coldcard Q scanner
                                 HardwareWalletType.COLDCARD_MK4,
                                 HardwareWalletType.COLDCARD_MK5 -> 1000L
                                 else -> 125L // BC-UR: fast fountain codes

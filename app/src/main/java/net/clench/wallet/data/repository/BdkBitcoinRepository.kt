@@ -2132,7 +2132,8 @@ class BdkBitcoinRepository @Inject constructor(
             // Determine target version based on input prefix
             // vpub (0x045F1CF6) and upub are testnet → tpub
             // zpub (0x04B24746) and ypub (0x049D7CB2) are mainnet → xpub
-            val targetVersion = if (key.startsWith("vpub") || key.startsWith("upub")) {
+            val targetVersion = if (key.startsWith("vpub") || key.startsWith("upub") ||
+                key.startsWith("Vpub") || key.startsWith("Upub")) {
                 TPUB_VERSION
             } else {
                 XPUB_VERSION
@@ -2312,24 +2313,28 @@ class BdkBitcoinRepository @Inject constructor(
             "Number of signers must be between 2 and 7"
         }
 
-        // Build the sortedmulti descriptor fragments for external (receive) and change
-        // Each xpub should already include origin info: [fingerprint/48'/0'/0'/2']xpub...
-        // We append /0/* for external and /1/* for change
-        val externalKeys = signerXpubs.joinToString(",") { xpub ->
-            val trimmed = xpub.trim()
-            // If the xpub already ends with /0/* or /1/*, use as-is for external
-            if (trimmed.endsWith("/0/*") || trimmed.endsWith("/1/*")) {
-                trimmed.replace("/1/*", "/0/*")
+        val normalizedSignerKeys = signerXpubs.mapIndexed { index, xpub ->
+            normalizeMultisigSignerKey(xpub, index + 1)
+        }
+        require(normalizedSignerKeys.map { canonicalMultisigSignerKey(it) }.distinct().size == normalizedSignerKeys.size) {
+            "Duplicate cosigner key detected. Each signer must be unique."
+        }
+
+        // Build the sortedmulti descriptor fragments for external (receive) and change.
+        // Each signer key may include origin info: [fingerprint/48'/0'/0'/2']xpub...
+        // We append /0/* for external and /1/* for change.
+        val externalKeys = normalizedSignerKeys.joinToString(",") { xpub ->
+            if (xpub.endsWith("/0/*") || xpub.endsWith("/1/*")) {
+                xpub.replace("/1/*", "/0/*")
             } else {
-                "$trimmed/0/*"
+                "$xpub/0/*"
             }
         }
-        val changeKeys = signerXpubs.joinToString(",") { xpub ->
-            val trimmed = xpub.trim()
-            if (trimmed.endsWith("/0/*") || trimmed.endsWith("/1/*")) {
-                trimmed.replace("/0/*", "/1/*")
+        val changeKeys = normalizedSignerKeys.joinToString(",") { xpub ->
+            if (xpub.endsWith("/0/*") || xpub.endsWith("/1/*")) {
+                xpub.replace("/0/*", "/1/*")
             } else {
-                "$trimmed/1/*"
+                "$xpub/1/*"
             }
         }
 
@@ -2388,6 +2393,57 @@ class BdkBitcoinRepository @Inject constructor(
             createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
             network = activeNetwork
         )
+    }
+
+    private fun normalizeMultisigSignerKey(raw: String, signerNumber: Int): String {
+        val trimmed = raw.trim()
+        require(trimmed.isNotBlank()) { "Signer $signerNumber: extended public key is required" }
+        require(!trimmed.startsWith("wsh(") && !trimmed.startsWith("wpkh(") && !trimmed.startsWith("sh(")) {
+            "Signer $signerNumber: paste the signer public key, not a full descriptor"
+        }
+
+        val origin: String
+        val keyWithSuffix: String
+        if (trimmed.startsWith("[")) {
+            val closeBracket = trimmed.indexOf(']')
+            require(closeBracket > 0) { "Signer $signerNumber: malformed key origin — missing closing ']'" }
+            origin = trimmed.substring(0, closeBracket + 1)
+            keyWithSuffix = trimmed.substring(closeBracket + 1)
+        } else {
+            origin = ""
+            keyWithSuffix = trimmed
+        }
+
+        val suffix = when {
+            keyWithSuffix.endsWith("/0/*") -> "/0/*"
+            keyWithSuffix.endsWith("/1/*") -> "/1/*"
+            else -> ""
+        }
+        val key = keyWithSuffix.removeSuffix("/0/*").removeSuffix("/1/*")
+        require(!key.startsWith("xprv") && !key.startsWith("yprv") &&
+            !key.startsWith("zprv") && !key.startsWith("tprv")) {
+            "Signer $signerNumber: private extended keys are not allowed"
+        }
+        val publicKey = when {
+            key.startsWith("xpub") || key.startsWith("tpub") -> key
+            key.startsWith("ypub") || key.startsWith("zpub") ||
+                key.startsWith("Ypub") || key.startsWith("Zpub") ||
+                key.startsWith("upub") || key.startsWith("vpub") ||
+                key.startsWith("Upub") || key.startsWith("Vpub") -> convertZpubToXpub(key)
+            else -> throw IllegalArgumentException(
+                "Signer $signerNumber: unrecognized key format. Expected xpub, Zpub, tpub, or similar public extended key."
+            )
+        }
+        return "$origin$publicKey$suffix"
+    }
+
+    private fun canonicalMultisigSignerKey(raw: String): String {
+        val trimmed = raw.trim()
+        val key = if (trimmed.startsWith("[")) {
+            val closeBracket = trimmed.indexOf(']')
+            if (closeBracket >= 0) trimmed.substring(closeBracket + 1) else trimmed
+        } else trimmed
+        return key.removeSuffix("/0/*").removeSuffix("/1/*").lowercase()
     }
 
     // ========== Passphrase Wallet Methods ==========
