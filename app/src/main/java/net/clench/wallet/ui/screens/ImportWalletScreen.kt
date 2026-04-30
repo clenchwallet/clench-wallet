@@ -256,6 +256,9 @@ fun ImportWalletScreen(
 
             // In HW wallet mode, hide the seed phrase label and show xpub-focused label
             if (hardwareWalletMode) {
+                val canLoadFile = selectedDevice?.let { supportsHardwareImportFile(it) } == true
+                val canScanQr = selectedDevice?.supportsQr == true
+                val canUseNfc = selectedDevice?.supportsNfc == true
                 Text(
                     "Choose how to import from ${selectedDevice?.displayName ?: "your hardware wallet"}",
                     style = MaterialTheme.typography.titleSmall,
@@ -263,39 +266,45 @@ fun ImportWalletScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = { hardwareFileLauncher.launch(arrayOf("*/*")) },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Load File") }
-                    Button(
-                        onClick = { showScanner = true },
-                        enabled = hasCamera,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Scan")
+                    if (canLoadFile) {
+                        OutlinedButton(
+                            onClick = { hardwareFileLauncher.launch(arrayOf("*/*")) },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Load File") }
                     }
-                    OutlinedButton(
-                        onClick = {
-                            when {
-                                nfcAdapter == null -> nfcError = "This phone does not report NFC hardware"
-                                !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
-                                activity == null -> nfcError = "NFC reader is unavailable in this view"
-                                else -> {
-                                    nfcError = null
-                                    nfcStatus = "Ready for NFC. Hold ${selectedDevice?.displayName ?: "the device"} against the phone."
-                                    nfcReaderActive = true
+                    if (canScanQr) {
+                        Button(
+                            onClick = { showScanner = true },
+                            enabled = hasCamera,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Scan")
+                        }
+                    }
+                    if (canUseNfc) {
+                        OutlinedButton(
+                            onClick = {
+                                when {
+                                    nfcAdapter == null -> nfcError = "This phone does not report NFC hardware"
+                                    !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
+                                    activity == null -> nfcError = "NFC reader is unavailable in this view"
+                                    else -> {
+                                        nfcError = null
+                                        nfcStatus = "Ready for NFC. Hold ${selectedDevice?.displayName ?: "the device"} against the phone."
+                                        nfcReaderActive = true
+                                    }
                                 }
-                            }
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("NFC") }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("NFC") }
+                    }
                 }
-                if (!hasCamera) {
+                if (canScanQr && !hasCamera) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Camera unavailable — use file, NFC, or paste manually.",
+                        "Camera unavailable — use file if supported, NFC if supported, or paste manually.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -580,17 +589,23 @@ fun ImportWalletScreen(
     }
 }
 
+private fun supportsHardwareImportFile(device: HardwareWalletType): Boolean {
+    return device.connectionMethod.contains("File") ||
+        device.connectionMethod.contains("SD") ||
+        device.connectionMethod.contains("Virtual Disk")
+}
+
 /**
- * Device-specific instructions for exporting the public key via QR.
+ * Device-specific instructions for exporting the public key via QR/file/NFC.
  */
 private fun getDeviceInstructions(device: HardwareWalletType): String {
     return when (device) {
-        HardwareWalletType.COLDCARD_Q -> "On your Coldcard Q, export the public key using whichever method is easiest: QR code, a Generic JSON file, or NFC if your firmware exposes the account export over NFC. Then choose Load File, Scan, or NFC below."
-        HardwareWalletType.COLDCARD_MK4 -> "On your Coldcard Mk4:\nAdvanced/Tools → Export Wallet → Generic JSON\n\nSave to SD card, then paste the xpub/zpub from the file."
-        HardwareWalletType.COLDCARD_MK5 -> "On your Coldcard Mk5:\nAdvanced/Tools → Export Wallet → Generic JSON\n\nSave to SD card or virtual disk, then paste the xpub/zpub from the file."
-        HardwareWalletType.SEEDSIGNER -> "On your SeedSigner:\nExport Xpub → Select wallet format (Native SegWit recommended)\n\nScan the animated QR code displayed on screen."
-        HardwareWalletType.KEYSTONE -> "On your Keystone:\nMenu (☰) → Multisig Wallet or watch-only setup\n\nThe device will display a QR code with your extended public key."
-        HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport:\nManage Account → Connect Wallet → QR Code\n\nScan the animated QR code displayed on screen."
-        HardwareWalletType.JADE -> "On your Jade:\nOptions → Xpub Export\n\nScan the QR code displayed on screen."
+        HardwareWalletType.COLDCARD_Q -> "On your Coldcard Q, export the public key using whichever method is easiest: QR code, a Generic JSON file, or NFC if your firmware exposes the account export over NFC. Clench accepts animated BBQr JSON, file, and NFC text exports."
+        HardwareWalletType.COLDCARD_MK4 -> "On your Coldcard Mk4: Advanced/Tools → Export Wallet → Generic JSON. Save to SD card or use NFC if your firmware exposes the account export, then load the file or tap NFC below."
+        HardwareWalletType.COLDCARD_MK5 -> "On your Coldcard Mk5: Advanced/Tools → Export Wallet → Generic JSON. Save to SD card/virtual disk or use NFC if your firmware exposes the account export, then load the file or tap NFC below."
+        HardwareWalletType.SEEDSIGNER -> "On your SeedSigner: Seeds → [Your Seed] → Export Xpub. Choose Native SegWit (BIP84) for single-sig, or Multisig (BIP48) for a cosigner export. SeedSigner displays an animated QR series for scanning."
+        HardwareWalletType.KEYSTONE -> "On your Keystone: Settings → Watch-Only Wallet → Sparrow Wallet → Export Wallet. Show the QR code, or export the file to microSD and load it here. Clench accepts static/animated QR, UR account/output payloads, and file exports."
+        HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport: Manage Account → Connect Wallet, then show the account QR for a wallet such as Envoy/Sparrow. Clench accepts Passport UR account/output QR payloads and file/descriptor exports."
+        HardwareWalletType.JADE -> "On your Jade: Options → Wallet → Export Xpub. Jade displays the account xpub as an animated QR; scan it here."
     }
 }

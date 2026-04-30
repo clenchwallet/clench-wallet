@@ -1995,7 +1995,8 @@ class BdkBitcoinRepository @Inject constructor(
     private fun normalizeDescriptor(input: String): NormalizedDescriptor {
         // Already a full descriptor string — but may still contain a zpub/ypub that needs converting
         if (input.startsWith("wpkh(") || input.startsWith("pkh(") ||
-            input.startsWith("sh(wpkh(") || input.startsWith("tr(")) {
+            input.startsWith("sh(wpkh(") || input.startsWith("wsh(") ||
+            input.startsWith("sh(wsh(") || input.startsWith("tr(")) {
             // Extract and convert any non-xpub extended key inside the descriptor
             val converted = input
                 .replace(Regex("zpub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
@@ -2003,7 +2004,9 @@ class BdkBitcoinRepository @Inject constructor(
                 .replace(Regex("ypub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
                 .replace(Regex("Ypub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
                 .replace(Regex("vpub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
+                .replace(Regex("Vpub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
                 .replace(Regex("upub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
+                .replace(Regex("Upub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
             val external = if (!converted.contains("/0/*") && !converted.contains("/*")) {
                 // No derivation path — add /0/*
                 converted.trimEnd(')') + "/0/*)"
@@ -2029,7 +2032,7 @@ class BdkBitcoinRepository @Inject constructor(
             val keyPart = originMatch.groupValues[2]  // e.g., zpub6qvYv2g...
 
             // Reject multisig keys with origin — need full descriptor
-            if (keyPart.startsWith("Zpub") || keyPart.startsWith("Ypub")) {
+            if (keyPart.startsWith("Zpub") || keyPart.startsWith("Ypub") || keyPart.startsWith("Vpub") || keyPart.startsWith("Upub")) {
                 throw IllegalArgumentException(
                     "Multisig extended keys (Zpub/Ypub) are not supported. " +
                     "Please provide a full descriptor for multisig wallets, e.g. wsh(multi(2,xpub1.../0/*,xpub2.../0/*))"
@@ -2044,6 +2047,8 @@ class BdkBitcoinRepository @Inject constructor(
                 keyPart.startsWith("tpub") -> Pair(keyPart, "wpkh")
                 keyPart.startsWith("vpub") -> Pair(convertZpubToXpub(keyPart), "wpkh")
                 keyPart.startsWith("upub") -> Pair(convertZpubToXpub(keyPart), "sh_wpkh")
+                keyPart.startsWith("Vpub") -> Pair(convertZpubToXpub(keyPart), "wpkh")
+                keyPart.startsWith("Upub") -> Pair(convertZpubToXpub(keyPart), "sh_wpkh")
                 else -> Pair(keyPart, "wpkh")
             }
 
@@ -2072,7 +2077,7 @@ class BdkBitcoinRepository @Inject constructor(
         // Bare extended public key — convert to xpub and wrap in wpkh descriptor
         // Zpub (capital Z) = P2WSH multisig and Ypub (capital Y) = P2SH-P2WSH multisig
         // These are not supported as single-sig watch-only imports
-        if (input.startsWith("Zpub") || input.startsWith("Ypub")) {
+        if (input.startsWith("Zpub") || input.startsWith("Ypub") || input.startsWith("Vpub") || input.startsWith("Upub")) {
             throw IllegalArgumentException(
                 "Multisig extended keys (Zpub/Ypub) are not supported. " +
                 "Please provide a full descriptor for multisig wallets, e.g. wsh(multi(2,xpub1.../0/*,xpub2.../0/*))"

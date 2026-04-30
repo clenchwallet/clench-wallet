@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraManager
-import android.util.Base64
 import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -24,7 +23,6 @@ import com.google.zxing.*
 import com.google.zxing.common.HybridBinarizer
 import com.sparrowwallet.hummingbird.ResultType
 import com.sparrowwallet.hummingbird.URDecoder
-import com.sparrowwallet.hummingbird.registry.CryptoPSBT
 import java.util.concurrent.Executors
 
 /**
@@ -93,7 +91,8 @@ fun hasCameraAvailable(context: Context): Boolean {
 }
 
 /**
- * QR Scanner composable that handles both static QR and BC-UR animated QR (PSBT).
+ * QR Scanner composable that handles static QR plus animated BC-UR, BBQr,
+ * and p1ofN text QR sequences for hardware-wallet imports/signing.
  * Requires CAMERA permission granted before showing.
  *
  * @param onError optional callback invoked when the camera fails to initialize
@@ -118,6 +117,10 @@ fun QrScanner(
     var bbqrTotalFrames by remember { mutableIntStateOf(0) }
     var bbqrEncoding by remember { mutableStateOf(' ') }
     var bbqrFileType by remember { mutableStateOf(' ') }
+
+    // Generic p1ofN animated-text accumulator used by SeedSigner/Specter-style exports
+    val multipartTextFrames = remember { mutableMapOf<Int, String>() }
+    var multipartTextTotalFrames by remember { mutableIntStateOf(0) }
 
     // Early camera availability check
     LaunchedEffect(Unit) {
@@ -229,6 +232,8 @@ fun QrScanner(
                                 val result = multiReader.decodeWithState(binaryBitmap)
                                 val text = result.text
 
+                                val multipartTextMatch = Regex("^p(\\d+)of(\\d+)\\s+(.+)$", RegexOption.IGNORE_CASE).find(text.trim())
+
                                 if (BBQrEncoder.isBBQr(text)) {
                                     // BBQr animated frames are used by Coldcard Q for both signing
                                     // payloads and wallet exports. P=PSBT and T=final transaction are
@@ -255,13 +260,7 @@ fun QrScanner(
                                             }
                                             try {
                                                 val rawBytes = BBQrEncoder.reassemble(orderedChunks, bbqrEncoding)
-                                                if (bbqrFileType == 'P' || bbqrFileType == 'T') {
-                                                    // Signing flow expects base64 raw bytes.
-                                                    onResult(Base64.encodeToString(rawBytes, Base64.NO_WRAP))
-                                                } else {
-                                                    // Onboarding flow expects raw text/JSON/xpub content.
-                                                    onResult(rawBytes.toString(Charsets.UTF_8).trim())
-                                                }
+                                                onResult(HardwareWalletQrPayloadDecoder.decodeBbqrPayload(bbqrFileType, rawBytes))
                                             } catch (_: Exception) {
                                                 // Reset on decode error and keep scanning
                                                 bbqrFrames.clear()
@@ -272,6 +271,22 @@ fun QrScanner(
                                             }
                                         }
                                     }
+                                } else if (multipartTextMatch != null) {
+                                    val index = multipartTextMatch.groupValues[1].toIntOrNull()
+                                    val total = multipartTextMatch.groupValues[2].toIntOrNull()
+                                    val data = multipartTextMatch.groupValues[3]
+                                    if (index != null && total != null && index in 1..total) {
+                                        if (multipartTextTotalFrames != total) {
+                                            multipartTextFrames.clear()
+                                            multipartTextTotalFrames = total
+                                        }
+                                        multipartTextFrames[index] = data
+                                        progress = multipartTextFrames.size.toFloat() / total.toFloat()
+                                        if (multipartTextFrames.size == total) {
+                                            isProcessing = true
+                                            onResult((1..total).joinToString("") { i -> multipartTextFrames[i].orEmpty() }.trim())
+                                        }
+                                    }
                                 } else if (text.lowercase().startsWith("ur:")) {
                                     // BC-UR animated frame
                                     urDecoder.receivePart(text)
@@ -279,11 +294,12 @@ fun QrScanner(
 
                                     val decoderResult = urDecoder.result
                                     if (decoderResult != null && decoderResult.type == ResultType.SUCCESS) {
-                                        isProcessing = true
                                         val ur = decoderResult.ur
-                                        val cryptoPsbt = ur.decodeFromRegistry() as CryptoPSBT
-                                        val psbtBase64 = Base64.encodeToString(cryptoPsbt.psbt, Base64.NO_WRAP)
-                                        onResult(psbtBase64)
+                                        val decodedPayload = HardwareWalletQrPayloadDecoder.decodeUrPayload(ur)
+                                        if (!decodedPayload.isNullOrBlank()) {
+                                            isProcessing = true
+                                            onResult(decodedPayload)
+                                        }
                                     }
                                 } else {
                                     // Static QR — check for SeedQR (Standard format) first,
@@ -333,7 +349,11 @@ fun QrScanner(
                 modifier = Modifier.fillMaxWidth().padding(16.dp)
             )
             Text(
-                "Scanning animated QR: ${(progress * 100).toInt()}%${if (bbqrTotalFrames > 0) " (${bbqrFrames.size}/$bbqrTotalFrames)" else ""}",
+                "Scanning animated QR: ${(progress * 100).toInt()}%${when {
+                    bbqrTotalFrames > 0 -> " (${bbqrFrames.size}/$bbqrTotalFrames)"
+                    multipartTextTotalFrames > 0 -> " (${multipartTextFrames.size}/$multipartTextTotalFrames)"
+                    else -> ""
+                }}",
                 modifier = Modifier.padding(horizontal = 16.dp),
                 style = MaterialTheme.typography.bodySmall
             )

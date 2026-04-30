@@ -8,12 +8,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.ui.components.HardwareWalletQrPayloadDecoder
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
 import org.bitcoindevkit.KeychainKind
 import org.bitcoindevkit.Mnemonic
 import org.bitcoindevkit.Network
 import org.json.JSONObject
+import com.sparrowwallet.hummingbird.URDecoder
 import java.security.MessageDigest
 import javax.inject.Inject
 
@@ -99,6 +101,12 @@ class ImportWalletViewModel @Inject constructor(
 
     private fun normalizeHardwareExport(text: String): String {
         val trimmed = text.trim()
+        if (trimmed.lowercase().startsWith("ur:")) {
+            val decoded = runCatching {
+                HardwareWalletQrPayloadDecoder.decodeUrPayload(URDecoder.decode(trimmed))
+            }.getOrNull()
+            if (!decoded.isNullOrBlank()) return decoded
+        }
         if (!trimmed.startsWith("{")) return trimmed
 
         return runCatching {
