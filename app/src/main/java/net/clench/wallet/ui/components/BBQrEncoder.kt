@@ -38,19 +38,27 @@ object BBQrEncoder {
      * Encode PSBT bytes into BBQr frames for Coldcard Q.
      * Returns a list of frame strings, each ready to be rendered as a QR code.
      *
+     * Clench intentionally emits uncompressed Base32 (encoding '2') by default.
+     * BBQr Z compression requires raw DEFLATE with a fixed 10-bit window; Java's
+     * Deflater does not expose that window-size control, and Coldcard Q may scan
+     * the frame header but reject/fail to finish a non-conforming Z payload.
+     *
      * @param psbtBytes Raw PSBT bytes
      * @param maxChunkChars Max data chars per frame (excluding 8-char header). Default 800.
+     * @param useCompression Only true for callers that can guarantee BBQr-compatible wbits=10 output.
      */
-    fun encodePsbt(psbtBytes: ByteArray, maxChunkChars: Int = 800): List<String> {
-        // Try raw DEFLATE + Base32 first. If compression does not help, BBQr
-        // falls back to uncompressed Base32 (encoding '2'), not hex.
-        val compressed = zlibCompress(psbtBytes)
-        val base32Data = base32Encode(compressed)
+    fun encodePsbt(
+        psbtBytes: ByteArray,
+        maxChunkChars: Int = 800,
+        useCompression: Boolean = false
+    ): List<String> {
         val rawBase32Data = base32Encode(psbtBytes)
+        val compressed = if (useCompression) zlibCompress(psbtBytes) else ByteArray(0)
+        val compressedBase32Data = if (useCompression) base32Encode(compressed) else ""
 
-        val useZlib = compressed.size < psbtBytes.size
+        val useZlib = useCompression && compressed.size < psbtBytes.size
         val encoding = if (useZlib) ENCODING_ZLIB_BASE32 else '2'
-        val encodedData = if (useZlib) base32Data else rawBase32Data
+        val encodedData = if (useZlib) compressedBase32Data else rawBase32Data
         // BBQr header format: B$ + encoding + filetype + total(base36,2) + index(base36,2)
 
         // Single-frame optimization: if it all fits in one QR (≤2500 chars total)
