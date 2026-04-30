@@ -254,20 +254,27 @@ fun QrScanner(
                                         progress = bbqrFrames.size.toFloat() / frame.totalFrames.toFloat()
 
                                         if (bbqrFrames.size == frame.totalFrames) {
-                                            isProcessing = true
-                                            val orderedChunks = (0 until frame.totalFrames).map { i ->
-                                                bbqrFrames[i] ?: ""
+                                            val zeroBasedIndexes = 0 until frame.totalFrames
+                                            val oneBasedIndexes = 1..frame.totalFrames
+                                            val orderedChunks = when {
+                                                zeroBasedIndexes.all { bbqrFrames.containsKey(it) } -> zeroBasedIndexes.map { i -> bbqrFrames[i].orEmpty() }
+                                                oneBasedIndexes.all { bbqrFrames.containsKey(it) } -> oneBasedIndexes.map { i -> bbqrFrames[i].orEmpty() }
+                                                else -> null
                                             }
-                                            try {
-                                                val rawBytes = BBQrEncoder.reassemble(orderedChunks, bbqrEncoding)
-                                                onResult(HardwareWalletQrPayloadDecoder.decodeBbqrPayload(bbqrFileType, rawBytes))
-                                            } catch (_: Exception) {
-                                                // Reset on decode error and keep scanning
-                                                bbqrFrames.clear()
-                                                bbqrTotalFrames = 0
-                                                bbqrEncoding = ' '
-                                                bbqrFileType = ' '
-                                                isProcessing = false
+
+                                            if (orderedChunks != null) {
+                                                isProcessing = true
+                                                try {
+                                                    val rawBytes = BBQrEncoder.reassemble(orderedChunks, bbqrEncoding)
+                                                    onResult(HardwareWalletQrPayloadDecoder.decodeBbqrPayload(bbqrFileType, rawBytes))
+                                                } catch (_: Exception) {
+                                                    // Reset on decode error and keep scanning
+                                                    bbqrFrames.clear()
+                                                    bbqrTotalFrames = 0
+                                                    bbqrEncoding = ' '
+                                                    bbqrFileType = ' '
+                                                    isProcessing = false
+                                                }
                                             }
                                         }
                                     }
