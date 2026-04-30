@@ -117,6 +117,7 @@ fun QrScanner(
     val bbqrFrames = remember { mutableMapOf<Int, String>() }
     var bbqrTotalFrames by remember { mutableIntStateOf(0) }
     var bbqrEncoding by remember { mutableStateOf(' ') }
+    var bbqrFileType by remember { mutableStateOf(' ') }
 
     // Early camera availability check
     LaunchedEffect(Unit) {
@@ -229,14 +230,21 @@ fun QrScanner(
                                 val text = result.text
 
                                 if (BBQrEncoder.isBBQr(text)) {
-                                    // BBQr animated frame (Coldcard Q): file type P is a PSBT,
-                                    // file type T is a finalized transaction. Both are returned
-                                    // as base64 raw bytes; the repository decides whether to
-                                    // finalize a PSBT or broadcast a transaction after validation.
+                                    // BBQr animated frames are used by Coldcard Q for both signing
+                                    // payloads and wallet exports. P=PSBT and T=final transaction are
+                                    // binary signing payloads; other file types such as J=Generic JSON
+                                    // are textual wallet-export payloads for onboarding.
                                     val frame = BBQrEncoder.parseBBQrFrame(text)
-                                    if (frame != null && (frame.fileType == 'P' || frame.fileType == 'T')) {
-                                        bbqrTotalFrames = frame.totalFrames
-                                        bbqrEncoding = frame.encoding
+                                    if (frame != null) {
+                                        if (bbqrTotalFrames != frame.totalFrames ||
+                                            bbqrEncoding != frame.encoding ||
+                                            bbqrFileType != frame.fileType
+                                        ) {
+                                            bbqrFrames.clear()
+                                            bbqrTotalFrames = frame.totalFrames
+                                            bbqrEncoding = frame.encoding
+                                            bbqrFileType = frame.fileType
+                                        }
                                         bbqrFrames[frame.frameIndex] = frame.data
                                         progress = bbqrFrames.size.toFloat() / frame.totalFrames.toFloat()
 
@@ -247,12 +255,19 @@ fun QrScanner(
                                             }
                                             try {
                                                 val rawBytes = BBQrEncoder.reassemble(orderedChunks, bbqrEncoding)
-                                                val psbtBase64 = Base64.encodeToString(rawBytes, Base64.NO_WRAP)
-                                                onResult(psbtBase64)
+                                                if (bbqrFileType == 'P' || bbqrFileType == 'T') {
+                                                    // Signing flow expects base64 raw bytes.
+                                                    onResult(Base64.encodeToString(rawBytes, Base64.NO_WRAP))
+                                                } else {
+                                                    // Onboarding flow expects raw text/JSON/xpub content.
+                                                    onResult(rawBytes.toString(Charsets.UTF_8).trim())
+                                                }
                                             } catch (_: Exception) {
                                                 // Reset on decode error and keep scanning
                                                 bbqrFrames.clear()
                                                 bbqrTotalFrames = 0
+                                                bbqrEncoding = ' '
+                                                bbqrFileType = ' '
                                                 isProcessing = false
                                             }
                                         }
@@ -318,7 +333,7 @@ fun QrScanner(
                 modifier = Modifier.fillMaxWidth().padding(16.dp)
             )
             Text(
-                "Scanning animated QR: ${(progress * 100).toInt()}%",
+                "Scanning animated QR: ${(progress * 100).toInt()}%${if (bbqrTotalFrames > 0) " (${bbqrFrames.size}/$bbqrTotalFrames)" else ""}",
                 modifier = Modifier.padding(horizontal = 16.dp),
                 style = MaterialTheme.typography.bodySmall
             )
