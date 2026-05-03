@@ -51,13 +51,7 @@ fun decodeSeedQr(context: Context, raw: String): String? {
     if (!digits.all { it.isDigit() }) return null
     if (digits.length != 48 && digits.length != 96) return null
 
-    val wordlist = try {
-        context.assets.open("bip39_english.txt").bufferedReader().readLines()
-            .map { it.trim() }.filter { it.isNotEmpty() }
-    } catch (_: Exception) {
-        return null
-    }
-    if (wordlist.size != 2048) return null
+    val wordlist = loadBip39Wordlist(context) ?: return null
 
     val words = mutableListOf<String>()
     var i = 0
@@ -69,6 +63,32 @@ fun decodeSeedQr(context: Context, raw: String): String? {
     }
     // Return the mnemonic phrase — caller must validate via BDK Mnemonic.fromString()
     return words.joinToString(" ")
+}
+
+/**
+ * Encodes a BIP39 mnemonic into Standard SeedQR numeric format.
+ */
+fun encodeSeedQr(context: Context, words: List<String>): String? {
+    if (words.size != 12 && words.size != 24) return null
+    val wordlist = loadBip39Wordlist(context) ?: return null
+    val indexByWord = wordlist.withIndex().associate { it.value to it.index }
+    val encoded = StringBuilder(words.size * 4)
+    for (word in words) {
+        val index = indexByWord[word.lowercase()] ?: return null
+        encoded.append(index.toString().padStart(4, '0'))
+    }
+    return encoded.toString()
+}
+
+private fun loadBip39Wordlist(context: Context): List<String>? {
+    return try {
+        context.assets.open("bip39_english.txt").bufferedReader().readLines()
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+            .takeIf { it.size == 2048 }
+    } catch (_: Exception) {
+        null
+    }
 }
 
 /**

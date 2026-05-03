@@ -74,6 +74,20 @@ fun SettingsScreen(
                 )
             }
             item {
+                ListItem(
+                    headlineContent = { Text("USD Balance", fontWeight = FontWeight.Medium) },
+                    supportingContent = { Text("Fetch BTC/USD price for balance display", style = MaterialTheme.typography.bodySmall) },
+                    trailingContent = {
+                        Switch(
+                            checked = uiState.btcPriceEnabled,
+                            onCheckedChange = { viewModel.setBtcPriceEnabled(it) }
+                        )
+                    },
+                    modifier = Modifier.clickable { viewModel.setBtcPriceEnabled(!uiState.btcPriceEnabled) }
+                )
+                HorizontalDivider()
+            }
+            item {
                 SettingsSectionCard(
                     title = "Network",
                     subtitle = if (uiState.useTestnet) "Testnet" else "Mainnet",

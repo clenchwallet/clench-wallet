@@ -17,6 +17,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
+import net.clench.wallet.ui.components.QrCodeImage
+import net.clench.wallet.ui.components.encodeSeedQr
 import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.viewmodel.ViewSeedPhraseViewModel
 
@@ -28,6 +30,7 @@ fun ViewSeedPhraseScreen(
     viewModel: ViewSeedPhraseViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var showSeedQr by remember { mutableStateOf(false) }
 
     // FLAG_SECURE — prevent screenshots
     val context = LocalContext.current
@@ -49,6 +52,10 @@ fun ViewSeedPhraseScreen(
             ctx = (ctx as? ContextWrapper)?.baseContext
         }
         null
+    }
+
+    val seedQr = remember(context, uiState.mnemonic) {
+        encodeSeedQr(context, uiState.mnemonic)
     }
 
     // Warning dialog
@@ -86,6 +93,31 @@ fun ViewSeedPhraseScreen(
                 OutlinedButton(onClick = onBack) {
                     Text("Go back")
                 }
+            }
+        )
+    }
+
+    if (showSeedQr && seedQr != null) {
+        AlertDialog(
+            onDismissRequest = { showSeedQr = false },
+            title = { Text("SeedQR") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "This QR contains your seed phrase. Only scan it in a private setting.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    QrCodeImage(
+                        data = seedQr,
+                        modifier = Modifier.size(260.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showSeedQr = false }) { Text("Close") }
             }
         )
     }
@@ -163,6 +195,18 @@ fun ViewSeedPhraseScreen(
                                 }
                             }
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { showSeedQr = true },
+                        enabled = seedQr != null,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("Show SeedQR")
                     }
                 }
 

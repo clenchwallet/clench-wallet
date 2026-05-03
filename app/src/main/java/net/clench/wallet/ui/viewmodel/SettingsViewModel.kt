@@ -38,6 +38,7 @@ class SettingsViewModel @Inject constructor(
         val connectionTestResult: String? = null,
         val useCustomMempool: Boolean = false,
         val mempoolUrl: String = "https://mempool.space",
+        val btcPriceEnabled: Boolean = false,
         val useTestnet: Boolean = false,
         val biometricForSeed: Boolean = true,
         val biometricForSend: Boolean = true,
@@ -92,6 +93,7 @@ class SettingsViewModel @Inject constructor(
                 useSSL = validatedConfig.useSsl,
                 useCustomMempool = settingsManager.isCustomMempoolEnabled(),
                 mempoolUrl = settingsManager.getMempoolUrl(),
+                btcPriceEnabled = settingsManager.isBtcPriceEnabled(),
                 useTestnet = settingsManager.isTestnet(),
                 biometricForSeed = settingsManager.isBiometricForSeedEnabled(),
                 biometricForSend = settingsManager.isBiometricForSendEnabled(),
@@ -259,6 +261,11 @@ class SettingsViewModel @Inject constructor(
             kotlinx.coroutines.delay(3000)
             _uiState.update { it.copy(savedSuccess = false) }
         }
+    }
+
+    fun setBtcPriceEnabled(enabled: Boolean) {
+        settingsManager.setBtcPriceEnabled(enabled)
+        _uiState.update { it.copy(btcPriceEnabled = enabled) }
     }
 
     // --- Network settings ---
