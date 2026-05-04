@@ -6,6 +6,15 @@ import org.junit.Test
 class BBQrEncoderTest {
 
     @Test
+    fun `base32 uses RFC4648 alphabet`() {
+        val data = "hello".toByteArray()
+        val encoded = BBQrEncoder.base32Encode(data)
+
+        assertEquals("NBSWY3DP", encoded)
+        assertEquals("hello", BBQrEncoder.base32Decode(encoded).toString(Charsets.UTF_8))
+    }
+
+    @Test
     fun `base32 round-trip`() {
         val data = byteArrayOf(0x00, 0x01, 0x02, 0xFF.toByte(), 0x7F, 0x80.toByte())
         val encoded = BBQrEncoder.base32Encode(data)

@@ -48,7 +48,7 @@ fun psbtToUrFrames(psbtBase64: String, maxFragmentLen: Int = 500): List<String> 
 
 /**
  * Encode a PSBT for QR display, using the appropriate format for the target device.
- * - Coldcard Q: BBQr format (raw DEFLATE compressed, Base32)
+ * - Coldcard Q: BBQr format (Base32/Hex per Coinkite BBQr)
  * - All others: BC-UR (ur:crypto-psbt)
  */
 fun encodePsbtForDevice(psbtBase64: String, deviceType: HardwareWalletType): List<String> {
@@ -89,7 +89,7 @@ private fun encodeQrBitmap(content: String, size: Int = 512): Bitmap {
  * Cycles through frames at the given interval. For single frames, shows static QR.
  *
  * @param frameDelayMs Milliseconds between frames. 125ms (~8fps) for BC-UR,
- *                     1000ms (~1fps) for BBQr (Coldcard Q scans slowly).
+ *                     250ms (~4fps) for BBQr (Coldcard Q recommendation).
  * @param qrSizeDp Display size of the QR code. Default 360.dp (increased from 280.dp
  *                  for better scanning at typical hardware wallet reading distances).
  * @param autoAdvance Whether to auto-advance frames.

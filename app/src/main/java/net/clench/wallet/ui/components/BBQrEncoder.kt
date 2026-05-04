@@ -12,7 +12,7 @@ import java.util.zip.Inflater
  * File types: P=PSBT, T=Transaction
  * Encodings: Z=raw DEFLATE+Base32, H=Hex, 2=Base32
  *
- * Base32 alphabet: 0123456789ABCDEFGHIJKLMNOPQRSTUV
+ * Base32 alphabet: RFC 4648 without padding (A-Z2-7)
  *
  * @see <a href="https://github.com/coinkite/BBQr">BBQr Specification</a>
  */
@@ -27,7 +27,7 @@ object BBQrEncoder {
     // Base36 digits for total/index fields
     private const val BASE36_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-    private val BASE32_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUV".toCharArray()
+    private val BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".toCharArray()
 
     // Reverse lookup for decoding
     private val BASE32_DECODE = IntArray(128) { -1 }.also { arr ->

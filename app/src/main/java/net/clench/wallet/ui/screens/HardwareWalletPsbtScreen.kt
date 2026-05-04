@@ -550,7 +550,7 @@ fun HardwareWalletPsbtScreen(
                             qrSize = if (isBBQr) 768 else 512,
                             qrSizeDp = if (isBBQr) 420.dp else 360.dp,
                             frameDelayMs = when (deviceType) {
-                                HardwareWalletType.COLDCARD_Q -> 1400L  // BBQr: slower, lower-density frames for Coldcard Q scanner
+                                HardwareWalletType.COLDCARD_Q -> 250L  // BBQr: Coldcard Q recommendation
                                 HardwareWalletType.COLDCARD_MK4,
                                 HardwareWalletType.COLDCARD_MK5 -> 1000L
                                 else -> 125L // BC-UR: fast fountain codes
