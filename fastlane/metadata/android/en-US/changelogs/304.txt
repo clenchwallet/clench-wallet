@@ -1,0 +1,4 @@
+Multisig import interoperability:
+- Fixed Sparrow multisig Output Descriptor QR imports.
+- Added BSMS descriptor record and Coldcard multisig config imports.
+- Hardened multisig import parsing so wallet configs cannot collapse to one cosigner xpub.

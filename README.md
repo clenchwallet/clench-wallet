@@ -79,6 +79,13 @@ Contributions welcome. Please open an issue first to discuss significant changes
 
 If you discover a security vulnerability, please report it responsibly by emailing security@clench.net (do NOT open a public issue).
 
+## Changelog
+
+| Version | Highlights |
+| --- | --- |
+| 0.3.4 | Fixed Sparrow multisig Output Descriptor QR imports; added BSMS descriptor and Coldcard multisig config imports; hardened multisig imports so wallet configs cannot collapse to one cosigner xpub. |
+| 0.3.3 | Initial public release with F-Droid-ready metadata, BDK 2.3.1, hardware wallet PSBT flows, Tor Electrum support, encrypted storage, and multisig creation. |
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
