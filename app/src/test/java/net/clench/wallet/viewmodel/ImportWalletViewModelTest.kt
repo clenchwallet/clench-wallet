@@ -31,8 +31,9 @@ class ImportWalletViewModelTest {
         viewModel.setInput(seedHammerUr)
         val state = viewModel.uiState.value
 
-        assertEquals(ImportWalletViewModel.DetectedType.XPUB_WATCH_ONLY, state.detectedType)
+        assertEquals(ImportWalletViewModel.DetectedType.DESCRIPTOR, state.detectedType)
         assertFalse(state.input.lowercase().startsWith("ur:"))
+        assertTrue(state.input.startsWith("wsh(multi("))
         assertTrue(state.input.contains("xpub"))
     }
 

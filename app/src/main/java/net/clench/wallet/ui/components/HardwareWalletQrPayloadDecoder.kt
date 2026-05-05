@@ -3,11 +3,13 @@ package net.clench.wallet.ui.components
 import com.sparrowwallet.hummingbird.UR
 import com.sparrowwallet.hummingbird.registry.CryptoAccount
 import com.sparrowwallet.hummingbird.registry.CryptoCoinInfo
+import com.sparrowwallet.hummingbird.registry.MultiKey
 import com.sparrowwallet.hummingbird.registry.CryptoHDKey
 import com.sparrowwallet.hummingbird.registry.CryptoOutput
 import com.sparrowwallet.hummingbird.registry.CryptoPSBT
 import com.sparrowwallet.hummingbird.registry.RegistryType
 import com.sparrowwallet.hummingbird.registry.RegistryItem
+import com.sparrowwallet.hummingbird.registry.ScriptExpression
 import com.sparrowwallet.hummingbird.registry.URAccountDescriptor
 import com.sparrowwallet.hummingbird.registry.URHDKey
 import com.sparrowwallet.hummingbird.registry.UROutputDescriptor
@@ -26,10 +28,10 @@ object HardwareWalletQrPayloadDecoder {
             is CryptoPSBT -> android.util.Base64.encodeToString(registryItem.psbt, android.util.Base64.NO_WRAP)
             is CryptoAccount -> registryItem.outputDescriptors
                 .mapNotNull { decodeCryptoOutput(it) }
-                .firstOrNull()
+                .preferredImportPayload()
             is URAccountDescriptor -> registryItem.outputDescriptors
                 .mapNotNull { decodeUrOutputDescriptor(it) }
-                .firstOrNull()
+                .preferredImportPayload()
             is CryptoOutput -> decodeCryptoOutput(registryItem)
             is UROutputDescriptor -> decodeUrOutputDescriptor(registryItem)
             is CryptoHDKey -> xpubWithOrigin(registryItem)
@@ -51,7 +53,7 @@ object HardwareWalletQrPayloadDecoder {
 
     private fun decodeCryptoOutput(output: CryptoOutput): String? {
         output.hdKey?.let { return xpubWithOrigin(it) }
-        output.multiKey?.hdKeys?.firstOrNull()?.let { return xpubWithOrigin(it) }
+        output.multiKey?.let { return multisigDescriptor(output.scriptExpressions, it) }
         return null
     }
 
@@ -62,8 +64,9 @@ object HardwareWalletQrPayloadDecoder {
             val expanded = expandDescriptorPlaceholders(source, keyTexts)
             if (expanded.isNotBlank() && !expanded.contains('@')) return expanded
             if (!source.contains('@')) return source
+            return null
         }
-        return keyTexts.firstOrNull()
+        return keyTexts.singleOrNull()
     }
 
     private fun registryKeyText(key: RegistryItem): String? {
@@ -79,7 +82,7 @@ object HardwareWalletQrPayloadDecoder {
     private fun expandDescriptorPlaceholders(source: String, keys: List<String>): String {
         var expanded = source
         keys.forEachIndexed { index, key ->
-            expanded = expanded.replace(Regex("@$index(/\\*\\*|/[01]/\\*|/\\*)?")) { match ->
+            expanded = expanded.replace(Regex("@$index(/\\*\\*|/[01]/\\*|/\\*)?(?!\\d)")) { match ->
                 val suffix = match.groupValues.getOrNull(1).orEmpty()
                 when (suffix) {
                     "/**", "/*", "" -> "$key/0/*"
@@ -88,6 +91,83 @@ object HardwareWalletQrPayloadDecoder {
             }
         }
         return expanded
+    }
+
+    private fun multisigDescriptor(
+        scriptExpressions: List<ScriptExpression>,
+        multiKey: MultiKey
+    ): String? {
+        val hdKeys = multiKey.hdKeys.orEmpty()
+        if (hdKeys.isEmpty()) return null
+        if (multiKey.threshold !in 1..hdKeys.size) return null
+
+        val keys = hdKeys.map { descriptorKeyText(it) ?: return null }
+        val multisigFunction = if (scriptExpressions.contains(ScriptExpression.SORTED_MULTISIG)) {
+            "sortedmulti"
+        } else {
+            "multi"
+        }
+        var descriptor = "$multisigFunction(${multiKey.threshold},${keys.joinToString(",")})"
+
+        scriptExpressions
+            .filterNot { it == ScriptExpression.MULTISIG || it == ScriptExpression.SORTED_MULTISIG }
+            .asReversed()
+            .forEach { expression ->
+                descriptor = wrapDescriptorExpression(expression, descriptor) ?: return null
+            }
+
+        return descriptor
+    }
+
+    private fun descriptorKeyText(key: CryptoHDKey): String? {
+        val xpub = xpubWithOrigin(key) ?: return null
+        val childPath = externalChildPath(key.children?.path)
+        return if (childPath.isBlank()) xpub else "$xpub/$childPath"
+    }
+
+    private fun externalChildPath(path: String?): String {
+        val normalized = path
+            ?.trim()
+            ?.removePrefix("m/")
+            ?.trim('/')
+            ?.takeIf { it.isNotBlank() }
+            ?: return "0/*"
+
+        return normalized
+            .replace(Regex("<([^;>]+);[^>]+>")) { match -> match.groupValues[1] }
+            .let { if (it == "*" || it == "**") "0/*" else it }
+    }
+
+    private fun wrapDescriptorExpression(expression: ScriptExpression, inner: String): String? {
+        val function = when (expression) {
+            ScriptExpression.SCRIPT_HASH -> "sh"
+            ScriptExpression.WITNESS_SCRIPT_HASH -> "wsh"
+            ScriptExpression.PUBLIC_KEY -> "pk"
+            ScriptExpression.PUBLIC_KEY_HASH -> "pkh"
+            ScriptExpression.WITNESS_PUBLIC_KEY_HASH -> "wpkh"
+            ScriptExpression.TAPROOT -> "tr"
+            else -> return null
+        }
+        return "$function($inner)"
+    }
+
+    private fun List<String>.preferredImportPayload(): String? {
+        return maxByOrNull { payloadScore(it) }
+    }
+
+    private fun payloadScore(text: String): Int {
+        val lower = text.lowercase()
+        return if (
+            lower.startsWith("wpkh(") ||
+            lower.startsWith("pkh(") ||
+            lower.startsWith("sh(") ||
+            lower.startsWith("wsh(") ||
+            lower.startsWith("tr(")
+        ) {
+            2
+        } else {
+            1
+        }
     }
 
     private fun xpubWithOrigin(key: CryptoHDKey): String? {
