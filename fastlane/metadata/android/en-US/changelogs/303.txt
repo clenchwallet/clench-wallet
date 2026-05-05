@@ -1,0 +1,3 @@
+F-Droid release readiness:
+- Updated privacy wording to clarify that Clench has no tracking or analytics SDKs.
+- Refreshed release metadata for version 0.3.3.
