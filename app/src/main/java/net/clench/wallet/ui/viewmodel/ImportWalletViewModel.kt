@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.ui.components.HardwareWalletQrPayloadDecoder
+import net.clench.wallet.ui.components.MultisigWalletConfigParser
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
 import org.bitcoindevkit.KeychainKind
@@ -109,10 +110,21 @@ class ImportWalletViewModel @Inject constructor(
             }.getOrNull()
             if (!decoded.isNullOrBlank()) return decoded
         }
+
+        MultisigWalletConfigParser.parse(trimmed)?.let { return it }
+
         if (!trimmed.startsWith("{")) return trimmed
 
         return runCatching {
             val root = JSONObject(trimmed)
+            val descriptor = root.optString("descriptor")
+                .ifBlank { root.optString("output_descriptor") }
+                .ifBlank { root.optString("receive_descriptor") }
+                .ifBlank { root.optString("external_descriptor") }
+                .takeIf { it.isNotBlank() }
+            if (descriptor != null) {
+                MultisigWalletConfigParser.parse(descriptor)?.let { return@runCatching it }
+            }
             val candidates = listOf(
                 "p2wpkh", "bip84", "bip84_p2wpkh", "native_segwit",
                 "p2sh_p2wpkh", "p2sh-p2wpkh", "bip49",
@@ -319,7 +331,7 @@ class ImportWalletViewModel @Inject constructor(
                         )
                     }
                     DetectedType.NONE -> {
-                        _uiState.update { it.copy(isLoading = false, error = "Please enter a valid seed phrase, xpub, zpub, or descriptor") }
+                        _uiState.update { it.copy(isLoading = false, error = "Please enter a valid seed phrase, xpub, descriptor, or multisig config") }
                         return@launch
                     }
                 }

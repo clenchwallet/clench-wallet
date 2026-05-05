@@ -37,6 +37,82 @@ class ImportWalletViewModelTest {
         assertTrue(state.input.contains("xpub"))
     }
 
+    @Test
+    fun `Coldcard multisig config normalizes before detection`() {
+        val repository = mockk<BitcoinRepository>()
+        val viewModel = ImportWalletViewModel(repository)
+        val coldcard = """
+            # Coldcard Multisig setup file
+            Name: Vault
+            Policy: 2 of 3
+            Format: P2WSH
+            Derivation: m/48h/0h/0h/2h
+            AABBCCDD: xpub6Alpha
+            11223344: xpub6Bravo
+            55667788: xpub6Charlie
+        """.trimIndent()
+
+        viewModel.setInput(coldcard)
+        val state = viewModel.uiState.value
+
+        assertEquals(ImportWalletViewModel.DetectedType.DESCRIPTOR, state.detectedType)
+        assertEquals(
+            "wsh(sortedmulti(2,[AABBCCDD/48'/0'/0'/2']xpub6Alpha/0/*,[11223344/48'/0'/0'/2']xpub6Bravo/0/*,[55667788/48'/0'/0'/2']xpub6Charlie/0/*))",
+            state.input
+        )
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `multisig config import calls watch-only descriptor import`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val expectedDescriptor =
+                "wsh(sortedmulti(2,[AABBCCDD/48'/0'/0'/2']xpub6Alpha/0/*,[11223344/48'/0'/0'/2']xpub6Bravo/0/*,[55667788/48'/0'/0'/2']xpub6Charlie/0/*))"
+            val repository = mockk<BitcoinRepository>()
+            coEvery {
+                repository.importWatchOnly(
+                    name = "Vault",
+                    descriptor = expectedDescriptor,
+                    deviceType = null
+                )
+            } returns WalletData(
+                id = "wallet-multisig",
+                name = "Vault",
+                descriptor = expectedDescriptor,
+                changeDescriptor = expectedDescriptor.replace("/0/*", "/1/*"),
+                isWatchOnly = true
+            )
+
+            val viewModel = ImportWalletViewModel(repository)
+            viewModel.setWalletName("Vault")
+            viewModel.setInput(
+                """
+                BSMS 1.0
+                wsh(sortedmulti(2,[AABBCCDD/48'/0'/0'/2']xpub6Alpha/**,[11223344/48'/0'/0'/2']xpub6Bravo/**,[55667788/48'/0'/0'/2']xpub6Charlie/**))#abcd1234
+                /0/*,/1/*
+                bc1qexampleaddress
+                """.trimIndent()
+            )
+            viewModel.importWallet { importedId -> assertEquals("wallet-multisig", importedId) }
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) {
+                repository.importWatchOnly(
+                    name = "Vault",
+                    descriptor = expectedDescriptor,
+                    deviceType = null
+                )
+            }
+            coVerify(exactly = 0) {
+                repository.importPrivateDescriptor(any(), any())
+            }
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `private descriptor input imports signing wallet not watch-only wallet`() = runTest {

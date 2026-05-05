@@ -1998,7 +1998,8 @@ class BdkBitcoinRepository @Inject constructor(
             input.startsWith("sh(wpkh(") || input.startsWith("wsh(") ||
             input.startsWith("sh(wsh(") || input.startsWith("tr(")) {
             // Extract and convert any non-xpub extended key inside the descriptor
-            val converted = input
+            val descriptorWithoutChecksum = input.substringBefore("#").trim()
+            val converted = descriptorWithoutChecksum
                 .replace(Regex("zpub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
                 .replace(Regex("Zpub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
                 .replace(Regex("ypub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
@@ -2007,8 +2008,8 @@ class BdkBitcoinRepository @Inject constructor(
                 .replace(Regex("Vpub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
                 .replace(Regex("upub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
                 .replace(Regex("Upub[1-9A-HJ-NP-Za-km-z]+")) { convertZpubToXpub(it.value) }
-            val external = if (!converted.contains("/0/*") && !converted.contains("/*")) {
-                // No derivation path — add /0/*
+            val external = if (containsExtendedKey(converted) && !converted.contains("/0/*") && !converted.contains("/*")) {
+                // Ranged extended-key descriptors need an explicit receive branch.
                 converted.trimEnd(')') + "/0/*)"
             } else converted
             val change = external.replace("/0/*", "/1/*")
@@ -2110,6 +2111,10 @@ class BdkBitcoinRepository @Inject constructor(
     private fun containsPrivateKeyMaterial(input: String): Boolean {
         val lower = input.lowercase()
         return listOf("xprv", "yprv", "zprv", "tprv", "uprv", "vprv").any { lower.contains(it) }
+    }
+
+    private fun containsExtendedKey(input: String): Boolean {
+        return Regex("""(?i)[xtuvyz]prv|[xtuvyz]pub|[ZYUV]pub""").containsMatchIn(input)
     }
 
     private fun mempoolApiBaseUrlForActiveNetwork(): String {

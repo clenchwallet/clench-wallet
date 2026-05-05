@@ -333,22 +333,22 @@ fun ImportWalletScreen(
                 OutlinedTextField(
                     value = uiState.input,
                     onValueChange = { viewModel.setInput(it) },
-                    label = { Text("xpub / zpub / descriptor") },
+                    label = { Text("xpub / descriptor / multisig config") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(120.dp),
-                    placeholder = { Text("zpub… or xpub… or wpkh(…)") }
+                    placeholder = { Text("xpub... or wsh(sortedmulti(...)) or BSMS/Coldcard config") }
                 )
             } else {
                 // Standard import: single unified input field
                 OutlinedTextField(
                     value = uiState.input,
                     onValueChange = { viewModel.setInput(it) },
-                    label = { Text("Enter seed phrase, xpub, zpub, or descriptor") },
+                    label = { Text("Enter seed phrase, xpub, descriptor, or multisig config") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(120.dp),
-                    placeholder = { Text("word1 word2 word3 … or zpub… or wpkh(…)") },
+                    placeholder = { Text("word1 word2 word3 ... or xpub... or wsh(sortedmulti(...))") },
                     trailingIcon = {
                         if (hasCamera) {
                             IconButton(onClick = { showScanner = true }) {
@@ -600,12 +600,12 @@ private fun supportsHardwareImportFile(device: HardwareWalletType): Boolean {
  */
 private fun getDeviceInstructions(device: HardwareWalletType): String {
     return when (device) {
-        HardwareWalletType.COLDCARD_Q -> "On your Coldcard Q, export the public key using whichever method is easiest: QR code, a Generic JSON file, or NFC if your firmware exposes the account export over NFC. Clench accepts animated BBQr JSON, file, and NFC text exports."
-        HardwareWalletType.COLDCARD_MK4 -> "On your Coldcard Mk4: Advanced/Tools → Export Wallet → Generic JSON. Save to SD card or use NFC if your firmware exposes the account export, then load the file or tap NFC below."
-        HardwareWalletType.COLDCARD_MK5 -> "On your Coldcard Mk5: Advanced/Tools → Export Wallet → Generic JSON. Save to SD card/virtual disk or use NFC if your firmware exposes the account export, then load the file or tap NFC below."
+        HardwareWalletType.COLDCARD_Q -> "On your Coldcard Q, export a descriptor or multisig wallet setup file by QR, NFC, or file. Clench accepts BIP-380 descriptors, BSMS descriptor records, and Coldcard multisig config text."
+        HardwareWalletType.COLDCARD_MK4 -> "On your Coldcard Mk4, export a descriptor or multisig wallet setup file to SD card, virtual disk, or NFC. Clench accepts BIP-380 descriptors, BSMS descriptor records, and Coldcard multisig config text."
+        HardwareWalletType.COLDCARD_MK5 -> "On your Coldcard Mk5, export a descriptor or multisig wallet setup file to SD card, virtual disk, or NFC. Clench accepts BIP-380 descriptors, BSMS descriptor records, and Coldcard multisig config text."
         HardwareWalletType.SEEDSIGNER -> "On your SeedSigner: Seeds → [Your Seed] → Export Xpub. Choose Native SegWit (BIP84) for single-sig, or Multisig (BIP48) for a cosigner export. SeedSigner displays an animated QR series for scanning."
-        HardwareWalletType.KEYSTONE -> "On your Keystone: Settings → Watch-Only Wallet → Sparrow Wallet → Export Wallet. Show the QR code, or export the file to microSD and load it here. Clench accepts static/animated QR, UR account/output payloads, and file exports."
-        HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport: Manage Account → Connect Wallet, then show the account QR for a wallet such as Envoy/Sparrow. Clench accepts Passport UR account/output QR payloads and file/descriptor exports."
+        HardwareWalletType.KEYSTONE -> "On your Keystone, export a Sparrow-compatible wallet descriptor by QR or file. Clench accepts static/animated QR, UR account/output payloads, descriptors, and multisig wallet config text."
+        HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport, export a wallet descriptor or account QR for a wallet such as Envoy/Sparrow. Clench accepts Passport UR account/output QR payloads, descriptors, and multisig wallet config text."
         HardwareWalletType.JADE -> "On your Jade: Options → Wallet → Export Xpub. Jade displays the account xpub as an animated QR; scan it here."
     }
 }
