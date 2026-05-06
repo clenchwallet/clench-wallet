@@ -43,6 +43,7 @@ fun SendScreen(
     onBack: () -> Unit,
     utxoOutpoint: String? = null,  // format: "txid:vout"
     selectedUtxos: String? = null,
+    cpfpMode: Boolean = false,
     onNavigateHardwarePsbt: ((walletId: String, psbtBase64: String, deviceType: HardwareWalletType) -> Unit)? = null,
     viewModel: SendViewModel = hiltViewModel()
 ) {
@@ -131,6 +132,9 @@ fun SendScreen(
         }
         if (!selectedUtxos.isNullOrBlank()) {
             viewModel.setSelectedUtxos(selectedUtxos.split(",").filter { it.isNotBlank() })
+        }
+        if (cpfpMode && outpointList.isNotEmpty()) {
+            viewModel.prepareCpfpSend(walletId, outpointList)
         }
     }
 
@@ -238,6 +242,23 @@ fun SendScreen(
                 }
             }
 
+            if (uiState.cpFpMode) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    Text(
+                        "CPFP mode: spending the selected unconfirmed output back to this wallet with a higher child fee.",
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
             // --- Recipients section ---
             val isBatchMode = uiState.recipients.size > 1
 
@@ -336,6 +357,50 @@ fun SendScreen(
                         }
                     }
                 )
+                uiState.addressVerification?.let { verification ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        verification.displayText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                uiState.addressWarning?.let { warning ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        warning,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+
+                if (uiState.savedPayees.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Saved payees",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        uiState.savedPayees.take(6).forEach { payee ->
+                            AssistChip(
+                                onClick = { viewModel.selectPayee(payee) },
+                                label = { Text(payee.label.take(24)) },
+                                trailingIcon = {
+                                    Text(
+                                        "×",
+                                        modifier = Modifier.clickable { viewModel.deletePayee(payee) },
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -452,6 +517,19 @@ fun SendScreen(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = uiState.savePayeeAfterSend,
+                        onCheckedChange = { viewModel.setSavePayeeAfterSend(it) }
+                    )
+                    Text("Save recipient to address book")
+                }
+                TextButton(
+                    onClick = { viewModel.saveCurrentPayee() },
+                    enabled = uiState.toAddress.isNotBlank()
+                ) {
+                    Text("Save Payee Now")
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

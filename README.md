@@ -15,6 +15,7 @@ A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](http
 - **QR-based:** SeedSigner, Keystone, Foundation Passport, Blockstream Jade
 - **Coldcard Q:** BBQr QR, NFC, and file-based PSBT transfer
 - **Coldcard Mk4/Mk5:** NFC, SD card, and virtual disk PSBT transfer
+- **Tapsigner:** NFC Tap Protocol status checks and screenless-signer guardrails; direct PSBT signing is blocked until authenticated signing support is complete
 - **Signed-return support:** signed PSBT import, plus finalized transaction returns where supported
 - Explicit broadcast confirmation after hardware-wallet signing
 - Full PSBT (BIP-174) workflow
@@ -22,6 +23,7 @@ A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](http
 ### Privacy
 - **Tor support for Electrum** — route wallet sync traffic through a SOCKS5 proxy
 - **Custom Electrum server** — connect to your own node
+- **Node diagnostics** — check Electrum route, Tor mode, TLS pin state, server version, and tip height
 - **Coin control** — manual UTXO selection and freezing
 - **No analytics** — no third-party tracking SDKs
 
@@ -29,8 +31,13 @@ A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](http
 - Batch sending (multiple recipients, single transaction)
 - Transaction labeling with BIP-329 export/import
 - Replace-By-Fee (RBF) fee bumping
+- CPFP child transaction creation from spendable outputs
+- RBF cancel replacement attempts back to the same wallet
+- Raw transaction import, preview, and explicit broadcast
+- Saved payees and BDK-backed network/script address verification
 - Sweep functionality
-- Fee estimation via Electrum + mempool.space fallback
+- Fee and confirmation context via Electrum, with optional external mempool.space fee fallback
+- Recovery wizard for state backups, seed phrase restores, descriptor imports, and cross-wallet verification
 
 ### Security
 - AES-256-GCM encrypted key storage via Android Keystore
@@ -40,6 +47,7 @@ A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](http
 - PSBT/final transaction validation before broadcast
 - No auto-broadcast after scanning signed hardware-wallet payloads
 - No analytics, no tracking, no third-party tracking SDKs
+- Tag-only signed release builds with checksum and signature verification docs
 
 ## Building
 
@@ -63,6 +71,14 @@ The debug APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 ```
 Requires a signing keystore configured in `keystore.properties`.
 
+Release builds are published only from `v*` tags. Debug APKs from CI are short-retention artifacts and are not production wallet releases.
+
+Release trust docs:
+- [Reproducible builds](docs/release/reproducible-builds.md)
+- [Signed-release verification](docs/release/signed-release-verification.md)
+- [Threat model](docs/security/threat-model.md)
+- [Audit path](docs/security/audit-path.md)
+
 ## Architecture
 
 - **BDK 2.3.1** — Bitcoin Dev Kit for wallet operations, transaction building, and Electrum sync
@@ -79,10 +95,13 @@ Contributions welcome. Please open an issue first to discuss significant changes
 
 If you discover a security vulnerability, please report it responsibly by emailing security@clench.net (do NOT open a public issue).
 
+For release verification and security-review scope, see [docs/release/README.md](docs/release/README.md) and [docs/security/threat-model.md](docs/security/threat-model.md).
+
 ## Changelog
 
 | Version | Highlights |
 | --- | --- |
+| Unreleased | Added multisig Wallet Info signer checks, BSMS round-trip export metadata, recovery wizard and drill guidance, Tapsigner NFC status/signing guardrails, CPFP/cancel transaction flows, raw transaction broadcast/import, saved payees, BDK-backed address verification, Electrum diagnostics, opt-in external lookup controls, and release-trust documentation/workflows. |
 | 0.3.4 | Fixed Sparrow multisig Output Descriptor QR imports; added BSMS descriptor and Coldcard multisig config imports; hardened multisig imports so wallet configs cannot collapse to one cosigner xpub. |
 | 0.3.3 | Initial public release with F-Droid-ready metadata, BDK 2.3.1, hardware wallet PSBT flows, Tor Electrum support, encrypted storage, and multisig creation. |
 

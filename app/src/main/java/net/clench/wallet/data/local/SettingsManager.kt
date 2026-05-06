@@ -200,6 +200,13 @@ class SettingsManager @Inject constructor(
         prefs.edit { putBoolean("btc_price_enabled", enabled) }
     }
 
+    // --- External fee lookup fallback ---
+
+    fun isExternalFeeLookupEnabled(): Boolean = prefs.getBoolean("external_fee_lookup_enabled", false)
+    fun setExternalFeeLookupEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean("external_fee_lookup_enabled", enabled) }
+    }
+
     // --- Last viewed wallet ---
 
     fun getLastViewedWalletId(): String? = prefs.getString("last_viewed_wallet_id", null)
@@ -215,6 +222,7 @@ class SettingsManager @Inject constructor(
             put("useCustomMempool", isCustomMempoolEnabled())
             put("mempoolUrl", getMempoolUrl())
             put("btcPriceEnabled", isBtcPriceEnabled())
+            put("externalFeeLookupEnabled", isExternalFeeLookupEnabled())
             put("biometricForSeed", isBiometricForSeedEnabled())
             put("biometricForSend", isBiometricForSendEnabled())
             put("lockTimeoutKey", getLockTimeoutKey())
@@ -235,6 +243,7 @@ class SettingsManager @Inject constructor(
         if (settings.has("useCustomMempool")) setCustomMempoolEnabled(settings.optBoolean("useCustomMempool"))
         settings.optNullableString("mempoolUrl")?.let { setMempoolUrl(it) }
         if (settings.has("btcPriceEnabled")) setBtcPriceEnabled(settings.optBoolean("btcPriceEnabled"))
+        if (settings.has("externalFeeLookupEnabled")) setExternalFeeLookupEnabled(settings.optBoolean("externalFeeLookupEnabled"))
         if (settings.has("biometricForSeed")) setBiometricForSeedEnabled(settings.optBoolean("biometricForSeed"))
         if (settings.has("biometricForSend")) setBiometricForSendEnabled(settings.optBoolean("biometricForSend"))
         settings.optNullableString("lockTimeoutKey")?.let { setLockTimeout(it) }

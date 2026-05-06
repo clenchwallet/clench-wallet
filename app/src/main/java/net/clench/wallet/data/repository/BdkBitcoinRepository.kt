@@ -14,6 +14,7 @@ import net.clench.wallet.data.local.dao.TransactionDao
 import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
 import net.clench.wallet.data.local.dao.WalletDao
+import net.clench.wallet.data.local.dao.AddressBookDao
 import net.clench.wallet.data.local.entity.TransactionEntity
 import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.local.entity.WalletEntity
@@ -64,6 +65,7 @@ class BdkBitcoinRepository @Inject constructor(
     private val transactionDao: TransactionDao,
     private val transactionLabelDao: TransactionLabelDao,
     private val utxoMetadataDao: UtxoMetadataDao,
+    private val addressBookDao: AddressBookDao,
     private val keystoreManager: KeystoreManager,
     private val settingsManager: SettingsManager,
     private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory,
@@ -307,6 +309,7 @@ class BdkBitcoinRepository @Inject constructor(
         val normalized = normalizeDescriptor(descriptor.trim())
         val externalDescriptorStr = normalized.externalDescriptor
         val changeDescriptorStr = normalized.changeDescriptor
+        val isMultisigDescriptor = isMultisigDescriptor(externalDescriptorStr)
         if (logSensitive) {
             android.util.Log.d("BdkRepo", "importWatchOnly: normalized external descriptor (redacted)")
             android.util.Log.d("BdkRepo", "importWatchOnly: origin fingerprint=${normalized.masterFingerprint} path=${normalized.derivationPath} device=$deviceType")
@@ -353,7 +356,7 @@ class BdkBitcoinRepository @Inject constructor(
             descriptor = externalDescriptor.toString(),
             changeDescriptor = changeDescriptor.toString(),
             isWatchOnly = true,
-            isMultisig = false,
+            isMultisig = isMultisigDescriptor,
             createdAtEpochMs = System.currentTimeMillis(),
             network = activeNetwork,
             masterFingerprint = normalized.masterFingerprint,
@@ -370,7 +373,7 @@ class BdkBitcoinRepository @Inject constructor(
             descriptor = externalDescriptor.toString(),
             changeDescriptor = changeDescriptor.toString(),
             isWatchOnly = true,
-            isMultisig = false,
+            isMultisig = isMultisigDescriptor,
             createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
             network = activeNetwork,
             preferredHardwareWallet = deviceType,
@@ -471,6 +474,7 @@ class BdkBitcoinRepository @Inject constructor(
         val publicChangeDescriptor = changeDescriptor.toString()
         val secretDescriptor = externalDescriptor.toStringWithSecret()
         val secretChangeDescriptor = changeDescriptor.toStringWithSecret()
+        val isMultisigDescriptor = isMultisigDescriptor(publicDescriptor)
 
         // Prevent duplicate imports — compare public descriptors on the current network only.
         val activeNetwork = settingsManager.getNetwork()
@@ -497,7 +501,7 @@ class BdkBitcoinRepository @Inject constructor(
             descriptor = publicDescriptor,
             changeDescriptor = publicChangeDescriptor,
             isWatchOnly = false,
-            isMultisig = false,
+            isMultisig = isMultisigDescriptor,
             createdAtEpochMs = System.currentTimeMillis(),
             network = activeNetwork,
             masterFingerprint = normalized.masterFingerprint,
@@ -513,7 +517,7 @@ class BdkBitcoinRepository @Inject constructor(
             descriptor = publicDescriptor,
             changeDescriptor = publicChangeDescriptor,
             isWatchOnly = false,
-            isMultisig = false,
+            isMultisig = isMultisigDescriptor,
             createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
             network = activeNetwork,
             masterFingerprint = normalized.masterFingerprint,
@@ -650,18 +654,8 @@ class BdkBitcoinRepository @Inject constructor(
                 android.util.Log.d("BdkRepo", "syncWallet: got ${transactions.size} transactions")
             }
             
-            // Priority 1: Try mempool.space API for current tip height
-            var tipHeight: UInt = 0u
-            if (!settingsManager.isOfflineMode()) {
-                try {
-                    val baseUrl = mempoolApiBaseUrlForActiveNetwork()
-                    val heightStr = torAwareHttpClient.fetchText("$baseUrl/api/blocks/tip/height")
-                    tipHeight = heightStr.trim().toUInt()
-                    android.util.Log.d("BdkRepo", "tipHeight from mempool API: $tipHeight")
-                } catch (e: Exception) {
-                    android.util.Log.w("BdkRepo", "Failed to get tip height from mempool API: ${e.message}")
-                }
-            }
+            // Priority 1: use the configured Electrum route for current tip height.
+            var tipHeight: UInt = currentTipHeightFromElectrum() ?: 0u
             
             // Priority 2: Fall back to wallet's own confirmed transaction heights
             // (last resort - these are stale for old wallets)
@@ -1045,6 +1039,9 @@ class BdkBitcoinRepository @Inject constructor(
 
         // 3. Delete metadata from Room DB last — orphaned metadata without secrets is harmless
         transactionDao.deleteForWallet(walletId)
+        transactionLabelDao.deleteForWallet(walletId)
+        utxoMetadataDao.deleteForWallet(walletId)
+        addressBookDao.deleteForWallet(walletId)
         walletDao.deleteById(walletId)
     }
 
@@ -1205,12 +1202,16 @@ class BdkBitcoinRepository @Inject constructor(
             null
         }
 
-        // If Electrum failed, try mempool.space API as fallback
+        // If Electrum failed, only call external fee APIs when the user opted in.
         if (electrumFees == null) {
-            try {
-                return@withContext estimateFeesFromMempoolSpace()
-            } catch (e: Exception) {
-                android.util.Log.w("BdkRepo", "Mempool.space fee estimation failed: ${e.message}")
+            if (settingsManager.isExternalFeeLookupEnabled()) {
+                try {
+                    return@withContext estimateFeesFromMempoolSpace()
+                } catch (e: Exception) {
+                    android.util.Log.w("BdkRepo", "Mempool.space fee estimation failed: ${e.message}")
+                }
+            } else {
+                android.util.Log.d("BdkRepo", "External fee lookup disabled; using static fee defaults")
             }
         }
 
@@ -1325,6 +1326,54 @@ class BdkBitcoinRepository @Inject constructor(
         finalTx.serialize().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
+    override suspend fun cancelTransaction(walletId: String, txid: String, newFeeRate: Float): String = withContext(Dispatchers.IO) {
+        val walletEntity = walletDao.getById(walletId)
+        require(walletEntity?.isWatchOnly != true) { "Watch-only wallets must cancel via their external signer." }
+
+        val entry = loadWallet(walletId)
+        val wallet = entry.wallet
+        val txDetails = wallet.txDetails(org.bitcoindevkit.Txid.fromString(txid))
+            ?: throw IllegalArgumentException("Transaction not found in this wallet")
+        val originalTx = txDetails.tx
+
+        require(txDetails.chainPosition is ChainPosition.Unconfirmed) {
+            "Only unconfirmed transactions can be replaced."
+        }
+        require(originalTx.isExplicitlyRbf()) {
+            "This transaction does not signal RBF, so Clench cannot attempt a replacement cancel."
+        }
+        val sentAndReceived = wallet.sentAndReceived(originalTx)
+        val sent = sentAndReceived.sent.toSat()
+        val received = sentAndReceived.received.toSat()
+        require(sent > received) {
+            "Only outgoing transactions can be canceled with a replacement."
+        }
+
+        val feeRate = FeeRate.fromSatPerVb(newFeeRate.toLong().coerceAtLeast(1L).toULong())
+        val inputs = originalTx.input().map { it.previousOutput }
+        require(inputs.isNotEmpty()) { "Original transaction has no spendable inputs to replace." }
+
+        // Mark the local unconfirmed transaction as canceled so BDK will allow
+        // its inputs to be selected for the replacement transaction.
+        wallet.cancelTx(originalTx)
+
+        val selfAddress = wallet.nextUnusedAddress(KeychainKind.EXTERNAL)
+        var builder = TxBuilder()
+            .drainTo(selfAddress.address.scriptPubkey())
+            .feeRate(feeRate)
+
+        inputs.forEach { outpoint ->
+            builder = builder.addUtxo(outpoint)
+        }
+        builder = builder.manuallySelectedOnly()
+
+        val psbt = builder.finish(wallet)
+        wallet.sign(psbt)
+        wallet.persist(entry.persister)
+        val finalTx = psbt.extractTx()
+        finalTx.serialize().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    }
+
     override suspend fun listUnspent(walletId: String): List<net.clench.wallet.domain.model.UtxoInfo> = withContext(Dispatchers.IO) {
         // Passphrase wallet guard — same as getTransactions().
         // Never expose UTXOs from the public descriptor (xpub) wallet in the locked state.
@@ -1342,19 +1391,8 @@ class BdkBitcoinRepository @Inject constructor(
             android.util.Log.d("BdkRepo", "listUnspent: walletId=${walletId.take(8)} rawUtxoCount=${utxos.size} unlocked=${unlockedPassphraseWallets.contains(walletId)}")
         }
 
-        // Calculate tip height for confirmation count
-        // Priority 1: Try mempool.space API for current tip height
-        var tipHeight: UInt = 0u
-        if (!settingsManager.isOfflineMode()) {
-            try {
-                val baseUrl = mempoolApiBaseUrlForActiveNetwork()
-                val heightStr = torAwareHttpClient.fetchText("$baseUrl/api/blocks/tip/height")
-                tipHeight = heightStr.trim().toUInt()
-                android.util.Log.d("BdkRepo", "listUnspent: tipHeight from mempool API: $tipHeight")
-            } catch (e: Exception) {
-                android.util.Log.w("BdkRepo", "listUnspent: Failed to get tip height from mempool API: ${e.message}")
-            }
-        }
+        // Calculate tip height for confirmation count via the configured Electrum route.
+        var tipHeight: UInt = currentTipHeightFromElectrum() ?: 0u
         
         // Priority 2: Fall back to wallet's own confirmed transaction heights
         if (tipHeight == 0u) {
@@ -2117,6 +2155,11 @@ class BdkBitcoinRepository @Inject constructor(
         return Regex("""(?i)[xtuvyz]prv|[xtuvyz]pub|[ZYUV]pub""").containsMatchIn(input)
     }
 
+    private fun isMultisigDescriptor(descriptor: String): Boolean {
+        val lower = descriptor.lowercase()
+        return lower.contains("multi(") || lower.contains("sortedmulti(")
+    }
+
     private fun mempoolApiBaseUrlForActiveNetwork(): String {
         val baseUrl = settingsManager.getMempoolUrl().trim().trimEnd('/')
         if (!settingsManager.isTestnet()) return baseUrl
@@ -2213,6 +2256,43 @@ class BdkBitcoinRepository @Inject constructor(
         val input = masterFpBytes + (passphrase ?: "").toByteArray(Charsets.UTF_8)
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(input)
         return digest.sliceArray(0 until 8)
+    }
+
+    private fun currentTipHeightFromElectrum(): UInt? {
+        if (settingsManager.isOfflineMode()) return null
+
+        return try {
+            val config = settingsManager.loadElectrumConfig()
+            electrumConnectionFactory.createRawSocket(config).use { socket ->
+                socket.soTimeout = 12_000
+                val writer = java.io.PrintWriter(
+                    java.io.BufferedWriter(
+                        java.io.OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8)
+                    ),
+                    true
+                )
+                val reader = java.io.BufferedReader(
+                    java.io.InputStreamReader(socket.getInputStream(), Charsets.UTF_8)
+                )
+
+                writer.println("""{"id":1,"method":"blockchain.headers.subscribe","params":[]}""")
+
+                var reads = 0
+                var tipHeight: UInt? = null
+                while (reads < 4 && tipHeight == null) {
+                    val line = reader.readLine() ?: break
+                    reads++
+                    val response = runCatching { org.json.JSONObject(line) }.getOrNull() ?: continue
+                    val header = response.optJSONObject("result")
+                    val height = header?.optInt("height", -1) ?: -1
+                    if (height > 0) tipHeight = height.toUInt()
+                }
+                tipHeight
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("BdkRepo", "Failed to get tip height from Electrum: ${e.message}")
+            null
+        }
     }
 
     /**

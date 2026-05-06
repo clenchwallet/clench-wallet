@@ -28,6 +28,8 @@ Fixes #(issue number)
 
 Does this PR touch key management, cryptography, transaction building, or network communication? If so, describe the security implications.
 
+If this PR touches signing, broadcast, recovery, network privacy, dependencies, CI, or release artifacts, link the relevant review notes and update `docs/security/threat-model.md` or `docs/security/audit-path.md` when the trust boundary changes.
+
 ## Screenshots (if applicable)
 
 Before | After

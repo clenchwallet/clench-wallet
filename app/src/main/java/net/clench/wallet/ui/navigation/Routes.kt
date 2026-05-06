@@ -1,5 +1,7 @@
 package net.clench.wallet.ui.navigation
 
+import android.net.Uri
+
 sealed class Routes(val route: String) {
     object NetworkChoice    : Routes("network_choice")
     object ConnectionSetup  : Routes("connection_setup")
@@ -10,9 +12,12 @@ sealed class Routes(val route: String) {
     object Home         : Routes("home/{walletId}") {
         fun build(walletId: String) = "home/$walletId"
     }
-    object Send         : Routes("send/{walletId}?utxo={utxo}") {
-        fun build(walletId: String, utxo: String? = null): String {
-            return if (utxo != null) "send/$walletId?utxo=$utxo"
+    object Send         : Routes("send/{walletId}?utxo={utxo}&cpfp={cpfp}") {
+        fun build(walletId: String, utxo: String? = null, cpfp: Boolean = false): String {
+            val params = mutableListOf<String>()
+            if (utxo != null) params += "utxo=${Uri.encode(utxo)}"
+            if (cpfp) params += "cpfp=true"
+            return if (params.isNotEmpty()) "send/$walletId?${params.joinToString("&")}"
             else "send/$walletId"
         }
     }
@@ -62,6 +67,10 @@ sealed class Routes(val route: String) {
     object Sweep : Routes("sweep/{walletId}") {
         fun build(walletId: String) = "sweep/$walletId"
     }
+    object RawTransaction : Routes("raw_tx/{walletId}") {
+        fun build(walletId: String) = "raw_tx/$walletId"
+    }
+    object RecoveryWizard : Routes("recovery_wizard")
     object SecurityOnboarding : Routes("security_onboarding")
     object CreateMultisig : Routes("create_multisig")
     object ImportHardwareWallet : Routes("import_wallet_hw")

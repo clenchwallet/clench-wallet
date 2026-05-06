@@ -10,12 +10,17 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.clench.wallet.data.local.dao.AddressBookDao
+import net.clench.wallet.data.local.entity.AddressBookEntryEntity
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.network.TorAwareHttpClient
+import net.clench.wallet.domain.model.AddressVerificationResult
+import net.clench.wallet.domain.model.BitcoinAddressVerifier
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
 import org.json.JSONObject
+import java.security.MessageDigest
 import javax.inject.Inject
 
 enum class FeeTier { ECONOMY, STANDARD, PRIORITY, CUSTOM }
@@ -27,10 +32,17 @@ data class RecipientEntry(
     val label: String = ""
 )
 
+data class SavedPayee(
+    val key: String,
+    val label: String,
+    val address: String
+)
+
 @HiltViewModel
 class SendViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
     private val settingsManager: SettingsManager,
+    private val addressBookDao: AddressBookDao,
     private val psbtStore: PsbtStore,
     private val torAwareHttpClient: TorAwareHttpClient
 ) : ViewModel() {
@@ -64,7 +76,12 @@ class SendViewModel @Inject constructor(
         val label: String = "",
         val broadcastSuccess: Boolean = false,
         val broadcastTxid: String? = null,
-        val recipients: List<RecipientEntry> = listOf(RecipientEntry())
+        val recipients: List<RecipientEntry> = listOf(RecipientEntry()),
+        val addressVerification: AddressVerificationResult? = null,
+        val addressWarning: String? = null,
+        val savedPayees: List<SavedPayee> = emptyList(),
+        val savePayeeAfterSend: Boolean = false,
+        val cpFpMode: Boolean = false
     )
 
     // Helper to distinguish single-UTXO mode from full wallet drain
@@ -162,8 +179,118 @@ class SendViewModel @Inject constructor(
                 ) }
             } catch (e: Exception) { /* show 0 */ }
         }
+        loadSavedPayees(walletId)
         fetchFeeEstimates()
         fetchBtcPrice()
+    }
+
+    private fun loadSavedPayees(walletId: String) {
+        viewModelScope.launch {
+            try {
+                val payees = withContext(Dispatchers.IO) {
+                    addressBookDao.getForWallet(walletId).map {
+                        SavedPayee(key = it.key, label = it.label, address = it.address)
+                    }
+                }
+                _uiState.update { it.copy(savedPayees = payees) }
+            } catch (e: Exception) {
+                android.util.Log.w("SendVM", "loadSavedPayees failed: ${e.message}")
+            }
+        }
+    }
+
+    fun selectPayee(payee: SavedPayee) {
+        setAddress(payee.address)
+        if (_uiState.value.label.isBlank()) {
+            _uiState.update { it.copy(label = payee.label) }
+        }
+    }
+
+    fun setSavePayeeAfterSend(enabled: Boolean) {
+        _uiState.update { it.copy(savePayeeAfterSend = enabled) }
+    }
+
+    fun saveCurrentPayee(label: String? = null) {
+        val state = _uiState.value
+        val address = state.toAddress.trim()
+        if (address.isBlank()) {
+            _uiState.update { it.copy(error = "Enter an address before saving a payee") }
+            return
+        }
+        val verification = runCatching {
+            BitcoinAddressVerifier.verify(address, settingsManager.isTestnet())
+        }.getOrElse { e ->
+            _uiState.update { it.copy(error = e.message ?: "Address is not valid for this wallet") }
+            return
+        }
+        val resolvedLabel = (label ?: state.label).trim().ifBlank {
+            verification.normalizedAddress.take(8) + "..." + verification.normalizedAddress.takeLast(6)
+        }.take(80)
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val existing = addressBookDao.getByAddress(state.walletId, verification.normalizedAddress)
+                    val now = System.currentTimeMillis()
+                    addressBookDao.upsert(
+                        AddressBookEntryEntity(
+                            key = existing?.key ?: addressBookKey(state.walletId, verification.normalizedAddress),
+                            walletId = state.walletId,
+                            label = resolvedLabel,
+                            address = verification.normalizedAddress,
+                            lastUsedAt = now,
+                            createdAt = existing?.createdAt ?: now
+                        )
+                    )
+                }
+                loadSavedPayees(state.walletId)
+                _uiState.update { it.copy(error = null, savePayeeAfterSend = false) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Could not save payee: ${e.message}") }
+            }
+        }
+    }
+
+    fun deletePayee(payee: SavedPayee) {
+        val walletId = _uiState.value.walletId
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { addressBookDao.delete(payee.key) }
+                loadSavedPayees(walletId)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Could not delete payee: ${e.message}") }
+            }
+        }
+    }
+
+    fun prepareCpfpSend(walletId: String, outpoints: List<String>) {
+        if (outpoints.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val selfAddress = bitcoinRepository.getLastAddress(walletId).address
+                val fee = _uiState.value.feeEstimates?.priority?.toInt()?.coerceAtLeast(2)?.toString()
+                    ?: _uiState.value.feeRate.toIntOrNull()?.coerceAtLeast(2)?.toString()
+                    ?: "10"
+                _uiState.update {
+                    it.copy(
+                        selectedUtxoOutpoints = outpoints,
+                        toAddress = selfAddress,
+                        sendMax = true,
+                        amountSat = if (it.availableBalanceSat > 0) it.availableBalanceSat.toString() else it.amountSat,
+                        amountDisplay = if (it.availableBalanceSat > 0) it.availableBalanceSat.toString() else it.amountDisplay,
+                        amountUnit = AmountUnit.SATS,
+                        selectedFeeTier = FeeTier.PRIORITY,
+                        feeRate = fee,
+                        cpFpMode = true,
+                        addressVerification = runCatching {
+                            BitcoinAddressVerifier.verify(selfAddress, settingsManager.isTestnet())
+                        }.getOrNull(),
+                        error = null
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Could not prepare CPFP transaction: ${e.message}") }
+            }
+        }
     }
 
     /**
@@ -294,10 +421,19 @@ class SendViewModel @Inject constructor(
 
     fun setAddress(addr: String) {
         // Parse BIP-21 URI: bitcoin:address?amount=X&label=...
-        val parsed = parseBip21(addr)
+        val parsed = runCatching { BitcoinAddressVerifier.parseBip21(addr) }.getOrElse { e ->
+            _uiState.update { it.copy(error = e.message ?: "Could not parse Bitcoin payment URI") }
+            return
+        }
+        val verification = runCatching {
+            if (parsed.address.isNotBlank()) BitcoinAddressVerifier.verify(parsed.address, settingsManager.isTestnet()) else null
+        }.getOrNull()
         _uiState.update {
             it.copy(
-                toAddress = parsed.address,
+                toAddress = verification?.normalizedAddress ?: parsed.address,
+                addressVerification = verification,
+                addressWarning = parsed.warning,
+                label = parsed.label ?: it.label,
                 error = null
             )
         }
@@ -306,57 +442,6 @@ class SendViewModel @Inject constructor(
             val sats = (btcAmount * 100_000_000).toLong()
             if (sats > 0) setAmount(sats.toString())
         }
-    }
-
-    private data class Bip21Parsed(
-        val address: String,
-        val amountBtc: Double? = null,
-        val label: String? = null
-    )
-
-    private fun parseBip21(input: String): Bip21Parsed {
-        val trimmed = input.trim()
-        if (!trimmed.startsWith("bitcoin:", ignoreCase = true)) {
-            // Normalize bech32 to lowercase when scanned as plain address
-            val addr = if (trimmed.startsWith("bc1", ignoreCase = true) ||
-                trimmed.startsWith("tb1", ignoreCase = true)) {
-                trimmed.lowercase()
-            } else {
-                trimmed
-            }
-            return Bip21Parsed(address = addr)
-        }
-        val withoutScheme = trimmed.substringAfter(":")
-        val address = withoutScheme.substringBefore("?")
-        val queryString = if (withoutScheme.contains("?")) withoutScheme.substringAfter("?") else null
-
-        var amount: Double? = null
-        var label: String? = null
-
-        queryString?.split("&")?.forEach { param ->
-            val key = param.substringBefore("=").lowercase()
-            val value = param.substringAfter("=", "")
-            when (key) {
-                "amount" -> amount = value.toDoubleOrNull()
-                "label" -> label = java.net.URLDecoder.decode(value, "UTF-8")
-            }
-        }
-
-        // Bech32/bech32m addresses are case-insensitive (BIP-173/BIP-350).
-        // QR codes encode them uppercase for efficiency. Normalize to lowercase
-        // since lowercase is the canonical convention.
-        val normalizedAddress = if (address.startsWith("bc1", ignoreCase = true) ||
-            address.startsWith("tb1", ignoreCase = true)) {
-            address.lowercase()
-        } else {
-            address
-        }
-
-        return Bip21Parsed(
-            address = normalizedAddress,
-            amountBtc = amount,
-            label = label
-        )
     }
 
     fun setError(msg: String) = _uiState.update { it.copy(error = msg) }
@@ -698,6 +783,9 @@ class SendViewModel @Inject constructor(
                         android.util.Log.w("SendVM", "Failed to save transaction label: ${e.message}")
                     }
                 }
+                if (!isBatch && state.savePayeeAfterSend && state.toAddress.isNotBlank()) {
+                    savePayeeAfterBroadcast(state)
+                }
                 _uiState.update { it.copy(
                     isLoading = false,
                     broadcastSuccess = true,
@@ -738,31 +826,41 @@ class SendViewModel @Inject constructor(
      * Testnet addresses: m..., n..., 2..., tb1...
      */
     private fun validateAddressForNetwork(address: String, isTestnet: Boolean): String? {
-        val trimmed = address.trim()
+        return runCatching {
+            val verification = BitcoinAddressVerifier.verify(address, isTestnet)
+            _uiState.update { it.copy(addressVerification = verification) }
+            null
+        }.getOrElse { e -> e.message ?: "Address is not valid for this wallet network" }
+    }
 
-        // Mainnet patterns
-        val isMainnetP2PKH = trimmed.startsWith("1")  // Legacy P2PKH
-        val isMainnetP2SH = trimmed.startsWith("3")   // P2SH
-        val isMainnetBech32 = trimmed.startsWith("bc1") // Native SegWit
-        
-        // Testnet patterns  
-        val isTestnetP2PKH = trimmed.startsWith("m") || trimmed.startsWith("n") // Testnet P2PKH
-        val isTestnetP2SH = trimmed.startsWith("2") || trimmed.startsWith("3") // Testnet P2SH (2 is testnet)
-        val isTestnetBech32 = trimmed.startsWith("tb1") // Testnet native SegWit
-        
-        val isMainnetAddress = isMainnetP2PKH || isMainnetP2SH || isMainnetBech32
-        val isTestnetAddress = isTestnetP2PKH || isTestnetP2SH || isTestnetBech32
-        
-        return when {
-            // On mainnet, got a testnet address
-            !isTestnet && isTestnetAddress -> 
-                "This address is for testnet, but you're on mainnet. Use a mainnet address (starts with 1, 3, or bc1)."
-            
-            // On testnet, got a mainnet address  
-            isTestnet && isMainnetAddress ->
-                "This address is for mainnet, but you're on testnet. Use a testnet address (starts with m, n, 2, or tb1)."
-            
-            else -> null // Valid for current network
+    private suspend fun savePayeeAfterBroadcast(state: UiState) {
+        val verification = runCatching {
+            BitcoinAddressVerifier.verify(state.toAddress, settingsManager.isTestnet())
+        }.getOrNull() ?: return
+        val label = state.label.trim().ifBlank {
+            verification.normalizedAddress.take(8) + "..." + verification.normalizedAddress.takeLast(6)
+        }.take(80)
+        withContext(Dispatchers.IO) {
+            val existing = addressBookDao.getByAddress(state.walletId, verification.normalizedAddress)
+            val now = System.currentTimeMillis()
+            addressBookDao.upsert(
+                AddressBookEntryEntity(
+                    key = existing?.key ?: addressBookKey(state.walletId, verification.normalizedAddress),
+                    walletId = state.walletId,
+                    label = label,
+                    address = verification.normalizedAddress,
+                    lastUsedAt = now,
+                    createdAt = existing?.createdAt ?: now
+                )
+            )
         }
+        loadSavedPayees(state.walletId)
+    }
+
+    private fun addressBookKey(walletId: String, address: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("$walletId:$address".toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return "$walletId:$digest"
     }
 }

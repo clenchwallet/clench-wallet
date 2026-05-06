@@ -42,6 +42,8 @@ fun WalletInfoScreen(
     var showQrDialog by remember { mutableStateOf(false) }
     var showSeedImportSheet by remember { mutableStateOf(false) }
     var expandedXpub by remember { mutableStateOf(false) }
+    var expandedDescriptor by remember { mutableStateOf(false) }
+    var expandedKeystoreIndex by remember { mutableStateOf<Int?>(null) }
     var showHardwareWalletMenu by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val labelImportLauncher = rememberLauncherForActivityResult(
@@ -178,8 +180,14 @@ fun WalletInfoScreen(
                         // Type
                         Row {
                             Text("Type: ", style = MaterialTheme.typography.labelMedium)
+                            val walletType = when {
+                                uiState.isMultisig && uiState.isWatchOnly -> "Multisig Watch-Only"
+                                uiState.isMultisig -> "Multisig"
+                                uiState.isWatchOnly -> "Watch-Only"
+                                else -> "Full Wallet"
+                            }
                             Text(
-                                if (uiState.isWatchOnly) "Watch-Only" else "Full Wallet",
+                                walletType,
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
@@ -213,16 +221,38 @@ fun WalletInfoScreen(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        // Derivation path
-                        Row {
-                            Text("Derivation: ", style = MaterialTheme.typography.labelMedium)
-                            Text(uiState.derivationPath, style = MaterialTheme.typography.bodyMedium.copy(
-                                fontFamily = FontFamily.Monospace
-                            ))
+                        if (uiState.isMultisig) {
+                            uiState.multisigPolicy?.let { policy ->
+                                Row {
+                                    Text("Policy: ", style = MaterialTheme.typography.labelMedium)
+                                    Text("${policy.threshold} of ${policy.totalSigners}", style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        } else {
+                            // Derivation path
+                            Row {
+                                Text("Derivation: ", style = MaterialTheme.typography.labelMedium)
+                                Text(uiState.derivationPath, style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontFamily = FontFamily.Monospace
+                                ))
+                            }
                         }
                     }
                 }
 
+                uiState.multisigPolicy?.let { policy ->
+                    MultisigConfigurationCard(
+                        policy = policy,
+                        expandedDescriptor = expandedDescriptor,
+                        onToggleDescriptor = { expandedDescriptor = !expandedDescriptor },
+                        expandedKeystoreIndex = expandedKeystoreIndex,
+                        onToggleKeystore = { index ->
+                            expandedKeystoreIndex = if (expandedKeystoreIndex == index) null else index
+                        },
+                        onCopy = { text, label -> viewModel.copyToClipboard(text, label) },
+                        copied = uiState.copied
+                    )
+                }
 
                 // ─── Hardware Wallet Info ───
                 // Only show if wallet was imported via a hardware wallet
@@ -494,6 +524,11 @@ fun WalletInfoScreen(
                     ) {
                         Text(if (uiState.isMultisig) "Export Multisig Backup" else "Export Descriptor Backup")
                     }
+                    Text(
+                        "Descriptor backups restore watch-only structure and can reveal wallet history. They do not include seed phrases, passphrases, or private keys.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
                 // ─── View Seed Phrase — only for hot wallets ───
@@ -516,6 +551,207 @@ fun WalletInfoScreen(
             }
         }
     }
+}
+
+@Composable
+private fun MultisigConfigurationCard(
+    policy: WalletInfoViewModel.MultisigPolicyInfo,
+    expandedDescriptor: Boolean,
+    onToggleDescriptor: () -> Unit,
+    expandedKeystoreIndex: Int?,
+    onToggleKeystore: (Int) -> Unit,
+    onCopy: (String, String) -> Unit,
+    copied: Boolean
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Multisig Configuration",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            InfoLine("Policy Type", policy.policyType)
+            InfoLine("Script Type", policy.scriptType)
+            InfoLine("M of N", "${policy.threshold} / ${policy.totalSigners}")
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("Descriptor", style = MaterialTheme.typography.labelMedium)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                if (expandedDescriptor) policy.descriptor else shortenMiddle(policy.descriptor, 28, 18),
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                maxLines = if (expandedDescriptor) Int.MAX_VALUE else 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onToggleDescriptor) {
+                    Text(if (expandedDescriptor) "Collapse" else "Expand")
+                }
+                TextButton(onClick = { onCopy(policy.descriptor, "Multisig Descriptor") }) {
+                    Text(if (copied) "Copied" else "Copy")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("BSMS Round Trip", style = MaterialTheme.typography.labelMedium)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                shortenMiddle(policy.bsmsDescriptorRecord, 28, 18),
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextButton(onClick = { onCopy(policy.bsmsDescriptorRecord, "BSMS Descriptor Record") }) {
+                Text(if (copied) "Copied" else "Copy BSMS")
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Keystores",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                policy.keystores.forEachIndexed { index, keystore ->
+                    KeystoreCard(
+                        keystore = keystore,
+                        expanded = expandedKeystoreIndex == index,
+                        onToggle = { onToggleKeystore(index) },
+                        onCopy = { onCopy(keystore.xpub, "${keystore.label} xpub") },
+                        copied = copied
+                    )
+                }
+            }
+
+            if (policy.warnings.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Signer Warnings",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.error
+                )
+                policy.warnings.forEach { warning ->
+                    Text(
+                        "• $warning",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                "Recovery Drill",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            policy.recoveryChecklist.forEach { item ->
+                Text("• $item", style = MaterialTheme.typography.bodySmall)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                policy.keyReplacementWarning,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+}
+
+@Composable
+private fun KeystoreCard(
+    keystore: WalletInfoViewModel.MultisigKeystoreInfo,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onCopy: () -> Unit,
+    copied: Boolean
+) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    keystore.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onToggle) {
+                    Text(if (expanded) "Collapse" else "Details")
+                }
+            }
+
+            keystore.masterFingerprint?.let { InfoLine("Master fingerprint", it, mono = true) }
+            keystore.derivationPath?.let { InfoLine("Derivation", it, mono = true) }
+
+            if (keystore.checks.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Checks", style = MaterialTheme.typography.labelMedium)
+                keystore.checks.forEach { check ->
+                    Text("✓ $check", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (keystore.warnings.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                keystore.warnings.forEach { warning ->
+                    Text(
+                        "• $warning",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("xpub", style = MaterialTheme.typography.labelMedium)
+            Text(
+                if (expanded) keystore.xpub else shortenMiddle(keystore.xpub, 18, 12),
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                maxLines = if (expanded) Int.MAX_VALUE else 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onToggle) {
+                    Text(if (expanded) "Hide xpub" else "Show xpub")
+                }
+                TextButton(onClick = onCopy) {
+                    Text(if (copied) "Copied" else "Copy")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoLine(label: String, value: String, mono: Boolean = false) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            "$label: ",
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.widthIn(min = 112.dp)
+        )
+        Text(
+            value,
+            style = if (mono) {
+                MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
+            } else {
+                MaterialTheme.typography.bodyMedium
+            },
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+private fun shortenMiddle(value: String, prefix: Int, suffix: Int): String {
+    if (value.length <= prefix + suffix + 3) return value
+    return value.take(prefix) + "..." + value.takeLast(suffix)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

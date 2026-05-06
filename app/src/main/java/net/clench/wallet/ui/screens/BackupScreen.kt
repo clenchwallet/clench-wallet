@@ -151,9 +151,20 @@ fun BackupScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                "Public descriptors restore this wallet as watch-only. They do not include seed phrases or private keys.",
+                                if (uiState.isMultisig) {
+                                    "Public descriptors restore this wallet as watch-only. Preserve the threshold, every cosigner fingerprint/path/xpub, and compare the first receive address before funding."
+                                } else {
+                                    "Public descriptors restore this wallet as watch-only. They do not include seed phrases, passphrases, or private keys, but they can reveal wallet history."
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                "A descriptor backup is recovery metadata, not spend authority.",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.error
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text("Receive descriptor", style = MaterialTheme.typography.labelMedium)

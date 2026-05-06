@@ -38,6 +38,8 @@ fun HomeScreen(
     onAddresses: () -> Unit = {},
     onUtxoList: () -> Unit = {},
     onSweep: () -> Unit = {},
+    onRawTransaction: () -> Unit = {},
+    onRecoveryWizard: () -> Unit = {},
     onTransactionDetail: (txid: String) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
@@ -98,6 +100,20 @@ fun HomeScreen(
                                 onClick = {
                                     showMenu = false
                                     onSweep()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Broadcast Raw Transaction") },
+                                onClick = {
+                                    showMenu = false
+                                    onRawTransaction()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Recovery Wizard") },
+                                onClick = {
+                                    showMenu = false
+                                    onRecoveryWizard()
                                 }
                             )
                         }

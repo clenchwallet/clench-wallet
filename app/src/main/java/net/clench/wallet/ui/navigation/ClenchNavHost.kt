@@ -22,7 +22,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import androidx.navigation.navArgument
 import net.clench.wallet.domain.model.HardwareWalletType
-import net.clench.wallet.domain.model.TxDirection
 import net.clench.wallet.ui.screens.*
 import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
 import net.clench.wallet.ui.viewmodel.HomeViewModel
@@ -135,7 +134,8 @@ fun ClenchNavHost(navController: NavHostController) {
                 } else null,
                 onSettings = { navController.navigate(Routes.Settings.route) },
                 onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) },
-                onConnectHardwareWallet = { navController.navigate(Routes.ImportHardwareWallet.route) }
+                onConnectHardwareWallet = { navController.navigate(Routes.ImportHardwareWallet.route) },
+                onRecoveryWizard = { navController.navigate(Routes.RecoveryWizard.route) }
             )
         }
 
@@ -236,6 +236,8 @@ fun ClenchNavHost(navController: NavHostController) {
                 onAddresses = { navController.navigate(Routes.WalletInfo.build(walletId)) },
                 onUtxoList = { navController.navigate(Routes.UtxoList.build(walletId)) },
                 onSweep = { navController.navigate(Routes.Sweep.build(walletId)) },
+                onRawTransaction = { navController.navigate(Routes.RawTransaction.build(walletId)) },
+                onRecoveryWizard = { navController.navigate(Routes.RecoveryWizard.route) },
                 onTransactionDetail = { txid ->
                     navController.navigate(Routes.TransactionDetail.build(walletId, txid))
                 }
@@ -246,21 +248,33 @@ fun ClenchNavHost(navController: NavHostController) {
             route = Routes.Send.route,
             arguments = listOf(
                 navArgument("walletId") { type = NavType.StringType },
-                navArgument("utxo") { type = NavType.StringType; nullable = true; defaultValue = null }
+                navArgument("utxo") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("cpfp") { type = NavType.BoolType; defaultValue = false }
             )
         ) { backStackEntry ->
             val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
             val utxoFromRoute = backStackEntry.arguments?.getString("utxo")
+            val cpfpMode = backStackEntry.arguments?.getBoolean("cpfp") ?: false
             val selectedUtxos = backStackEntry.savedStateHandle.get<String>("selectedUtxos")
             SendScreen(
                 walletId = walletId,
                 utxoOutpoint = utxoFromRoute,
                 selectedUtxos = selectedUtxos,
+                cpfpMode = cpfpMode,
                 onBack = { navController.popBackStack() },
                 onNavigateHardwarePsbt = { wId, _, deviceType ->
                     // PSBT already stored in PsbtStore by SendViewModel.storePsbtForNavigation()
                     navController.navigate(Routes.HardwarePsbt.build(wId, deviceType.name))
                 }
+            )
+        }
+
+        composable(
+            route = Routes.RawTransaction.route,
+            arguments = listOf(navArgument("walletId") { type = NavType.StringType })
+        ) {
+            RawTransactionScreen(
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -284,7 +298,19 @@ fun ClenchNavHost(navController: NavHostController) {
                 onNetwork = { navController.navigate(Routes.SettingsNetwork.route) },
                 onSecurity = { navController.navigate(Routes.SettingsSecurity.route) },
                 onAbout = { navController.navigate(Routes.SettingsAbout.route) },
-                onHardwareWallet = { navController.navigate(Routes.SettingsHardwareWallet.route) }
+                onHardwareWallet = { navController.navigate(Routes.SettingsHardwareWallet.route) },
+                onRecoveryWizard = { navController.navigate(Routes.RecoveryWizard.route) }
+            )
+        }
+
+        composable(Routes.RecoveryWizard.route) {
+            RecoveryWizardScreen(
+                onBack = { navController.popBackStack() },
+                onRestoreSeed = { navController.navigate(Routes.ImportWallet.route) },
+                onImportDescriptor = { navController.navigate(Routes.ImportWallet.route) },
+                onImportHardwareWallet = { navController.navigate(Routes.ImportHardwareWallet.route) },
+                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) },
+                onOpenWalletList = { navController.navigate(Routes.WalletList.route) }
             )
         }
 
@@ -474,7 +500,7 @@ fun ClenchNavHost(navController: NavHostController) {
             var spendableOutpoints by remember(txid) { mutableStateOf<List<String>>(emptyList()) }
             LaunchedEffect(walletId, txid, transaction?.confirmations) {
                 spendableOutpoints = emptyList()
-                if (transaction?.direction == TxDirection.RECEIVED) {
+                if (transaction != null) {
                     spendableOutpoints = runCatching {
                         homeViewModel.bitcoinRepository.listUnspent(walletId)
                             .filter { it.txid == txid && !it.isSpent && !it.isFrozen }
@@ -486,6 +512,8 @@ fun ClenchNavHost(navController: NavHostController) {
             // RBF bump fee state
             var isBumping by remember { mutableStateOf(false) }
             var bumpError by remember { mutableStateOf<String?>(null) }
+            var isCancelling by remember { mutableStateOf(false) }
+            var cancelError by remember { mutableStateOf<String?>(null) }
             val coroutineScope = rememberCoroutineScope()
 
             TransactionDetailScreen(
@@ -497,9 +525,11 @@ fun ClenchNavHost(navController: NavHostController) {
                 spendableOutpoints = spendableOutpoints,
                 isBumping = isBumping,
                 bumpError = bumpError,
+                isCancelling = isCancelling,
+                cancelError = cancelError,
                 onBack = { navController.popBackStack() },
-                onSpendUtxo = { outpoints ->
-                    navController.navigate(Routes.Send.build(walletId, outpoints.joinToString(",")))
+                onSpendUtxo = { outpoints, isCpfp ->
+                    navController.navigate(Routes.Send.build(walletId, outpoints.joinToString(","), cpfp = isCpfp))
                 },
                 onBumpFee = if (homeState.isWatchOnly) null else { bumpTxid, newFeeRate ->
                     coroutineScope.launch {
@@ -516,6 +546,23 @@ fun ClenchNavHost(navController: NavHostController) {
                             bumpError = e.message ?: "Failed to bump fee"
                         } finally {
                             isBumping = false
+                        }
+                    }
+                },
+                onCancelTransaction = if (homeState.isWatchOnly) null else { cancelTxid, newFeeRate ->
+                    coroutineScope.launch {
+                        isCancelling = true
+                        cancelError = null
+                        try {
+                            val repo = homeViewModel.bitcoinRepository
+                            val txHex = repo.cancelTransaction(walletId, cancelTxid, newFeeRate)
+                            val config = homeViewModel.settingsManager.loadElectrumConfig()
+                            repo.broadcastTransaction(config, txHex)
+                            navController.popBackStack()
+                        } catch (e: Exception) {
+                            cancelError = e.message ?: "Failed to create replacement transaction"
+                        } finally {
+                            isCancelling = false
                         }
                     }
                 },
@@ -541,7 +588,7 @@ fun ClenchNavHost(navController: NavHostController) {
                     // Pass selected outpoints via route URL — savedStateHandle on currentBackStackEntry
                     // is not visible to the destination screen
                     val utxosParam = outpoints.joinToString(",")
-                    navController.navigate(Routes.Send.build(wId) + "?utxo=$utxosParam")
+                    navController.navigate(Routes.Send.build(wId, utxosParam))
                 }
             )
         }

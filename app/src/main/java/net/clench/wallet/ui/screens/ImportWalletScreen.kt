@@ -31,6 +31,7 @@ import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.components.ColdcardNfcPayload
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.QrScanner
+import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.components.WalletFingerprint
 import net.clench.wallet.ui.components.hasCameraAvailable
 import net.clench.wallet.ui.viewmodel.ImportWalletViewModel
@@ -111,20 +112,30 @@ fun ImportWalletScreen(
                 hostActivity,
                 { tag ->
                     try {
-                        val ndef = Ndef.get(tag) ?: error("NFC tag does not expose an NDEF message")
-                        ndef.connect()
-                        val message = try {
-                            ndef.ndefMessage ?: ndef.cachedNdefMessage
-                        } finally {
-                            ndef.close()
-                        } ?: error("No NDEF payload found on NFC tag")
-                        val payload = ColdcardNfcPayload.extractTextPayload(message)
-                            ?: error("NFC payload did not contain an xpub, descriptor, or readable text export")
-                        hostActivity.runOnUiThread {
-                            viewModel.setInput(payload.trim())
-                            nfcStatus = "Loaded hardware wallet data from NFC"
-                            nfcError = null
-                            nfcReaderActive = false
+                        val device = selectedDevice
+                        if (device?.usesCoinkiteTapProtocol == true) {
+                            val status = TapsignerNfcReader.readStatus(tag)
+                            hostActivity.runOnUiThread {
+                                nfcStatus = "${status.summary()}. Direct xpub import needs CVC-authenticated Tap Protocol support; paste an xpub or descriptor exported from your Tapsigner wallet setup for now."
+                                nfcError = null
+                                nfcReaderActive = false
+                            }
+                        } else {
+                            val ndef = Ndef.get(tag) ?: error("NFC tag does not expose an NDEF message")
+                            ndef.connect()
+                            val message = try {
+                                ndef.ndefMessage ?: ndef.cachedNdefMessage
+                            } finally {
+                                ndef.close()
+                            } ?: error("No NDEF payload found on NFC tag")
+                            val payload = ColdcardNfcPayload.extractTextPayload(message)
+                                ?: error("NFC payload did not contain an xpub, descriptor, or readable text export")
+                            hostActivity.runOnUiThread {
+                                viewModel.setInput(payload.trim())
+                                nfcStatus = "Loaded hardware wallet data from NFC"
+                                nfcError = null
+                                nfcReaderActive = false
+                            }
                         }
                     } catch (e: Exception) {
                         hostActivity.runOnUiThread {
@@ -213,6 +224,15 @@ fun ImportWalletScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
+                        if (selectedDevice!!.isScreenlessSigner) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Tapsigner is screenless. Verify wallet policy, addresses, and transaction details in Clench or another trusted coordinator before signing.",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -292,7 +312,11 @@ fun ImportWalletScreen(
                                     activity == null -> nfcError = "NFC reader is unavailable in this view"
                                     else -> {
                                         nfcError = null
-                                        nfcStatus = "Ready for NFC. Hold ${selectedDevice?.displayName ?: "the device"} against the phone."
+                                        nfcStatus = if (selectedDevice?.usesCoinkiteTapProtocol == true) {
+                                            "Ready for NFC status. Hold ${selectedDevice?.displayName ?: "the card"} against the phone."
+                                        } else {
+                                            "Ready for NFC. Hold ${selectedDevice?.displayName ?: "the device"} against the phone."
+                                        }
                                         nfcReaderActive = true
                                     }
                                 }
@@ -510,6 +534,60 @@ fun ImportWalletScreen(
 
             // [H-4] Confirmation dialog for passphrase wallet imports
             var showPassphraseConfirmDialog by remember { mutableStateOf(false) }
+            var showNamePrompt by remember { mutableStateOf(false) }
+            var namePromptText by remember { mutableStateOf("") }
+            val suggestedName = suggestedImportWalletName(uiState, hardwareWalletMode, selectedDevice)
+
+            if (showNamePrompt) {
+                AlertDialog(
+                    onDismissRequest = { showNamePrompt = false },
+                    title = { Text("Name This Wallet") },
+                    text = {
+                        Column {
+                            Text("Choose a name before adding this wallet to your list.")
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = namePromptText,
+                                onValueChange = { namePromptText = it.take(64) },
+                                label = { Text("Wallet name") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            enabled = namePromptText.trim().isNotBlank(),
+                            onClick = {
+                                viewModel.setWalletName(namePromptText.trim())
+                                showNamePrompt = false
+                                if (isSeedPhrase && uiState.passphrase.isNotBlank() && !hardwareWalletMode) {
+                                    showPassphraseConfirmDialog = true
+                                } else {
+                                    viewModel.importWallet(onWalletImported)
+                                }
+                            }
+                        ) {
+                            Text("Import")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = {
+                                viewModel.setWalletName(suggestedName)
+                                showNamePrompt = false
+                                if (isSeedPhrase && uiState.passphrase.isNotBlank() && !hardwareWalletMode) {
+                                    showPassphraseConfirmDialog = true
+                                } else {
+                                    viewModel.importWallet(onWalletImported)
+                                }
+                            }
+                        ) {
+                            Text("Use Default")
+                        }
+                    }
+                )
+            }
 
             if (showPassphraseConfirmDialog) {
                 AlertDialog(
@@ -554,7 +632,10 @@ fun ImportWalletScreen(
             Button(
                 onClick = {
                     // [H-4] Require confirmation before importing passphrase wallets
-                    if (isSeedPhrase && uiState.passphrase.isNotBlank() && !hardwareWalletMode) {
+                    if (uiState.walletName.isBlank()) {
+                        namePromptText = suggestedName
+                        showNamePrompt = true
+                    } else if (isSeedPhrase && uiState.passphrase.isNotBlank() && !hardwareWalletMode) {
                         showPassphraseConfirmDialog = true
                     } else {
                         viewModel.importWallet(onWalletImported)
@@ -595,6 +676,21 @@ private fun supportsHardwareImportFile(device: HardwareWalletType): Boolean {
         device.connectionMethod.contains("Virtual Disk")
 }
 
+private fun suggestedImportWalletName(
+    uiState: ImportWalletViewModel.UiState,
+    hardwareWalletMode: Boolean,
+    selectedDevice: HardwareWalletType?
+): String {
+    if (hardwareWalletMode && selectedDevice != null) return "${selectedDevice.displayName} Wallet"
+    val input = uiState.input.lowercase()
+    return when {
+        input.contains("sortedmulti(") || input.contains("multi(") -> "Imported Multisig"
+        uiState.detectedType == ImportWalletViewModel.DetectedType.XPUB_WATCH_ONLY ||
+            uiState.detectedType == ImportWalletViewModel.DetectedType.DESCRIPTOR -> "Watch-only Wallet"
+        else -> "Imported Wallet"
+    }
+}
+
 /**
  * Device-specific instructions for exporting the public key via QR/file/NFC.
  */
@@ -606,6 +702,7 @@ private fun getDeviceInstructions(device: HardwareWalletType): String {
         HardwareWalletType.SEEDSIGNER -> "On your SeedSigner: Seeds → [Your Seed] → Export Xpub. Choose Native SegWit (BIP84) for single-sig, or Multisig (BIP48) for a cosigner export. SeedSigner displays an animated QR series for scanning."
         HardwareWalletType.KEYSTONE -> "On your Keystone, export a Sparrow-compatible wallet descriptor by QR or file. Clench accepts static/animated QR, UR account/output payloads, descriptors, and multisig wallet config text."
         HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport, export a wallet descriptor or account QR for a wallet such as Envoy/Sparrow. Clench accepts Passport UR account/output QR payloads, descriptors, and multisig wallet config text."
+        HardwareWalletType.TAPSIGNER -> "Tap your Tapsigner to verify the card over NFC. Tapsigner xpub export requires CVC-authenticated Tap Protocol support, so paste a descriptor or xpub exported from a trusted Tapsigner coordinator until direct xpub import is enabled."
         HardwareWalletType.JADE -> "On your Jade: Options → Wallet → Export Xpub. Jade displays the account xpub as an animated QR; scan it here."
     }
 }

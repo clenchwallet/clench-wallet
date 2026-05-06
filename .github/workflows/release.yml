@@ -1,0 +1,123 @@
+name: Signed Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, for example v0.3.4'
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Require release signing secrets
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          test -n "$RELEASE_KEYSTORE_BASE64"
+          test -n "$RELEASE_KEYSTORE_PASSWORD"
+          test -n "$RELEASE_KEY_ALIAS"
+          test -n "$RELEASE_KEY_PASSWORD"
+
+      - name: Restore release keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/clench-release"
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/clench-release/release.keystore"
+          {
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/clench-release/release.keystore"
+            printf 'storePassword=%s\n' "$RELEASE_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$RELEASE_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$RELEASE_KEY_PASSWORD"
+          } > keystore.properties
+
+      - name: Test, lint, and build signed release
+        run: ./gradlew --no-daemon --dependency-verification=strict clean testDebugUnitTest lint assembleRelease
+
+      - name: Get version metadata
+        id: version
+        run: |
+          VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          VERSION_CODE=$(grep 'versionCode' app/build.gradle.kts | awk '{print $3}')
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          EXPECTED_TAG="v$VERSION"
+          test "$TAG" = "$EXPECTED_TAG"
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release artifacts
+        run: |
+          mkdir -p build/release-artifacts
+          cp app/build/outputs/apk/release/app-release.apk \
+            build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk
+          sha256sum build/release-artifacts/* > build/release-artifacts/SHA256SUMS
+          cp build/release-artifacts/SHA256SUMS build/release-artifacts/SHA256SUMS.txt
+          {
+            echo "versionName=${{ steps.version.outputs.VERSION }}"
+            echo "versionCode=${{ steps.version.outputs.VERSION_CODE }}"
+            echo "tag=${{ steps.version.outputs.TAG }}"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "gradleDistributionUrl=$(grep '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties | cut -d= -f2-)"
+            echo "dependencyVerificationSha256=$(sha256sum gradle/verification-metadata.xml | awk '{print $1}')"
+            echo "apkSignerCertsFollow"
+          } > build/release-artifacts/RELEASE-MANIFEST.txt
+
+      - name: Verify APK signature
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs \
+            build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk \
+            | tee -a build/release-artifacts/RELEASE-MANIFEST.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: "Clench Wallet ${{ steps.version.outputs.VERSION }}"
+          body: |
+            Signed release build for Clench Wallet ${{ steps.version.outputs.VERSION }}.
+
+            Verify before installing:
+            1. Download the APK and `SHA256SUMS`.
+            2. Run `sha256sum -c SHA256SUMS`.
+            3. Run `apksigner verify --verbose --print-certs clench-${{ steps.version.outputs.VERSION }}-release.apk`.
+            4. Compare the signer certificate digest against the trusted Clench release key.
+
+            See `docs/release/signed-release-verification.md` for the full process.
+          files: |
+            build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk
+            build/release-artifacts/SHA256SUMS
+            build/release-artifacts/SHA256SUMS.txt
+            build/release-artifacts/RELEASE-MANIFEST.txt
+          make_latest: true

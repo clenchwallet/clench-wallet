@@ -40,6 +40,7 @@ fun SettingsScreen(
     onSecurity: () -> Unit = {},
     onAbout: () -> Unit = {},
     onHardwareWallet: () -> Unit = {},
+    onRecoveryWizard: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -100,6 +101,27 @@ fun SettingsScreen(
                 HorizontalDivider()
             }
             item {
+                ListItem(
+                    headlineContent = { Text("External Fee Estimates", fontWeight = FontWeight.Medium) },
+                    supportingContent = {
+                        Text(
+                            "Allow mempool.space fee fallback only when your Electrum server cannot estimate fees",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = uiState.externalFeeLookupEnabled,
+                            onCheckedChange = { viewModel.setExternalFeeLookupEnabled(it) }
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        viewModel.setExternalFeeLookupEnabled(!uiState.externalFeeLookupEnabled)
+                    }
+                )
+                HorizontalDivider()
+            }
+            item {
                 SettingsSectionCard(
                     title = "Network",
                     subtitle = if (uiState.useTestnet) "Testnet" else "Mainnet",
@@ -155,6 +177,13 @@ fun SettingsScreen(
                     }
                 }
                 HorizontalDivider()
+            }
+            item {
+                SettingsSectionCard(
+                    title = "Recovery Wizard",
+                    subtitle = "Restore from state backup, seed phrase, descriptor, or hardware wallet export",
+                    onClick = onRecoveryWizard
+                )
             }
             item {
                 SettingsSectionCard(

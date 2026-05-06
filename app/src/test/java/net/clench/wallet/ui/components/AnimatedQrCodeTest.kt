@@ -35,6 +35,7 @@ class AnimatedQrCodeTest {
         assertTrue(HardwareWalletType.FOUNDATION_PASSPORT.requiresAnimatedPsbtUr())
         assertTrue(!HardwareWalletType.KEYSTONE.requiresAnimatedPsbtUr())
         assertTrue(!HardwareWalletType.JADE.requiresAnimatedPsbtUr())
+        assertTrue(!HardwareWalletType.TAPSIGNER.requiresAnimatedPsbtUr())
     }
 
     @Test
@@ -61,6 +62,7 @@ class AnimatedQrCodeTest {
         assertEquals(250L, HardwareWalletType.FOUNDATION_PASSPORT.psbtQrFrameDelayMs())
         assertEquals(125L, HardwareWalletType.KEYSTONE.psbtQrFrameDelayMs())
         assertEquals(125L, HardwareWalletType.JADE.psbtQrFrameDelayMs())
+        assertEquals(125L, HardwareWalletType.TAPSIGNER.psbtQrFrameDelayMs())
     }
 
     private fun lowDensityFrames(psbtBytes: ByteArray): List<String> {

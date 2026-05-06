@@ -204,6 +204,329 @@ Covers commit `0e9c4c5` and adjacent hardening work.
 
 ---
 
+## G. Multisig Recovery Drill Tests
+
+### G1. Descriptor / BSMS round trip
+**Precondition:** imported or created multisig wallet with at least 2 cosigners
+
+**Steps**
+1. Open Wallet Info for the multisig wallet
+2. Confirm policy, script type, M-of-N, descriptor, and all keystores are visible
+3. Copy the descriptor and BSMS descriptor record
+4. Import the descriptor or BSMS record into a clean Clench install/profile
+5. Import the same record into another descriptor-aware wallet if available
+6. Compare the first receive address across wallets
+
+**Expected**
+- The restored wallet has the same M-of-N policy
+- Every signer fingerprint/path/xpub matches the source wallet
+- The first receive address matches before any funds are sent
+- No seed phrase, passphrase, xprv, or private descriptor appears in the exported data
+
+### G2. Signer health review
+**Steps**
+1. Open Wallet Info for the multisig wallet
+2. Expand every keystore
+3. Compare master fingerprint and derivation path against each physical signer
+
+**Expected**
+- Each signer has a public key, master fingerprint, derivation path, and ranged branch
+- Any missing fingerprint/path warning is treated as a recovery risk before funding
+
+### G3. Replacement signer procedure
+**Steps**
+1. Simulate a signer replacement need
+2. Create a new multisig wallet with the replacement signer set
+3. Export and restore the new descriptor/BSMS record
+4. Compare receive addresses
+5. Move a small test amount before moving meaningful funds
+
+**Expected**
+- Existing wallet policy is not mutated in place
+- Replacement is handled as a new wallet and fund migration
+- User verifies new addresses before moving funds
+
+### G4. Small PSBT drill
+**Steps**
+1. Fund the multisig wallet with a small amount
+2. Build a test spend
+3. Sign with the required threshold of devices
+4. Verify transaction outputs on each signer before broadcast
+
+**Expected**
+- Clench produces a PSBT that signers accept
+- Signed return import does not auto-broadcast without explicit confirmation
+- Broadcast only happens after final output verification
+
+---
+
+## H. Tapsigner NFC Tests
+
+### H1. Import flow NFC status
+**Steps**
+1. Open Connect Hardware Wallet
+2. Choose Tapsigner
+3. Tap NFC
+4. Hold a Tapsigner to the phone
+
+**Expected**
+- Clench uses ISO-DEP Tap Protocol status, not Coldcard NDEF
+- Firmware/path/backup status appears when the card responds
+- Clench does not claim xpub import is complete from NFC
+- User can still paste an xpub or descriptor exported from a trusted Tapsigner coordinator
+
+### H2. PSBT signing flow guardrail
+**Steps**
+1. Select Tapsigner as the signing device for a watch-only wallet
+2. Build a PSBT
+3. Open the Tapsigner signing screen
+4. Read Tapsigner NFC status
+
+**Expected**
+- Clench displays the Tapsigner-specific screenless-signer warning
+- NFC status read succeeds or shows a clear NFC error
+- No QR, file, Coldcard NDEF, or fake signed-PSBT flow is offered
+- Direct signing stays blocked until CVC-authenticated Tap Protocol signing is implemented
+
+---
+
+## I. Transaction Tooling Tests
+
+### I1. CPFP child transaction
+**Precondition:** wallet has a spendable output from an unconfirmed transaction
+
+**Steps**
+1. Open the unconfirmed transaction detail screen
+2. Tap Create CPFP Child Transaction
+3. Confirm the send screen is in CPFP mode
+4. Verify the selected UTXO is preselected, send-max is enabled, and the destination is a wallet address
+5. Build and broadcast with a high enough child fee
+
+**Expected**
+- Clench spends the actual unspent output from the parent transaction
+- The child transaction is shown for explicit confirmation before broadcast
+- Offline mode disables broadcast actions
+
+### I2. RBF cancel replacement
+**Precondition:** wallet has an unconfirmed outgoing transaction that signals RBF
+
+**Steps**
+1. Open the outgoing transaction detail screen
+2. Tap Cancel Transaction (RBF)
+3. Read the warning
+4. Enter a replacement fee rate and confirm
+
+**Expected**
+- Clench creates a replacement transaction back to the wallet
+- The app clearly states cancel is not guaranteed because the original may confirm first
+- Non-RBF, confirmed, watch-only, and offline cases do not offer a misleading cancel action
+
+### I3. Raw transaction import and broadcast
+**Steps**
+1. Open the wallet menu
+2. Tap Broadcast Raw Transaction
+3. Paste a signed raw transaction hex or import it from a file
+4. Tap Preview
+5. Verify TXID, vsize, total size, and RBF signal
+6. Broadcast only after the preview matches expectation
+
+**Expected**
+- Invalid hex/base64 is rejected before broadcast
+- Offline mode blocks broadcast
+- Accepted broadcasts show the returned TXID
+
+### I4. Saved payees and address verification
+**Steps**
+1. Open Send
+2. Paste a BIP-21 URI with amount and label
+3. Confirm the amount, label, network/script verification, and any payjoin warning
+4. Save the payee
+5. Select the saved payee on a later send
+6. Try a mainnet address on testnet and a testnet address on mainnet
+
+**Expected**
+- BDK validates address checksum/network instead of relying on prefixes
+- Network mismatch errors name the expected and supplied network
+- Saved payees are scoped to the wallet and can be deleted
+- Unsupported required BIP-21 parameters are rejected
+
+---
+
+## J. Recovery Wizard Tests
+
+### J1. Recovery wizard entry points
+**Steps**
+1. Open the welcome screen
+2. Open Recovery Wizard
+3. Open a wallet, use the overflow menu, and open Recovery Wizard
+4. Open Settings and use Recovery Wizard
+
+**Expected**
+- The same wizard is reachable from all three entry points
+- Back returns to the previous screen without creating wallets or changing settings
+
+### J2. Clench state backup import
+**Precondition:** valid `clench-state-backup` JSON file
+
+**Steps**
+1. Open Recovery Wizard
+2. Import the state backup file
+3. Open Wallet List
+4. Inspect restored wallets
+
+**Expected**
+- Seed phrases, passphrases, private descriptors, PINs, and biometric secrets are not imported
+- Hot wallets restore as watch-only until the matching seed phrase is restored separately
+- Duplicate descriptors are skipped rather than duplicated
+- Labels, UTXO notes, and non-secret settings are restored where present
+
+### J3. Seed phrase restore path
+**Steps**
+1. Open Recovery Wizard
+2. Choose Restore Seed Phrase
+3. Enter a known seed phrase and optional passphrase
+4. Compare fingerprint and first receive address against the original wallet
+
+**Expected**
+- Existing import warnings still appear for passphrase wallets
+- A different passphrase produces a different valid wallet, not a wrong-password error
+- User can verify fingerprint/address before trusting the wallet
+
+### J4. Descriptor and multisig config restore path
+**Steps**
+1. Open Recovery Wizard
+2. Choose Import Descriptor or Config
+3. Import a Sparrow descriptor, Nunchuk-style config, or BSMS descriptor record
+4. Open Wallet Info
+
+**Expected**
+- Wallet restores as watch-only
+- Multisig policy, script type, descriptor, threshold, and cosigners are visible
+- Descriptor backup warning states this is metadata, not spend authority
+- First receive address can be compared against the source wallet
+
+### J5. Cross-wallet guidance
+**Steps**
+1. Open Recovery Wizard
+2. Read Sparrow, Nunchuk, and BlueWallet notes
+
+**Expected**
+- Sparrow guidance prioritizes output descriptors with key origins
+- Nunchuk guidance prioritizes full wallet config/descriptor exports over isolated xpubs
+- BlueWallet guidance calls out script/passphrase matching and watch-only xpub limits
+
+---
+
+## K. Privacy And Node UX Tests
+
+### K1. Electrum server health check
+**Steps**
+1. Open Settings → Electrum Server
+2. Run Server Health on the default public server
+3. Switch to a custom server and run Server Health before saving
+4. Enable offline mode and try again
+
+**Expected**
+- Health check reports target, connection mode, route, TLS pin state, server version if available, and tip height if available
+- Public and custom server selections can both be checked
+- Offline mode blocks active diagnostics
+- Errors distinguish connection, Tor proxy, TLS, and certificate-pinning failures when possible
+- Transaction and UTXO confirmation counts use the selected Electrum route for tip height
+
+### K2. Tor routing diagnostics
+**Steps**
+1. Enable Route through Tor with a known SOCKS5 host/port
+2. Enable Connect over Tor for a selected Electrum server
+3. Run Server Health
+4. Try a `.onion` server if available
+
+**Expected**
+- Server Health shows SOCKS5 host/port for Tor-routed clearnet
+- `.onion` servers force Tor routing
+- If Orbot/SOCKS5 is unavailable, the UI names the Tor proxy failure
+
+### K3. Certificate pinning UI
+**Steps**
+1. Open custom SSL Electrum settings
+2. Paste an invalid certificate string and tap Pin Cert
+3. Paste or scan a valid base64 DER certificate or `electrums://host:port?cert=...` payload
+4. Run Server Health
+
+**Expected**
+- Invalid cert text shows a clear validation error
+- Valid cert text shows Certificate pinned
+- Health check identifies TLS pin state
+- Pin mismatch is surfaced as a certificate-pinning failure
+
+### K4. External fee and price lookup opt-ins
+**Steps**
+1. Disable USD Balance and External Fee Estimates
+2. Open Home and Send
+3. Disable or misconfigure Electrum fee estimation in a test setup
+4. Enable External Fee Estimates and repeat
+5. Enable USD Balance and switch balance display to USD
+
+**Expected**
+- Price APIs are not queried unless USD Balance is enabled
+- Fee fallback APIs are not queried unless External Fee Estimates is enabled
+- Electrum fee estimation still uses the selected Electrum server
+- With external fee lookup disabled and Electrum fee estimation unavailable, Clench uses static manual-safe defaults
+
+---
+
+## L. Release Trust Tests
+
+### L1. Debug CI does not publish releases
+**Steps**
+1. Review `.github/workflows/android.yml`
+2. Trigger or inspect a normal PR/master CI run
+
+**Expected**
+- CI builds, tests, and lints debug artifacts only
+- `contents` permission is read-only
+- No GitHub Release is created from a normal `master` push
+- Debug APK artifacts have short retention and are not described as production releases
+
+### L2. Signed release workflow
+**Steps**
+1. Review `.github/workflows/release.yml`
+2. Confirm it runs only for `v*` tags or explicit maintainer dispatch
+3. Confirm release signing secrets are required before build
+4. Confirm the tag must match `versionName`
+
+**Expected**
+- Release artifacts are built with the release keystore
+- Tests and lint run before release artifact publication
+- `SHA256SUMS`, `SHA256SUMS.txt`, and `RELEASE-MANIFEST.txt` are published with the APK
+- APK signature verification is run before release creation
+
+### L3. Reproducible-build helper
+**Steps**
+1. Run `bash -n scripts/release/reproducible-build.sh`
+2. Run the script from a dirty worktree
+3. Run the script without `keystore.properties`
+
+**Expected**
+- Shell syntax is valid
+- Dirty worktrees are refused unless `CLENCH_ALLOW_DIRTY_REPRO=1`
+- Missing release signing config is refused clearly
+- Successful release rebuilds record commit, version, Gradle wrapper URL, dependency-verification hash, APK path, and APK SHA-256
+
+### L4. Verification, threat model, and audit path docs
+**Steps**
+1. Review `docs/release/signed-release-verification.md`
+2. Review `docs/release/reproducible-builds.md`
+3. Review `docs/security/threat-model.md`
+4. Review `docs/security/audit-path.md`
+
+**Expected**
+- Users can verify tag, checksum, APK signature, signer certificate digest, package id, version name, and version code
+- Rebuild prerequisites and limits are explicit
+- Threat model covers keys, wallet data, network privacy, hardware-wallet boundaries, and release artifacts
+- Audit path names release blockers and high-risk code areas
+
+---
+
 ## Suggested Test Priority
 If time is limited, do these first:
 1. A1 Existing normal wallet opens normally
@@ -212,6 +535,22 @@ If time is limited, do these first:
 4. C1 Locked-state privacy
 5. D1 Existing DB opens without destructive reset
 6. E1 Release logging spot check
+7. G1 Descriptor / BSMS round trip
+8. G4 Small PSBT drill
+9. H1 Tapsigner NFC status
+10. I1 CPFP child transaction
+11. I2 RBF cancel replacement
+12. I3 Raw transaction import and broadcast
+13. I4 Saved payees and address verification
+14. J1 Recovery wizard entry points
+15. J2 Clench state backup import
+16. J4 Descriptor and multisig config restore path
+17. K1 Electrum server health check
+18. K3 Certificate pinning UI
+19. K4 External fee and price lookup opt-ins
+20. L1 Debug CI does not publish releases
+21. L2 Signed release workflow
+22. L4 Verification, threat model, and audit path docs
 
 ---
 
@@ -223,3 +562,7 @@ I would consider this hardening pass safer to continue with only if:
 - locked state does not leak passphrase-wallet activity
 - release logs do not expose wallet metadata
 - no phantom recovered wallets appear
+- transaction replacement, raw broadcast, payee, and address-verification paths pass manual testing before real funds are used
+- recovery wizard restores only the intended data and users can verify addresses/fingerprints/policy before trusting recovered wallets
+- Electrum diagnostics, Tor routing, certificate pinning, and external lookup opt-ins behave as configured
+- production releases are tag-only signed artifacts with checksum/signature verification docs and no debug APK release publication

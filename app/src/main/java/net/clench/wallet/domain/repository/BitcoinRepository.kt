@@ -240,6 +240,15 @@ interface BitcoinRepository {
     suspend fun bumpFee(walletId: String, txid: String, newFeeRate: Float): String
 
     /**
+     * Attempt to cancel an unconfirmed RBF transaction by replacing it with a
+     * higher-fee transaction that sends the original inputs back to this wallet.
+     * Bitcoin transactions cannot be reversed after confirmation, and even an
+     * unconfirmed replacement can race with miners accepting the original.
+     * @return signed transaction hex ready to broadcast
+     */
+    suspend fun cancelTransaction(walletId: String, txid: String, newFeeRate: Float): String
+
+    /**
      * Apply a signed PSBT and broadcast the resulting transaction.
      * Validates that signed PSBT outputs match the original unsigned PSBT before broadcasting.
      * @param walletId wallet that created the original PSBT

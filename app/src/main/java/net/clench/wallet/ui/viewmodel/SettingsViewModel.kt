@@ -21,6 +21,9 @@ import net.clench.wallet.domain.model.PublicElectrumServers
 import net.clench.wallet.domain.model.PublicServer
 import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
+import org.json.JSONObject
+import java.io.ByteArrayInputStream
+import java.security.cert.CertificateFactory
 import javax.inject.Inject
 
 @HiltViewModel
@@ -47,6 +50,7 @@ class SettingsViewModel @Inject constructor(
         val useCustomMempool: Boolean = false,
         val mempoolUrl: String = "https://mempool.space",
         val btcPriceEnabled: Boolean = false,
+        val externalFeeLookupEnabled: Boolean = false,
         val useTestnet: Boolean = false,
         val biometricForSeed: Boolean = true,
         val biometricForSend: Boolean = true,
@@ -66,6 +70,8 @@ class SettingsViewModel @Inject constructor(
         val showCertScanner: Boolean = false,
         /** Active connection mode label for display */
         val connectionModeLabel: String = "",
+        val testingServerHealth: Boolean = false,
+        val serverHealthResult: String? = null,
         val isBackupBusy: Boolean = false,
         val backupStatus: String? = null
     )
@@ -104,6 +110,7 @@ class SettingsViewModel @Inject constructor(
                 useCustomMempool = settingsManager.isCustomMempoolEnabled(),
                 mempoolUrl = settingsManager.getMempoolUrl(),
                 btcPriceEnabled = settingsManager.isBtcPriceEnabled(),
+                externalFeeLookupEnabled = settingsManager.isExternalFeeLookupEnabled(),
                 useTestnet = settingsManager.isTestnet(),
                 biometricForSeed = settingsManager.isBiometricForSeedEnabled(),
                 biometricForSend = settingsManager.isBiometricForSendEnabled(),
@@ -254,6 +261,85 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun runServerHealthCheck() {
+        val state = _uiState.value
+        if (state.offlineMode) {
+            _uiState.update {
+                it.copy(serverHealthResult = "Offline mode is enabled. Active server diagnostics would make a network connection.")
+            }
+            return
+        }
+
+        val config = runCatching { electrumConfigFromState(state) }.getOrElse { e ->
+            _uiState.update { it.copy(serverHealthResult = "Could not build Electrum config: ${e.message}") }
+            return
+        }
+        val resolved = electrumConnectionFactory.resolveConnection(config)
+        val startedAt = System.currentTimeMillis()
+
+        _uiState.update { it.copy(testingServerHealth = true, serverHealthResult = null) }
+        viewModelScope.launch {
+            val result = try {
+                withContext(Dispatchers.IO) {
+                    electrumConnectionFactory.createRawSocket(config).use { socket ->
+                        socket.soTimeout = 12_000
+                        val request = """
+                            {"id":1,"method":"server.version","params":["Clench Wallet","1.4"]}
+                            {"id":2,"method":"blockchain.headers.subscribe","params":[]}
+                        """.trimIndent() + "\n"
+                        socket.getOutputStream().write(request.toByteArray(Charsets.UTF_8))
+                        socket.getOutputStream().flush()
+
+                        val reader = socket.getInputStream().bufferedReader(Charsets.UTF_8)
+                        var serverVersion: String? = null
+                        var protocolVersion: String? = null
+                        var tipHeight: Int? = null
+
+                        var reads = 0
+                        while (reads < 4 && (serverVersion == null || tipHeight == null)) {
+                            val line = reader.readLine() ?: break
+                            reads++
+                            val response = runCatching { JSONObject(line) }.getOrNull() ?: continue
+                            when (response.optInt("id", -1)) {
+                                1 -> {
+                                    val versionArray = response.optJSONArray("result")
+                                    serverVersion = versionArray?.optString(0)?.takeIf { it.isNotBlank() }
+                                        ?: response.optString("result").takeIf { it.isNotBlank() }
+                                    protocolVersion = versionArray?.optString(1)?.takeIf { it.isNotBlank() }
+                                }
+                                2 -> {
+                                    val header = response.optJSONObject("result")
+                                    val height = header?.optInt("height", -1) ?: -1
+                                    if (height > 0) tipHeight = height
+                                }
+                            }
+                        }
+
+                        val elapsed = System.currentTimeMillis() - startedAt
+                        buildString {
+                            appendLine("✓ Server healthy")
+                            appendLine("Target: ${config.serverUrl}:${config.port}")
+                            appendLine("Mode: ${resolved.mode.name}")
+                            appendLine("Route: ${routeDescription(config)}")
+                            appendLine("TLS pin: ${if (config.pinnedCert != null) "enabled" else "none"}")
+                            if (serverVersion != null) appendLine("Server: $serverVersion")
+                            if (protocolVersion != null) appendLine("Protocol: $protocolVersion")
+                            if (tipHeight != null) appendLine("Tip height: $tipHeight")
+                            append("Checked in ${elapsed}ms")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                diagnosticFailureMessage(e, config, resolved.mode.name)
+            }
+            _uiState.update { it.copy(testingServerHealth = false, serverHealthResult = result) }
+        }
+    }
+
+    fun clearServerHealthResult() {
+        _uiState.update { it.copy(serverHealthResult = null) }
+    }
+
     // --- Mempool settings ---
     fun setUseCustomMempool(use: Boolean) {
         settingsManager.setCustomMempoolEnabled(use)
@@ -276,6 +362,11 @@ class SettingsViewModel @Inject constructor(
     fun setBtcPriceEnabled(enabled: Boolean) {
         settingsManager.setBtcPriceEnabled(enabled)
         _uiState.update { it.copy(btcPriceEnabled = enabled) }
+    }
+
+    fun setExternalFeeLookupEnabled(enabled: Boolean) {
+        settingsManager.setExternalFeeLookupEnabled(enabled)
+        _uiState.update { it.copy(externalFeeLookupEnabled = enabled) }
     }
 
     // --- Network settings ---
@@ -479,27 +570,48 @@ class SettingsViewModel @Inject constructor(
             val host = match.groupValues[1]
             val port = match.groupValues[2]
             val cert = match.groupValues[3]
+            if (!isValidX509Certificate(cert)) {
+                _uiState.update { it.copy(saveError = "Certificate QR did not contain a valid base64 DER certificate") }
+                return false
+            }
             _uiState.update { it.copy(
                 customServerUrl = host,
                 customServerPort = port,
                 useSSL = true,
                 pinnedCert = cert,
                 useCustomServer = true,
-                showCertScanner = false
+                showCertScanner = false,
+                saveError = null
             ) }
             return true
         }
         // Also accept raw base64 cert (manual paste or simple QR)
         return try {
-            android.util.Base64.decode(qrText.trim(), android.util.Base64.NO_WRAP)
+            require(isValidX509Certificate(qrText.trim())) { "invalid X.509 certificate" }
             _uiState.update { it.copy(
                 pinnedCert = qrText.trim(),
-                showCertScanner = false
+                showCertScanner = false,
+                saveError = null
             ) }
             true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            _uiState.update {
+                it.copy(saveError = "Certificate must be base64 DER or electrums://host:port?cert=BASE64 (${e.message ?: "invalid input"})")
+            }
             false
         }
+    }
+
+    private fun isValidX509Certificate(certBase64: String): Boolean {
+        val decoded = runCatching {
+            android.util.Base64.decode(certBase64.trim(), android.util.Base64.NO_WRAP)
+        }.getOrNull() ?: return false
+        if (decoded.isEmpty()) return false
+
+        return runCatching {
+            CertificateFactory.getInstance("X.509")
+                .generateCertificate(ByteArrayInputStream(decoded))
+        }.isSuccess
     }
 
     // ─── Per-server Tor toggle ───
@@ -510,6 +622,77 @@ class SettingsViewModel @Inject constructor(
         // Public-server mode has no Save button, so persist route changes immediately.
         if (!_uiState.value.useCustomServer) {
             saveServerSettings()
+        }
+    }
+
+    private fun electrumConfigFromState(state: UiState): ElectrumConfig {
+        return if (state.useCustomServer) {
+            val cleanUrl = state.customServerUrl
+                .removePrefix("ssl://")
+                .removePrefix("tcp://")
+                .trim()
+            require(cleanUrl.isNotBlank()) { "Enter a server address first" }
+            val useTor = state.useServerTor || cleanUrl.endsWith(".onion")
+            ElectrumConfig(
+                serverUrl = cleanUrl,
+                port = state.customServerPort.toIntOrNull() ?: 50002,
+                useSsl = state.useSSL,
+                isCustom = true,
+                pinnedCert = if (state.useSSL) state.pinnedCert else null,
+                useTor = useTor
+            )
+        } else {
+            val selected = publicServerFromState(state)
+            val useTor = state.useServerTor || selected.host.endsWith(".onion")
+            ElectrumConfig(
+                serverUrl = selected.host,
+                port = selected.port,
+                useSsl = selected.useSsl,
+                isCustom = false,
+                useTor = useTor
+            )
+        }
+    }
+
+    private fun publicServerFromState(state: UiState): PublicServer {
+        val known = PublicElectrumServers.forNetwork(state.useTestnet)
+        known.firstOrNull { "${it.host}:${it.port}" == state.publicServer }?.let { return it }
+
+        val host = state.publicServer.substringBeforeLast(":").trim()
+        val port = state.publicServer.substringAfterLast(":", "").toIntOrNull()
+            ?: if (state.useTestnet) 60002 else 50002
+        val useSsl = port == 50002 || port == 60002
+        return PublicServer(
+            name = "Selected server",
+            host = host.ifBlank { "electrum.blockstream.info" },
+            port = port,
+            useSsl = useSsl,
+            description = "Selected Electrum server"
+        )
+    }
+
+    private fun routeDescription(config: ElectrumConfig): String {
+        val isOnion = config.serverUrl.endsWith(".onion")
+        return when {
+            isOnion -> "Tor .onion"
+            config.useTor || settingsManager.isTorEnabled() ->
+                "Tor SOCKS5 ${settingsManager.getTorProxyHost()}:${settingsManager.getTorProxyPort()}"
+            else -> "Direct clearnet"
+        }
+    }
+
+    private fun diagnosticFailureMessage(e: Exception, config: ElectrumConfig, mode: String): String {
+        val prefix = "✗ Server health check failed\nTarget: ${config.serverUrl}:${config.port}\nMode: $mode"
+        return when (e) {
+            is net.clench.wallet.data.network.ElectrumConnectionException.TorProxyUnavailable ->
+                "$prefix\nTor SOCKS5 proxy is not reachable. Is Orbot running?\n${e.message}"
+            is net.clench.wallet.data.network.ElectrumConnectionException.TlsCertPinningFailed ->
+                "$prefix\nCertificate pinning failed. The server certificate does not match the pinned certificate.\n${e.message}"
+            is net.clench.wallet.data.network.ElectrumConnectionException.TlsHandshakeFailed ->
+                "$prefix\nTLS handshake failed. Check SSL/TLS and port settings.\n${e.message}"
+            is net.clench.wallet.data.network.ElectrumConnectionException.ConnectionFailed ->
+                "$prefix\nConnection failed. Check host, port, and network reachability.\n${e.message}"
+            else -> "$prefix\n${e.message ?: e.javaClass.simpleName}"
         }
     }
 

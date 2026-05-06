@@ -15,6 +15,7 @@ import net.clench.wallet.data.local.dao.TransactionDao
 import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
 import net.clench.wallet.data.local.dao.WalletDao
+import net.clench.wallet.data.local.dao.AddressBookDao
 import net.clench.wallet.data.repository.BdkBitcoinRepository
 import net.clench.wallet.domain.repository.BitcoinRepository
 import javax.inject.Singleton
@@ -101,7 +102,7 @@ object DatabaseModule {
         }
 
         return builder
-            .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4, ClenchDatabase.MIGRATION_4_5, ClenchDatabase.MIGRATION_5_6, ClenchDatabase.MIGRATION_6_7, ClenchDatabase.MIGRATION_7_8, ClenchDatabase.MIGRATION_8_9, ClenchDatabase.MIGRATION_9_10)
+            .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4, ClenchDatabase.MIGRATION_4_5, ClenchDatabase.MIGRATION_5_6, ClenchDatabase.MIGRATION_6_7, ClenchDatabase.MIGRATION_7_8, ClenchDatabase.MIGRATION_8_9, ClenchDatabase.MIGRATION_9_10, ClenchDatabase.MIGRATION_10_11)
             // [S-1] SECURITY: remove destructive migration fallback entirely.
             // With Room 2.6.1, the compatible fail-closed approach is simply to avoid
             // fallbackToDestructiveMigration() so missing/invalid migrations throw.
@@ -119,6 +120,9 @@ object DatabaseModule {
 
     @Provides
     fun provideTransactionLabelDao(db: ClenchDatabase): TransactionLabelDao = db.transactionLabelDao()
+
+    @Provides
+    fun provideAddressBookDao(db: ClenchDatabase): AddressBookDao = db.addressBookDao()
 }
 
 @Module

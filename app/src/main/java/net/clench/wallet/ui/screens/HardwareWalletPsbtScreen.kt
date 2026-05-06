@@ -28,6 +28,7 @@ import net.clench.wallet.ui.MainActivity
 import net.clench.wallet.ui.components.AnimatedQrCode
 import net.clench.wallet.ui.components.ColdcardNfcPayload
 import net.clench.wallet.ui.components.QrScanner
+import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.components.encodePsbtForDevice
 import net.clench.wallet.ui.components.psbtQrFrameDelayMs
 import net.clench.wallet.ui.viewmodel.HardwareWalletPsbtViewModel
@@ -50,9 +51,13 @@ fun HardwareWalletPsbtScreen(
     val coldcardSupportsNfc = deviceType == HardwareWalletType.COLDCARD_Q ||
         deviceType == HardwareWalletType.COLDCARD_MK4 ||
         deviceType == HardwareWalletType.COLDCARD_MK5
+    val isTapsigner = deviceType == HardwareWalletType.TAPSIGNER
     var nfcMode by remember { mutableStateOf(ColdcardNfcMode.Idle) }
     var nfcStatus by remember { mutableStateOf<String?>(null) }
     var nfcError by remember { mutableStateOf<String?>(null) }
+    var tapsignerReaderActive by remember { mutableStateOf(false) }
+    var tapsignerStatus by remember { mutableStateOf<String?>(null) }
+    var tapsignerError by remember { mutableStateOf<String?>(null) }
 
     // R7-20: FLAG_SECURE — prevent screenshots of PSBT data
     DisposableEffect(Unit) {
@@ -121,6 +126,37 @@ fun HardwareWalletPsbtScreen(
                         hostActivity.runOnUiThread {
                             nfcError = e.message ?: "NFC transfer failed"
                             nfcStatus = null
+                        }
+                    }
+                },
+                flags,
+                null
+            )
+            onDispose { adapter.disableReaderMode(hostActivity) }
+        }
+    }
+
+    DisposableEffect(tapsignerReaderActive, deviceType) {
+        val hostActivity = activity
+        val adapter = nfcAdapter
+        if (!tapsignerReaderActive || !isTapsigner || hostActivity == null || adapter == null || !adapter.isEnabled) {
+            onDispose { }
+        } else {
+            val flags = NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
+            adapter.enableReaderMode(
+                hostActivity,
+                { tag ->
+                    try {
+                        val status = TapsignerNfcReader.readStatus(tag)
+                        hostActivity.runOnUiThread {
+                            tapsignerStatus = status.summary()
+                            tapsignerError = null
+                            tapsignerReaderActive = false
+                        }
+                    } catch (e: Exception) {
+                        hostActivity.runOnUiThread {
+                            tapsignerError = e.message ?: "Tapsigner NFC status read failed"
+                            tapsignerStatus = null
                         }
                     }
                 },
@@ -528,6 +564,121 @@ fun HardwareWalletPsbtScreen(
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            if (isTapsigner) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Tapsigner signing status",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Tapsigner is a screenless NFC signer. Clench can verify the card responds to Coinkite Tap Protocol status, but direct PSBT signing is not enabled until CVC-authenticated signing and safe PSBT signature injection are implemented.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "NFC status check",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Tap the Tapsigner to confirm NFC/app selection, firmware, derivation path, and backup count before using this wallet policy elsewhere.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        when {
+                            nfcAdapter == null -> Text(
+                                "This phone does not report NFC hardware.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+                            !nfcAdapter.isEnabled -> Text(
+                                "NFC is off in Android settings.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+                            else -> {
+                                Button(
+                                    onClick = {
+                                        tapsignerError = null
+                                        tapsignerStatus = "Ready for NFC status. Hold Tapsigner against the phone."
+                                        tapsignerReaderActive = true
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Read Tapsigner NFC Status") }
+                                if (tapsignerReaderActive) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    TextButton(
+                                        onClick = {
+                                            tapsignerReaderActive = false
+                                            tapsignerStatus = null
+                                            tapsignerError = null
+                                        }
+                                    ) { Text("Cancel NFC") }
+                                }
+                            }
+                        }
+                        tapsignerStatus?.let { status ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                status,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        tapsignerError?.let { error ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Direct signing unavailable",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Clench will not send this PSBT to a Tapsigner yet. The remaining bridge must compute each input digest, CVC-authenticate Tap Protocol sign commands, inject signatures into the PSBT, finalize it, and re-run output validation before broadcast.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
             }
 
             // QR-based flow (SeedSigner, Keystone, Passport, Coldcard Q, Jade)

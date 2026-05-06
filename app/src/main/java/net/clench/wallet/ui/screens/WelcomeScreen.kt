@@ -20,7 +20,8 @@ fun WelcomeScreen(
     onBack: (() -> Unit)? = null,
     onSettings: (() -> Unit)? = null,
     onCreateMultisig: (() -> Unit)? = null,
-    onConnectHardwareWallet: (() -> Unit)? = null
+    onConnectHardwareWallet: (() -> Unit)? = null,
+    onRecoveryWizard: (() -> Unit)? = null
 ) {
     Scaffold(
         topBar = {
@@ -73,6 +74,17 @@ fun WelcomeScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Import Existing Wallet")
+            }
+
+            if (onRecoveryWizard != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(
+                    onClick = onRecoveryWizard,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Recovery Wizard")
+                }
             }
 
             if (onConnectHardwareWallet != null) {

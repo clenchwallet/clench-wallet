@@ -62,6 +62,63 @@ class ImportWalletViewModelTest {
         )
     }
 
+    @Test
+    fun `Coldcard multisig config name is offered as wallet name`() {
+        val repository = mockk<BitcoinRepository>()
+        val viewModel = ImportWalletViewModel(repository)
+        val coldcard = """
+            # Coldcard Multisig setup file
+            Name: Company Vault
+            Policy: 2 of 3
+            Format: P2WSH
+            Derivation: m/48h/0h/0h/2h
+            AABBCCDD: xpub6Alpha
+            11223344: xpub6Bravo
+            55667788: xpub6Charlie
+        """.trimIndent()
+
+        viewModel.setInput(coldcard)
+
+        assertEquals("Company Vault", viewModel.uiState.value.walletName)
+    }
+
+    @Test
+    fun `JSON export name is offered as wallet name`() {
+        val repository = mockk<BitcoinRepository>()
+        val viewModel = ImportWalletViewModel(repository)
+
+        viewModel.setInput(
+            """
+            {
+              "name": "Treasury Vault",
+              "descriptor": "wpkh([AABBCCDD/84'/0'/0']xpub6Alpha/0/*)"
+            }
+            """.trimIndent()
+        )
+
+        assertEquals("Treasury Vault", viewModel.uiState.value.walletName)
+    }
+
+    @Test
+    fun `import name inference does not replace a manually entered wallet name`() {
+        val repository = mockk<BitcoinRepository>()
+        val viewModel = ImportWalletViewModel(repository)
+
+        viewModel.setWalletName("My Label")
+        viewModel.setInput(
+            """
+            Name: Export Label
+            Policy: 2 of 2
+            Format: P2WSH
+            Derivation: m/48h/0h/0h/2h
+            AABBCCDD: xpub6Alpha
+            11223344: xpub6Bravo
+            """.trimIndent()
+        )
+
+        assertEquals("My Label", viewModel.uiState.value.walletName)
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `multisig config import calls watch-only descriptor import`() = runTest {

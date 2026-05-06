@@ -91,7 +91,14 @@ class ImportWalletViewModel @Inject constructor(
 
     fun setInput(text: String) {
         val normalized = normalizeHardwareExport(text)
-        _uiState.update { it.copy(input = normalized, error = null) }
+        val inferredName = inferWalletNameFromImport(text)
+        _uiState.update {
+            it.copy(
+                input = normalized,
+                error = null,
+                walletName = if (it.walletName.isBlank() && !inferredName.isNullOrBlank()) inferredName else it.walletName
+            )
+        }
         detectInputType()
         updateFingerprint()
     }
@@ -157,6 +164,49 @@ class ImportWalletViewModel @Inject constructor(
         return if (xfp.isNotBlank() && deriv.isNotBlank()) {
             "[${xfp.removePrefix("0x").uppercase()}/${deriv.removePrefix("m/")}]$xpub"
         } else xpub
+    }
+
+    private fun inferWalletNameFromImport(text: String): String? {
+        val trimmed = text.trim()
+        if (trimmed.isBlank()) return null
+
+        val lineName = trimmed
+            .lineSequence()
+            .map { it.trim() }
+            .firstNotNullOfOrNull { line ->
+                Regex("""(?i)^(?:name|wallet name|label)\s*:\s*(.+)$""")
+                    .find(line)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.trim()
+                    ?.trim('"', '\'')
+                    ?.takeIf { it.isNotBlank() }
+            }
+        if (!lineName.isNullOrBlank()) return lineName.take(64)
+
+        if (trimmed.startsWith("{")) {
+            runCatching {
+                val root = JSONObject(trimmed)
+                root.optString("name")
+                    .ifBlank { root.optString("walletName") }
+                    .ifBlank { root.optString("label") }
+                    .trim()
+                    .trim('"', '\'')
+                    .takeIf { it.isNotBlank() }
+                    ?.take(64)
+            }.getOrNull()?.let { return it }
+
+            Regex("""(?is)["'](?:name|walletName|label)["']\s*:\s*["']([^"']+)["']""")
+                .find(trimmed)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.take(64)
+                ?.let { return it }
+        }
+
+        return null
     }
 
     /**

@@ -32,6 +32,12 @@ The following are in scope:
 - Network privacy leaks (unintended data exposure)
 - Authentication bypasses (biometric, PIN)
 - Database encryption weaknesses
+- Release signing, release-artifact verification, and dependency-verification weaknesses
+
+Security review docs:
+- `docs/security/threat-model.md`
+- `docs/security/audit-path.md`
+- `docs/release/signed-release-verification.md`
 
 ## Supported Versions
 

@@ -36,18 +36,23 @@ fun TransactionDetailScreen(
     isTestnet: Boolean,
     spendableOutpoints: List<String> = emptyList(),
     onBack: () -> Unit,
-    onSpendUtxo: (outpoints: List<String>) -> Unit = {},
+    onSpendUtxo: (outpoints: List<String>, cpfp: Boolean) -> Unit = { _, _ -> },
     onBumpFee: ((txid: String, newFeeRate: Float) -> Unit)? = null,
+    onCancelTransaction: ((txid: String, newFeeRate: Float) -> Unit)? = null,
     isOfflineMode: Boolean = false,
     isBumping: Boolean = false,
     bumpError: String? = null,
+    isCancelling: Boolean = false,
+    cancelError: String? = null,
     priorityFeeRate: Float? = null,
     onSaveLabel: ((txid: String, label: String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var showFullTxid by remember { mutableStateOf(false) }
     var showBumpFeeDialog by remember { mutableStateOf(false) }
+    var showCancelDialog by remember { mutableStateOf(false) }
     var bumpFeeRate by remember { mutableStateOf("") }
+    var cancelFeeRate by remember { mutableStateOf("") }
     var labelText by remember(transaction?.label) { mutableStateOf(transaction?.label ?: "") }
     var labelSaved by remember { mutableStateOf(true) }
 
@@ -105,6 +110,63 @@ fun TransactionDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showBumpFeeDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Cancel dialog
+    if (showCancelDialog && transaction != null) {
+        AlertDialog(
+            onDismissRequest = { showCancelDialog = false },
+            title = { Text("Cancel Transaction") },
+            text = {
+                Column {
+                    Text(
+                        "This creates a replacement transaction back to this wallet. It is not guaranteed; the original can still confirm first.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    if (transaction.feeSat != null) {
+                        Text(
+                            "Current fee: ${NumberFormat.getNumberInstance(Locale.US).format(transaction.feeSat)} sats",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    OutlinedTextField(
+                        value = cancelFeeRate,
+                        onValueChange = { cancelFeeRate = it },
+                        label = { Text("Replacement fee rate (sat/vB)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+
+                    cancelError?.let { err ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val rate = cancelFeeRate.toFloatOrNull()
+                        if (rate != null && rate >= 1f) {
+                            onCancelTransaction?.invoke(transaction.txid, rate)
+                        }
+                    },
+                    enabled = !isCancelling && cancelFeeRate.toFloatOrNull()?.let { it >= 1f } == true
+                ) {
+                    if (isCancelling) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    else Text("Create Replacement")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCancelDialog = false }) { Text("Close") }
             }
         )
     }
@@ -340,12 +402,27 @@ fun TransactionDetailScreen(
                     }
                 }
 
-                // Exact-outpoint spend / CPFP option for received transactions.
-                if (isReceived && spendableOutpoints.isNotEmpty()) {
+                // Cancel attempts a same-wallet RBF replacement.
+                if (!isReceived && transaction.confirmations == 0 && !isWatchOnly && onCancelTransaction != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            cancelFeeRate = priorityFeeRate?.toInt()?.coerceAtLeast(2)?.toString() ?: "10"
+                            showCancelDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isOfflineMode
+                    ) {
+                        Text("Cancel Transaction (RBF)")
+                    }
+                }
+
+                // Exact-outpoint spend / CPFP option for any unspent output from this transaction.
+                if (spendableOutpoints.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     val isCpfp = transaction.confirmations == 0
                     OutlinedButton(
-                        onClick = { onSpendUtxo(spendableOutpoints) },
+                        onClick = { onSpendUtxo(spendableOutpoints, isCpfp) },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !isOfflineMode
                     ) {

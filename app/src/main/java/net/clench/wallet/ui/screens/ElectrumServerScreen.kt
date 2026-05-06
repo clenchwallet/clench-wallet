@@ -89,6 +89,62 @@ fun ElectrumServerScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Server Health", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Checks the selected Electrum server using the effective Tor/TLS route and reports server version and tip height when available.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { viewModel.runServerHealthCheck() },
+                        enabled = !uiState.testingServerHealth && !uiState.offlineMode,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (uiState.testingServerHealth) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        else Text(if (uiState.offlineMode) "Offline" else "Run Health Check")
+                    }
+                    if (uiState.offlineMode) {
+                        Text(
+                            "Offline mode blocks active diagnostics.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    uiState.serverHealthResult?.let { result ->
+                        val isSuccess = result.startsWith("✓")
+                        Surface(
+                            color = if (isSuccess)
+                                MaterialTheme.colorScheme.primaryContainer
+                            else
+                                MaterialTheme.colorScheme.errorContainer,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    result,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isSuccess)
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    else
+                                        MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                TextButton(onClick = { viewModel.clearServerHealthResult() }) {
+                                    Text("Dismiss")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             // ─── Offline mode toggle ───
             Card(
                 colors = CardDefaults.cardColors(
@@ -396,10 +452,9 @@ fun ElectrumServerScreen(
 
                             if (uiState.pinnedCert != null) {
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                                    ),
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shape = MaterialTheme.shapes.small,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(

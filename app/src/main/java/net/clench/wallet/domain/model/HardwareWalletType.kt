@@ -7,9 +7,14 @@ enum class HardwareWalletType(val displayName: String, val connectionMethod: Str
     COLDCARD_Q("Coldcard Q", "QR / NFC / File"),
     COLDCARD_MK4("Coldcard Mk4", "NFC / SD Card / Virtual Disk"),
     COLDCARD_MK5("Coldcard Mk5", "NFC / SD Card / Virtual Disk"),
+    TAPSIGNER("Tapsigner", "NFC"),
     JADE("Blockstream Jade", "QR");
 
     val supportsQr: Boolean get() = connectionMethod.contains("QR")
     val supportsNfc: Boolean get() = connectionMethod.contains("NFC")
     val supportsSdCard: Boolean get() = connectionMethod.contains("SD")
+    val usesColdcardNfcPayload: Boolean
+        get() = this == COLDCARD_Q || this == COLDCARD_MK4 || this == COLDCARD_MK5
+    val usesCoinkiteTapProtocol: Boolean get() = this == TAPSIGNER
+    val isScreenlessSigner: Boolean get() = this == TAPSIGNER
 }

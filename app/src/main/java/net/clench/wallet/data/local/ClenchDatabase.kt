@@ -8,14 +8,16 @@ import net.clench.wallet.data.local.dao.TransactionDao
 import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
 import net.clench.wallet.data.local.dao.WalletDao
+import net.clench.wallet.data.local.dao.AddressBookDao
+import net.clench.wallet.data.local.entity.AddressBookEntryEntity
 import net.clench.wallet.data.local.entity.TransactionEntity
 import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.local.entity.UtxoMetadataEntity
 import net.clench.wallet.data.local.entity.WalletEntity
 
 @Database(
-    entities = [WalletEntity::class, TransactionEntity::class, UtxoMetadataEntity::class, TransactionLabelEntity::class],
-    version = 10,
+    entities = [WalletEntity::class, TransactionEntity::class, UtxoMetadataEntity::class, TransactionLabelEntity::class, AddressBookEntryEntity::class],
+    version = 11,
     exportSchema = true
 )
 abstract class ClenchDatabase : RoomDatabase() {
@@ -23,6 +25,7 @@ abstract class ClenchDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
     abstract fun utxoMetadataDao(): UtxoMetadataDao
     abstract fun transactionLabelDao(): TransactionLabelDao
+    abstract fun addressBookDao(): AddressBookDao
 
     companion object {
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -82,6 +85,23 @@ abstract class ClenchDatabase : RoomDatabase() {
                 database.execSQL("ALTER TABLE wallets ADD COLUMN masterFingerprint TEXT DEFAULT NULL")
                 database.execSQL("ALTER TABLE wallets ADD COLUMN derivationPath TEXT DEFAULT NULL")
                 database.execSQL("ALTER TABLE wallets ADD COLUMN importedViaDevice TEXT DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS address_book_entries (
+                        key TEXT NOT NULL PRIMARY KEY,
+                        walletId TEXT NOT NULL,
+                        label TEXT NOT NULL,
+                        address TEXT NOT NULL,
+                        lastUsedAt INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_address_book_entries_walletId ON address_book_entries(walletId)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_address_book_entries_walletId_address ON address_book_entries(walletId, address)")
             }
         }
 

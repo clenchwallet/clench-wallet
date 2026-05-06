@@ -33,6 +33,37 @@ class WalletInfoViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
+    data class MultisigKeystoreInfo(
+        val label: String,
+        val masterFingerprint: String?,
+        val derivationPath: String?,
+        val xpub: String,
+        val checks: List<String> = emptyList(),
+        val warnings: List<String> = emptyList()
+    )
+
+    data class MultisigPolicyInfo(
+        val policyType: String,
+        val scriptType: String,
+        val threshold: Int,
+        val totalSigners: Int,
+        val descriptor: String,
+        val bsmsDescriptorRecord: String,
+        val keyReplacementWarning: String,
+        val recoveryChecklist: List<String>,
+        val warnings: List<String>,
+        val keystores: List<MultisigKeystoreInfo>
+    )
+
+    data class DescriptorBackupMetadata(
+        val isMultisig: Boolean,
+        val bsmsDescriptorRecord: String?,
+        val multisigPolicy: String?,
+        val keyReplacementWarning: String?,
+        val recoveryChecklist: List<String>,
+        val signerWarnings: List<String>
+    )
+
     data class UiState(
         val walletId: String = "",
         val walletName: String = "",
@@ -58,6 +89,7 @@ class WalletInfoViewModel @Inject constructor(
         val editName: String = "",
         val descriptor: String = "",
         val changeDescriptor: String = "",
+        val multisigPolicy: MultisigPolicyInfo? = null,
         val copied: Boolean = false,
         val isConvertingToHot: Boolean = false,
         val convertedToHot: Boolean = false,
@@ -78,8 +110,14 @@ class WalletInfoViewModel @Inject constructor(
                 }
 
                 val txs = bitcoinRepository.getTransactions(walletId)
-                val xpub = try { bitcoinRepository.getAccountXpub(walletId) } catch (_: Exception) { "" }
-                val derivPath = try { bitcoinRepository.getDerivationPath(walletId) } catch (_: Exception) { "Unknown" }
+                val multisigPolicy = parseMultisigPolicyForDisplay(wallet.descriptor, wallet.changeDescriptor)
+                val effectiveIsMultisig = wallet.isMultisig || multisigPolicy != null
+                val xpub = if (effectiveIsMultisig) "" else try { bitcoinRepository.getAccountXpub(walletId) } catch (_: Exception) { "" }
+                val derivPath = if (effectiveIsMultisig) {
+                    multisigPolicy?.let { "${it.threshold} of ${it.totalSigners}" } ?: "See keystores"
+                } else {
+                    try { bitcoinRepository.getDerivationPath(walletId) } catch (_: Exception) { "Unknown" }
+                }
 
                 // Determine xpub label based on network and prefix
                 val xpubLabel = when {
@@ -105,7 +143,7 @@ class WalletInfoViewModel @Inject constructor(
                 _uiState.update { it.copy(
                     walletName = wallet.name,
                     isWatchOnly = wallet.isWatchOnly,
-                    isMultisig = wallet.isMultisig,
+                    isMultisig = effectiveIsMultisig,
                     hasPassphrase = wallet.hasPassphrase,
                     network = wallet.network,
                     transactionCount = txs.size,
@@ -122,6 +160,7 @@ class WalletInfoViewModel @Inject constructor(
                     masterFingerprintBytes = masterFp,
                     descriptor = wallet.descriptor,
                     changeDescriptor = wallet.changeDescriptor,
+                    multisigPolicy = multisigPolicy,
                     isLoading = false
                 ) }
             } catch (e: Exception) {
@@ -221,24 +260,7 @@ class WalletInfoViewModel @Inject constructor(
             try {
                 val wallet = bitcoinRepository.getWalletEntity(state.walletId)
                     ?: throw IllegalStateException("Wallet not found")
-                val payload = JSONObject().apply {
-                    put("format", "clench-wallet-descriptor-backup")
-                    put("version", 1)
-                    put("exportedAtEpochMs", System.currentTimeMillis())
-                    put("walletId", wallet.id)
-                    put("name", wallet.name)
-                    put("network", wallet.network)
-                    put("isWatchOnly", wallet.isWatchOnly)
-                    put("isMultisig", wallet.isMultisig)
-                    put("descriptor", wallet.descriptor)
-                    put("changeDescriptor", wallet.changeDescriptor)
-                    put("preferredHardwareWallet", wallet.preferredHardwareWallet ?: JSONObject.NULL)
-                    put("masterFingerprint", wallet.masterFingerprint ?: JSONObject.NULL)
-                    put("derivationPath", wallet.derivationPath ?: JSONObject.NULL)
-                    put("importedViaDevice", wallet.importedViaDevice ?: JSONObject.NULL)
-                    put("secretsIncluded", false)
-                    put("warning", "This file contains public descriptors only. It cannot spend funds by itself.")
-                }.toString(2)
+                val payload = buildDescriptorBackupPayload(wallet, System.currentTimeMillis())
                 val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
                 val safeName = wallet.name.lowercase(Locale.US).replace(Regex("[^a-z0-9]+"), "-").trim('-').ifBlank { "wallet" }
                 val fileName = "clench-$safeName-descriptors-$dateStr.json"
@@ -366,6 +388,201 @@ class WalletInfoViewModel @Inject constructor(
         return bytes.map { b ->
             val hue = b * 360f / 256f
             android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.7f, 0.7f))
+        }
+    }
+
+    companion object {
+        internal fun parseMultisigPolicyForDisplay(
+            descriptor: String,
+            changeDescriptor: String
+        ): MultisigPolicyInfo? {
+            val cleanDescriptor = descriptor.substringBefore("#").trim()
+            val multiCall = extractFunctionArgs(cleanDescriptor, "sortedmulti")
+                ?: extractFunctionArgs(cleanDescriptor, "multi")
+                ?: return null
+            val args = splitDescriptorArgs(multiCall)
+            val threshold = args.firstOrNull()?.trim()?.toIntOrNull() ?: return null
+            val keystores = args.drop(1).mapIndexedNotNull { index, raw ->
+                parseKeystore(index, raw)
+            }
+            if (keystores.isEmpty() || threshold !in 1..keystores.size) return null
+
+            val scriptType = when {
+                cleanDescriptor.startsWith("sh(wsh(") -> "Nested SegWit (P2SH-P2WSH)"
+                cleanDescriptor.startsWith("wsh(") -> "Native SegWit (P2WSH)"
+                cleanDescriptor.startsWith("sh(") -> "Legacy (P2SH)"
+                else -> "Unknown"
+            }
+
+            return MultisigPolicyInfo(
+                policyType = "Multi Signature",
+                scriptType = scriptType,
+                threshold = threshold,
+                totalSigners = keystores.size,
+                descriptor = cleanDescriptor.ifBlank { changeDescriptor.substringBefore("#").trim() },
+                bsmsDescriptorRecord = buildBsmsDescriptorRecord(cleanDescriptor),
+                keyReplacementWarning = "Do not replace a cosigner inside this wallet. Create a new multisig wallet with the replacement signer set, verify its receive addresses, then move funds.",
+                recoveryChecklist = buildRecoveryChecklist(threshold, keystores.size),
+                warnings = buildMultisigWarnings(keystores),
+                keystores = keystores
+            )
+        }
+
+        internal fun buildDescriptorBackupPayload(
+            wallet: net.clench.wallet.domain.model.WalletData,
+            exportedAtEpochMs: Long
+        ): String {
+            val metadata = buildDescriptorBackupMetadata(wallet)
+            return JSONObject().apply {
+                put("format", "clench-wallet-descriptor-backup")
+                put("version", 1)
+                put("exportedAtEpochMs", exportedAtEpochMs)
+                put("walletId", wallet.id)
+                put("name", wallet.name)
+                put("network", wallet.network)
+                put("isWatchOnly", wallet.isWatchOnly)
+                put("isMultisig", metadata.isMultisig)
+                put("descriptor", wallet.descriptor)
+                put("changeDescriptor", wallet.changeDescriptor)
+                metadata.bsmsDescriptorRecord?.let { put("bsmsDescriptorRecord", it) }
+                metadata.multisigPolicy?.let { put("multisigPolicy", it) }
+                metadata.keyReplacementWarning?.let { put("keyReplacementWarning", it) }
+                if (metadata.recoveryChecklist.isNotEmpty()) {
+                    put("recoveryChecklist", org.json.JSONArray(metadata.recoveryChecklist))
+                }
+                if (metadata.signerWarnings.isNotEmpty()) {
+                    put("signerWarnings", org.json.JSONArray(metadata.signerWarnings))
+                }
+                put("preferredHardwareWallet", wallet.preferredHardwareWallet ?: JSONObject.NULL)
+                put("masterFingerprint", wallet.masterFingerprint ?: JSONObject.NULL)
+                put("derivationPath", wallet.derivationPath ?: JSONObject.NULL)
+                put("importedViaDevice", wallet.importedViaDevice ?: JSONObject.NULL)
+                put("secretsIncluded", false)
+                put("warning", "This file contains public descriptors only. It cannot spend funds by itself, does not include seed phrases, passphrases, or private keys, and can reveal wallet history.")
+                put("verificationInstructions", "After importing, verify network, script type, derivation path, master fingerprint, and first receive address before funding or spending.")
+                put("reimportInstructions", "Import this file in Clench, or import the descriptor/BSMS record in Sparrow, BlueWallet, Nunchuk, or another descriptor-aware wallet.")
+            }.toString(2)
+        }
+
+        internal fun buildDescriptorBackupMetadata(
+            wallet: net.clench.wallet.domain.model.WalletData
+        ): DescriptorBackupMetadata {
+            val policy = parseMultisigPolicyForDisplay(wallet.descriptor, wallet.changeDescriptor)
+            return DescriptorBackupMetadata(
+                isMultisig = wallet.isMultisig || policy != null,
+                bsmsDescriptorRecord = policy?.bsmsDescriptorRecord,
+                multisigPolicy = policy?.let { "${it.threshold} of ${it.totalSigners}" },
+                keyReplacementWarning = policy?.keyReplacementWarning,
+                recoveryChecklist = policy?.recoveryChecklist.orEmpty(),
+                signerWarnings = policy?.warnings.orEmpty()
+            )
+        }
+
+        internal fun buildBsmsDescriptorRecord(descriptor: String): String {
+            val cleanDescriptor = descriptor.substringBefore("#").trim()
+            val bsmsDescriptor = cleanDescriptor
+                .replace("/0/*", "/**")
+                .replace("/1/*", "/**")
+            return listOf(
+                "BSMS 1.0",
+                bsmsDescriptor,
+                "/0/*,/1/*"
+            ).joinToString("\n")
+        }
+
+        private fun buildRecoveryChecklist(threshold: Int, totalSigners: Int): List<String> {
+            return listOf(
+                "Export and store the descriptor backup before funding this wallet.",
+                "Verify the BSMS/descriptor import restores the same $threshold-of-$totalSigners policy in another wallet.",
+                "Confirm each signer fingerprint and derivation path on the physical signer.",
+                "Generate the first receive address from the restored wallet and compare it with Clench.",
+                "Run a small PSBT signing drill before storing meaningful funds."
+            )
+        }
+
+        private fun buildMultisigWarnings(keystores: List<MultisigKeystoreInfo>): List<String> {
+            return buildList {
+                keystores.forEach { keystore ->
+                    if (keystore.masterFingerprint == null) {
+                        add("${keystore.label}: missing master fingerprint")
+                    }
+                    if (keystore.derivationPath == null) {
+                        add("${keystore.label}: missing derivation path")
+                    }
+                }
+            }
+        }
+
+        private fun extractFunctionArgs(descriptor: String, functionName: String): String? {
+            val start = descriptor.indexOf("$functionName(")
+            if (start < 0) return null
+            val argsStart = start + functionName.length + 1
+            var depth = 1
+            for (index in argsStart until descriptor.length) {
+                when (descriptor[index]) {
+                    '(' -> depth += 1
+                    ')' -> {
+                        depth -= 1
+                        if (depth == 0) return descriptor.substring(argsStart, index)
+                    }
+                }
+            }
+            return null
+        }
+
+        private fun splitDescriptorArgs(args: String): List<String> {
+            val parts = mutableListOf<String>()
+            var depth = 0
+            var start = 0
+            args.forEachIndexed { index, char ->
+                when (char) {
+                    '(', '[' -> depth += 1
+                    ')', ']' -> depth -= 1
+                    ',' -> if (depth == 0) {
+                        parts += args.substring(start, index).trim()
+                        start = index + 1
+                    }
+                }
+            }
+            parts += args.substring(start).trim()
+            return parts.filter { it.isNotBlank() }
+        }
+
+        private fun parseKeystore(index: Int, raw: String): MultisigKeystoreInfo? {
+            val trimmed = raw.trim()
+            if (trimmed.isBlank()) return null
+            val originMatch = Regex("""^\[([0-9a-fA-F]{8})(?:/([^\]]+))?\](.+)$""").find(trimmed)
+            val fingerprint = originMatch?.groupValues?.getOrNull(1)?.uppercase()
+            val originPath = originMatch?.groupValues?.getOrNull(2)?.takeIf { it.isNotBlank() }
+            val keyWithPath = originMatch?.groupValues?.getOrNull(3) ?: trimmed
+            val xpub = keyWithPath
+                .removeSuffix("/0/*")
+                .removeSuffix("/1/*")
+                .removeSuffix("/**")
+                .trim()
+            if (xpub.isBlank()) return null
+
+            val warnings = buildList {
+                if (fingerprint == null) add("Missing master fingerprint")
+                if (originPath == null) add("Missing derivation path")
+            }
+            val checks = buildList {
+                add("Public key present")
+                if (fingerprint != null) add("Master fingerprint present")
+                if (originPath != null) add("Derivation path present")
+                if (keyWithPath.contains("/0/*") || keyWithPath.contains("/1/*") || keyWithPath.contains("/**")) {
+                    add("Ranged branch present")
+                }
+            }
+
+            return MultisigKeystoreInfo(
+                label = "Keystore ${index + 1}",
+                masterFingerprint = fingerprint,
+                derivationPath = originPath?.let { if (it.startsWith("m/")) it else "m/$it" },
+                xpub = xpub,
+                checks = checks,
+                warnings = warnings
+            )
         }
     }
 }
