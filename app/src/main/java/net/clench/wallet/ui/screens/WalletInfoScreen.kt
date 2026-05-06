@@ -502,7 +502,7 @@ fun WalletInfoScreen(
                 }
 
                 // ─── Signing Method / Seed Phrase Access ───
-                if (uiState.isWatchOnly) {
+                if (uiState.isWatchOnly && !uiState.isMultisig) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(

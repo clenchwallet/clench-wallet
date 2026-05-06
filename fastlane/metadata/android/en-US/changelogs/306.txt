@@ -1,0 +1,3 @@
+Multisig wallet info polish:
+- Removed the single-wallet Add Seed Phrase action from multisig wallet info.
+- Kept per-keystore signer fingerprints visible for multisig verification and recovery.
