@@ -23,7 +23,7 @@ Before release:
 3. Run `git diff --check`.
 4. Review every changed dependency, lockfile, and verification-metadata update.
 5. Review every changed wallet-signing, broadcast, descriptor, recovery, or network-privacy path.
-6. Complete the manual ship gate in `MANUAL_TEST_PLAN.md`.
+6. Complete the manual ship gate in `docs/qa/manual-test-plan.md`.
 7. Build the signed release from a clean tag.
 8. Publish APK, `SHA256SUMS`, and release notes.
 9. Verify the published APK signature and checksum from a fresh download.
@@ -44,8 +44,8 @@ An external audit should receive:
 
 - Current release tag.
 - `docs/security/threat-model.md`.
-- `SECURITY_HARDENING_NOTES.md`.
-- `MANUAL_TEST_PLAN.md`.
+- `docs/security/security-hardening.md`.
+- `docs/qa/manual-test-plan.md`.
 - `docs/release/reproducible-builds.md`.
 - `docs/release/signed-release-verification.md`.
 - A list of known residual risks and out-of-scope items.

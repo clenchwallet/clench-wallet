@@ -1,10 +1,10 @@
 # Clench Wallet Manual Test Plan
 
 ## Goal
-Validate the security hardening changes around migration behavior, passphrase import flow, recovery posture, and release logging without weakening the intended passphrase model.
+Validate security-sensitive release behavior around migrations, passphrase import, recovery posture, logging, signing, broadcast, and network privacy without weakening the intended wallet model.
 
 ## Scope
-Covers commit `0e9c4c5` and adjacent hardening work.
+Use this checklist for release candidates and for changes that touch wallet state, key material, signing, broadcast, recovery, networking, release signing, or dependency metadata.
 
 ---
 

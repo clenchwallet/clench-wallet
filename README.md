@@ -77,6 +77,7 @@ Release trust docs:
 - [Reproducible builds](docs/release/reproducible-builds.md)
 - [Signed-release verification](docs/release/signed-release-verification.md)
 - [Threat model](docs/security/threat-model.md)
+- [Security hardening](docs/security/security-hardening.md)
 - [Audit path](docs/security/audit-path.md)
 
 ## Architecture

@@ -24,4 +24,6 @@ Release documentation:
 Security review documentation:
 
 - [Threat model](../security/threat-model.md)
+- [Security hardening](../security/security-hardening.md)
 - [Audit path](../security/audit-path.md)
+- [Manual test plan](../qa/manual-test-plan.md)
