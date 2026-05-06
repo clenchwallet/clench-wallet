@@ -33,6 +33,7 @@ class WalletInfoViewModelTest {
         assertEquals(3, policy.threshold)
         assertEquals(5, policy.totalSigners)
         assertEquals(5, policy.keystores.size)
+        assertTrue(policy.keystores.all { it.keyId.isNotBlank() })
         assertEquals("D0200C4F", policy.keystores[0].masterFingerprint)
         assertEquals("m/48'/0'/0'/2'", policy.keystores[0].derivationPath)
         assertEquals("xpub6Alpha", policy.keystores[0].xpub)
@@ -53,6 +54,22 @@ class WalletInfoViewModelTest {
         assertTrue(policy.keyReplacementWarning.contains("Create a new multisig wallet"))
         assertTrue(policy.keystores[0].checks.contains("Master fingerprint present"))
         assertTrue(policy.keystores[0].warnings.isEmpty())
+    }
+
+    @Test
+    fun `keystore id is stable for same signer material`() {
+        val first = WalletInfoViewModel.stableKeystoreId(
+            fingerprint = "aabbccdd",
+            derivationPath = "48'/0'/0'/2'",
+            xpub = "xpub6Alpha"
+        )
+        val second = WalletInfoViewModel.stableKeystoreId(
+            fingerprint = "AABBCCDD",
+            derivationPath = "48'/0'/0'/2'",
+            xpub = "xpub6Alpha"
+        )
+
+        assertEquals(first, second)
     }
 
     @Test

@@ -1,0 +1,4 @@
+Multisig wallet info polish:
+- Added per-keystore rename support.
+- Removed misleading single multisig wallet fingerprint and global signing-device setting.
+- Improved Specter Desktop and Specter DIY descriptor JSON imports.

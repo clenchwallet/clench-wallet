@@ -130,13 +130,6 @@ fun SettingsScreen(
             }
             item {
                 SettingsSectionCard(
-                    title = "Hardware Wallet",
-                    subtitle = uiState.preferredHardwareWalletLabel,
-                    onClick = onHardwareWallet
-                )
-            }
-            item {
-                SettingsSectionCard(
                     title = "Security",
                     subtitle = when (uiState.appLockMode) {
                         "biometric" -> "Biometric lock enabled"

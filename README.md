@@ -101,7 +101,9 @@ For release verification and security-review scope, see [docs/release/README.md]
 
 | Version | Highlights |
 | --- | --- |
-| Unreleased | Added multisig Wallet Info signer checks, BSMS round-trip export metadata, recovery wizard and drill guidance, Tapsigner NFC status/signing guardrails, CPFP/cancel transaction flows, raw transaction broadcast/import, saved payees, BDK-backed address verification, Electrum diagnostics, opt-in external lookup controls, and release-trust documentation/workflows. |
+| Unreleased | Ongoing hardening and usability improvements. |
+| 0.3.5 | Added multisig keystore renaming, removed misleading single-wallet multisig fingerprint/signing-device settings, and improved Specter Desktop/Specter DIY descriptor JSON imports. |
+| 0.3.4 | Added multisig Wallet Info signer checks, BSMS round-trip export metadata, recovery wizard and drill guidance, Tapsigner NFC status/signing guardrails, CPFP/cancel transaction flows, raw transaction broadcast/import, saved payees, BDK-backed address verification, Electrum diagnostics, opt-in external lookup controls, and release-trust documentation/workflows. |
 | 0.3.4 | Fixed Sparrow multisig Output Descriptor QR imports; added BSMS descriptor and Coldcard multisig config imports; hardened multisig imports so wallet configs cannot collapse to one cosigner xpub. |
 | 0.3.3 | Initial public release with F-Droid-ready metadata, BDK 2.3.1, hardware wallet PSBT flows, Tor Electrum support, encrypted storage, and multisig creation. |
 

@@ -44,6 +44,8 @@ fun WalletInfoScreen(
     var expandedXpub by remember { mutableStateOf(false) }
     var expandedDescriptor by remember { mutableStateOf(false) }
     var expandedKeystoreIndex by remember { mutableStateOf<Int?>(null) }
+    var keystoreRenameTarget by remember { mutableStateOf<WalletInfoViewModel.MultisigKeystoreInfo?>(null) }
+    var keystoreRenameText by remember { mutableStateOf("") }
     var showHardwareWalletMenu by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val labelImportLauncher = rememberLauncherForActivityResult(
@@ -79,6 +81,34 @@ fun WalletInfoScreen(
             text = { Text("This wallet now has signing capability. Seed phrase entry remains a wallet-management action, not part of transaction signing.") },
             confirmButton = {
                 Button(onClick = { viewModel.clearConversionSuccess() }) { Text("OK") }
+            }
+        )
+    }
+
+    keystoreRenameTarget?.let { keystore ->
+        AlertDialog(
+            onDismissRequest = { keystoreRenameTarget = null },
+            title = { Text("Rename Keystore") },
+            text = {
+                OutlinedTextField(
+                    value = keystoreRenameText,
+                    onValueChange = { keystoreRenameText = it },
+                    label = { Text("Keystore name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.renameKeystore(keystore.keyId, keystoreRenameText)
+                        keystoreRenameTarget = null
+                    },
+                    enabled = keystoreRenameText.trim().isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { keystoreRenameTarget = null }) { Text("Cancel") }
             }
         )
     }
@@ -249,6 +279,10 @@ fun WalletInfoScreen(
                         onToggleKeystore = { index ->
                             expandedKeystoreIndex = if (expandedKeystoreIndex == index) null else index
                         },
+                        onRenameKeystore = { keystore ->
+                            keystoreRenameTarget = keystore
+                            keystoreRenameText = keystore.label
+                        },
                         onCopy = { text, label -> viewModel.copyToClipboard(text, label) },
                         copied = uiState.copied
                     )
@@ -256,7 +290,7 @@ fun WalletInfoScreen(
 
                 // ─── Hardware Wallet Info ───
                 // Only show if wallet was imported via a hardware wallet
-                if (uiState.importedViaDevice != null) {
+                if (uiState.importedViaDevice != null && !uiState.isMultisig) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("Hardware Wallet",
@@ -335,7 +369,7 @@ fun WalletInfoScreen(
                 }
 
                 // ─── Per-wallet Hardware Wallet Preference ───
-                Card(modifier = Modifier.fillMaxWidth()) {
+                if (!uiState.isMultisig) Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
                             "Hardware Wallet for Signing",
@@ -344,7 +378,7 @@ fun WalletInfoScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Choose the device this wallet should use when signing PSBTs. This is saved per wallet, which helps multisig setups use the right signer.",
+                            "Choose the device this wallet should use when signing PSBTs. This is saved for this wallet.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -449,7 +483,7 @@ fun WalletInfoScreen(
                 }
 
                 // ─── Fingerprint ───
-                uiState.fingerprintBytes?.let { fpBytes ->
+                if (!uiState.isMultisig) uiState.fingerprintBytes?.let { fpBytes ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier.padding(16.dp),
@@ -560,6 +594,7 @@ private fun MultisigConfigurationCard(
     onToggleDescriptor: () -> Unit,
     expandedKeystoreIndex: Int?,
     onToggleKeystore: (Int) -> Unit,
+    onRenameKeystore: (WalletInfoViewModel.MultisigKeystoreInfo) -> Unit,
     onCopy: (String, String) -> Unit,
     copied: Boolean
 ) {
@@ -622,6 +657,7 @@ private fun MultisigConfigurationCard(
                         keystore = keystore,
                         expanded = expandedKeystoreIndex == index,
                         onToggle = { onToggleKeystore(index) },
+                        onRename = { onRenameKeystore(keystore) },
                         onCopy = { onCopy(keystore.xpub, "${keystore.label} xpub") },
                         copied = copied
                     )
@@ -670,6 +706,7 @@ private fun KeystoreCard(
     keystore: WalletInfoViewModel.MultisigKeystoreInfo,
     expanded: Boolean,
     onToggle: () -> Unit,
+    onRename: () -> Unit,
     onCopy: () -> Unit,
     copied: Boolean
 ) {
@@ -682,6 +719,13 @@ private fun KeystoreCard(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
+                IconButton(onClick = onRename) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = "Rename keystore",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
                 TextButton(onClick = onToggle) {
                     Text(if (expanded) "Collapse" else "Details")
                 }

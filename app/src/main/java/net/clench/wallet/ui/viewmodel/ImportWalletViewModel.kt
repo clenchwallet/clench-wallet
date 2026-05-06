@@ -125,6 +125,7 @@ class ImportWalletViewModel @Inject constructor(
         return runCatching {
             val root = JSONObject(trimmed)
             val descriptor = root.optString("descriptor")
+                .ifBlank { root.optString("recv_descriptor") }
                 .ifBlank { root.optString("output_descriptor") }
                 .ifBlank { root.optString("receive_descriptor") }
                 .ifBlank { root.optString("external_descriptor") }

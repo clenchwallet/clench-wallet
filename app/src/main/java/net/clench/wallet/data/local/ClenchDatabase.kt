@@ -9,15 +9,24 @@ import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
 import net.clench.wallet.data.local.dao.WalletDao
 import net.clench.wallet.data.local.dao.AddressBookDao
+import net.clench.wallet.data.local.dao.WalletKeystoreMetadataDao
 import net.clench.wallet.data.local.entity.AddressBookEntryEntity
 import net.clench.wallet.data.local.entity.TransactionEntity
 import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.local.entity.UtxoMetadataEntity
 import net.clench.wallet.data.local.entity.WalletEntity
+import net.clench.wallet.data.local.entity.WalletKeystoreMetadataEntity
 
 @Database(
-    entities = [WalletEntity::class, TransactionEntity::class, UtxoMetadataEntity::class, TransactionLabelEntity::class, AddressBookEntryEntity::class],
-    version = 11,
+    entities = [
+        WalletEntity::class,
+        TransactionEntity::class,
+        UtxoMetadataEntity::class,
+        TransactionLabelEntity::class,
+        AddressBookEntryEntity::class,
+        WalletKeystoreMetadataEntity::class
+    ],
+    version = 12,
     exportSchema = true
 )
 abstract class ClenchDatabase : RoomDatabase() {
@@ -26,6 +35,7 @@ abstract class ClenchDatabase : RoomDatabase() {
     abstract fun utxoMetadataDao(): UtxoMetadataDao
     abstract fun transactionLabelDao(): TransactionLabelDao
     abstract fun addressBookDao(): AddressBookDao
+    abstract fun walletKeystoreMetadataDao(): WalletKeystoreMetadataDao
 
     companion object {
         val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -102,6 +112,22 @@ abstract class ClenchDatabase : RoomDatabase() {
                 """.trimIndent())
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_address_book_entries_walletId ON address_book_entries(walletId)")
                 database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_address_book_entries_walletId_address ON address_book_entries(walletId, address)")
+            }
+        }
+
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS wallet_keystore_metadata (
+                        walletId TEXT NOT NULL,
+                        keyId TEXT NOT NULL,
+                        label TEXT NOT NULL,
+                        preferredHardwareWallet TEXT,
+                        updatedAtEpochMs INTEGER NOT NULL,
+                        PRIMARY KEY(walletId, keyId)
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_wallet_keystore_metadata_walletId ON wallet_keystore_metadata(walletId)")
             }
         }
 

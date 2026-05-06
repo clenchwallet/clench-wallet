@@ -1,5 +1,7 @@
 package net.clench.wallet.ui.components
 
+import org.json.JSONObject
+
 /**
  * Parses common watch-only multisig wallet configuration exports into a BIP-380
  * descriptor Clench can import through the existing descriptor path.
@@ -16,6 +18,7 @@ object MultisigWalletConfigParser {
         if (normalized.isBlank()) return null
 
         parseBsmsDescriptor(normalized)?.let { return it }
+        parseJsonDescriptor(normalized)?.let { return it }
         parseDescriptorLine(normalized)?.let { return it }
         parseColdcardConfig(normalized)?.let { return it }
         return null
@@ -29,6 +32,22 @@ object MultisigWalletConfigParser {
         val descriptor = parseDescriptorLine(lines[markerIndex + 1]) ?: return null
         val restrictions = lines.getOrNull(markerIndex + 2).orEmpty()
         return applyBsmsPathRestrictions(descriptor, restrictions)
+    }
+
+    private fun parseJsonDescriptor(text: String): String? {
+        if (!text.startsWith("{")) return null
+        return runCatching {
+            val root = JSONObject(text)
+            listOf(
+                "recv_descriptor",
+                "descriptor",
+                "output_descriptor",
+                "receive_descriptor",
+                "external_descriptor"
+            ).firstNotNullOfOrNull { key ->
+                root.optString(key).takeIf { it.isNotBlank() }
+            }?.let { parseDescriptorLine(it) }
+        }.getOrNull()
     }
 
     private fun applyBsmsPathRestrictions(descriptor: String, restrictions: String): String {

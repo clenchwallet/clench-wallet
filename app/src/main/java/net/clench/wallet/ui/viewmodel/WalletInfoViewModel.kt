@@ -14,13 +14,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.clench.wallet.data.local.dao.WalletKeystoreMetadataDao
 import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.entity.TransactionLabelEntity
+import net.clench.wallet.data.local.entity.WalletKeystoreMetadataEntity
 import net.clench.wallet.data.util.Bip329
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.ui.util.copyToClipboardWithAutoClear
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -30,10 +33,12 @@ import javax.inject.Inject
 class WalletInfoViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
     private val transactionLabelDao: TransactionLabelDao,
+    private val walletKeystoreMetadataDao: WalletKeystoreMetadataDao,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     data class MultisigKeystoreInfo(
+        val keyId: String,
         val label: String,
         val masterFingerprint: String?,
         val derivationPath: String?,
@@ -110,7 +115,13 @@ class WalletInfoViewModel @Inject constructor(
                 }
 
                 val txs = bitcoinRepository.getTransactions(walletId)
-                val multisigPolicy = parseMultisigPolicyForDisplay(wallet.descriptor, wallet.changeDescriptor)
+                val parsedMultisigPolicy = parseMultisigPolicyForDisplay(wallet.descriptor, wallet.changeDescriptor)
+                val keystoreMetadata = if (parsedMultisigPolicy != null) {
+                    withContext(Dispatchers.IO) {
+                        walletKeystoreMetadataDao.getForWallet(walletId).associateBy { it.keyId }
+                    }
+                } else emptyMap()
+                val multisigPolicy = parsedMultisigPolicy?.withMetadata(keystoreMetadata)
                 val effectiveIsMultisig = wallet.isMultisig || multisigPolicy != null
                 val xpub = if (effectiveIsMultisig) "" else try { bitcoinRepository.getAccountXpub(walletId) } catch (_: Exception) { "" }
                 val derivPath = if (effectiveIsMultisig) {
@@ -201,6 +212,41 @@ class WalletInfoViewModel @Inject constructor(
             try {
                 bitcoinRepository.setPreferredHardwareWallet(walletId, device)
                 _uiState.update { it.copy(preferredHardwareWallet = device) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = e.message) }
+            }
+        }
+    }
+
+    fun renameKeystore(keyId: String, label: String) {
+        val walletId = _uiState.value.walletId
+        val cleanLabel = label.trim().take(64)
+        if (walletId.isBlank() || keyId.isBlank() || cleanLabel.isBlank()) return
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    walletKeystoreMetadataDao.upsert(
+                        WalletKeystoreMetadataEntity(
+                            walletId = walletId,
+                            keyId = keyId,
+                            label = cleanLabel,
+                            preferredHardwareWallet = null,
+                            updatedAtEpochMs = System.currentTimeMillis()
+                        )
+                    )
+                }
+                _uiState.update { state ->
+                    val updatedPolicy = state.multisigPolicy?.let { policy ->
+                        val updatedKeystores = policy.keystores.map { keystore ->
+                            if (keystore.keyId == keyId) keystore.copy(label = cleanLabel) else keystore
+                        }
+                        policy.copy(
+                            keystores = updatedKeystores,
+                            warnings = buildMultisigWarnings(updatedKeystores)
+                        )
+                    }
+                    state.copy(multisigPolicy = updatedPolicy)
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message) }
             }
@@ -478,6 +524,22 @@ class WalletInfoViewModel @Inject constructor(
             )
         }
 
+        private fun MultisigPolicyInfo.withMetadata(
+            metadataByKey: Map<String, WalletKeystoreMetadataEntity>
+        ): MultisigPolicyInfo {
+            if (metadataByKey.isEmpty()) return this
+            val updatedKeystores = keystores.map { keystore ->
+                val label = metadataByKey[keystore.keyId]?.label
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                if (label == null) keystore else keystore.copy(label = label)
+            }
+            return copy(
+                keystores = updatedKeystores,
+                warnings = buildMultisigWarnings(updatedKeystores)
+            )
+        }
+
         internal fun buildBsmsDescriptorRecord(descriptor: String): String {
             val cleanDescriptor = descriptor.substringBefore("#").trim()
             val bsmsDescriptor = cleanDescriptor
@@ -500,7 +562,7 @@ class WalletInfoViewModel @Inject constructor(
             )
         }
 
-        private fun buildMultisigWarnings(keystores: List<MultisigKeystoreInfo>): List<String> {
+        internal fun buildMultisigWarnings(keystores: List<MultisigKeystoreInfo>): List<String> {
             return buildList {
                 keystores.forEach { keystore ->
                     if (keystore.masterFingerprint == null) {
@@ -576,6 +638,7 @@ class WalletInfoViewModel @Inject constructor(
             }
 
             return MultisigKeystoreInfo(
+                keyId = stableKeystoreId(fingerprint, originPath, xpub),
                 label = "Keystore ${index + 1}",
                 masterFingerprint = fingerprint,
                 derivationPath = originPath?.let { if (it.startsWith("m/")) it else "m/$it" },
@@ -583,6 +646,22 @@ class WalletInfoViewModel @Inject constructor(
                 checks = checks,
                 warnings = warnings
             )
+        }
+
+        internal fun stableKeystoreId(
+            fingerprint: String?,
+            derivationPath: String?,
+            xpub: String
+        ): String {
+            val input = listOf(
+                fingerprint.orEmpty().uppercase(Locale.US),
+                derivationPath.orEmpty().lowercase(Locale.US),
+                xpub.trim()
+            ).joinToString("|")
+            return MessageDigest.getInstance("SHA-256")
+                .digest(input.toByteArray(Charsets.UTF_8))
+                .take(12)
+                .joinToString("") { "%02x".format(it) }
         }
     }
 }

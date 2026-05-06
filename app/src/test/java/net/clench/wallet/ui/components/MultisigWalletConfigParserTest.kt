@@ -73,4 +73,38 @@ class MultisigWalletConfigParserTest {
 
         assertTrue(parsed?.startsWith("wsh(sortedmulti(2,") == true)
     }
+
+    @Test
+    fun `Specter Desktop json uses receive descriptor field`() {
+        val specterJson = """
+            {
+              "name": "Specter Vault",
+              "recv_descriptor": "wsh(sortedmulti(2,[AABBCCDD/48h/0h/0h/2h]xpub6Alpha/0/*,[11223344/48h/0h/0h/2h]xpub6Bravo/0/*))#abcd1234",
+              "change_descriptor": "wsh(sortedmulti(2,[AABBCCDD/48h/0h/0h/2h]xpub6Alpha/1/*,[11223344/48h/0h/0h/2h]xpub6Bravo/1/*))#bcde2345"
+            }
+        """.trimIndent()
+
+        val parsed = MultisigWalletConfigParser.parse(specterJson)
+
+        assertEquals(
+            "wsh(sortedmulti(2,[AABBCCDD/48h/0h/0h/2h]xpub6Alpha/0/*,[11223344/48h/0h/0h/2h]xpub6Bravo/0/*))#abcd1234",
+            parsed
+        )
+    }
+
+    @Test
+    fun `Specter DIY wallet software json uses descriptor field`() {
+        val specterDiyJson = """
+            {
+              "label": "DIY Vault",
+              "blockheight": 0,
+              "descriptor": "wsh(sortedmulti(1,[fb7c1f11/48h/1h/0h/2h]tpubDExnGppazLhZPNadP8Q5Vgee2QcvbyAf9GvGaEY7ALVJREaG2vdTqv1MHRoDtPaYP3y1DGVx7wrKKhsLhs26GY263uE6Wi3qNbi71AHZ6p7/0/*,[33a2bf0c/48h/1h/0h/2h]tpubDF4cAhFDn6XSPhQtFECSkQm35oEzVyHHAiPa4Qy83fBtPw9nFJAodN6xF6nY7y2xKMGc5nbDFZfAac88oaurVzrCUxyhmc9J8W5tg3N5NkS/0/*))#vk844svv"
+            }
+        """.trimIndent()
+
+        val parsed = MultisigWalletConfigParser.parse(specterDiyJson)
+
+        assertTrue(parsed?.startsWith("wsh(sortedmulti(1,") == true)
+        assertTrue(parsed?.contains("tpubDExn") == true)
+    }
 }
