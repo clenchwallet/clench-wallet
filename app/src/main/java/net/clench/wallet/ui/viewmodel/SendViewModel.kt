@@ -125,7 +125,7 @@ class SendViewModel @Inject constructor(
                             val sum = preselectedOutpoints.sumOf { utxoMap[it]?.amountSat ?: 0L }
                             if (sum > 0) sum else null
                         } catch (e: Exception) {
-                            android.util.Log.w("SendVM", "resolveSelectedUtxoAmounts failed: ${e.message}")
+                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "resolveSelectedUtxoAmounts failed: ${e.message}")
                             null
                         }
                     }
@@ -141,7 +141,7 @@ class SendViewModel @Inject constructor(
                                 else -> matches.firstOrNull()?.amountSat
                             }
                         } catch (e: Exception) {
-                            android.util.Log.w("SendVM", "resolveUtxoAmount failed: ${e.message}")
+                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "resolveUtxoAmount failed: ${e.message}")
                             null
                         }
                     }
@@ -161,11 +161,11 @@ class SendViewModel @Inject constructor(
                         frozenCount = frozenUtxos.size
                         frozenSats = frozenAmount
                         if (frozenAmount > 0) {
-                            android.util.Log.d("SendVM", "Subtracting $frozenAmount frozen sats (${frozenUtxos.size} UTXOs) from available balance")
+                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("SendVM", "Subtracting $frozenAmount frozen sats (${frozenUtxos.size} UTXOs) from available balance")
                         }
                         (balance.spendableSat - frozenAmount).coerceAtLeast(0L)
                     } catch (e: Exception) {
-                        android.util.Log.w("SendVM", "Could not compute frozen balance: ${e.message}")
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "Could not compute frozen balance: ${e.message}")
                         balance.spendableSat
                     }
                 }
@@ -194,7 +194,7 @@ class SendViewModel @Inject constructor(
                 }
                 _uiState.update { it.copy(savedPayees = payees) }
             } catch (e: Exception) {
-                android.util.Log.w("SendVM", "loadSavedPayees failed: ${e.message}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "loadSavedPayees failed: ${e.message}")
             }
         }
     }
@@ -342,7 +342,7 @@ class SendViewModel @Inject constructor(
         if (settingsManager.isOfflineMode()) return
         // H-5: Respect user's BTC price preference
         if (!settingsManager.isBtcPriceEnabled()) {
-            android.util.Log.d("SendVM", "BTC price fetch disabled by user setting")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("SendVM", "BTC price fetch disabled by user setting")
             return
         }
 
@@ -354,10 +354,10 @@ class SendViewModel @Inject constructor(
                         ?: fetchPriceFromCoinGecko()
                         ?: throw Exception("All price sources failed")
                 }
-                android.util.Log.d("SendVM", "BTC price: $$price")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("SendVM", "BTC price: $$price")
                 _uiState.update { it.copy(btcPriceUsd = price) }
             } catch (e: Exception) {
-                android.util.Log.w("SendVM", "BTC price fetch failed: ${e.message}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "BTC price fetch failed: ${e.message}")
             }
         }
     }
@@ -367,7 +367,7 @@ class SendViewModel @Inject constructor(
             val json = torAwareHttpClient.fetchText("https://api.coinbase.com/v2/prices/BTC-USD/spot")
             JSONObject(json).getJSONObject("data").getDouble("amount")
         } catch (e: Exception) {
-            android.util.Log.w("SendVM", "Coinbase price failed: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "Coinbase price failed: ${e.message}")
             null
         }
     }
@@ -378,7 +378,7 @@ class SendViewModel @Inject constructor(
             val json = torAwareHttpClient.fetchText("$baseUrl/api/v1/prices")
             JSONObject(json).getDouble("USD")
         } catch (e: Exception) {
-            android.util.Log.w("SendVM", "mempool API price failed: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "mempool API price failed: ${e.message}")
             null
         }
     }
@@ -388,7 +388,7 @@ class SendViewModel @Inject constructor(
             val json = torAwareHttpClient.fetchText("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
             JSONObject(json).getJSONObject("bitcoin").getDouble("usd")
         } catch (e: Exception) {
-            android.util.Log.w("SendVM", "CoinGecko price failed: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "CoinGecko price failed: ${e.message}")
             null
         }
     }
@@ -740,7 +740,7 @@ class SendViewModel @Inject constructor(
                 _uiState.update { it.copy(isLoading = false) }
                 onPsbtReady(psbtBase64)
             } catch (e: Exception) {
-                android.util.Log.w("SendVM", "createPsbt failed: ${e.javaClass.simpleName}: ${e.message}", e)
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "createPsbt failed: ${e.javaClass.simpleName}: ${e.message}", e)
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -759,7 +759,7 @@ class SendViewModel @Inject constructor(
             try {
                 val config = settingsManager.loadElectrumConfig()
                 val txid = bitcoinRepository.broadcastTransaction(config, txHex)
-                android.util.Log.d("SendVM", "Broadcast success: txid=$txid")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("SendVM", "Broadcast success: txid=$txid")
                 // Save labels — batch mode: combine all recipient labels; single mode: use label field
                 val isBatch = state.recipients.size > 1
                 if (isBatch) {
@@ -773,14 +773,14 @@ class SendViewModel @Inject constructor(
                                 "Batch send: " + batchLabels.joinToString("; ")
                             )
                         } catch (e: Exception) {
-                            android.util.Log.w("SendVM", "Failed to save batch labels: ${e.message}")
+                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "Failed to save batch labels: ${e.message}")
                         }
                     }
                 } else if (state.label.isNotBlank()) {
                     try {
                         bitcoinRepository.setTransactionLabel(state.walletId, txid, state.label)
                     } catch (e: Exception) {
-                        android.util.Log.w("SendVM", "Failed to save transaction label: ${e.message}")
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "Failed to save transaction label: ${e.message}")
                     }
                 }
                 if (!isBatch && state.savePayeeAfterSend && state.toAddress.isNotBlank()) {

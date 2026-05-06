@@ -118,16 +118,10 @@ class HomeViewModel @Inject constructor(
                 val balance = bitcoinRepository.getBalance(walletId)
                 val txs = bitcoinRepository.getTransactions(walletId)
                 val (frozenSat, frozenUtxoCount) = loadFrozenUtxoSummary(walletId)
-                // For watch-only wallets, BDK classifies all incoming funds as "untrustedPending"
-                // because it can't verify they were created by this wallet's keys.
-                // Treat untrustedPending as confirmed for display since the chain confirms them.
-                val isWatchOnly = _uiState.value.isWatchOnly
-                val displayConfirmed = if (isWatchOnly) {
-                    balance.confirmedSat + balance.untrustedPendingSat
-                } else balance.confirmedSat
-                val displayPending = if (isWatchOnly) {
-                    balance.trustedPendingSat
-                } else balance.trustedPendingSat + balance.untrustedPendingSat
+                // Do not promote untrusted pending into confirmed display. A hostile or
+                // inconsistent server view should not make funds appear safer than they are.
+                val displayConfirmed = balance.confirmedSat
+                val displayPending = balance.trustedPendingSat + balance.untrustedPendingSat
                 _uiState.update {
                     it.copy(
                         balanceSat = balance.totalSat,
@@ -239,11 +233,11 @@ class HomeViewModel @Inject constructor(
                         ?: fetchPriceFromCoinGecko()
                         ?: throw Exception("All price sources failed")
                 }
-                android.util.Log.d("HomeVM", "BTC price: $$price")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("HomeVM", "BTC price: $$price")
                 lastPriceFetchMs = System.currentTimeMillis()
                 _uiState.update { it.copy(btcPriceUsd = price, priceStale = false, btcPriceEnabled = true) }
             } catch (e: Exception) {
-                android.util.Log.w("HomeVM", "BTC price fetch failed: ${e.message}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("HomeVM", "BTC price fetch failed: ${e.message}")
                 _uiState.update { it.copy(priceStale = true, btcPriceEnabled = true) }
             }
         }
@@ -254,7 +248,7 @@ class HomeViewModel @Inject constructor(
             val json = torAwareHttpClient.fetchText("https://api.coinbase.com/v2/prices/BTC-USD/spot", 5_000, 5_000)
             JSONObject(json).getJSONObject("data").getDouble("amount")
         } catch (e: Exception) {
-            android.util.Log.w("HomeVM", "Coinbase price failed: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("HomeVM", "Coinbase price failed: ${e.message}")
             null
         }
     }
@@ -265,7 +259,7 @@ class HomeViewModel @Inject constructor(
             val json = torAwareHttpClient.fetchText("$baseUrl/api/v1/prices", 5_000, 5_000)
             JSONObject(json).getDouble("USD")
         } catch (e: Exception) {
-            android.util.Log.w("HomeVM", "mempool API price failed: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("HomeVM", "mempool API price failed: ${e.message}")
             null
         }
     }
@@ -275,7 +269,7 @@ class HomeViewModel @Inject constructor(
             val json = torAwareHttpClient.fetchText("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", 5_000, 5_000)
             JSONObject(json).getJSONObject("bitcoin").getDouble("usd")
         } catch (e: Exception) {
-            android.util.Log.w("HomeVM", "CoinGecko price failed: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("HomeVM", "CoinGecko price failed: ${e.message}")
             null
         }
     }
@@ -290,9 +284,8 @@ class HomeViewModel @Inject constructor(
                 val (frozenSat, frozenUtxoCount) = loadFrozenUtxoSummary(walletId)
 
                 // Update balance and transactions after successful sync
-                val isWO = _uiState.value.isWatchOnly
-                val syncConfirmed = if (isWO) balance.confirmedSat + balance.untrustedPendingSat else balance.confirmedSat
-                val syncPending = if (isWO) balance.trustedPendingSat else balance.trustedPendingSat + balance.untrustedPendingSat
+                val syncConfirmed = balance.confirmedSat
+                val syncPending = balance.trustedPendingSat + balance.untrustedPendingSat
                 _uiState.update {
                     it.copy(
                         balanceSat = balance.totalSat,

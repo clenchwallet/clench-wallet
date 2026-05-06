@@ -783,7 +783,8 @@ fun SendScreen(
                                 },
                                 onCancel = {
                                     (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
-                                }
+                                },
+                                allowUiOnlyFallback = false
                             )
                         } else {
                             // Biometric disabled or not available — proceed without

@@ -100,7 +100,7 @@ class ElectrumConnectionFactory @Inject constructor(
             try {
                 Base64.decode(pinnedCertBase64, Base64.NO_WRAP)
             } catch (e: Exception) {
-                Log.w(TAG, "Invalid pinned cert base64, ignoring: ${e.message}")
+                if (net.clench.wallet.BuildConfig.DEBUG) Log.w(TAG, "Invalid pinned cert base64, ignoring: ${e.message}")
                 null
             }
         } else null
@@ -166,7 +166,7 @@ class ElectrumConnectionFactory @Inject constructor(
      */
     fun createConnection(config: ElectrumConfig): ActiveElectrumConnection {
         val resolved = resolveConnection(config)
-        Log.d(TAG, "createConnection: mode=${resolved.mode} host=${resolved.host}:${resolved.port}")
+        if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "createConnection: mode=${resolved.mode} host=${resolved.host}:${resolved.port}")
 
         return when (resolved.mode) {
             ConnectionMode.PLAIN_TCP -> {
@@ -220,14 +220,14 @@ class ElectrumConnectionFactory @Inject constructor(
         // Start a local TCP server that BDK will connect to
         val localServer = ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())
         val localPort = localServer.localPort
-        Log.d(TAG, "relay: listening on 127.0.0.1:$localPort for mode=${resolved.mode}")
+        if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "relay: listening on 127.0.0.1:$localPort for mode=${resolved.mode}")
 
         // Accept exactly one connection (from BDK), relay bidirectionally
         val relayThread = Thread({
             try {
                 localServer.soTimeout = 30_000  // 30s timeout for BDK to connect
                 val localSocket = localServer.accept()
-                Log.d(TAG, "relay: BDK connected to local port $localPort")
+                if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "relay: BDK connected to local port $localPort")
 
                 // Bidirectional relay
                 val t1 = Thread({
@@ -246,7 +246,7 @@ class ElectrumConnectionFactory @Inject constructor(
                 t1.join()
                 t2.join()
             } catch (e: Exception) {
-                Log.w(TAG, "relay error: ${e.message}")
+                if (net.clench.wallet.BuildConfig.DEBUG) Log.w(TAG, "relay error: ${e.message}")
             } finally {
                 try { upstreamSocket.close() } catch (_: Exception) {}
                 try { localServer.close() } catch (_: Exception) {}
@@ -358,7 +358,7 @@ class ElectrumConnectionFactory @Inject constructor(
             0x04 -> readFully(ins, ByteArray(16 + 2)) // IPv6 + port
         }
 
-        Log.d(TAG, "SOCKS5 connected to $targetHost:$targetPort via $socksHost:$socksPort")
+        if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "SOCKS5 connected to $targetHost:$targetPort via $socksHost:$socksPort")
         return sock
     }
 
@@ -399,7 +399,7 @@ class ElectrumConnectionFactory @Inject constructor(
                 sslSocket.sslParameters = sslParameters
             }
             sslSocket.startHandshake()
-            Log.d(TAG, "TLS handshake complete with $host (pinned=${pinnedCertDer != null})")
+            if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "TLS handshake complete with $host (pinned=${pinnedCertDer != null})")
             sslSocket
         } catch (e: Exception) {
             socket.close()
@@ -423,7 +423,7 @@ class ElectrumConnectionFactory @Inject constructor(
         } catch (_: Exception) {
             // Connection closed
         }
-        Log.d(TAG, "relay $label finished")
+        if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "relay $label finished")
     }
 
     /**

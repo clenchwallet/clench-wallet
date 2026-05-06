@@ -18,6 +18,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.FeeTier
 import net.clench.wallet.ui.viewmodel.SweepViewModel
 
@@ -33,6 +34,7 @@ fun SweepScreen(
     viewModel: SweepViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    SecureWindowEffect()
 
     // Seed phrase input state (kept local for security — never exposed to ViewModel until submit)
     var seedInput by remember { mutableStateOf("") }

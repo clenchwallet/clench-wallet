@@ -1,18 +1,27 @@
 package net.clench.wallet.domain.model
 
 import org.bitcoindevkit.Transaction
+import org.bitcoindevkit.Network
 
 data class RawTransactionPreview(
     val normalizedHex: String,
     val txid: String,
     val vsize: Long,
     val totalSize: Long,
-    val isRbf: Boolean
+    val isRbf: Boolean,
+    val outputs: List<RawTransactionOutputPreview>
+)
+
+data class RawTransactionOutputPreview(
+    val index: Int,
+    val amountSat: Long,
+    val address: String?,
+    val scriptPubkeyHex: String
 )
 
 object RawTransactionPayload {
 
-    fun parse(input: String): RawTransactionPreview {
+    fun parse(input: String, network: Network): RawTransactionPreview {
         val bytes = decode(input)
         val tx = Transaction(bytes)
         return RawTransactionPreview(
@@ -20,7 +29,17 @@ object RawTransactionPayload {
             txid = tx.computeTxid().toString(),
             vsize = tx.vsize().toLong(),
             totalSize = tx.totalSize().toLong(),
-            isRbf = tx.isExplicitlyRbf()
+            isRbf = tx.isExplicitlyRbf(),
+            outputs = tx.output().mapIndexed { index, output ->
+                RawTransactionOutputPreview(
+                    index = index,
+                    amountSat = output.value.toSat().toLong(),
+                    address = runCatching {
+                        org.bitcoindevkit.Address.fromScript(output.scriptPubkey, network).toString()
+                    }.getOrNull(),
+                    scriptPubkeyHex = output.scriptPubkey.toBytes().toHex()
+                )
+            }
         )
     }
 

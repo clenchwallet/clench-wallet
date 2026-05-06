@@ -27,19 +27,13 @@ android {
         applicationId = "net.clench.wallet"
         minSdk = 26
         targetSdk = 35
-        versionCode = 306
-        versionName = "0.3.6"
+        versionCode = 307
+        versionName = "0.3.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
-        named("debug") {
-            storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
         if (keystorePropertiesFile.exists()) {
             create("release") {
                 storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
@@ -64,7 +58,6 @@ android {
         debug {
             isDebuggable = true
             applicationIdSuffix = ".debug"
-            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

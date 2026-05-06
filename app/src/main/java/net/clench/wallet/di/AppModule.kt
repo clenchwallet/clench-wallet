@@ -45,7 +45,7 @@ object DatabaseModule {
             if (dbFile.exists()) {
                 try {
                     val dbKey = keystoreManager.getOrCreateDatabaseKey()
-                    android.util.Log.d("ClenchDB", "Verifying encrypted DB...")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Verifying encrypted DB...")
                     val testDb = net.sqlcipher.database.SQLiteDatabase.openDatabase(
                         dbFile.absolutePath,
                         String(dbKey),
@@ -53,19 +53,19 @@ object DatabaseModule {
                         net.sqlcipher.database.SQLiteDatabase.OPEN_READONLY
                     )
                     testDb.close()
-                    android.util.Log.d("ClenchDB", "Encrypted DB verified OK")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Encrypted DB verified OK")
                 } catch (e: Exception) {
                     // [S-2] SECURITY: in release builds, fail-closed rather than destructively
                     // deleting the database on verification failure. An unreadable encrypted DB
                     // should surface as a recovery-required state, not silently delete wallet data.
                     if (isDebug) {
-                        android.util.Log.w("ClenchDB", "DB verification FAILED in debug — deleting (${e.javaClass.simpleName})")
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("ClenchDB", "DB verification FAILED in debug — deleting (${e.javaClass.simpleName})")
                         dbFile.delete()
                         context.getDatabasePath("clench.db-journal").delete()
                         context.getDatabasePath("clench.db-shm").delete()
                         context.getDatabasePath("clench.db-wal").delete()
                     } else {
-                        android.util.Log.e("ClenchDB", "DB verification FAILED in release — failing closed.")
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("ClenchDB", "DB verification FAILED in release — failing closed.")
                         throw e
                     }
                 }
@@ -79,7 +79,7 @@ object DatabaseModule {
             val factory = SupportFactory(dbKey)
             builder.openHelperFactory(factory)
         } else {
-            android.util.Log.d("ClenchDB", "Debug build — using unencrypted Room DB")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Debug build — using unencrypted Room DB")
         }
 
         // Delete the old encrypted DB if switching from encrypted to unencrypted (debug)
@@ -93,7 +93,7 @@ object DatabaseModule {
                     testDb.close()
                 } catch (_: Exception) {
                     // Was encrypted — delete so Room can create fresh unencrypted
-                    android.util.Log.d("ClenchDB", "Migrating from encrypted to unencrypted DB (debug)")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Migrating from encrypted to unencrypted DB (debug)")
                     dbFile.delete()
                     context.getDatabasePath("clench.db-journal").delete()
                     context.getDatabasePath("clench.db-shm").delete()

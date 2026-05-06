@@ -55,7 +55,8 @@ object BiometricHelper {
         subtitle: String,
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit,
-        onCancel: (() -> Unit)? = null
+        onCancel: (() -> Unit)? = null,
+        allowUiOnlyFallback: Boolean = true
     ) {
         val executor = ContextCompat.getMainExecutor(activity)
 
@@ -65,17 +66,25 @@ object BiometricHelper {
             getDecryptCipher(activity)
         } catch (e: KeyPermanentlyInvalidatedException) {
             // User changed biometrics — re-enroll
-            Log.w(TAG, "Biometric key invalidated (user changed biometrics), re-enrolling")
+            if (net.clench.wallet.BuildConfig.DEBUG) Log.w(TAG, "Biometric key invalidated (user changed biometrics), re-enrolling")
             try {
                 resetBiometricKey(activity)
                 ensureBiometricSetup(activity)
                 getDecryptCipher(activity)
             } catch (e2: Exception) {
-                Log.w(TAG, "Crypto re-enrollment failed, falling back to UI-only auth", e2)
+                if (net.clench.wallet.BuildConfig.DEBUG) Log.w(TAG, "Crypto re-enrollment failed", e2)
+                if (!allowUiOnlyFallback) {
+                    onFailure("Crypto-bound biometric verification unavailable after enrollment changed")
+                    return
+                }
                 null
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Crypto-bound auth unavailable, falling back to UI-only auth", e)
+            if (net.clench.wallet.BuildConfig.DEBUG) Log.w(TAG, "Crypto-bound auth unavailable", e)
+            if (!allowUiOnlyFallback) {
+                onFailure("Crypto-bound biometric verification unavailable")
+                return
+            }
             null
         }
 
@@ -93,7 +102,7 @@ object BiometricHelper {
                                 onFailure("Biometric verification failed — could not decrypt access token")
                             }
                         } catch (e: Exception) {
-                            Log.e(TAG, "Decryption failed after auth", e)
+                            if (net.clench.wallet.BuildConfig.DEBUG) Log.e(TAG, "Decryption failed after auth", e)
                             onFailure("Biometric verification failed: ${e.message}")
                         }
                     } else {
@@ -133,8 +142,13 @@ object BiometricHelper {
             try {
                 prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
             } catch (e: Exception) {
+                if (!allowUiOnlyFallback) {
+                    if (net.clench.wallet.BuildConfig.DEBUG) Log.w(TAG, "Crypto prompt failed; strict auth refuses UI-only fallback", e)
+                    onFailure("Crypto-bound biometric prompt failed")
+                    return
+                }
                 // Fallback to UI-only if crypto prompt fails
-                Log.w(TAG, "Crypto prompt failed, falling back", e)
+                if (net.clench.wallet.BuildConfig.DEBUG) Log.w(TAG, "Crypto prompt failed, falling back", e)
                 authenticateUiOnly(prompt, title, subtitle)
             }
         } else {
@@ -246,7 +260,7 @@ object BiometricHelper {
             val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
             keyStore.deleteEntry(BIOMETRIC_KEY_ALIAS)
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to delete biometric key", e)
+            if (net.clench.wallet.BuildConfig.DEBUG) Log.w(TAG, "Failed to delete biometric key", e)
         }
         // Clear stored access token
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

@@ -23,7 +23,7 @@ class KeystoreManager @Inject constructor(
             // Keystore corrupted (e.g. after backup restore or device migration).
             // Delete the corrupted prefs file and retry with a fresh key.
             // NOTE: all stored mnemonics will be lost — user must re-import wallets.
-            android.util.Log.w("KeystoreManager", "Keystore corrupted — clearing encrypted prefs and retrying")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("KeystoreManager", "Keystore corrupted — clearing encrypted prefs and retrying")
             context.deleteSharedPreferences("clench_secure_prefs")
             createPrefs() ?: throw IllegalStateException("Android Keystore unavailable — cannot secure wallet data")
         }

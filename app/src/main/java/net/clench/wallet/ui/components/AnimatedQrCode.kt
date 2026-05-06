@@ -75,7 +75,7 @@ fun encodePsbtForDevice(psbtBase64: String, deviceType: HardwareWalletType): Lis
             // Coldcard Q's scanner is more reliable with lower-density BBQr frames.
             // Smaller chunks create more frames, but each QR is easier for the Q to lock onto.
             val frames = BBQrEncoder.encodePsbt(psbtBytes, maxChunkChars = 480)
-            android.util.Log.d("BBQr", "Encoded ${psbtBytes.size} bytes into ${frames.size} frames, first frame header: ${frames.firstOrNull()?.take(20)}, frame len: ${frames.firstOrNull()?.length}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BBQr", "Encoded ${psbtBytes.size} bytes into ${frames.size} frames, first frame header: ${frames.firstOrNull()?.take(20)}, frame len: ${frames.firstOrNull()?.length}")
             frames
         }
         deviceType.requiresAnimatedPsbtUr() -> {

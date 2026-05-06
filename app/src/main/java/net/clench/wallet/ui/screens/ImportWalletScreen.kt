@@ -34,6 +34,7 @@ import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.components.WalletFingerprint
 import net.clench.wallet.ui.components.hasCameraAvailable
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.ImportWalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,6 +87,7 @@ fun ImportWalletScreen(
 
     val isSeedPhrase = uiState.detectedType == ImportWalletViewModel.DetectedType.SEED_12 ||
             uiState.detectedType == ImportWalletViewModel.DetectedType.SEED_24
+    SecureWindowEffect(enabled = !hardwareWalletMode)
 
     // Snackbar host for camera error messages
     val snackbarHostState = remember { SnackbarHostState() }

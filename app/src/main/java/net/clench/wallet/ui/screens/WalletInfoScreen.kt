@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.components.QrCodeImage
 import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.WalletInfoViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -805,6 +806,7 @@ private fun AddSeedPhraseToWalletSheet(
     onDismiss: () -> Unit,
     onConfirm: (mnemonic: CharArray, passphrase: CharArray?) -> Unit
 ) {
+    SecureWindowEffect()
     var seedInput by remember { mutableStateOf("") }
     var passphraseInput by remember { mutableStateOf("") }
     var showPassphrase by remember { mutableStateOf(false) }

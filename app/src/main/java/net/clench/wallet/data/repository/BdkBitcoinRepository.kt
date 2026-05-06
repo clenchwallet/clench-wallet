@@ -303,7 +303,7 @@ class BdkBitcoinRepository @Inject constructor(
     ): WalletData = withContext(Dispatchers.IO) {
         // [S-4] Gate: wallet name and import details
         if (logSensitive) {
-            android.util.Log.d("BdkRepo", "importWatchOnly: name=$name input=(redacted)")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "importWatchOnly: name=$name input=(redacted)")
         }
         // Normalize input — handle bare zpub/ypub/xpub and full descriptor strings
         val normalized = normalizeDescriptor(descriptor.trim())
@@ -311,31 +311,31 @@ class BdkBitcoinRepository @Inject constructor(
         val changeDescriptorStr = normalized.changeDescriptor
         val isMultisigDescriptor = isMultisigDescriptor(externalDescriptorStr)
         if (logSensitive) {
-            android.util.Log.d("BdkRepo", "importWatchOnly: normalized external descriptor (redacted)")
-            android.util.Log.d("BdkRepo", "importWatchOnly: origin fingerprint=${normalized.masterFingerprint} path=${normalized.derivationPath} device=$deviceType")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "importWatchOnly: normalized external descriptor (redacted)")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "importWatchOnly: origin fingerprint=${normalized.masterFingerprint} path=${normalized.derivationPath} device=$deviceType")
         }
 
         val network = activeNetwork()
         if (logSensitive) {
-            android.util.Log.d("BdkRepo", "importWatchOnly: network=$network")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "importWatchOnly: network=$network")
         }
         val externalDescriptor = try {
             Descriptor(externalDescriptorStr, network)
         } catch (e: Exception) {
-            android.util.Log.e("BdkRepo", "importWatchOnly: external descriptor invalid")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "importWatchOnly: external descriptor invalid")
             throw IllegalArgumentException("Invalid descriptor or extended public key. Please check the format and try again.\n\nDetails: ${e.message}")
         }
         val changeDescriptor = try {
             Descriptor(changeDescriptorStr, network)
         } catch (e: Exception) {
-            android.util.Log.e("BdkRepo", "importWatchOnly: change descriptor invalid")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "importWatchOnly: change descriptor invalid")
             throw IllegalArgumentException("Invalid descriptor or extended public key. Please check the format and try again.\n\nDetails: ${e.message}")
         }
 
         // Prevent duplicate imports — check current network only
         val existing = walletDao.getAllByNetwork(settingsManager.getNetwork())
         if (existing.any { it.descriptor == externalDescriptor.toString() }) {
-            android.util.Log.w("BdkRepo", "importWatchOnly: duplicate descriptor found")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "importWatchOnly: duplicate descriptor found")
             throw IllegalArgumentException("A wallet with this descriptor is already in your wallet list.")
         }
 
@@ -529,7 +529,7 @@ class BdkBitcoinRepository @Inject constructor(
     override suspend fun syncWallet(walletId: String, config: ElectrumConfig?): WalletBalance = withContext(Dispatchers.IO) {
         // Offline mode — skip sync entirely, return cached balance
         if (settingsManager.isOfflineMode()) {
-            android.util.Log.d("BdkRepo", "Offline mode — skipping sync")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "Offline mode — skipping sync")
             return@withContext getBalance(walletId)
         }
 
@@ -538,7 +538,7 @@ class BdkBitcoinRepository @Inject constructor(
         // which leaks wallet activity before the passphrase is entered. Only sync after unlock.
         val walletEntityForPassphraseCheck = walletDao.getById(walletId)
         if (walletEntityForPassphraseCheck?.hasPassphrase == true && !unlockedPassphraseWallets.contains(walletId)) {
-            android.util.Log.d("BdkRepo", "syncWallet: SKIPPING $walletId — passphrase wallet is locked")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: SKIPPING $walletId — passphrase wallet is locked")
             return@withContext WalletBalance(0, 0, 0, 0)
         }
 
@@ -546,14 +546,14 @@ class BdkBitcoinRepository @Inject constructor(
         val walletEntity = walletEntityForPassphraseCheck
         val currentNetwork = settingsManager.getNetwork()
         if (walletEntity != null && walletEntity.network != currentNetwork) {
-            android.util.Log.w("BdkRepo", "syncWallet: SKIPPING $walletId — wallet is ${walletEntity.network} but current network is $currentNetwork")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "syncWallet: SKIPPING $walletId — wallet is ${walletEntity.network} but current network is $currentNetwork")
             return@withContext getBalance(walletId)
         }
 
         // R7-1: Per-wallet mutex — skip if already syncing to prevent concurrent BDK access
         val mutex = syncMutex(walletId)
         if (mutex.isLocked) {
-            android.util.Log.d("BdkRepo", "syncWallet: already syncing $walletId, skipping")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: already syncing $walletId, skipping")
             return@withContext getBalance(walletId)
         }
 
@@ -570,17 +570,17 @@ class BdkBitcoinRepository @Inject constructor(
             val connectionStr = buildElectrumUrl(effectiveConfig)
             // [S-4] Gate: server connection details are sensitive (host reconnaissance)
             if (logSensitive) {
-                android.util.Log.d("BdkRepo", "syncWallet: url=${effectiveConfig.serverUrl}, port=${effectiveConfig.port}, ssl=${effectiveConfig.useSsl}, custom=${effectiveConfig.isCustom}, tor=${effectiveConfig.useTor}, pinnedCert=${effectiveConfig.pinnedCert != null}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: url=${effectiveConfig.serverUrl}, port=${effectiveConfig.port}, ssl=${effectiveConfig.useSsl}, custom=${effectiveConfig.isCustom}, tor=${effectiveConfig.useTor}, pinnedCert=${effectiveConfig.pinnedCert != null}")
             }
 
             // Load wallet first (fast, local operation)
             // [S-4] Gate: wallet ID exposure
             if (logSensitive) {
-                android.util.Log.d("BdkRepo", "syncWallet: loading wallet $walletId")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: loading wallet $walletId")
             }
             val entry = loadWallet(walletId)
             val wallet = entry.wallet
-            android.util.Log.d("BdkRepo", "syncWallet: wallet loaded OK")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: wallet loaded OK")
 
             // ElectrumClient constructor is a blocking native call (TCP+SSL handshake).
             // withTimeout cannot interrupt native/blocking calls, so we use a Future with hard timeout.
@@ -592,7 +592,7 @@ class BdkBitcoinRepository @Inject constructor(
                 val resolved = electrumConnectionFactory.resolveConnection(effectiveConfig)
                 // [S-4] Gate: connection mode details
                 if (logSensitive) {
-                    android.util.Log.d("BdkRepo", "syncWallet: creating ElectrumClient mode=${resolved.mode} (timeout=${timeoutMs}ms)")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: creating ElectrumClient mode=${resolved.mode} (timeout=${timeoutMs}ms)")
                 }
                 val connectFuture = executor.submit(java.util.concurrent.Callable {
                     electrumConnectionFactory.createConnection(effectiveConfig)
@@ -601,57 +601,57 @@ class BdkBitcoinRepository @Inject constructor(
                     activeConnection = connectFuture.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
                 } catch (e: java.util.concurrent.TimeoutException) {
                     connectFuture.cancel(true)
-                    android.util.Log.e("BdkRepo", "syncWallet: ElectrumClient connect TIMEOUT after ${timeoutMs}ms")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: ElectrumClient connect TIMEOUT after ${timeoutMs}ms")
                     throw java.util.concurrent.TimeoutException("ElectrumClient connection timed out after ${timeoutMs}ms")
                 } catch (e: java.util.concurrent.ExecutionException) {
-                    android.util.Log.e("BdkRepo", "syncWallet: ElectrumClient connect ERROR: ${e.cause?.message}")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: ElectrumClient connect ERROR: ${e.cause?.message}")
                     throw e.cause ?: e
                 }
                 val electrumClient = activeConnection.client
-                android.util.Log.d("BdkRepo", "syncWallet: ElectrumClient created OK (mode=${activeConnection.mode})")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: ElectrumClient created OK (mode=${activeConnection.mode})")
 
                 // Full scan with coroutine timeout (fullScan is also blocking but generally completes)
                 withTimeout(timeoutMs) {
-                    android.util.Log.d("BdkRepo", "syncWallet: building fullScan request for $walletId")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: building fullScan request for $walletId")
                     val fullScanRequest = wallet.startFullScan().build()
-                    android.util.Log.d("BdkRepo", "syncWallet: starting fullScan (stopGap=20, batch=10)")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: starting fullScan (stopGap=20, batch=10)")
                     val update = electrumClient.fullScan(
                         fullScanRequest,
                         stopGap = 20uL,
                         batchSize = 10uL,
                         fetchPrevTxouts = true
                     )
-                    android.util.Log.d("BdkRepo", "syncWallet: fullScan complete, applying update")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: fullScan complete, applying update")
 
                     wallet.applyUpdate(update)
-                    android.util.Log.d("BdkRepo", "syncWallet: update applied, persisting")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: update applied, persisting")
 
                     wallet.persist(entry.persister)
-                    android.util.Log.d("BdkRepo", "syncWallet: persisted OK")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: persisted OK")
                 }
             } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                android.util.Log.e("BdkRepo", "syncWallet: TIMEOUT for $walletId: ${e.message}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: TIMEOUT for $walletId: ${e.message}")
                 throw e
             } catch (e: java.util.concurrent.TimeoutException) {
-                android.util.Log.e("BdkRepo", "syncWallet: CONNECT TIMEOUT for $walletId: ${e.message}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: CONNECT TIMEOUT for $walletId: ${e.message}")
                 throw e
             } catch (e: Exception) {
-                android.util.Log.e("BdkRepo", "syncWallet: ERROR for $walletId: ${e.javaClass.simpleName}: ${e.message}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: ERROR for $walletId: ${e.javaClass.simpleName}: ${e.message}")
                 throw e
             } finally {
                 try { activeConnection?.close() } catch (_: Exception) {}
                 executor.shutdownNow()
-                android.util.Log.d("BdkRepo", "syncWallet: cleanup done")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: cleanup done")
             }
 
-            android.util.Log.d("BdkRepo", "syncWallet: starting tx caching phase")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: starting tx caching phase")
             // R7-4: Calculate tip height for confirmation count
             // IMPORTANT: Wallet's own transactions are stale for wallets that haven't received funds recently
             // (e.g. a 2022 wallet shows 66 confs instead of ~184,000). Always fetch current tip first.
             val transactions = wallet.transactions()
             // [S-4] Gate: tx count reveals wallet activity level
             if (logSensitive) {
-                android.util.Log.d("BdkRepo", "syncWallet: got ${transactions.size} transactions")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: got ${transactions.size} transactions")
             }
             
             // Priority 1: use the configured Electrum route for current tip height.
@@ -667,7 +667,7 @@ class BdkBitcoinRepository @Inject constructor(
                         if (h > tipHeight) tipHeight = h
                     }
                 }
-                android.util.Log.d("BdkRepo", "tipHeight from wallet txs (fallback): $tipHeight")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tipHeight from wallet txs (fallback): $tipHeight")
             }
 
             // Cache transactions to Room DB
@@ -692,19 +692,19 @@ class BdkBitcoinRepository @Inject constructor(
                         val confs = if (tipHeight >= txHeight) (tipHeight - txHeight + 1u).toInt() else 1
                         // [S-4] Gate: txid fragments expose wallet activity
                         if (logSensitive) {
-                            android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... CONFIRMED height=$txHeight confs=$confs")
+                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... CONFIRMED height=$txHeight confs=$confs")
                         }
                         Pair(ts, confs)
                     }
                     is ChainPosition.Unconfirmed -> {
                         if (logSensitive) {
-                            android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNCONFIRMED lastSeen=${pos.timestamp}")
+                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNCONFIRMED lastSeen=${pos.timestamp}")
                         }
                         Pair(pos.timestamp?.let { it.toLong() * 1000L }, 0)
                     }
                     else -> {
                         if (logSensitive) {
-                            android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNKNOWN pos=${pos.javaClass.simpleName}")
+                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNKNOWN pos=${pos.javaClass.simpleName}")
                         }
                         Pair(null, 0)
                     }
@@ -744,7 +744,7 @@ class BdkBitcoinRepository @Inject constructor(
                 if (trulyUnknown.isNotEmpty()) {
                     // [S-4] Gate: tx count exposure
                     if (logSensitive) {
-                        android.util.Log.d("BdkRepo", "Watch-only: ${unconfirmedTxs.size} unconfirmed, ${trulyUnknown.size} need lookup")
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "Watch-only: ${unconfirmedTxs.size} unconfirmed, ${trulyUnknown.size} need lookup")
                     }
                     // Batch query via raw Electrum protocol (single socket, all txs)
                     val txConfirmations = batchElectrumTxLookup(trulyUnknown.map { it.txid }, connectionStr, tipHeight)
@@ -788,7 +788,7 @@ class BdkBitcoinRepository @Inject constructor(
             val txCount = transactions.size
             // [S-4] Gate: balance + tx count expose wallet activity and funds
             if (logSensitive) {
-                android.util.Log.d("BdkRepo", "syncWallet: balance confirmed=${balance.confirmed.toSat()} trustedPending=${balance.trustedPending.toSat()} untrustedPending=${balance.untrustedPending.toSat()} immature=${balance.immature.toSat()} txCount=$txCount")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: balance confirmed=${balance.confirmed.toSat()} trustedPending=${balance.trustedPending.toSat()} untrustedPending=${balance.untrustedPending.toSat()} immature=${balance.immature.toSat()} txCount=$txCount")
             }
             WalletBalance(
                 confirmedSat = balance.confirmed.toSat().toLong(),
@@ -956,7 +956,7 @@ class BdkBitcoinRepository @Inject constructor(
             val needsManualSelection = isPassphraseWallet || frozenOutpoints.isNotEmpty()
             if (needsManualSelection) {
                 val utxos = wallet.listUnspent()
-                android.util.Log.d("BdkRepo", "buildTransaction: manual UTXO selection (passphrase=$isPassphraseWallet, ${frozenOutpoints.size} frozen)")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "buildTransaction: manual UTXO selection (passphrase=$isPassphraseWallet, ${frozenOutpoints.size} frozen)")
                 for (utxo in utxos) {
                     val opStr = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
                     if (!utxo.isSpent && opStr !in frozenOutpoints) {
@@ -999,9 +999,9 @@ class BdkBitcoinRepository @Inject constructor(
         val allWallets = walletDao.getAll()
         val networkWallets = walletDao.getAllByNetwork(network)
         if (logSensitive) {
-            android.util.Log.d("BdkRepo", "listWallets: network=$network total=${allWallets.size} forNetwork=${networkWallets.size}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "listWallets: network=$network total=${allWallets.size} forNetwork=${networkWallets.size}")
             allWallets.forEach { w ->
-                android.util.Log.d("BdkRepo", "  wallet: id=${w.id.take(8)} name=${w.name} network=${w.network} watchOnly=${w.isWatchOnly}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "  wallet: id=${w.id.take(8)} name=${w.name} network=${w.network} watchOnly=${w.isWatchOnly}")
             }
         }
         return networkWallets.map { entity ->
@@ -1065,7 +1065,7 @@ class BdkBitcoinRepository @Inject constructor(
 
         // [S-4] Gate: keychain and index info exposure
         if (logSensitive) {
-            android.util.Log.d("BdkRepo", "getAddresses: keychain=$keychain lastRevealed=$lastRevealedIndex unused=${unusedAddresses.size}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "getAddresses: keychain=$keychain lastRevealed=$lastRevealedIndex unused=${unusedAddresses.size}")
         }
 
         val addresses = mutableListOf<DomainAddress>()
@@ -1081,7 +1081,7 @@ class BdkBitcoinRepository @Inject constructor(
             val isUsed = !nothingRevealed && i <= lastRevealedIndex && addrStr !in unusedAddresses
             // [S-4] Gate: address exposure (even partial addresses reveal wallet activity)
             if (logSensitive && i < 5) {
-                android.util.Log.d("BdkRepo", "  addr[$i]=$addrStr revealed=${i <= lastRevealedIndex} inUnused=${addrStr in unusedAddresses} used=$isUsed")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "  addr[$i]=$addrStr revealed=${i <= lastRevealedIndex} inUnused=${addrStr in unusedAddresses} used=$isUsed")
             }
             addresses.add(
                 DomainAddress(
@@ -1198,7 +1198,7 @@ class BdkBitcoinRepository @Inject constructor(
         val electrumFees = try {
             estimateFeesFromElectrum()
         } catch (e: Exception) {
-            android.util.Log.w("BdkRepo", "Electrum fee estimation failed: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "Electrum fee estimation failed: ${e.message}")
             null
         }
 
@@ -1208,10 +1208,10 @@ class BdkBitcoinRepository @Inject constructor(
                 try {
                     return@withContext estimateFeesFromMempoolSpace()
                 } catch (e: Exception) {
-                    android.util.Log.w("BdkRepo", "Mempool.space fee estimation failed: ${e.message}")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "Mempool.space fee estimation failed: ${e.message}")
                 }
             } else {
-                android.util.Log.d("BdkRepo", "External fee lookup disabled; using static fee defaults")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "External fee lookup disabled; using static fee defaults")
             }
         }
 
@@ -1268,7 +1268,7 @@ class BdkBitcoinRepository @Inject constructor(
                 )
             }
         } catch (e: Exception) {
-            android.util.Log.w("BdkRepo", "Electrum fee estimation error: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "Electrum fee estimation error: ${e.message}")
             null
         } finally {
             activeConnection.close()
@@ -1284,7 +1284,7 @@ class BdkBitcoinRepository @Inject constructor(
         val baseUrl = mempoolApiBaseUrlForActiveNetwork()
         val url = "$baseUrl/api/v1/fees/recommended"
 
-        android.util.Log.d("BdkRepo", "Fetching fees from mempool API: $url")
+        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "Fetching fees from mempool API: $url")
 
         val json = torAwareHttpClient.fetchText(url)
         val obj = org.json.JSONObject(json)
@@ -1379,7 +1379,7 @@ class BdkBitcoinRepository @Inject constructor(
         // Never expose UTXOs from the public descriptor (xpub) wallet in the locked state.
         val walletEntity = walletDao.getById(walletId)
         if (walletEntity?.hasPassphrase == true && !unlockedPassphraseWallets.contains(walletId)) {
-            android.util.Log.d("BdkRepo", "listUnspent: passphrase wallet $walletId is locked — returning empty list")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "listUnspent: passphrase wallet $walletId is locked — returning empty list")
             return@withContext emptyList()
         }
 
@@ -1388,7 +1388,7 @@ class BdkBitcoinRepository @Inject constructor(
         val utxos = wallet.listUnspent()
         // [S-4] Gate: UTXO count and unlock status expose wallet balance info
         if (logSensitive) {
-            android.util.Log.d("BdkRepo", "listUnspent: walletId=${walletId.take(8)} rawUtxoCount=${utxos.size} unlocked=${unlockedPassphraseWallets.contains(walletId)}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "listUnspent: walletId=${walletId.take(8)} rawUtxoCount=${utxos.size} unlocked=${unlockedPassphraseWallets.contains(walletId)}")
         }
 
         // Calculate tip height for confirmation count via the configured Electrum route.
@@ -1404,14 +1404,14 @@ class BdkBitcoinRepository @Inject constructor(
                     if (h > tipHeight) tipHeight = h
                 }
             }
-            android.util.Log.d("BdkRepo", "listUnspent: tipHeight from wallet txs (fallback): $tipHeight")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "listUnspent: tipHeight from wallet txs (fallback): $tipHeight")
         }
 
         // Load frozen outpoints for this wallet
         val frozenOutpoints = try {
             utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
         } catch (e: Exception) {
-            android.util.Log.w("BdkRepo", "listUnspent: failed to get frozen UTXOs: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "listUnspent: failed to get frozen UTXOs: ${e.message}")
             emptySet()
         }
 
@@ -1516,10 +1516,10 @@ class BdkBitcoinRepository @Inject constructor(
             val frozenOutpoints = try {
                 utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
             } catch (e: Exception) {
-                android.util.Log.w("BdkRepo", "createPsbt: failed to get frozen UTXOs: ${e.message}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "createPsbt: failed to get frozen UTXOs: ${e.message}")
                 emptySet()
             }
-            android.util.Log.d("BdkRepo", "createPsbt: watch-only wallet, adding ${utxos.size} UTXOs (${frozenOutpoints.size} frozen/excluded)")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: watch-only wallet, adding ${utxos.size} UTXOs (${frozenOutpoints.size} frozen/excluded)")
             for (utxo in utxos) {
                 val outpointStr = "${utxo.outpoint.txid.toString()}:${utxo.outpoint.vout}"
                 if (!utxo.isSpent && outpointStr !in frozenOutpoints) {
@@ -1536,7 +1536,7 @@ class BdkBitcoinRepository @Inject constructor(
                 utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
             } else emptySet()
         } catch (e: Exception) {
-            android.util.Log.w("BdkRepo", "createPsbt: failed to get frozen UTXOs for coin control: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "createPsbt: failed to get frozen UTXOs for coin control: ${e.message}")
             emptySet()
         }
         
@@ -1549,7 +1549,7 @@ class BdkBitcoinRepository @Inject constructor(
                     val outpointStr = "$txid:$vout"
                     // Skip frozen UTXOs
                     if (outpointStr in frozenOutpointsForCoinControl) {
-                        android.util.Log.d("BdkRepo", "createPsbt: skipping frozen UTXO $outpointStr")
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: skipping frozen UTXO $outpointStr")
                         continue
                     }
                     builder = builder.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(txid), vout))
@@ -1559,7 +1559,7 @@ class BdkBitcoinRepository @Inject constructor(
         } else if (amountSat != null && utxoTxid != null && utxoVout != null) {
             val outpointStr = "$utxoTxid:$utxoVout"
             if (outpointStr in frozenOutpointsForCoinControl) {
-                android.util.Log.w("BdkRepo", "createPsbt: attempted to spend frozen UTXO $outpointStr")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "createPsbt: attempted to spend frozen UTXO $outpointStr")
                 throw IllegalArgumentException("Cannot spend frozen UTXO")
             }
             builder = builder.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(utxoTxid), utxoVout))
@@ -1576,11 +1576,11 @@ class BdkBitcoinRepository @Inject constructor(
             val builderWithXpubs = builder.addGlobalXpubs()
             builderWithXpubs.finish(wallet)
         } catch (e: Exception) {
-            android.util.Log.w("BdkRepo", "createPsbt: build with globalXpubs failed, retrying without: ${e.message?.take(80)}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "createPsbt: build with globalXpubs failed, retrying without: ${e.message?.take(80)}")
             builder.finish(wallet)
         }
 
-        android.util.Log.d("BdkRepo", "createPsbt: built PSBT for ${if (isWatchOnly) "watch-only" else "full"} wallet, base64 len=${psbt.serialize().length}")
+        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: built PSBT for ${if (isWatchOnly) "watch-only" else "full"} wallet, base64 len=${psbt.serialize().length}")
 
         // Log PSBT origin info for debugging — helps verify hardware wallet compatibility
         try {
@@ -1591,13 +1591,13 @@ class BdkBitcoinRepository @Inject constructor(
                 val bip32 = firstInput.optJSONArray("bip32_derivation")
                     ?: firstInput.optJSONArray("bip32_derivations")
                 if (bip32 != null && bip32.length() > 0) {
-                    android.util.Log.d("BdkRepo", "createPsbt: bip32_derivation[0] = ${bip32.getJSONObject(0)}")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: bip32_derivation[0] = ${bip32.getJSONObject(0)}")
                 } else {
-                    android.util.Log.d("BdkRepo", "createPsbt: no bip32_derivation in first input")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: no bip32_derivation in first input")
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.d("BdkRepo", "createPsbt: could not log bip32_derivation: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: could not log bip32_derivation: ${e.message}")
         }
 
         // Return base64-encoded PSBT
@@ -1723,7 +1723,7 @@ class BdkBitcoinRepository @Inject constructor(
             val builderWithXpubs = builder.addGlobalXpubs()
             builderWithXpubs.finish(wallet)
         } catch (e: Exception) {
-            android.util.Log.w("BdkRepo", "createBatchPsbt: build with globalXpubs failed, retrying without: ${e.message?.take(80)}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "createBatchPsbt: build with globalXpubs failed, retrying without: ${e.message?.take(80)}")
             builder.finish(wallet)
         }
         psbt.serialize()
@@ -1829,7 +1829,7 @@ class BdkBitcoinRepository @Inject constructor(
         } catch (e: Exception) {
             // Some BDK/rust-bitcoin versions refuse to extract a non-final PSBT.
             // Fall back to JSON output validation rather than broadcasting blind.
-            android.util.Log.w("BdkRepo", "Unsigned PSBT transaction extraction failed, falling back to JSON output validation: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "Unsigned PSBT transaction extraction failed, falling back to JSON output validation: ${e.message}")
             null
         }
 
@@ -1840,7 +1840,7 @@ class BdkBitcoinRepository @Inject constructor(
                 throw SecurityException("PSBT tampered: transaction inputs changed")
             }
             compareOutputs(expected.outputs, actual.outputs)
-            android.util.Log.d("BdkRepo", "PSBT validation passed: ${actual.outputs.size} outputs and ${actual.inputs.size} inputs match")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "PSBT validation passed: ${actual.outputs.size} outputs and ${actual.inputs.size} inputs match")
             return
         }
 
@@ -1873,7 +1873,7 @@ class BdkBitcoinRepository @Inject constructor(
             }
 
             compareOutputs(expectedOutputs, actual.outputs)
-            android.util.Log.d("BdkRepo", "PSBT validation passed: ${actual.outputs.size} outputs match")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "PSBT validation passed: ${actual.outputs.size} outputs match")
         } catch (e: SecurityException) {
             throw e
         } catch (e: Exception) {
@@ -1964,7 +1964,7 @@ class BdkBitcoinRepository @Inject constructor(
         if (isPassphraseWallet) {
             val persister = Persister.newInMemory()
             val wallet = Wallet(externalDescriptor, changeDescriptor, network, persister)
-            android.util.Log.d("BdkRepo", "loadWallet: passphrase wallet $walletId — using in-memory persister (locked state)")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "loadWallet: passphrase wallet $walletId — using in-memory persister (locked state)")
             val entry = WalletEntry(wallet, persister)
             walletCache[walletId] = entry
             return entry
@@ -1986,7 +1986,7 @@ class BdkBitcoinRepository @Inject constructor(
             // Descriptor mismatch, InvalidChangeSet, or other BDK error
             // This can happen after network switch or DB corruption
             // Delete the stale wallet DB and create fresh
-            android.util.Log.w("BdkBitcoinRepository", "Wallet load failed (${e.javaClass.simpleName}: ${e.message}), recreating wallet DB for $walletId")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkBitcoinRepository", "Wallet load failed (${e.javaClass.simpleName}: ${e.message}), recreating wallet DB for $walletId")
             try {
                 val dbFile = context.getDatabasePath("wallet_${walletId}.db")
                 dbFile.delete()
@@ -2001,14 +2001,14 @@ class BdkBitcoinRepository @Inject constructor(
         // Debug: log descriptor and first address
         // [S-4] Gate: wallet ID and address exposure
         if (logSensitive) {
-            android.util.Log.d("BdkRepo", "loadWallet: id=$walletId network=${walletEntity.network} watchOnly=${walletEntity.isWatchOnly}")
-            android.util.Log.d("BdkRepo", "loadWallet: descriptor=(redacted)")
-            android.util.Log.d("BdkRepo", "loadWallet: changeDesc=(redacted)")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "loadWallet: id=$walletId network=${walletEntity.network} watchOnly=${walletEntity.isWatchOnly}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "loadWallet: descriptor=(redacted)")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "loadWallet: changeDesc=(redacted)")
             try {
                 val addr0 = wallet.revealAddressesTo(org.bitcoindevkit.KeychainKind.EXTERNAL, 0u)
-                android.util.Log.d("BdkRepo", "loadWallet: addr[0]=${addr0}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "loadWallet: addr[0]=${addr0}")
             } catch (e: Exception) {
-                android.util.Log.w("BdkRepo", "loadWallet: could not derive addr[0]: ${e.message}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "loadWallet: could not derive addr[0]: ${e.message}")
             }
         }
 
@@ -2290,7 +2290,7 @@ class BdkBitcoinRepository @Inject constructor(
                 tipHeight
             }
         } catch (e: Exception) {
-            android.util.Log.w("BdkRepo", "Failed to get tip height from Electrum: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "Failed to get tip height from Electrum: ${e.message}")
             null
         }
     }
@@ -2310,8 +2310,8 @@ class BdkBitcoinRepository @Inject constructor(
         val result = mutableMapOf<String, Pair<Long, Long>>()
         try {
             val config = settingsManager.loadElectrumConfig()
-            android.util.Log.d("BdkRepo", "batchElectrumTxLookup: connecting for ${txids.size} txids")
-            android.util.Log.d("BdkRepo", "batchElectrumTxLookup: first txid=${txids.firstOrNull()} len=${txids.firstOrNull()?.length}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "batchElectrumTxLookup: connecting for ${txids.size} txids")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "batchElectrumTxLookup: first txid=${txids.firstOrNull()} len=${txids.firstOrNull()?.length}")
 
             val socket = electrumConnectionFactory.createRawSocket(config)
             socket.soTimeout = 30_000
@@ -2335,22 +2335,22 @@ class BdkBitcoinRepository @Inject constructor(
                 } catch (_: Exception) {}
             }
 
-            android.util.Log.d("BdkRepo", "batchElectrumTxLookup: got ${responses.size} responses for ${txids.size} requests")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "batchElectrumTxLookup: got ${responses.size} responses for ${txids.size} requests")
             // Parse results
             for ((idx, txid) in txids.withIndex()) {
                 val resp = responses[idx]
                 if (resp == null) {
-                    android.util.Log.w("BdkRepo", "batchElectrumTxLookup: no response for idx=$idx txid=${txid.take(12)}")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "batchElectrumTxLookup: no response for idx=$idx txid=${txid.take(12)}")
                     continue
                 }
                 val error = resp.optJSONObject("error")
                 if (error != null) {
-                    android.util.Log.w("BdkRepo", "batchElectrumTxLookup: error for ${txid.take(12)}: ${error}")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "batchElectrumTxLookup: error for ${txid.take(12)}: ${error}")
                     continue
                 }
                 val txResult = resp.optJSONObject("result")
                 if (txResult == null) {
-                    android.util.Log.w("BdkRepo", "batchElectrumTxLookup: no result object for ${txid.take(12)}: ${resp.toString().take(200)}")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "batchElectrumTxLookup: no result object for ${txid.take(12)}: ${resp.toString().take(200)}")
                     continue
                 }
                 // Electrum verbose tx: "confirmations", "blocktime"/"time", no "blockheight"
@@ -2362,14 +2362,14 @@ class BdkBitcoinRepository @Inject constructor(
                     (tipHeight.toLong() - confs + 1)
                 } else 0L
                 if (confs > 0) {
-                    android.util.Log.d("BdkRepo", "Electrum batch: ${txid.take(12)}... confs=$confs height=$blockHeight time=$blockTime")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "Electrum batch: ${txid.take(12)}... confs=$confs height=$blockHeight time=$blockTime")
                     result[txid] = Pair(blockHeight, blockTime)
                 }
             }
 
             socket.close()
         } catch (e: Exception) {
-            android.util.Log.w("BdkRepo", "batchElectrumTxLookup failed: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "batchElectrumTxLookup failed: ${e.message}")
         }
         return result
     }
@@ -2431,8 +2431,8 @@ class BdkBitcoinRepository @Inject constructor(
         val externalDescriptorStr = "wsh(sortedmulti($threshold,$externalKeys))"
         val changeDescriptorStr = "wsh(sortedmulti($threshold,$changeKeys))"
 
-        android.util.Log.d("BdkRepo", "createMultisigWallet: external=$externalDescriptorStr")
-        android.util.Log.d("BdkRepo", "createMultisigWallet: change=$changeDescriptorStr")
+        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createMultisigWallet: external=$externalDescriptorStr")
+        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createMultisigWallet: change=$changeDescriptorStr")
 
         // Parse descriptors through BDK to validate
         val externalDescriptor = try {
@@ -2574,7 +2574,7 @@ class BdkBitcoinRepository @Inject constructor(
      * @throws IllegalArgumentException if wallet not found or passphrase is incorrect
      */
     override suspend fun unlockPassphraseWallet(walletId: String, passphrase: String): Unit = withContext(Dispatchers.IO) {
-        android.util.Log.d("BdkRepo", "unlockPassphraseWallet: starting for $walletId")
+        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "unlockPassphraseWallet: starting for $walletId")
         val walletEntity = walletDao.getById(walletId)
             ?: throw IllegalArgumentException("Wallet not found: $walletId")
         
@@ -2584,7 +2584,7 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Get mnemonic from keystore
         val mnemonicStr = keystoreManager.getMnemonic(walletId)
-        android.util.Log.d("BdkRepo", "unlockPassphraseWallet: mnemonic ${if (mnemonicStr != null) "found" else "NOT FOUND"}")
+        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "unlockPassphraseWallet: mnemonic ${if (mnemonicStr != null) "found" else "NOT FOUND"}")
         if (mnemonicStr == null) throw IllegalStateException("Mnemonic not found for wallet: $walletId")
         
         val mnemonic = Mnemonic.fromString(mnemonicStr)
@@ -2593,7 +2593,7 @@ class BdkBitcoinRepository @Inject constructor(
         // Derive secret descriptors with the passphrase
         val secretKey = DescriptorSecretKey(network, mnemonic, passphrase)
         val scriptType = ScriptType.fromDescriptor(walletEntity.descriptor)
-        android.util.Log.d("BdkRepo", "unlockPassphraseWallet: scriptType=$scriptType network=$network")
+        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "unlockPassphraseWallet: scriptType=$scriptType network=$network")
         val externalDescriptor: Descriptor
         val changeDescriptor: Descriptor
         try {
@@ -2627,7 +2627,7 @@ class BdkBitcoinRepository @Inject constructor(
         walletCache[walletId] = WalletEntry(wallet, persister)
         unlockedPassphraseWallets.add(walletId)
         
-        android.util.Log.d("BdkRepo", "unlockPassphraseWallet: unlocked wallet $walletId")
+        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "unlockPassphraseWallet: unlocked wallet $walletId")
     }
 
     /**
@@ -2657,11 +2657,11 @@ class BdkBitcoinRepository @Inject constructor(
             java.io.File(dbFile.path + "-wal").delete()
             java.io.File(dbFile.path + "-shm").delete()
             java.io.File(dbFile.path + "-journal").delete()
-            android.util.Log.d("BdkRepo", "lockPassphraseWallet: deleted on-disk DB for $walletId")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "lockPassphraseWallet: deleted on-disk DB for $walletId")
         } catch (e: Exception) {
-            android.util.Log.w("BdkRepo", "lockPassphraseWallet: failed to delete DB: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "lockPassphraseWallet: failed to delete DB: ${e.message}")
         }
-        android.util.Log.d("BdkRepo", "lockPassphraseWallet: locked and discarded in-memory wallet $walletId")
+        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "lockPassphraseWallet: locked and discarded in-memory wallet $walletId")
     }
 
     /**
@@ -2726,7 +2726,7 @@ class BdkBitcoinRepository @Inject constructor(
             
             Pair(identiconBytes, masterFpBytes)
         } catch (e: Exception) {
-            android.util.Log.w("BdkRepo", "getPassphraseFingerprint failed: ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "getPassphraseFingerprint failed: ${e.message}")
             null
         }
     }

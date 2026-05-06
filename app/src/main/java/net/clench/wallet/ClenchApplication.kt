@@ -33,7 +33,7 @@ class ClenchApplication : Application() {
         try {
             keystoreManager.deleteAllPassphrases()
         } catch (e: Exception) {
-            Log.w("ClenchApp", "Passphrase cleanup failed (non-fatal)", e)
+            if (net.clench.wallet.BuildConfig.DEBUG) Log.w("ClenchApp", "Passphrase cleanup failed (non-fatal)", e)
         }
 
         // On every cold start, wipe on-disk DBs for passphrase wallets.
@@ -50,7 +50,7 @@ class ClenchApplication : Application() {
                 java.io.File(dbFile.path + "-journal").delete()
                 // [S-4] Gate: wallet ID exposure
                 if (logSensitive) {
-                    Log.d("ClenchApp", "Startup: wiped on-disk DB for passphrase wallet ${wallet.id}")
+                    if (net.clench.wallet.BuildConfig.DEBUG) Log.d("ClenchApp", "Startup: wiped on-disk DB for passphrase wallet ${wallet.id}")
                 }
                 // Wipe Room transaction cache — same reason: real tx history must not be visible
                 // before the passphrase is entered
@@ -58,11 +58,11 @@ class ClenchApplication : Application() {
                     try { transactionDao.deleteForWallet(wallet.id) } catch (_: Exception) {}
                 }
                 if (logSensitive) {
-                    Log.d("ClenchApp", "Startup: wiped Room tx cache for passphrase wallet ${wallet.id}")
+                    if (net.clench.wallet.BuildConfig.DEBUG) Log.d("ClenchApp", "Startup: wiped Room tx cache for passphrase wallet ${wallet.id}")
                 }
             }
         } catch (e: Exception) {
-            Log.w("ClenchApp", "Passphrase wallet DB wipe failed (non-fatal): ${e.message}")
+            if (net.clench.wallet.BuildConfig.DEBUG) Log.w("ClenchApp", "Passphrase wallet DB wipe failed (non-fatal): ${e.message}")
         }
 
         // [H-3] Orphan wallet auto-recovery is disabled.
@@ -113,7 +113,7 @@ class ClenchApplication : Application() {
             // Regular wallets: user should re-import via seed phrase (safe and verified)
             // Watch-only: user should re-import via descriptor
             if (logSensitive) {
-                Log.w("ClenchApp", "Orphan detected: $walletId ($walletType, mtime=${file.lastModified()}) — " +
+                if (net.clench.wallet.BuildConfig.DEBUG) Log.w("ClenchApp", "Orphan detected: $walletId ($walletType, mtime=${file.lastModified()}) — " +
                     "requires explicit re-import by user")
             }
             detected++
@@ -121,7 +121,7 @@ class ClenchApplication : Application() {
 
         if (detected > 0) {
             // [S-4] Gate: count-only log, safe to keep
-            Log.i("ClenchApp", "Detected $detected orphaned wallet DB(s) — manual re-import required")
+            if (net.clench.wallet.BuildConfig.DEBUG) Log.i("ClenchApp", "Detected $detected orphaned wallet DB(s) — manual re-import required")
         }
     }
 
@@ -239,13 +239,13 @@ $stackTrace
                 try {
                     File(filesDir, "crash_log.txt").writeText(report)
                 } catch (e: Exception) {
-                    Log.e("CrashHandler", "Failed to write internal crash log", e)
+                    if (net.clench.wallet.BuildConfig.DEBUG) Log.e("CrashHandler", "Failed to write internal crash log", e)
                 }
 
-                Log.e("CLENCH_CRASH", report)
+                if (net.clench.wallet.BuildConfig.DEBUG) Log.e("CLENCH_CRASH", report)
 
             } catch (e: Exception) {
-                Log.e("CrashHandler", "Error in crash handler itself", e)
+                if (net.clench.wallet.BuildConfig.DEBUG) Log.e("CrashHandler", "Error in crash handler itself", e)
             }
 
             defaultHandler?.uncaughtException(thread, throwable)

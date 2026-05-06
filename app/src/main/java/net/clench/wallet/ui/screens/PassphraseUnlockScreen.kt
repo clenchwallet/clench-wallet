@@ -18,6 +18,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import net.clench.wallet.ui.components.WalletFingerprint
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.PassphraseUnlockViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,6 +34,7 @@ fun PassphraseUnlockScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
+    SecureWindowEffect()
 
     LaunchedEffect(walletId) {
         viewModel.load(walletId, storedIdenticonBytes)

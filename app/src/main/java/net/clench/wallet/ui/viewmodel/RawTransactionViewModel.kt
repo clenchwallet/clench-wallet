@@ -11,6 +11,7 @@ import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.RawTransactionPayload
 import net.clench.wallet.domain.model.RawTransactionPreview
 import net.clench.wallet.domain.repository.BitcoinRepository
+import org.bitcoindevkit.Network
 import javax.inject.Inject
 
 @HiltViewModel
@@ -41,7 +42,8 @@ class RawTransactionViewModel @Inject constructor(
 
     fun preview() {
         val input = _uiState.value.input
-        val preview = runCatching { RawTransactionPayload.parse(input) }.getOrElse { e ->
+        val network = if (settingsManager.isTestnet()) Network.TESTNET else Network.BITCOIN
+        val preview = runCatching { RawTransactionPayload.parse(input, network) }.getOrElse { e ->
             _uiState.update { it.copy(preview = null, error = e.message ?: "Could not parse raw transaction") }
             return
         }

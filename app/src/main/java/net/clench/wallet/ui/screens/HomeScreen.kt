@@ -45,12 +45,52 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showMenu by remember { mutableStateOf(false) }
+    var showAdvancedTools by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
     LifecycleResumeEffect(walletId) {
         viewModel.refreshUsdPriceIfVisible()
         onPauseOrDispose { }
+    }
+
+    if (showAdvancedTools) {
+        AlertDialog(
+            onDismissRequest = { showAdvancedTools = false },
+            title = { Text("Advanced Tools") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "These tools can move funds or broadcast transactions with fewer built-in wallet checks.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            showAdvancedTools = false
+                            onSweep()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Sweep External Seed")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            showAdvancedTools = false
+                            onRawTransaction()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Broadcast Raw Transaction")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAdvancedTools = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -96,24 +136,17 @@ fun HomeScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Sweep to this wallet") },
-                                onClick = {
-                                    showMenu = false
-                                    onSweep()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Broadcast Raw Transaction") },
-                                onClick = {
-                                    showMenu = false
-                                    onRawTransaction()
-                                }
-                            )
-                            DropdownMenuItem(
                                 text = { Text("Recovery Wizard") },
                                 onClick = {
                                     showMenu = false
                                     onRecoveryWizard()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Advanced Tools") },
+                                onClick = {
+                                    showMenu = false
+                                    showAdvancedTools = true
                                 }
                             )
                         }

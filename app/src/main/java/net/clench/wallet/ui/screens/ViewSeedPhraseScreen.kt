@@ -79,7 +79,8 @@ fun ViewSeedPhraseScreen(
                             title = "Authenticate to view seed phrase",
                             subtitle = "Verify your identity to access sensitive data",
                             onSuccess = { viewModel.confirmWarning() },
-                            onFailure = { /* user can retry via the dialog */ }
+                            onFailure = { /* user can retry via the dialog */ },
+                            allowUiOnlyFallback = false
                         )
                     } else {
                         // Biometric disabled or not available — allow access

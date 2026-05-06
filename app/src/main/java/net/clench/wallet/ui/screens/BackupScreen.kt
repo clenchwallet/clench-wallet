@@ -245,7 +245,8 @@ fun BackupScreen(
                                                 title = "Authenticate to view seed phrase",
                                                 subtitle = "Verify your identity to access your backup",
                                                 onSuccess = { viewModel.revealSeed() },
-                                                onFailure = { /* user can retry */ }
+                                                onFailure = { /* user can retry */ },
+                                                allowUiOnlyFallback = false
                                             )
                                         } else {
                                             viewModel.revealSeed()

@@ -85,11 +85,11 @@ class MainActivity : FragmentActivity() {
                                 }
                             }
                         } catch (e: Exception) {
-                            android.util.Log.w("MainActivity", "Failed to lock passphrase wallets on stop: ${e.message}")
+                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("MainActivity", "Failed to lock passphrase wallets on stop: ${e.message}")
                         }
                     }
                 } else {
-                    android.util.Log.d("MainActivity", "suppressPassphraseLock=true, skipping passphrase lock on ON_STOP")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("MainActivity", "suppressPassphraseLock=true, skipping passphrase lock on ON_STOP")
                 }
             }
         })
@@ -152,7 +152,7 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         // Drop NFC payloads while app is locked — don't process until biometric unlock
         if (isLocked.value) {
-            android.util.Log.d("MainActivity", "NFC intent received while locked — ignored")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("MainActivity", "NFC intent received while locked — ignored")
             return
         }
         if (NfcAdapter.ACTION_NDEF_DISCOVERED == intent.action ||

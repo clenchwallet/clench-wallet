@@ -352,7 +352,7 @@ class CreateMultisigViewModel @Inject constructor(
                 }
                 onCreated(walletData.id)
             } catch (e: Exception) {
-                android.util.Log.e("CreateMultisig", "createMultisigWallet failed: ${e.message}", e)
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("CreateMultisig", "createMultisigWallet failed: ${e.message}", e)
                 _uiState.update {
                     it.copy(isCreating = false, error = e.message ?: "Failed to create multisig wallet")
                 }

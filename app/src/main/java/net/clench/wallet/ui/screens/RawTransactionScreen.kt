@@ -11,6 +11,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -18,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.RawTransactionViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -28,6 +33,7 @@ fun RawTransactionScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    SecureWindowEffect()
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
@@ -93,6 +99,7 @@ fun RawTransactionScreen(
             }
 
             uiState.preview?.let { preview ->
+                var outputsReviewed by remember(preview.txid) { mutableStateOf(false) }
                 Spacer(modifier = Modifier.height(16.dp))
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -109,13 +116,36 @@ fun RawTransactionScreen(
                         Text("Virtual size: ${preview.vsize} vB")
                         Text("Total size: ${preview.totalSize} bytes")
                         Text("Signals RBF: ${if (preview.isRbf) "yes" else "no"}")
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Outputs (${preview.outputs.size})", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        preview.outputs.forEach { output ->
+                            Text("Output #${output.index + 1}: ${output.amountSat} sats")
+                            Text(
+                                output.address ?: "Unknown script: ${output.scriptPubkeyHex}",
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = outputsReviewed,
+                                onCheckedChange = { outputsReviewed = it }
+                            )
+                            Text(
+                                "I reviewed every output amount and destination",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 Button(
                     onClick = { viewModel.broadcast() },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !uiState.isBroadcasting && !uiState.isOfflineMode
+                    enabled = outputsReviewed && !uiState.isBroadcasting && !uiState.isOfflineMode
                 ) {
                     if (uiState.isBroadcasting) CircularProgressIndicator(modifier = Modifier.size(16.dp))
                     else Text(if (uiState.isOfflineMode) "Offline" else "Broadcast Transaction")
