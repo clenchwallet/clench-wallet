@@ -11,16 +11,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import net.clench.wallet.ui.lifehash.LifeHash
+import net.clench.wallet.ui.lifehash.LifeHashVersion
 
 /**
- * Deterministic identicon fingerprint.
- * Uses 5×5 symmetric grid (left half mirrored to right) + foreground color from hash bytes.
- * Similar to GitHub's identicon approach.
+ * Deterministic wallet fingerprint image.
+ * Uses Sparrow Wallet's LifeHash v2 rendering when the 4-byte master fingerprint
+ * is available. Falls back to Clench's older 5x5 identicon for legacy callers.
  *
- * @param fingerprintBytes first 8 bytes of SHA-256(masterFingerprint [+ passphrase]) — drives the identicon pattern/color
+ * @param fingerprintBytes legacy first 8 bytes of SHA-256(masterFingerprint [+ passphrase])
  * @param masterFingerprint the raw 4-byte BIP32 master key fingerprint for display text (e.g. "a1b2c3d4")
  */
 @Composable
@@ -57,6 +60,7 @@ fun WalletFingerprint(
         val source = masterFingerprint ?: fingerprintBytes
         source.take(4).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
+    val usesSparrowLifeHash = masterFingerprint != null && masterFingerprint.size >= 4
 
     Column(
         modifier = modifier,
@@ -69,19 +73,23 @@ fun WalletFingerprint(
         )
         Spacer(Modifier.height(8.dp))
 
-        Canvas(modifier = Modifier.size(size)) {
-            val cellSize = this.size.width / 5f
-            // Background
-            drawRect(bgColor, size = this.size)
-            // Cells
-            for (row in 0..4) {
-                for (col in 0..4) {
-                    if (grid[row][col] == 1) {
-                        drawRect(
-                            color = fgColor,
-                            topLeft = Offset(col * cellSize, row * cellSize),
-                            size = Size(cellSize, cellSize)
-                        )
+        if (usesSparrowLifeHash) {
+            SparrowLifeHashImage(masterFingerprint = masterFingerprint, size = size)
+        } else {
+            Canvas(modifier = Modifier.size(size)) {
+                val cellSize = this.size.width / 5f
+                // Background
+                drawRect(bgColor, size = this.size)
+                // Cells
+                for (row in 0..4) {
+                    for (col in 0..4) {
+                        if (grid[row][col] == 1) {
+                            drawRect(
+                                color = fgColor,
+                                topLeft = Offset(col * cellSize, row * cellSize),
+                                size = Size(cellSize, cellSize)
+                            )
+                        }
                     }
                 }
             }
@@ -94,6 +102,51 @@ fun WalletFingerprint(
             color = MaterialTheme.colorScheme.onSurface,
             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
             letterSpacing = 2.sp
+        )
+        if (usesSparrowLifeHash) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Clench is using Sparrow Wallet's fingerprint image generation method.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SparrowLifeHashImage(masterFingerprint: ByteArray, size: Dp) {
+    val image = remember(masterFingerprint.toList()) {
+        LifeHash.makeFromData(
+            masterFingerprint.sliceArray(0 until 4),
+            LifeHashVersion.VERSION2,
+            1,
+            false
+        )
+    }
+
+    Canvas(modifier = Modifier.size(size)) {
+        val canvasSize = this.size
+        val pixelWidth = canvasSize.width / image.width
+        val pixelHeight = canvasSize.height / image.height
+        val colors = image.colors
+        for (y in 0 until image.height) {
+            for (x in 0 until image.width) {
+                val offset = (y * image.width + x) * 3
+                val r = colors[offset].toInt() and 0xFF
+                val g = colors[offset + 1].toInt() and 0xFF
+                val b = colors[offset + 2].toInt() and 0xFF
+                drawRect(
+                    color = Color(r, g, b),
+                    topLeft = Offset(x * pixelWidth, y * pixelHeight),
+                    size = Size(pixelWidth, pixelHeight)
+                )
+            }
+        }
+        drawRect(
+            color = Color(0xFF41484D),
+            size = canvasSize,
+            style = Stroke(width = 1.dp.toPx())
         )
     }
 }

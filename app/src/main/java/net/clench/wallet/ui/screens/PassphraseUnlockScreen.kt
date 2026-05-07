@@ -105,7 +105,7 @@ fun PassphraseUnlockScreen(
                 Text(
                     "⚠ Any passphrase opens a wallet — there is no \"wrong passphrase\" error by design. " +
                     "If you mistype, you will silently open a different (empty) wallet. " +
-                    "Verify the fingerprint and identicon below match what you expect.",
+                    "Verify the fingerprint image below matches what you expect.",
                     modifier = Modifier.padding(12.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF5D4037)
@@ -161,7 +161,7 @@ fun PassphraseUnlockScreen(
                 )
 
                 // No match/mismatch indicator — any passphrase is valid by design (duress wallet)
-                // User identifies the correct wallet by recognising the fingerprint and identicon
+                // User identifies the correct wallet by recognising the fingerprint image.
             }
 
             Spacer(modifier = Modifier.height(32.dp))

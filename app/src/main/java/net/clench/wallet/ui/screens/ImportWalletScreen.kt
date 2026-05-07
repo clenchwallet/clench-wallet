@@ -569,7 +569,7 @@ fun ImportWalletScreen(
                                     color = Color(0xFF5D4037)
                                 )
                                 Text(
-                                    "• Check the fingerprint and identicon below — they must match EVERY time you unlock.",
+                                    "• Check the fingerprint image below — it must match EVERY time you unlock.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color(0xFF5D4037)
                                 )

@@ -146,9 +146,8 @@ class WalletInfoViewModel @Inject constructor(
                     else -> "xpub"
                 }
 
-                // Visual fingerprint: use stored identicon bytes if available (preserves
-                // passphrase-derived visual from wallet creation). Fall back to recomputing
-                // without passphrase for older wallets that don't have stored bytes.
+                // Keep legacy fallback bytes available; WalletFingerprint renders the
+                // Sparrow-compatible LifeHash image from the master fingerprint.
                 val fingerprint = if (effectiveIsMultisig) "" else generateFingerprint(wallet.descriptor)
                 val fingerprintColors = if (effectiveIsMultisig) emptyList() else generateFingerprintColors(fingerprint)
                 val masterFp = if (effectiveIsMultisig) null else CreateWalletViewModel.extractMasterFingerprint(wallet.descriptor)

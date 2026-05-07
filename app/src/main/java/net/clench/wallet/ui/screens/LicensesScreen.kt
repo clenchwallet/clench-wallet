@@ -56,6 +56,9 @@ fun LicensesScreen(onBack: () -> Unit) {
                 
                 Hummingbird (BC-UR) — Apache 2.0
                 https://github.com/sparrowwallet/hummingbird
+
+                Toucan LifeHash — Apache 2.0
+                https://github.com/sparrowwallet/toucan
                 
                 CameraX — Apache 2.0
                 https://developer.android.com/jetpack/androidx/releases/camera

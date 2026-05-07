@@ -175,8 +175,7 @@ class BdkBitcoinRepository @Inject constructor(
         val publicDescriptor = externalDescriptor.toString()
         val publicChangeDescriptor = changeDescriptor.toString()
         val activeNetwork = settingsManager.getNetwork()
-        // Compute identicon bytes from master fingerprint + passphrase
-        // This is stored so wallet info screen can show the same visual fingerprint
+        // Store legacy identicon bytes so older backups and fallback UI paths remain stable.
         // that was displayed during creation (passphrase is NOT stored)
         val identiconBytes = computeIdenticonBytes(publicDescriptor, passphrase)
 
@@ -2248,13 +2247,9 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     /**
-     * Compute the 8-byte identicon hash for a wallet.
-     * Uses SHA-256(masterFingerprint + passphrase) — same algorithm as
-     * CreateWalletViewModel.computeFingerprint(), so the visual matches
-     * what the user saw during wallet creation.
-     *
-     * Stored in Room so the wallet info screen can reproduce the identicon
-     * without needing the passphrase (which is intentionally never stored).
+     * Compute the legacy 8-byte identicon hash for a wallet.
+     * New UI renders Sparrow-compatible LifeHash from the master fingerprint,
+     * but this value is retained for older backups and fallback UI paths.
      */
     private fun computeIdenticonBytes(publicDescriptor: String, passphrase: String?): ByteArray? {
         val masterFpMatch = Regex("\\[([0-9a-fA-F]{8})/").find(publicDescriptor) ?: return null
@@ -2615,7 +2610,7 @@ class BdkBitcoinRepository @Inject constructor(
         // Duress wallet design: any passphrase is silently accepted.
         // We derive whatever wallet the passphrase produces and open it.
         // No comparison against stored descriptor — comparing would break plausible deniability.
-        // The user identifies the correct wallet by recognising the fingerprint/identicon.
+        // The user identifies the correct wallet by recognising the fingerprint image.
         //
         // Option C — In-memory only wallet for passphrase sessions:
         // Passphrase-derived wallets are NEVER persisted to disk. Each session uses a fresh
@@ -2704,7 +2699,7 @@ class BdkBitcoinRepository @Inject constructor(
      * Compute the fingerprint bytes for a given passphrase (without unlocking).
      * Used for live fingerprint display during passphrase entry.
      * 
-     * @return Pair(identiconBytes [8], masterFingerprintBytes [4]) or null on error
+     * @return Pair(legacyIdenticonBytes [8], masterFingerprintBytes [4]) or null on error
      */
     suspend fun getPassphraseFingerprint(walletId: String, passphrase: String): Pair<ByteArray, ByteArray>? = withContext(Dispatchers.IO) {
         try {
@@ -2727,7 +2722,7 @@ class BdkBitcoinRepository @Inject constructor(
             val hex = masterFpMatch.groupValues[1]
             val masterFpBytes = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
             
-            // Compute identicon bytes
+            // Compute legacy fallback bytes; the UI renders LifeHash from masterFpBytes.
             val input = masterFpBytes + passphrase.toByteArray(Charsets.UTF_8)
             val identiconBytes = java.security.MessageDigest.getInstance("SHA-256").digest(input).sliceArray(0 until 8)
             
