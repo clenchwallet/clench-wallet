@@ -113,6 +113,10 @@ fun CreateMultisigScreen(
             )
         }
     ) { padding ->
+        val progressIndicatorState = createMultisigProgressIndicatorState(
+            currentStep = uiState.currentStep,
+            signers = uiState.signers
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -120,11 +124,11 @@ fun CreateMultisigScreen(
         ) {
             // Step indicator
             LinearProgressIndicator(
-                progress = { uiState.currentStep / 3f },
+                progress = { progressIndicatorState.progress },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
             )
             Text(
-                "Step ${uiState.currentStep} of 3",
+                progressIndicatorState.label,
                 modifier = Modifier.padding(horizontal = 16.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -224,6 +228,32 @@ fun CreateMultisigScreen(
             }
         }
     }
+}
+
+internal data class CreateMultisigProgressIndicatorState(
+    val progress: Float,
+    val label: String
+)
+
+internal fun createMultisigProgressIndicatorState(
+    currentStep: Int,
+    signers: List<CreateMultisigViewModel.SignerInfo>
+): CreateMultisigProgressIndicatorState {
+    if (currentStep == 2 && signers.isNotEmpty()) {
+        val completedSigners = signers.count { it.xpub.trim().isNotEmpty() }
+        val totalSigners = signers.size
+        return CreateMultisigProgressIndicatorState(
+            progress = completedSigners.toFloat() / totalSigners.toFloat(),
+            label = "Signer keys $completedSigners of $totalSigners"
+        )
+    }
+
+    val totalSteps = 3
+    val safeStep = currentStep.coerceIn(1, totalSteps)
+    return CreateMultisigProgressIndicatorState(
+        progress = safeStep.toFloat() / totalSteps.toFloat(),
+        label = "Step $safeStep of $totalSteps"
+    )
 }
 
 @Composable
