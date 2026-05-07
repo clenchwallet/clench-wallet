@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.ui.components.HardwareWalletQrPayloadDecoder
 import net.clench.wallet.ui.components.MultisigWalletConfigParser
@@ -23,7 +24,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ImportWalletViewModel @Inject constructor(
-    private val bitcoinRepository: BitcoinRepository
+    private val bitcoinRepository: BitcoinRepository,
+    private val settingsManager: SettingsManager
 ) : ViewModel() {
 
     /**
@@ -384,6 +386,13 @@ class ImportWalletViewModel @Inject constructor(
                     DetectedType.NONE -> {
                         _uiState.update { it.copy(isLoading = false, error = "Please enter a valid seed phrase, xpub, descriptor, or multisig config") }
                         return@launch
+                    }
+                }
+                if (!settingsManager.isOfflineMode()) {
+                    try {
+                        bitcoinRepository.syncWallet(walletData.id, settingsManager.loadElectrumConfig())
+                    } catch (_: Exception) {
+                        // Import succeeded. Home will surface any sync problem and allow retry.
                     }
                 }
                 onImported(walletData.id)

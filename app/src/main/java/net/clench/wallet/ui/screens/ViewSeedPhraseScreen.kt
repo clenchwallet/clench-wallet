@@ -64,11 +64,21 @@ fun ViewSeedPhraseScreen(
             onDismissRequest = onBack,
             title = { Text("⚠️ Security Warning") },
             text = {
-                Text(
-                    "Your seed phrase gives FULL access to your bitcoin. " +
-                    "Never share it. Make sure no one can see your screen.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                Column {
+                    Text(
+                        "Your seed phrase gives FULL access to your bitcoin. " +
+                        "Never share it. Make sure no one can see your screen.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    uiState.error?.let { error ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             },
             confirmButton = {
                 Button(onClick = {
@@ -79,8 +89,8 @@ fun ViewSeedPhraseScreen(
                             title = "Authenticate to view seed phrase",
                             subtitle = "Verify your identity to access sensitive data",
                             onSuccess = { viewModel.confirmWarning() },
-                            onFailure = { /* user can retry via the dialog */ },
-                            allowUiOnlyFallback = false
+                            onFailure = { viewModel.setError(it) },
+                            allowUiOnlyFallback = true
                         )
                     } else {
                         // Biometric disabled or not available — allow access

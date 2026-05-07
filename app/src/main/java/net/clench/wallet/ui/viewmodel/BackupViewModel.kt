@@ -106,4 +106,8 @@ class BackupViewModel @Inject constructor(
             }
         }
     }
+
+    fun setError(message: String) {
+        _uiState.update { it.copy(error = message) }
+    }
 }

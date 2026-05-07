@@ -2,6 +2,7 @@ package net.clench.wallet.viewmodel
 
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -10,6 +11,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.ui.viewmodel.ImportWalletViewModel
@@ -20,10 +22,18 @@ import org.junit.Test
 
 class ImportWalletViewModelTest {
 
+    private fun importWalletViewModel(
+        repository: BitcoinRepository = mockk()
+    ): ImportWalletViewModel {
+        val settingsManager = mockk<SettingsManager>(relaxed = true)
+        every { settingsManager.isOfflineMode() } returns true
+        return ImportWalletViewModel(repository, settingsManager)
+    }
+
     @Test
     fun `SeedHammer uppercase descriptor UR input normalizes before detection`() {
         val repository = mockk<BitcoinRepository>()
-        val viewModel = ImportWalletViewModel(repository)
+        val viewModel = importWalletViewModel(repository)
         val seedHammerUr = (
             "ur:crypto-output/taadmetaadmtoeadadaolftaaddloxaxhdclaxsbsgptsolkltkndsmskiaelfhhmdimcnmnlgutzotecpsfveylgrbdhptbpsveosaahdcxhnganelacwldjnlschnyfxjyplrllfdrplpswdnbuyctlpwyfmmhgsgtwsrymtldamtaaddyoeadlaaxaeattaaddyoyadlnadwkaewklawktaaddloxaxhdclaoztnnhtwtpslgndfnwpzedrlomnclchrdfsayntlplplojznslfjejecpptlgbgwdaahdcxwtmhnyzmpkkbvdpyvwutglbeahmktyuogusnjonththhdwpsfzvdfpdlcndlkensamtaaddyoeadlfaewkaocyrycmrnvwattaaddyoyadlnaewkaewklawktdbsfttn"
             ).uppercase()
@@ -40,7 +50,7 @@ class ImportWalletViewModelTest {
     @Test
     fun `Coldcard multisig config normalizes before detection`() {
         val repository = mockk<BitcoinRepository>()
-        val viewModel = ImportWalletViewModel(repository)
+        val viewModel = importWalletViewModel(repository)
         val coldcard = """
             # Coldcard Multisig setup file
             Name: Vault
@@ -65,7 +75,7 @@ class ImportWalletViewModelTest {
     @Test
     fun `Coldcard multisig config name is offered as wallet name`() {
         val repository = mockk<BitcoinRepository>()
-        val viewModel = ImportWalletViewModel(repository)
+        val viewModel = importWalletViewModel(repository)
         val coldcard = """
             # Coldcard Multisig setup file
             Name: Company Vault
@@ -85,7 +95,7 @@ class ImportWalletViewModelTest {
     @Test
     fun `JSON export name is offered as wallet name`() {
         val repository = mockk<BitcoinRepository>()
-        val viewModel = ImportWalletViewModel(repository)
+        val viewModel = importWalletViewModel(repository)
 
         viewModel.setInput(
             """
@@ -102,7 +112,7 @@ class ImportWalletViewModelTest {
     @Test
     fun `import name inference does not replace a manually entered wallet name`() {
         val repository = mockk<BitcoinRepository>()
-        val viewModel = ImportWalletViewModel(repository)
+        val viewModel = importWalletViewModel(repository)
 
         viewModel.setWalletName("My Label")
         viewModel.setInput(
@@ -142,7 +152,7 @@ class ImportWalletViewModelTest {
                 isWatchOnly = true
             )
 
-            val viewModel = ImportWalletViewModel(repository)
+            val viewModel = importWalletViewModel(repository)
             viewModel.setWalletName("Vault")
             viewModel.setInput(
                 """
@@ -190,7 +200,7 @@ class ImportWalletViewModelTest {
                 isWatchOnly = false
             )
 
-            val viewModel = ImportWalletViewModel(repository)
+            val viewModel = importWalletViewModel(repository)
             val privateDescriptor = "wpkh([abcd1234/84'/0'/0']xprv9s21ZrQH143K3/0/*)"
             viewModel.setInput(privateDescriptor)
             viewModel.importWallet { importedId -> assertEquals("wallet-private", importedId) }

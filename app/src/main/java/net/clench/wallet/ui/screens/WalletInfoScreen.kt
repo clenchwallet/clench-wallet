@@ -553,17 +553,24 @@ fun WalletInfoScreen(
                         onClick = onBackup,
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Backup & Export") }
-                    OutlinedButton(
-                        onClick = { viewModel.exportWalletDescriptorBackup() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (uiState.isMultisig) "Export Multisig Backup" else "Export Descriptor Backup")
+                    val showDescriptorExport = uiState.isMultisig || uiState.isWatchOnly
+                    if (showDescriptorExport) {
+                        OutlinedButton(
+                            onClick = { viewModel.exportWalletDescriptorBackup() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (uiState.isMultisig) "Export Multisig Descriptor Backup" else "Export Watch-Only Descriptor")
+                        }
+                        Text(
+                            if (uiState.isMultisig) {
+                                "Descriptor backups restore multisig policy and watch-only structure. They do not include seed phrases, passphrases, or private keys."
+                            } else {
+                                "Descriptor exports restore watch-only structure. They do not include seed phrases, passphrases, or private keys."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    Text(
-                        "Descriptor backups restore watch-only structure and can reveal wallet history. They do not include seed phrases, passphrases, or private keys.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
 
                 // ─── View Seed Phrase — only for hot wallets ───

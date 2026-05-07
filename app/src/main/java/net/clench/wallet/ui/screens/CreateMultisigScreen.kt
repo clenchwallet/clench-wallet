@@ -284,7 +284,7 @@ private fun ConfigurationStep(
         Button(
             onClick = onNext,
             modifier = Modifier.fillMaxWidth()
-        ) { Text("Next: Add Cosigner Keys") }
+        ) { Text("Next: Add Signers") }
     }
 }
 
@@ -410,7 +410,7 @@ private fun SignerCard(
             OutlinedTextField(
                 value = signer.xpub,
                 onValueChange = onXpubChanged,
-                label = { Text("Extended Public Key (xpub)") },
+                label = { Text("Signer public key with origin") },
                 placeholder = { Text("[fingerprint/48'/0'/0'/2']xpub...") },
                 maxLines = 3,
                 modifier = Modifier.fillMaxWidth(),

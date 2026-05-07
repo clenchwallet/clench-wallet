@@ -40,11 +40,15 @@ class ViewSeedPhraseViewModel @Inject constructor(
 
     fun load(walletId: String) {
         this.walletId = walletId
-        _uiState.update { it.copy(biometricForSeedEnabled = settingsManager.isBiometricForSeedEnabled()) }
+        _uiState.update { it.copy(biometricForSeedEnabled = settingsManager.isBiometricForSeedEnabled(), error = null) }
+    }
+
+    fun setError(message: String) {
+        _uiState.update { it.copy(error = message) }
     }
 
     fun confirmWarning() {
-        _uiState.update { it.copy(showWarning = false, isLoading = true) }
+        _uiState.update { it.copy(showWarning = false, isLoading = true, error = null) }
         try {
             val mnemonic = keystoreManager.getMnemonic(walletId)
             // Passphrase is intentionally NOT stored or displayed for security [C-2]

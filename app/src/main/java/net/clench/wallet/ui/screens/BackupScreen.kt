@@ -141,11 +141,12 @@ fun BackupScreen(
                     }
                 }
 
-                if (uiState.descriptor.isNotBlank() && uiState.changeDescriptor.isNotBlank()) {
+                val showDescriptorExport = uiState.isMultisig || uiState.isWatchOnly
+                if (showDescriptorExport && uiState.descriptor.isNotBlank() && uiState.changeDescriptor.isNotBlank()) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                if (uiState.isMultisig) "Multisig Descriptor Backup" else "Descriptor Backup",
+                                if (uiState.isMultisig) "Multisig Descriptor Backup" else "Watch-Only Descriptor Export",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -154,7 +155,7 @@ fun BackupScreen(
                                 if (uiState.isMultisig) {
                                     "Public descriptors restore this wallet as watch-only. Preserve the threshold, every cosigner fingerprint/path/xpub, and compare the first receive address before funding."
                                 } else {
-                                    "Public descriptors restore this wallet as watch-only. They do not include seed phrases, passphrases, or private keys, but they can reveal wallet history."
+                                    "Public descriptors restore this watch-only wallet view. They do not include seed phrases, passphrases, or private keys, but they can reveal wallet history."
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -245,8 +246,8 @@ fun BackupScreen(
                                                 title = "Authenticate to view seed phrase",
                                                 subtitle = "Verify your identity to access your backup",
                                                 onSuccess = { viewModel.revealSeed() },
-                                                onFailure = { /* user can retry */ },
-                                                allowUiOnlyFallback = false
+                                                onFailure = { viewModel.setError(it) },
+                                                allowUiOnlyFallback = true
                                             )
                                         } else {
                                             viewModel.revealSeed()

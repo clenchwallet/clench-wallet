@@ -39,7 +39,8 @@ fun NetworkChoiceScreen(
         Text(
             text = "Clench Wallet",
             fontSize = 32.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground
         )
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -47,7 +48,8 @@ fun NetworkChoiceScreen(
         Text(
             text = "Choose your network",
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onBackground
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -75,7 +77,8 @@ fun NetworkChoiceScreen(
                     Text(
                         text = "Mainnet",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "Real bitcoin. Real money.",
@@ -111,7 +114,8 @@ fun NetworkChoiceScreen(
                     Text(
                         text = "Testnet",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "Test coins only. Safe for learning and development.",
