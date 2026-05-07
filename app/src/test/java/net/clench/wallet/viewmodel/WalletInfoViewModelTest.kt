@@ -2,6 +2,7 @@ package net.clench.wallet.viewmodel
 
 import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.ui.components.MultisigWalletConfigParser
+import net.clench.wallet.ui.util.DescriptorDisplayPolicy
 import net.clench.wallet.ui.viewmodel.WalletInfoViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -152,5 +153,31 @@ class WalletInfoViewModelTest {
         assertEquals("2 of 2", metadata.multisigPolicy)
         assertTrue(metadata.recoveryChecklist.any { it.contains("descriptor backup") })
         assertTrue(metadata.keyReplacementWarning?.contains("Create a new multisig wallet") == true)
+    }
+
+    @Test
+    fun `multisig descriptor stays classified as multisig when policy parsing fails`() {
+        val descriptor =
+            "wsh(sortedmulti(3," +
+                "[aabbccdd/48'/0'/0'/2']xpub6Alpha/0/*," +
+                "[11223344/48'/0'/0'/2']xpub6Bravo/0/*" +
+                "))"
+        val wallet = WalletData(
+            id = "wallet-1",
+            name = "Vault",
+            descriptor = descriptor,
+            changeDescriptor = descriptor.replace("/0/*", "/1/*"),
+            isWatchOnly = true,
+            isMultisig = false
+        )
+
+        assertNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        assertTrue(DescriptorDisplayPolicy.isMultisigDescriptor(descriptor))
+        assertTrue(WalletInfoViewModel.buildDescriptorBackupMetadata(wallet).isMultisig)
+    }
+
+    @Test
+    fun `single sig descriptor is not classified as multisig`() {
+        assertTrue(!DescriptorDisplayPolicy.isMultisigDescriptor("wpkh([aabbccdd/84'/0'/0']xpub6Alpha/0/*)"))
     }
 }

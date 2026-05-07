@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.ui.util.DescriptorDisplayPolicy
 import javax.inject.Inject
 
 @HiltViewModel
@@ -63,14 +64,17 @@ class BackupViewModel @Inject constructor(
                     else -> "xpub"
                 }
 
-                val masterFp = CreateWalletViewModel.extractMasterFingerprint(wallet.descriptor)
-                val fpBytes = wallet.identiconBytes ?: if (masterFp != null) {
+                val effectiveIsMultisig = wallet.isMultisig ||
+                    DescriptorDisplayPolicy.isMultisigDescriptor(wallet.descriptor) ||
+                    DescriptorDisplayPolicy.isMultisigDescriptor(wallet.changeDescriptor)
+                val masterFp = if (effectiveIsMultisig) null else CreateWalletViewModel.extractMasterFingerprint(wallet.descriptor)
+                val fpBytes = if (effectiveIsMultisig) null else wallet.identiconBytes ?: if (masterFp != null) {
                     CreateWalletViewModel.computeFingerprint(masterFp, "").sliceArray(0 until 8)
                 } else null
 
                 _uiState.update { it.copy(
                     isWatchOnly = wallet.isWatchOnly,
-                    isMultisig = wallet.isMultisig,
+                    isMultisig = effectiveIsMultisig,
                     hasPassphrase = wallet.hasPassphrase,
                     accountXpub = xpub,
                     xpubLabel = xpubLabel,

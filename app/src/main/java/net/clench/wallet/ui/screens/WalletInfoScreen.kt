@@ -64,7 +64,7 @@ fun WalletInfoScreen(
         }
     }
 
-    if (showSeedImportSheet) {
+    if (showSeedImportSheet && uiState.isWatchOnly && !uiState.isMultisig) {
         AddSeedPhraseToWalletSheet(
             isLoading = uiState.isConvertingToHot,
             onDismiss = { showSeedImportSheet = false },
@@ -567,7 +567,7 @@ fun WalletInfoScreen(
                 }
 
                 // ─── View Seed Phrase — only for hot wallets ───
-                if (!uiState.isWatchOnly) {
+                if (!uiState.isWatchOnly && !uiState.isMultisig) {
                     OutlinedButton(
                         onClick = onViewSeedPhrase,
                         modifier = Modifier.fillMaxWidth(),

@@ -318,7 +318,7 @@ fun BackupScreen(
                                     }
 
                                     // Wallet fingerprint
-                                    uiState.fingerprintBytes?.let { fpBytes ->
+                                    if (!uiState.isMultisig) uiState.fingerprintBytes?.let { fpBytes ->
                                         Spacer(modifier = Modifier.height(16.dp))
                                         WalletFingerprint(
                                             fingerprintBytes = fpBytes,

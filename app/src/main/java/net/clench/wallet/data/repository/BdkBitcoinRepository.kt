@@ -393,6 +393,13 @@ class BdkBitcoinRepository @Inject constructor(
         if (!walletEntity.isWatchOnly) {
             throw IllegalArgumentException("This wallet already has signing capability")
         }
+        if (
+            walletEntity.isMultisig ||
+            isMultisigDescriptor(walletEntity.descriptor) ||
+            isMultisigDescriptor(walletEntity.changeDescriptor)
+        ) {
+            throw IllegalArgumentException("Seed phrase conversion is not available for multisig wallets")
+        }
         if (mnemonic.size != 12 && mnemonic.size != 24) {
             throw IllegalArgumentException("Enter a 12 or 24 word seed phrase")
         }

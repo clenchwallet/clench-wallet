@@ -20,6 +20,7 @@ import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.local.entity.WalletKeystoreMetadataEntity
 import net.clench.wallet.data.util.Bip329
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.ui.util.DescriptorDisplayPolicy
 import net.clench.wallet.ui.util.copyToClipboardWithAutoClear
 import org.json.JSONObject
 import java.io.File
@@ -122,7 +123,10 @@ class WalletInfoViewModel @Inject constructor(
                     }
                 } else emptyMap()
                 val multisigPolicy = parsedMultisigPolicy?.withMetadata(keystoreMetadata)
-                val effectiveIsMultisig = wallet.isMultisig || multisigPolicy != null
+                val effectiveIsMultisig = wallet.isMultisig ||
+                    multisigPolicy != null ||
+                    DescriptorDisplayPolicy.isMultisigDescriptor(wallet.descriptor) ||
+                    DescriptorDisplayPolicy.isMultisigDescriptor(wallet.changeDescriptor)
                 val xpub = if (effectiveIsMultisig) "" else try { bitcoinRepository.getAccountXpub(walletId) } catch (_: Exception) { "" }
                 val derivPath = if (effectiveIsMultisig) {
                     multisigPolicy?.let { "${it.threshold} of ${it.totalSigners}" } ?: "See keystores"
@@ -144,10 +148,10 @@ class WalletInfoViewModel @Inject constructor(
                 // Visual fingerprint: use stored identicon bytes if available (preserves
                 // passphrase-derived visual from wallet creation). Fall back to recomputing
                 // without passphrase for older wallets that don't have stored bytes.
-                val fingerprint = generateFingerprint(wallet.descriptor)
-                val fingerprintColors = generateFingerprintColors(fingerprint)
-                val masterFp = CreateWalletViewModel.extractMasterFingerprint(wallet.descriptor)
-                val fpBytes = wallet.identiconBytes ?: if (masterFp != null) {
+                val fingerprint = if (effectiveIsMultisig) "" else generateFingerprint(wallet.descriptor)
+                val fingerprintColors = if (effectiveIsMultisig) emptyList() else generateFingerprintColors(fingerprint)
+                val masterFp = if (effectiveIsMultisig) null else CreateWalletViewModel.extractMasterFingerprint(wallet.descriptor)
+                val fpBytes = if (effectiveIsMultisig) null else wallet.identiconBytes ?: if (masterFp != null) {
                     CreateWalletViewModel.computeFingerprint(masterFp, "").sliceArray(0 until 8)
                 } else null
 
@@ -515,7 +519,10 @@ class WalletInfoViewModel @Inject constructor(
         ): DescriptorBackupMetadata {
             val policy = parseMultisigPolicyForDisplay(wallet.descriptor, wallet.changeDescriptor)
             return DescriptorBackupMetadata(
-                isMultisig = wallet.isMultisig || policy != null,
+                isMultisig = wallet.isMultisig ||
+                    policy != null ||
+                    DescriptorDisplayPolicy.isMultisigDescriptor(wallet.descriptor) ||
+                    DescriptorDisplayPolicy.isMultisigDescriptor(wallet.changeDescriptor),
                 bsmsDescriptorRecord = policy?.bsmsDescriptorRecord,
                 multisigPolicy = policy?.let { "${it.threshold} of ${it.totalSigners}" },
                 keyReplacementWarning = policy?.keyReplacementWarning,
