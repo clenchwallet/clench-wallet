@@ -66,6 +66,12 @@ fun AboutScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "F-Droid friendly: no Google Play Services, Firebase, analytics, or crash-reporting SDKs.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -75,6 +81,17 @@ fun AboutScreen(
                 trailingContent = { Icon(Icons.Default.KeyboardArrowRight, null) },
                 modifier = Modifier.clickable {
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/clenchwallet/clench-wallet"))
+                    context.startActivity(intent)
+                }
+            )
+            HorizontalDivider()
+
+            ListItem(
+                headlineContent = { Text("Release Notes", fontWeight = FontWeight.Medium) },
+                supportingContent = { Text("Latest APKs, checksums, and changelog", style = MaterialTheme.typography.bodySmall) },
+                trailingContent = { Icon(Icons.Default.KeyboardArrowRight, null) },
+                modifier = Modifier.clickable {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/clenchwallet/clench-wallet/releases"))
                     context.startActivity(intent)
                 }
             )

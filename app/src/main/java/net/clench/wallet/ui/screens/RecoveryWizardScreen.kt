@@ -165,10 +165,10 @@ fun RecoveryWizardScreen(
             )
 
             RecoverySection(
-                title = "3. Cross-Wallet Notes",
-                body = "Use these as recovery expectations when moving between Clench and other wallets."
+                title = "3. Compatible Import Methods",
+                body = "Clench works best with backups that preserve wallet policy and key-origin metadata. Prefer these methods over isolated xpubs whenever possible."
             )
-            CrossWalletGuide()
+            RecoveryMethodGuide()
 
             RecoveryActionCard(
                 title = "Replacing a Multisig Signer",
@@ -281,33 +281,42 @@ private fun Checklist(items: List<String>) {
 }
 
 @Composable
-private fun CrossWalletGuide() {
+private fun RecoveryMethodGuide() {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            WalletGuideBlock(
-                title = "Sparrow",
+            RecoveryMethodBlock(
+                title = "Output Descriptor Backup",
                 lines = listOf(
-                    "Prefer Output Descriptor export with key origins.",
-                    "For multisig, verify M-of-N, script type, and first receive address in both wallets.",
-                    "Sparrow descriptors restore structure; seed phrases or hardware signers still control spending."
+                    "Recommended for Clench imports and restores.",
+                    "Preserves script type, derivation path, master fingerprint, and xpub structure.",
+                    "Restores watch-only structure; seed phrases or hardware signers still control spending."
                 )
             )
             HorizontalDivider()
-            WalletGuideBlock(
-                title = "Nunchuk",
+            RecoveryMethodBlock(
+                title = "BSMS or Multisig Configuration",
                 lines = listOf(
-                    "Prefer full wallet configuration or descriptor-style exports over isolated xpubs.",
-                    "Verify every signer fingerprint/path and threshold before funding.",
-                    "Inheritance or policy features outside plain descriptor recovery are not recreated in Clench."
+                    "Use for multisig wallets when the file records threshold, script type, and every signer.",
+                    "Verify every signer fingerprint, derivation path, and xpub before funding.",
+                    "Policy features outside plain descriptor recovery are not recreated in Clench."
                 )
             )
             HorizontalDivider()
-            WalletGuideBlock(
-                title = "BlueWallet",
+            RecoveryMethodBlock(
+                title = "Hardware Signer Public Export",
                 lines = listOf(
-                    "Single-sig seed restores are straightforward only when script type and passphrase match.",
-                    "A BlueWallet xpub import is watch-only in Clench.",
-                    "Lightning, custodial, or app-specific account data is outside Clench on-chain recovery."
+                    "Use when the spend key lives on a hardware signer.",
+                    "Clench imports public wallet policy and keeps signing on the signer.",
+                    "Confirm the first receive address on the signer or original coordinator before receiving funds."
+                )
+            )
+            HorizontalDivider()
+            RecoveryMethodBlock(
+                title = "Seed Phrase Recovery",
+                lines = listOf(
+                    "Use for hot single-sig wallets only.",
+                    "Script type, network, derivation path, and optional passphrase must match.",
+                    "A seed phrase alone is not a complete multisig backup."
                 )
             )
         }
@@ -315,7 +324,7 @@ private fun CrossWalletGuide() {
 }
 
 @Composable
-private fun WalletGuideBlock(title: String, lines: List<String>) {
+private fun RecoveryMethodBlock(title: String, lines: List<String>) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         lines.forEach { line ->

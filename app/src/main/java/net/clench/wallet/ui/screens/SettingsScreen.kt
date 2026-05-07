@@ -174,7 +174,7 @@ fun SettingsScreen(
             item {
                 SettingsSectionCard(
                     title = "Recovery Wizard",
-                    subtitle = "Restore from state backup, seed phrase, descriptor, or hardware wallet export",
+                    subtitle = "Restore by method: state backup, descriptor, multisig config, signer export, or seed phrase",
                     onClick = onRecoveryWizard
                 )
             }
@@ -188,8 +188,8 @@ fun SettingsScreen(
             item {
                 Spacer(modifier = Modifier.height(16.dp))
                 ListItem(
-                    headlineContent = { Text("Debug", fontWeight = FontWeight.Medium) },
-                    supportingContent = { Text("View crash log", style = MaterialTheme.typography.bodySmall) },
+                    headlineContent = { Text("Diagnostics", fontWeight = FontWeight.Medium) },
+                    supportingContent = { Text("Version, network, Tor/Orbot status, sync error, and crash log", style = MaterialTheme.typography.bodySmall) },
                     trailingContent = { Icon(Icons.Default.KeyboardArrowRight, null) },
                     modifier = Modifier.clickable(onClick = onDebug)
                 )

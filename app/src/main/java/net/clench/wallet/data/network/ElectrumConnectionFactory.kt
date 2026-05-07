@@ -60,7 +60,7 @@ sealed class ElectrumConnectionException(message: String, cause: Throwable? = nu
         ElectrumConnectionException("TLS handshake failed with $host — check that the server supports TLS on this port.", cause)
 
     class TorProxyUnavailable(socksHost: String, socksPort: Int, cause: Throwable? = null) :
-        ElectrumConnectionException("Tor SOCKS5 proxy at $socksHost:$socksPort is not reachable. Is Orbot running?", cause)
+        ElectrumConnectionException("Clench uses Orbot for Tor. Install or start Orbot and make sure its SOCKS5 proxy is listening at $socksHost:$socksPort.", cause)
 
     class ConnectionFailed(host: String, port: Int, cause: Throwable? = null) :
         ElectrumConnectionException("Could not connect to $host:$port — check that the server is running.", cause)

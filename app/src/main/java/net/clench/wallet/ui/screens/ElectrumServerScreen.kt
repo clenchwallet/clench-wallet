@@ -194,8 +194,8 @@ fun ElectrumServerScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // ─── Tor Proxy ───
-            Text("Tor Proxy", style = MaterialTheme.typography.titleSmall)
+            // ─── Tor via Orbot ───
+            Text("Tor via Orbot", style = MaterialTheme.typography.titleSmall)
             Spacer(modifier = Modifier.height(8.dp))
 
             Card(
@@ -218,10 +218,10 @@ fun ElectrumServerScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("🧅", style = MaterialTheme.typography.titleMedium)
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Route through Tor", style = MaterialTheme.typography.titleSmall)
+                                Text("Use Tor via Orbot", style = MaterialTheme.typography.titleSmall)
                             }
                             Text(
-                                "Routes all Electrum traffic through a SOCKS5 proxy (Orbot)",
+                                "Clench does not bundle Tor. Install and start Orbot, then route Electrum traffic through Orbot's SOCKS5 proxy.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -251,11 +251,11 @@ fun ElectrumServerScreen(
                         Button(
                             onClick = { viewModel.saveTorSettings() },
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text("Save Tor Settings") }
+                        ) { Text("Save Orbot Proxy") }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "Electrum connections are routed through the SOCKS5 proxy. " +
-                            ".onion addresses are automatically routed via Tor regardless of this setting.",
+                            "Default Orbot SOCKS5 is usually 127.0.0.1:9050. " +
+                            ".onion addresses always require Orbot, even if the global Tor switch is off.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -318,11 +318,11 @@ fun ElectrumServerScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("🧅 Connect over Tor", style = MaterialTheme.typography.titleSmall)
+                        Text("Connect over Tor via Orbot", style = MaterialTheme.typography.titleSmall)
                         Text(
                             when {
-                                activeHostIsOnion -> "Required for .onion $routeTargetLabel."
-                                uiState.useServerTor && uiState.useCustomServer -> "Use Tor SOCKS5 for this private/custom node."
+                                activeHostIsOnion -> "Required for .onion $routeTargetLabel. Orbot must be installed and running."
+                                uiState.useServerTor && uiState.useCustomServer -> "Use Orbot SOCKS5 for this private/custom node."
                                 uiState.useServerTor -> "Hides your IP from this public server; the server can still see wallet queries."
                                 else -> "Use clearnet/direct connection for this $routeTargetLabel."
                             },
@@ -330,7 +330,7 @@ fun ElectrumServerScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            "Public Tor can mean Tor-to-clearnet unless the selected server itself is .onion.",
+                            "Public Tor can mean Orbot-to-clearnet unless the selected server itself is .onion.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

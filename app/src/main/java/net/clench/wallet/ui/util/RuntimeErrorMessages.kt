@@ -12,7 +12,7 @@ internal fun Throwable.walletRuntimeMessage(action: String): String {
     val type = javaClass.simpleName.ifBlank { "RuntimeError" }
     val detail = message?.take(160)?.takeIf { it.isNotBlank() }
     return if (this is LinkageError) {
-        "Bitcoin runtime failed while $action ($type). Install the latest APK. If it still happens, open Settings > Debug > Share."
+        "Bitcoin runtime failed while $action ($type). Install the latest APK. If it still happens, open Settings > Diagnostics > Share."
     } else if (detail != null) {
         "$type: $detail"
     } else {
@@ -36,7 +36,7 @@ internal fun Throwable.connectionRuntimeMessage(): String {
             "Connection refused - check host/port and that your server is running."
         msg.contains("SOCKS", ignoreCase = true) ||
             msg.contains("Tor", ignoreCase = true) ->
-            "Tor proxy error - is Orbot running? ${msg.take(100)}"
+            "Orbot SOCKS5 proxy error - install/start Orbot and try again. ${msg.take(100)}"
         else -> "${javaClass.simpleName}: ${msg.take(150)}"
     }
 }

@@ -214,6 +214,19 @@ class SettingsManager @Inject constructor(
         prefs.edit { putString("last_viewed_wallet_id", walletId) }
     }
 
+    // --- Diagnostics ---
+
+    fun getLastSyncError(): String? = prefs.getString("last_sync_error", null)
+    fun setLastSyncError(message: String?) {
+        prefs.edit {
+            if (message.isNullOrBlank()) {
+                remove("last_sync_error")
+            } else {
+                putString("last_sync_error", message.take(500))
+            }
+        }
+    }
+
     // --- State backup settings ---
 
     fun exportBackupSettings(): JSONObject {

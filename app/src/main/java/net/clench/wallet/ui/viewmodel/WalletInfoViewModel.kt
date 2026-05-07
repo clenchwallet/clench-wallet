@@ -514,7 +514,7 @@ class WalletInfoViewModel @Inject constructor(
                 put("secretsIncluded", false)
                 put("warning", "This file contains public descriptors only. It cannot spend funds by itself, does not include seed phrases, passphrases, or private keys, and can reveal wallet history.")
                 put("verificationInstructions", "After importing, verify network, script type, derivation path, master fingerprint, and first receive address before funding or spending.")
-                put("reimportInstructions", "Import this file in Clench, or import the descriptor/BSMS record in Sparrow, BlueWallet, Nunchuk, or another descriptor-aware wallet.")
+                put("reimportInstructions", "Import this file in Clench, or import the descriptor/BSMS record in another descriptor-aware wallet.")
             }.toString(2)
         }
 

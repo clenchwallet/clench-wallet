@@ -286,6 +286,7 @@ class HomeViewModel @Inject constructor(
                 // Update balance and transactions after successful sync
                 val syncConfirmed = balance.confirmedSat
                 val syncPending = balance.trustedPendingSat + balance.untrustedPendingSat
+                settingsManager.setLastSyncError(null)
                 _uiState.update {
                     it.copy(
                         balanceSat = balance.totalSat,
@@ -317,6 +318,7 @@ class HomeViewModel @Inject constructor(
                         "Wallet descriptor error — try deleting and re-importing this wallet"
                     else -> e.message ?: "Unknown sync error"
                 }
+                settingsManager.setLastSyncError(friendlyMsg)
                 _uiState.update { it.copy(isSyncing = false, syncError = friendlyMsg) }
             }
         }

@@ -75,7 +75,8 @@ class SettingsViewModel @Inject constructor(
         val testingServerHealth: Boolean = false,
         val serverHealthResult: String? = null,
         val isBackupBusy: Boolean = false,
-        val backupStatus: String? = null
+        val backupStatus: String? = null,
+        val lastSyncError: String? = null
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -125,7 +126,8 @@ class SettingsViewModel @Inject constructor(
                 isPinSet = pinManager.isPinSet(),
                 pinnedCert = validatedConfig.pinnedCert,
                 useServerTor = validatedConfig.useTor || validatedConfig.serverUrl.endsWith(".onion"),
-                connectionModeLabel = computeConnectionModeLabel(validatedConfig)
+                connectionModeLabel = computeConnectionModeLabel(validatedConfig),
+                lastSyncError = settingsManager.getLastSyncError()
             )
         }
     }
@@ -237,7 +239,7 @@ class SettingsViewModel @Inject constructor(
                 }
                 "✓ Connected to $cleanUrl:$port (${resolved.mode.name})"
             } catch (e: net.clench.wallet.data.network.ElectrumConnectionException.TorProxyUnavailable) {
-                "✗ Tor proxy not reachable — is Orbot running?\n${e.message}"
+                "✗ Orbot SOCKS5 proxy not reachable\n${e.message}"
             } catch (e: net.clench.wallet.data.network.ElectrumConnectionException.TlsCertPinningFailed) {
                 "✗ Certificate pinning failed — the server's cert doesn't match.\n${e.message}"
             } catch (e: net.clench.wallet.data.network.ElectrumConnectionException.TlsHandshakeFailed) {
@@ -255,9 +257,9 @@ class SettingsViewModel @Inject constructor(
     fun runServerHealthCheck() {
         val state = _uiState.value
         if (state.offlineMode) {
-            _uiState.update {
-                it.copy(serverHealthResult = "Offline mode is enabled. Active server diagnostics would make a network connection.")
-            }
+                _uiState.update {
+                    it.copy(serverHealthResult = "Offline mode is enabled. Active server diagnostics would make a network connection.")
+                }
             return
         }
 
@@ -330,6 +332,27 @@ class SettingsViewModel @Inject constructor(
 
     fun clearServerHealthResult() {
         _uiState.update { it.copy(serverHealthResult = null) }
+    }
+
+    fun refreshDiagnostics() {
+        val config = settingsManager.loadElectrumConfig()
+        _uiState.update {
+            it.copy(
+                useCustomServer = config.isCustom,
+                publicServer = "${config.serverUrl}:${config.port}",
+                customServerUrl = if (config.isCustom) config.serverUrl.removePrefix("ssl://").removePrefix("tcp://") else it.customServerUrl,
+                customServerPort = config.port.toString(),
+                useSSL = config.useSsl,
+                useTestnet = settingsManager.isTestnet(),
+                offlineMode = settingsManager.isOfflineMode(),
+                torEnabled = settingsManager.isTorEnabled(),
+                torProxyHost = settingsManager.getTorProxyHost(),
+                torProxyPort = settingsManager.getTorProxyPort().toString(),
+                useServerTor = config.useTor || config.serverUrl.endsWith(".onion"),
+                connectionModeLabel = computeConnectionModeLabel(config),
+                lastSyncError = settingsManager.getLastSyncError()
+            )
+        }
     }
 
     // --- Mempool settings ---
@@ -677,7 +700,7 @@ class SettingsViewModel @Inject constructor(
         val prefix = "✗ Server health check failed\nTarget: ${config.serverUrl}:${config.port}\nMode: $mode"
         return when (e) {
             is net.clench.wallet.data.network.ElectrumConnectionException.TorProxyUnavailable ->
-                "$prefix\nTor SOCKS5 proxy is not reachable. Is Orbot running?\n${e.message}"
+                "$prefix\nOrbot SOCKS5 proxy is not reachable.\n${e.message}"
             is net.clench.wallet.data.network.ElectrumConnectionException.TlsCertPinningFailed ->
                 "$prefix\nCertificate pinning failed. The server certificate does not match the pinned certificate.\n${e.message}"
             is net.clench.wallet.data.network.ElectrumConnectionException.TlsHandshakeFailed ->

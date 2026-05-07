@@ -369,17 +369,17 @@ fun WalletInfoScreen(
                     }
                 }
 
-                // ─── Per-wallet Hardware Wallet Preference ───
-                if (!uiState.isMultisig) Card(modifier = Modifier.fillMaxWidth()) {
+                // ─── Per-wallet External Signer Preference ───
+                if (uiState.isWatchOnly && !uiState.isMultisig) Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            "Hardware Wallet for Signing",
+                            "External Signer for Spending",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Choose the device this wallet should use when signing PSBTs. This is saved for this wallet.",
+                            "Choose the hardware signer Clench should use when this watch-only wallet creates PSBTs. Hot wallets sign on this device and do not use this setting.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -503,7 +503,7 @@ fun WalletInfoScreen(
                 }
 
                 // ─── Signing Method / Seed Phrase Access ───
-                if (uiState.isWatchOnly && !uiState.isMultisig) {
+                if (!uiState.isWatchOnly && !uiState.isMultisig) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
@@ -513,7 +513,24 @@ fun WalletInfoScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "This watch-only wallet signs with its configured hardware wallet during Send. If you want to convert it to a hot wallet, add the matching seed phrase here instead of at signing time.",
+                                "This hot wallet signs with the seed phrase stored on this device. Hardware signer selection is hidden because spending authority is already local.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                if (uiState.isWatchOnly && !uiState.isMultisig) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "Convert to Hot Wallet",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Only add a seed phrase if you intentionally want this watch-only wallet to become a hot wallet on this device. Hardware-wallet signing remains the safer default for watch-only wallets.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
