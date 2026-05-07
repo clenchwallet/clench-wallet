@@ -1,6 +1,7 @@
 package net.clench.wallet
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
@@ -23,8 +24,10 @@ class ClenchApplication : Application() {
     @Inject lateinit var transactionDao: net.clench.wallet.data.local.dao.TransactionDao
 
     // [S-4] Gate sensitive debug logging in release builds.
-    private val logSensitive = android.util.Log.isLoggable("ClenchApp", android.util.Log.DEBUG)
-        && (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    private val logSensitive: Boolean
+        get() = BuildConfig.DEBUG &&
+            Log.isLoggable("ClenchApp", Log.DEBUG) &&
+            ((runCatching { applicationInfo.flags }.getOrDefault(0) and ApplicationInfo.FLAG_DEBUGGABLE) != 0)
 
     override fun onCreate() {
         super.onCreate()

@@ -8,7 +8,6 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import net.sqlcipher.database.SupportFactory
 import net.clench.wallet.data.local.ClenchDatabase
 import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.dao.TransactionDao
@@ -19,6 +18,8 @@ import net.clench.wallet.data.local.dao.AddressBookDao
 import net.clench.wallet.data.local.dao.WalletKeystoreMetadataDao
 import net.clench.wallet.data.repository.BdkBitcoinRepository
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.zetetic.database.sqlcipher.SQLiteDatabase
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import javax.inject.Singleton
 
 @Module
@@ -46,11 +47,12 @@ object DatabaseModule {
                 try {
                     val dbKey = keystoreManager.getOrCreateDatabaseKey()
                     if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Verifying encrypted DB...")
-                    val testDb = net.sqlcipher.database.SQLiteDatabase.openDatabase(
+                    val testDb = SQLiteDatabase.openDatabase(
                         dbFile.absolutePath,
-                        String(dbKey),
+                        dbKey,
                         null,
-                        net.sqlcipher.database.SQLiteDatabase.OPEN_READONLY
+                        SQLiteDatabase.OPEN_READONLY,
+                        null
                     )
                     testDb.close()
                     if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Encrypted DB verified OK")
@@ -76,7 +78,7 @@ object DatabaseModule {
 
         if (!isDebug) {
             val dbKey = keystoreManager.getOrCreateDatabaseKey()
-            val factory = SupportFactory(dbKey)
+            val factory = SupportOpenHelperFactory(dbKey)
             builder.openHelperFactory(factory)
         } else {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Debug build — using unencrypted Room DB")

@@ -27,9 +27,10 @@ android {
         applicationId = "net.clench.wallet"
         minSdk = 26
         targetSdk = 35
-        versionCode = 308
-        versionName = "0.3.8"
+        versionCode = 309
+        versionName = "0.3.9"
 
+        manifestPlaceholders["appLabel"] = "Clench"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -58,6 +59,7 @@ android {
         debug {
             isDebuggable = true
             applicationIdSuffix = ".debug"
+            manifestPlaceholders["appLabel"] = "Clench Debug"
         }
     }
 
@@ -116,7 +118,7 @@ dependencies {
     implementation(libs.security.crypto)
 
     // SQLCipher — encrypts Room database at rest
-    implementation("net.zetetic:android-database-sqlcipher:4.5.4")
+    implementation("net.zetetic:sqlcipher-android:4.15.0")
     implementation("androidx.sqlite:sqlite-ktx:2.6.2")
 
     // Coroutines

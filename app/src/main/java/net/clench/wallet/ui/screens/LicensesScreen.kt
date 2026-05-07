@@ -52,7 +52,7 @@ fun LicensesScreen(onBack: () -> Unit) {
                 https://developer.android.com/jetpack/androidx/releases/room
                 
                 SQLCipher for Android — BSD License
-                https://github.com/sqlcipher/android-database-sqlcipher
+                https://github.com/sqlcipher/sqlcipher-android
                 
                 Hummingbird (BC-UR) — Apache 2.0
                 https://github.com/sparrowwallet/hummingbird
