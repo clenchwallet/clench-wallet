@@ -3,21 +3,29 @@ package net.clench.wallet.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import net.clench.wallet.data.local.dao.WalletKeystoreMetadataDao
+import net.clench.wallet.data.local.entity.WalletKeystoreMetadataEntity
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
 import net.clench.wallet.ui.util.walletRuntimeMessage
 import org.json.JSONObject
+import java.security.MessageDigest
+import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
 class CreateMultisigViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val walletKeystoreMetadataDao: WalletKeystoreMetadataDao
 ) : ViewModel() {
 
     data class SignerInfo(
@@ -25,6 +33,7 @@ class CreateMultisigViewModel @Inject constructor(
         val xpub: String = "",
         val fingerprint: String = "",
         val derivationPath: String = "m/48'/0'/0'/2'",
+        val deviceType: String? = null,
         val isLocalKey: Boolean = false
     )
 
@@ -99,6 +108,26 @@ class CreateMultisigViewModel @Inject constructor(
                     label = label ?: current.label,
                     xpub = newXpub,
                     fingerprint = newFingerprint
+                )
+            }
+            state.copy(signers = signers)
+        }
+    }
+
+    fun setSignerDevice(index: Int, device: HardwareWalletType?) {
+        _uiState.update { state ->
+            val signers = state.signers.toMutableList()
+            if (index in signers.indices) {
+                val current = signers[index]
+                val defaultLabel = "Signer ${index + 1}"
+                val nextLabel = if (device != null && (current.label.isBlank() || current.label == defaultLabel)) {
+                    device.displayName
+                } else {
+                    current.label
+                }
+                signers[index] = current.copy(
+                    label = nextLabel,
+                    deviceType = device?.name
                 )
             }
             state.copy(signers = signers)
@@ -363,6 +392,7 @@ class CreateMultisigViewModel @Inject constructor(
                     threshold = state.threshold,
                     signerXpubs = signerXpubs
                 )
+                persistSignerMetadata(walletData.id, state.signers)
 
                 _uiState.update {
                     it.copy(isCreating = false, createdWalletId = walletData.id)
@@ -376,6 +406,62 @@ class CreateMultisigViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private suspend fun persistSignerMetadata(walletId: String, signers: List<SignerInfo>) {
+        withContext(Dispatchers.IO) {
+            signers.forEachIndexed { index, signer ->
+                val parsed = parseSignerKeyForMetadata(signer.xpub) ?: return@forEachIndexed
+                val label = signer.label.trim().ifBlank { "Signer ${index + 1}" }
+                walletKeystoreMetadataDao.upsert(
+                    WalletKeystoreMetadataEntity(
+                        walletId = walletId,
+                        keyId = stableKeystoreId(parsed.fingerprint, parsed.derivationPath, parsed.xpub),
+                        label = label.take(64),
+                        preferredHardwareWallet = signer.deviceType,
+                        updatedAtEpochMs = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+    }
+
+    private data class ParsedSignerKey(
+        val fingerprint: String?,
+        val derivationPath: String?,
+        val xpub: String
+    )
+
+    private fun parseSignerKeyForMetadata(raw: String): ParsedSignerKey? {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return null
+        val originMatch = Regex("""^\[([0-9a-fA-F]{8})(?:/([^\]]+))?\](.+)$""").find(trimmed)
+        val fingerprint = originMatch?.groupValues?.getOrNull(1)?.uppercase(Locale.US)
+        val originPath = originMatch?.groupValues?.getOrNull(2)?.takeIf { it.isNotBlank() }
+        val keyWithPath = originMatch?.groupValues?.getOrNull(3) ?: trimmed
+        val xpub = keyWithPath
+            .removeSuffix("/0/*")
+            .removeSuffix("/1/*")
+            .removeSuffix("/**")
+            .trim()
+            .ifBlank { return null }
+        return ParsedSignerKey(fingerprint, originPath, xpub)
+    }
+
+    private fun stableKeystoreId(
+        fingerprint: String?,
+        derivationPath: String?,
+        xpub: String
+    ): String {
+        val input = listOf(
+            fingerprint.orEmpty().uppercase(Locale.US),
+            derivationPath.orEmpty().lowercase(Locale.US),
+            xpub.trim()
+        ).joinToString("|")
+        return MessageDigest.getInstance("SHA-256")
+            .digest(input.toByteArray(Charsets.UTF_8))
+            .take(12)
+            .joinToString("") { "%02x".format(it) }
     }
 
     private fun validateSignerNetwork(keyPart: String, isTestnet: Boolean): String? {

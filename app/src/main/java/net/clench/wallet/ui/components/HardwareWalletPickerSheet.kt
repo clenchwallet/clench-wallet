@@ -14,6 +14,7 @@ import net.clench.wallet.domain.model.HardwareWalletType
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HardwareWalletPickerSheet(
+    title: String = "Sign with hardware wallet",
     onDismiss: () -> Unit,
     onDeviceSelected: (HardwareWalletType) -> Unit
 ) {
@@ -24,7 +25,7 @@ fun HardwareWalletPickerSheet(
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                "Sign with hardware wallet",
+                title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)

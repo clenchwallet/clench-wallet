@@ -1,5 +1,7 @@
 package net.clench.wallet.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -25,6 +28,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.viewmodel.CreateMultisigViewModel
 
@@ -36,6 +41,38 @@ fun CreateMultisigScreen(
     viewModel: CreateMultisigViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    var devicePickerTargetIndex by remember { mutableStateOf<Int?>(null) }
+    var fileImportTargetIndex by remember { mutableStateOf<Int?>(null) }
+    val signerFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val index = fileImportTargetIndex
+        fileImportTargetIndex = null
+        if (uri != null && index != null) {
+            try {
+                val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                if (text.isNullOrBlank()) {
+                    viewModel.setError("Selected signer export file was empty")
+                } else {
+                    viewModel.updateSigner(index, xpub = text.trim())
+                }
+            } catch (e: Exception) {
+                viewModel.setError("Could not read signer export file: ${e.message}")
+            }
+        }
+    }
+
+    devicePickerTargetIndex?.let { targetIndex ->
+        HardwareWalletPickerSheet(
+            title = "Choose signer device",
+            onDismiss = { devicePickerTargetIndex = null },
+            onDeviceSelected = { device ->
+                viewModel.setSignerDevice(targetIndex, device)
+                devicePickerTargetIndex = null
+            }
+        )
+    }
 
     // QR Scanner overlay
     if (uiState.showQrScanner) {
@@ -117,6 +154,20 @@ fun CreateMultisigScreen(
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }
+            uiState.warning?.let { warning ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                ) {
+                    Text(
+                        warning,
+                        modifier = Modifier.padding(12.dp),
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Step content
             when (uiState.currentStep) {
@@ -134,8 +185,14 @@ fun CreateMultisigScreen(
                 2 -> SignersStep(
                     signers = uiState.signers,
                     onUpdateSigner = { index, label, xpub -> viewModel.updateSigner(index, label, xpub) },
+                    onSetDevice = { index -> devicePickerTargetIndex = index },
+                    onClearDevice = { index -> viewModel.setSignerDevice(index, null) },
                     onRemoveSigner = { viewModel.removeSigner(it) },
                     onScanQr = { viewModel.showQrScanner(it) },
+                    onLoadFile = { index ->
+                        fileImportTargetIndex = index
+                        signerFileLauncher.launch(arrayOf("*/*"))
+                    },
                     onNext = {
                         if (viewModel.validateCurrentStep()) viewModel.nextStep()
                     },
@@ -305,8 +362,11 @@ private fun PresetChip(
 private fun SignersStep(
     signers: List<CreateMultisigViewModel.SignerInfo>,
     onUpdateSigner: (Int, String?, String?) -> Unit,
+    onSetDevice: (Int) -> Unit,
+    onClearDevice: (Int) -> Unit,
     onRemoveSigner: (Int) -> Unit,
     onScanQr: (Int) -> Unit,
+    onLoadFile: (Int) -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -325,12 +385,15 @@ private fun SignersStep(
                     signer = signer,
                     onLabelChanged = { onUpdateSigner(index, it, null) },
                     onXpubChanged = { onUpdateSigner(index, null, it) },
+                    onSetDevice = { onSetDevice(index) },
+                    onClearDevice = { onClearDevice(index) },
                     onPaste = {
                         clipboardManager.getText()?.text?.let { text ->
                             onUpdateSigner(index, null, text.trim())
                         }
                     },
                     onScanQr = { onScanQr(index) },
+                    onLoadFile = { onLoadFile(index) },
                     canRemove = signers.size > 2,
                     onRemove = { onRemoveSigner(index) }
                 )
@@ -362,11 +425,18 @@ private fun SignerCard(
     signer: CreateMultisigViewModel.SignerInfo,
     onLabelChanged: (String) -> Unit,
     onXpubChanged: (String) -> Unit,
+    onSetDevice: () -> Unit,
+    onClearDevice: () -> Unit,
     onPaste: () -> Unit,
     onScanQr: () -> Unit,
+    onLoadFile: () -> Unit,
     canRemove: Boolean,
     onRemove: () -> Unit
 ) {
+    val device = signer.deviceType?.let { runCatching { HardwareWalletType.valueOf(it) }.getOrNull() }
+    val canLoadFile = device == null || supportsMultisigSignerFile(device)
+    val canScanQr = device?.supportsQr != false
+
     Card(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -388,6 +458,42 @@ private fun SignerCard(
                             contentDescription = "Remove signer",
                             modifier = Modifier.size(18.dp)
                         )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        "Signer device",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        device?.let { "${it.displayName} — ${it.connectionMethod}" }
+                            ?: "Choose the hardware signer or coordinator export for this slot.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (device?.isScreenlessSigner == true) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Screenless signer: verify policy and first receive address in another trusted coordinator before funding.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = onSetDevice) {
+                            Text(if (device == null) "Choose Device" else "Change Device")
+                        }
+                        if (device != null) {
+                            TextButton(onClick = onClearDevice) { Text("Clear") }
+                        }
                     }
                 }
             }
@@ -416,14 +522,25 @@ private fun SignerCard(
                 modifier = Modifier.fillMaxWidth(),
                 trailingIcon = {
                     Row {
+                        if (canLoadFile) {
+                            IconButton(onClick = onLoadFile) {
+                                Icon(Icons.Default.ContentPaste, contentDescription = "Load file")
+                            }
+                        }
                         IconButton(onClick = onPaste) {
                             Icon(Icons.Default.ContentPaste, contentDescription = "Paste")
                         }
-                        IconButton(onClick = onScanQr) {
+                        IconButton(onClick = onScanQr, enabled = canScanQr) {
                             Icon(Icons.Default.QrCodeScanner, contentDescription = "Scan QR")
                         }
                     }
                 }
+            )
+
+            Text(
+                signerImportHint(device),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             // Show fingerprint and derivation path if available
@@ -442,6 +559,26 @@ private fun SignerCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+private fun supportsMultisigSignerFile(device: HardwareWalletType): Boolean {
+    return device.connectionMethod.contains("File") ||
+        device.connectionMethod.contains("SD") ||
+        device.connectionMethod.contains("Virtual Disk")
+}
+
+private fun signerImportHint(device: HardwareWalletType?): String {
+    return when (device) {
+        null -> "Scan, paste, or load a signer export. Full multisig descriptors should be imported from Import Wallet instead."
+        HardwareWalletType.COLDCARD_Q,
+        HardwareWalletType.COLDCARD_MK4,
+        HardwareWalletType.COLDCARD_MK5 -> "Use the Coldcard multisig/xpub export for this cosigner. Clench accepts origin-wrapped keys such as [fingerprint/path]xpub..."
+        HardwareWalletType.SEEDSIGNER -> "Use SeedSigner multisig BIP48 export. Animated QR is preferred; paste is available as fallback."
+        HardwareWalletType.KEYSTONE,
+        HardwareWalletType.FOUNDATION_PASSPORT -> "Use the device's multisig account/export QR or file for this signer."
+        HardwareWalletType.JADE -> "Use Jade's account xpub export for the BIP48 multisig path."
+        HardwareWalletType.TAPSIGNER -> "Direct CVC-authenticated Tapsigner xpub export is not enabled yet; paste an origin-wrapped xpub from a trusted coordinator."
     }
 }
 
@@ -506,6 +643,15 @@ private fun ReviewStep(
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold
                     )
+                    signer.deviceType
+                        ?.let { runCatching { HardwareWalletType.valueOf(it) }.getOrNull() }
+                        ?.let { device ->
+                            Text(
+                                "Device: ${device.displayName}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     if (signer.fingerprint.isNotEmpty()) {
                         Text(
                             "Fingerprint: ${signer.fingerprint}",

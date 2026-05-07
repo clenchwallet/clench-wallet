@@ -44,6 +44,7 @@ class WalletInfoViewModel @Inject constructor(
         val masterFingerprint: String?,
         val derivationPath: String?,
         val xpub: String,
+        val preferredHardwareWallet: String? = null,
         val checks: List<String> = emptyList(),
         val warnings: List<String> = emptyList()
     )
@@ -228,13 +229,17 @@ class WalletInfoViewModel @Inject constructor(
         if (walletId.isBlank() || keyId.isBlank() || cleanLabel.isBlank()) return
         viewModelScope.launch {
             try {
+                val currentHardwareWallet = _uiState.value.multisigPolicy
+                    ?.keystores
+                    ?.firstOrNull { it.keyId == keyId }
+                    ?.preferredHardwareWallet
                 withContext(Dispatchers.IO) {
                     walletKeystoreMetadataDao.upsert(
                         WalletKeystoreMetadataEntity(
                             walletId = walletId,
                             keyId = keyId,
                             label = cleanLabel,
-                            preferredHardwareWallet = null,
+                            preferredHardwareWallet = currentHardwareWallet,
                             updatedAtEpochMs = System.currentTimeMillis()
                         )
                     )
@@ -536,10 +541,18 @@ class WalletInfoViewModel @Inject constructor(
         ): MultisigPolicyInfo {
             if (metadataByKey.isEmpty()) return this
             val updatedKeystores = keystores.map { keystore ->
-                val label = metadataByKey[keystore.keyId]?.label
+                val metadata = metadataByKey[keystore.keyId]
+                val label = metadata?.label
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
-                if (label == null) keystore else keystore.copy(label = label)
+                if (metadata == null) {
+                    keystore
+                } else {
+                    keystore.copy(
+                        label = label ?: keystore.label,
+                        preferredHardwareWallet = metadata.preferredHardwareWallet
+                    )
+                }
             }
             return copy(
                 keystores = updatedKeystores,

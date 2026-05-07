@@ -741,6 +741,10 @@ private fun KeystoreCard(
 
             keystore.masterFingerprint?.let { InfoLine("Master fingerprint", it, mono = true) }
             keystore.derivationPath?.let { InfoLine("Derivation", it, mono = true) }
+            keystore.preferredHardwareWallet?.let { deviceName ->
+                val device = runCatching { HardwareWalletType.valueOf(deviceName) }.getOrNull()
+                InfoLine("Signing device", device?.displayName ?: deviceName)
+            }
 
             if (keystore.checks.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))

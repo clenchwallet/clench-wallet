@@ -43,6 +43,8 @@ fun ImportWalletScreen(
     onWalletImported: (String) -> Unit,
     onBack: () -> Unit,
     onSettings: (() -> Unit)? = null,
+    onCreateMultisig: (() -> Unit)? = null,
+    onConnectHardwareWallet: (() -> Unit)? = null,
     hardwareWalletMode: Boolean = false,
     viewModel: ImportWalletViewModel = hiltViewModel()
 ) {
@@ -72,7 +74,11 @@ fun ImportWalletScreen(
                     nfcError = "Selected file was empty"
                 } else {
                     viewModel.setInput(text.trim())
-                    nfcStatus = "Loaded hardware wallet export file"
+                    nfcStatus = if (hardwareWalletMode) {
+                        "Loaded hardware wallet export file"
+                    } else {
+                        "Loaded wallet setup file"
+                    }
                     nfcError = null
                 }
             } catch (e: Exception) {
@@ -156,6 +162,7 @@ fun ImportWalletScreen(
     // Device picker bottom sheet
     if (showDevicePicker) {
         HardwareWalletPickerSheet(
+            title = "Choose hardware wallet export",
             onDismiss = {
                 showDevicePicker = false
                 if (selectedDevice == null) onBack()
@@ -366,7 +373,88 @@ fun ImportWalletScreen(
                     placeholder = { Text("xpub... or wsh(sortedmulti(...)) or BSMS/Coldcard config") }
                 )
             } else {
-                // Standard import: single unified input field
+                val hasMultisigInput = isLikelyMultisigConfig(uiState.input)
+
+                // Standard import: complete backups here, signer assembly in Create Multisig.
+                OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Multisig import",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Restore an existing multisig wallet from a complete descriptor, BSMS record, or coordinator backup. Use signer assembly for a new policy from device exports.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { hardwareFileLauncher.launch(arrayOf("*/*")) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Load File")
+                            }
+                            Button(
+                                onClick = { showScanner = true },
+                                enabled = hasCamera,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Scan")
+                            }
+                        }
+                        if (onCreateMultisig != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = onCreateMultisig,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Assemble Signers")
+                            }
+                        }
+                        if (onConnectHardwareWallet != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = onConnectHardwareWallet,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Choose Device Export")
+                            }
+                        }
+                        if (!hasCamera) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                "Camera unavailable — load a setup file or paste below.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        nfcStatus?.let { status ->
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                        nfcError?.let { error ->
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        }
+                        if (hasMultisigInput) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                "Complete multisig configuration detected.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 OutlinedTextField(
                     value = uiState.input,
                     onValueChange = { viewModel.setInput(it) },
@@ -676,6 +764,15 @@ private fun supportsHardwareImportFile(device: HardwareWalletType): Boolean {
     return device.connectionMethod.contains("File") ||
         device.connectionMethod.contains("SD") ||
         device.connectionMethod.contains("Virtual Disk")
+}
+
+private fun isLikelyMultisigConfig(input: String): Boolean {
+    val text = input.lowercase()
+    return text.contains("sortedmulti(") ||
+        text.contains("multi(") ||
+        text.startsWith("bsms") ||
+        text.contains("policy:") ||
+        text.contains("derivation:")
 }
 
 private fun suggestedImportWalletName(

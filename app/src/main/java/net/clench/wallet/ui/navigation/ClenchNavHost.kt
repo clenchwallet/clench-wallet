@@ -204,7 +204,9 @@ fun ClenchNavHost(navController: NavHostController) {
                     }
                 },
                 onBack = { navController.popBackStack() },
-                onSettings = { navController.navigate(Routes.Settings.route) }
+                onSettings = { navController.navigate(Routes.Settings.route) },
+                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) },
+                onConnectHardwareWallet = { navController.navigate(Routes.ImportHardwareWallet.route) }
             )
         }
 
