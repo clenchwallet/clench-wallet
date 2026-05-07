@@ -9,6 +9,19 @@ import org.bitcoindevkit.KeychainKind
  */
 data class Recipient(val address: String, val amountSat: Long)
 
+data class GeneratedMultisigPhoneSigner(
+    val mnemonicWords: List<String>,
+    val xpubWithOrigin: String,
+    val accountXprvWithOrigin: String,
+    val fingerprint: String,
+    val derivationPath: String
+)
+
+data class MultisigPhoneSignerSecret(
+    val mnemonicWords: List<String>,
+    val accountXprvWithOrigin: String
+)
+
 /**
  * Core Bitcoin wallet operations.
  * Implemented by BdkBitcoinRepository (BDK-backed).
@@ -296,12 +309,29 @@ interface BitcoinRepository {
      * @param name wallet display name
      * @param threshold M-of-N threshold (minimum signatures required)
      * @param signerXpubs list of xpubs with origin info, e.g. [fingerprint/path]xpub...
-     * @param network Bitcoin network
      * @return the created WalletData
      */
     suspend fun createMultisigWallet(
         name: String,
         threshold: Int,
-        signerXpubs: List<String>
+        signerXpubs: List<String>,
+        localSignerSecrets: Map<Int, MultisigPhoneSignerSecret> = emptyMap()
     ): WalletData
+
+    /**
+     * Generate a BIP-48 account signer for multisig use on this phone.
+     * The returned mnemonic is not persisted until the multisig wallet is created.
+     */
+    suspend fun generateMultisigPhoneSigner(): GeneratedMultisigPhoneSigner
+
+    /**
+     * True when this multisig wallet has encrypted phone signer secret descriptors available.
+     */
+    suspend fun hasMultisigPhoneSigner(walletId: String): Boolean
+
+    /**
+     * Partially sign a PSBT with encrypted multisig phone signer keys.
+     * Returns the signed PSBT base64; it may still require more signatures.
+     */
+    suspend fun signMultisigPsbtWithPhoneKeys(walletId: String, psbtBase64: String): String
 }

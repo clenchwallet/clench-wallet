@@ -64,6 +64,9 @@ sealed class Routes(val route: String) {
             return "hw_psbt/$walletId/$deviceType"
         }
     }
+    object PhoneSignerPsbt : Routes("phone_psbt/{walletId}") {
+        fun build(walletId: String) = "phone_psbt/$walletId"
+    }
     object Sweep : Routes("sweep/{walletId}") {
         fun build(walletId: String) = "sweep/$walletId"
     }

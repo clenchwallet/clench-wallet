@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.components.QrCodeImage
 import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.domain.model.PhoneSigner
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.WalletInfoViewModel
 
@@ -760,7 +761,7 @@ private fun KeystoreCard(
             keystore.derivationPath?.let { InfoLine("Derivation", it, mono = true) }
             keystore.preferredHardwareWallet?.let { deviceName ->
                 val device = runCatching { HardwareWalletType.valueOf(deviceName) }.getOrNull()
-                InfoLine("Signing device", device?.displayName ?: deviceName)
+                InfoLine("Signing device", device?.displayName ?: PhoneSigner.displayName(deviceName))
             }
 
             if (keystore.checks.isNotEmpty()) {

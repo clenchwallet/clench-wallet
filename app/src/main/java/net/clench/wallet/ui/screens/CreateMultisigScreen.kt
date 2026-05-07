@@ -29,8 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.domain.model.PhoneSigner
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.QrScanner
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.CreateMultisigViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,6 +44,9 @@ fun CreateMultisigScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    if (uiState.signers.any { it.isLocalKey }) {
+        SecureWindowEffect()
+    }
     var devicePickerTargetIndex by remember { mutableStateOf<Int?>(null) }
     var fileImportTargetIndex by remember { mutableStateOf<Int?>(null) }
     val signerFileLauncher = rememberLauncherForActivityResult(
@@ -187,6 +192,9 @@ fun CreateMultisigScreen(
                     onUpdateSigner = { index, label, xpub -> viewModel.updateSigner(index, label, xpub) },
                     onSetDevice = { index -> devicePickerTargetIndex = index },
                     onClearDevice = { index -> viewModel.setSignerDevice(index, null) },
+                    onUsePhoneSigner = { index -> viewModel.generatePhoneSigner(index) },
+                    onClearPhoneSigner = { index -> viewModel.clearPhoneSigner(index) },
+                    onPhoneSignerBackupChanged = { index, backedUp -> viewModel.setPhoneSignerBackedUp(index, backedUp) },
                     onRemoveSigner = { viewModel.removeSigner(it) },
                     onScanQr = { viewModel.showQrScanner(it) },
                     onLoadFile = { index ->
@@ -197,6 +205,8 @@ fun CreateMultisigScreen(
                         if (viewModel.validateCurrentStep()) viewModel.nextStep()
                     },
                     onBack = { viewModel.previousStep() },
+                    showPhoneSignerOptions = uiState.showPhoneSignerOptions,
+                    generatingPhoneSignerIndex = uiState.generatingPhoneSignerIndex,
                     modifier = Modifier.weight(1f)
                 )
                 3 -> ReviewStep(
@@ -364,11 +374,16 @@ private fun SignersStep(
     onUpdateSigner: (Int, String?, String?) -> Unit,
     onSetDevice: (Int) -> Unit,
     onClearDevice: (Int) -> Unit,
+    onUsePhoneSigner: (Int) -> Unit,
+    onClearPhoneSigner: (Int) -> Unit,
+    onPhoneSignerBackupChanged: (Int, Boolean) -> Unit,
     onRemoveSigner: (Int) -> Unit,
     onScanQr: (Int) -> Unit,
     onLoadFile: (Int) -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit,
+    showPhoneSignerOptions: Boolean,
+    generatingPhoneSignerIndex: Int?,
     modifier: Modifier = Modifier
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -387,6 +402,9 @@ private fun SignersStep(
                     onXpubChanged = { onUpdateSigner(index, null, it) },
                     onSetDevice = { onSetDevice(index) },
                     onClearDevice = { onClearDevice(index) },
+                    onUsePhoneSigner = { onUsePhoneSigner(index) },
+                    onClearPhoneSigner = { onClearPhoneSigner(index) },
+                    onPhoneSignerBackupChanged = { backedUp -> onPhoneSignerBackupChanged(index, backedUp) },
                     onPaste = {
                         clipboardManager.getText()?.text?.let { text ->
                             onUpdateSigner(index, null, text.trim())
@@ -394,6 +412,8 @@ private fun SignersStep(
                     },
                     onScanQr = { onScanQr(index) },
                     onLoadFile = { onLoadFile(index) },
+                    showPhoneSignerOptions = showPhoneSignerOptions,
+                    isGeneratingPhoneSigner = generatingPhoneSignerIndex == index,
                     canRemove = signers.size > 2,
                     onRemove = { onRemoveSigner(index) }
                 )
@@ -427,9 +447,14 @@ private fun SignerCard(
     onXpubChanged: (String) -> Unit,
     onSetDevice: () -> Unit,
     onClearDevice: () -> Unit,
+    onUsePhoneSigner: () -> Unit,
+    onClearPhoneSigner: () -> Unit,
+    onPhoneSignerBackupChanged: (Boolean) -> Unit,
     onPaste: () -> Unit,
     onScanQr: () -> Unit,
     onLoadFile: () -> Unit,
+    showPhoneSignerOptions: Boolean,
+    isGeneratingPhoneSigner: Boolean,
     canRemove: Boolean,
     onRemove: () -> Unit
 ) {
@@ -473,11 +498,22 @@ private fun SignerCard(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        device?.let { "${it.displayName} — ${it.connectionMethod}" }
-                            ?: "Choose the hardware signer or coordinator export for this slot.",
+                        when {
+                            signer.isLocalKey -> "${PhoneSigner.DISPLAY_NAME} — encrypted seed on this phone"
+                            device != null -> "${device.displayName} — ${device.connectionMethod}"
+                            else -> "Choose the hardware signer or coordinator export for this slot."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (signer.isLocalKey) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Advanced hot signer: this phone can sign as this cosigner. Keep the wallet threshold higher than the number of phone signers.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                     if (device?.isScreenlessSigner == true) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -488,11 +524,31 @@ private fun SignerCard(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = onSetDevice) {
-                            Text(if (device == null) "Choose Device" else "Change Device")
+                        if (signer.isLocalKey) {
+                            TextButton(onClick = onClearPhoneSigner) { Text("Remove Phone Signer") }
+                        } else {
+                            TextButton(onClick = onSetDevice) {
+                                Text(if (device == null) "Choose Device" else "Change Device")
+                            }
                         }
-                        if (device != null) {
+                        if (device != null && !signer.isLocalKey) {
                             TextButton(onClick = onClearDevice) { Text("Clear") }
+                        }
+                    }
+                    if (showPhoneSignerOptions && !signer.isLocalKey) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OutlinedButton(
+                            onClick = onUsePhoneSigner,
+                            enabled = !isGeneratingPhoneSigner,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (isGeneratingPhoneSigner) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Generating...")
+                            } else {
+                                Text("Use Clench Phone Signer")
+                            }
                         }
                     }
                 }
@@ -519,9 +575,10 @@ private fun SignerCard(
                 label = { Text("Signer public key with origin") },
                 placeholder = { Text("[fingerprint/48'/0'/0'/2']xpub...") },
                 maxLines = 3,
+                readOnly = signer.isLocalKey,
                 modifier = Modifier.fillMaxWidth(),
                 trailingIcon = {
-                    Row {
+                    if (!signer.isLocalKey) Row {
                         if (canLoadFile) {
                             IconButton(onClick = onLoadFile) {
                                 Icon(Icons.Default.ContentPaste, contentDescription = "Load file")
@@ -538,10 +595,22 @@ private fun SignerCard(
             )
 
             Text(
-                signerImportHint(device),
+                if (signer.isLocalKey) {
+                    "Clench generated this cosigner key on-device from the seed phrase below."
+                } else {
+                    signerImportHint(device)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            if (signer.isLocalKey) {
+                PhoneSignerBackupCard(
+                    words = signer.phoneSignerSeedWords,
+                    backedUp = signer.phoneSignerBackedUp,
+                    onBackedUpChanged = onPhoneSignerBackupChanged
+                )
+            }
 
             // Show fingerprint and derivation path if available
             if (signer.fingerprint.isNotEmpty()) {
@@ -566,6 +635,63 @@ private fun supportsMultisigSignerFile(device: HardwareWalletType): Boolean {
     return device.connectionMethod.contains("File") ||
         device.connectionMethod.contains("SD") ||
         device.connectionMethod.contains("Virtual Disk")
+}
+
+@Composable
+private fun PhoneSignerBackupCard(
+    words: List<String>,
+    backedUp: Boolean,
+    onBackedUpChanged: (Boolean) -> Unit
+) {
+    if (words.isEmpty()) return
+    Spacer(modifier = Modifier.height(8.dp))
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                "Phone signer seed phrase",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Back up this seed separately. The wallet descriptor alone cannot recover this signer.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            SelectionContainer {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    words.chunked(3).forEachIndexed { rowIndex, rowWords ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            rowWords.forEachIndexed { columnIndex, word ->
+                                val number = rowIndex * 3 + columnIndex + 1
+                                Text(
+                                    "$number. $word",
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            repeat(3 - rowWords.size) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = backedUp,
+                    onCheckedChange = onBackedUpChanged
+                )
+                Text(
+                    "I backed up this phone signer seed phrase",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
 }
 
 private fun signerImportHint(device: HardwareWalletType?): String {
@@ -644,14 +770,28 @@ private fun ReviewStep(
                         fontWeight = FontWeight.Bold
                     )
                     signer.deviceType
-                        ?.let { runCatching { HardwareWalletType.valueOf(it) }.getOrNull() }
-                        ?.let { device ->
+                        ?.let { deviceName ->
+                            runCatching { HardwareWalletType.valueOf(deviceName) }.getOrNull()?.displayName
+                                ?: PhoneSigner.displayName(deviceName)
+                        }
+                        ?.let { displayName ->
                             Text(
-                                "Device: ${device.displayName}",
+                                "Device: $displayName",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                    if (signer.isLocalKey) {
+                        Text(
+                            "Phone signer seed backed up: ${if (signer.phoneSignerBackedUp) "yes" else "no"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (signer.phoneSignerBackedUp) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            }
+                        )
+                    }
                     if (signer.fingerprint.isNotEmpty()) {
                         Text(
                             "Fingerprint: ${signer.fingerprint}",

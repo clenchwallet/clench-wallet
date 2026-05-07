@@ -26,8 +26,11 @@ import net.clench.wallet.domain.model.TxDirection
 import net.clench.wallet.domain.model.WalletBalance
 import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.domain.repository.GeneratedMultisigPhoneSigner
+import net.clench.wallet.domain.repository.MultisigPhoneSignerSecret
 import org.bitcoindevkit.Amount
 import org.bitcoindevkit.ChainPosition
+import org.bitcoindevkit.DerivationPath
 import org.bitcoindevkit.Persister
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
@@ -43,6 +46,7 @@ import org.bitcoindevkit.Wallet
 import org.bitcoindevkit.WordCount
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -2395,7 +2399,8 @@ class BdkBitcoinRepository @Inject constructor(
     override suspend fun createMultisigWallet(
         name: String,
         threshold: Int,
-        signerXpubs: List<String>
+        signerXpubs: List<String>,
+        localSignerSecrets: Map<Int, MultisigPhoneSignerSecret>
     ): WalletData = withContext(Dispatchers.IO) {
         val network = activeNetwork()
         require(threshold in 1..signerXpubs.size) {
@@ -2410,6 +2415,15 @@ class BdkBitcoinRepository @Inject constructor(
         }
         require(normalizedSignerKeys.map { canonicalMultisigSignerKey(it) }.distinct().size == normalizedSignerKeys.size) {
             "Duplicate cosigner key detected. Each signer must be unique."
+        }
+        require(localSignerSecrets.keys.all { it in signerXpubs.indices }) {
+            "Phone signer secret index is outside the signer list"
+        }
+        require(localSignerSecrets.size < threshold) {
+            "Phone signers must be fewer than the required signature threshold"
+        }
+        val normalizedLocalSecretKeys = localSignerSecrets.mapValues { (index, secret) ->
+            normalizeMultisigSecretSignerKey(secret.accountXprvWithOrigin, index + 1, network)
         }
 
         // Build the sortedmulti descriptor fragments for external (receive) and change.
@@ -2432,6 +2446,30 @@ class BdkBitcoinRepository @Inject constructor(
 
         val externalDescriptorStr = "wsh(sortedmulti($threshold,$externalKeys))"
         val changeDescriptorStr = "wsh(sortedmulti($threshold,$changeKeys))"
+        val signingExternalDescriptorStr = if (normalizedLocalSecretKeys.isNotEmpty()) {
+            val keys = normalizedSignerKeys.mapIndexed { index, publicKey ->
+                normalizedLocalSecretKeys[index] ?: publicKey
+            }.joinToString(",") { key ->
+                if (key.endsWith("/0/*") || key.endsWith("/1/*")) {
+                    key.replace("/1/*", "/0/*")
+                } else {
+                    "$key/0/*"
+                }
+            }
+            "wsh(sortedmulti($threshold,$keys))"
+        } else null
+        val signingChangeDescriptorStr = if (normalizedLocalSecretKeys.isNotEmpty()) {
+            val keys = normalizedSignerKeys.mapIndexed { index, publicKey ->
+                normalizedLocalSecretKeys[index] ?: publicKey
+            }.joinToString(",") { key ->
+                if (key.endsWith("/0/*") || key.endsWith("/1/*")) {
+                    key.replace("/0/*", "/1/*")
+                } else {
+                    "$key/1/*"
+                }
+            }
+            "wsh(sortedmulti($threshold,$keys))"
+        } else null
 
         if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createMultisigWallet: external=$externalDescriptorStr")
         if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createMultisigWallet: change=$changeDescriptorStr")
@@ -2446,6 +2484,20 @@ class BdkBitcoinRepository @Inject constructor(
             Descriptor(changeDescriptorStr, network)
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid multisig change descriptor: ${e.message}")
+        }
+        val signingExternalDescriptor = signingExternalDescriptorStr?.let { descriptor ->
+            try {
+                Descriptor(descriptor, network)
+            } catch (e: Exception) {
+                throw IllegalArgumentException("Invalid phone-signer descriptor: ${e.message}")
+            }
+        }
+        val signingChangeDescriptor = signingChangeDescriptorStr?.let { descriptor ->
+            try {
+                Descriptor(descriptor, network)
+            } catch (e: Exception) {
+                throw IllegalArgumentException("Invalid phone-signer change descriptor: ${e.message}")
+            }
         }
 
         // Prevent duplicate imports
@@ -2475,6 +2527,21 @@ class BdkBitcoinRepository @Inject constructor(
         )
         walletDao.insert(walletEntity)
 
+        if (signingExternalDescriptor != null && signingChangeDescriptor != null) {
+            keystoreManager.storeSecretDescriptor(walletId, signingExternalDescriptor.toStringWithSecret())
+            keystoreManager.storeSecretChangeDescriptor(walletId, signingChangeDescriptor.toStringWithSecret())
+            localSignerSecrets.forEach { (index, secret) ->
+                val parsed = parseSignerKeyForMetadata(normalizedSignerKeys[index])
+                if (parsed != null) {
+                    keystoreManager.storeMultisigSignerMnemonic(
+                        walletId = walletId,
+                        keyId = stableKeystoreId(parsed.fingerprint, parsed.derivationPath, parsed.xpub),
+                        mnemonic = secret.mnemonicWords.joinToString(" ")
+                    )
+                }
+            }
+        }
+
         WalletData(
             id = walletId,
             name = name,
@@ -2485,6 +2552,67 @@ class BdkBitcoinRepository @Inject constructor(
             createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
             network = activeNetwork
         )
+    }
+
+    override suspend fun generateMultisigPhoneSigner(): GeneratedMultisigPhoneSigner = withContext(Dispatchers.IO) {
+        val network = activeNetwork()
+        val isTestnet = network == Network.TESTNET
+        val derivationPath = if (isTestnet) "m/48'/1'/0'/2'" else "m/48'/0'/0'/2'"
+        val mnemonic = Mnemonic(WordCount.WORDS24)
+        val rootSecretKey = DescriptorSecretKey(network, mnemonic, "")
+        val accountPath = DerivationPath(derivationPath)
+        var accountSecretKey: DescriptorSecretKey? = null
+        var accountPublicKey: org.bitcoindevkit.DescriptorPublicKey? = null
+        var rootPublicKey: org.bitcoindevkit.DescriptorPublicKey? = null
+        try {
+            accountSecretKey = rootSecretKey.derive(accountPath)
+            accountPublicKey = accountSecretKey.asPublic()
+            rootPublicKey = rootSecretKey.asPublic()
+            val fingerprint = rootPublicKey.masterFingerprint().uppercase(Locale.US)
+            val publicKey = originWrapAccountKey(accountPublicKey.toString(), fingerprint, derivationPath)
+            val secretKey = originWrapAccountKey(accountSecretKey.toString(), fingerprint, derivationPath)
+            GeneratedMultisigPhoneSigner(
+                mnemonicWords = mnemonic.toString().split(" "),
+                xpubWithOrigin = publicKey,
+                accountXprvWithOrigin = secretKey,
+                fingerprint = fingerprint,
+                derivationPath = derivationPath
+            )
+        } finally {
+            try { accountPublicKey?.destroy() } catch (_: Exception) {}
+            try { accountSecretKey?.destroy() } catch (_: Exception) {}
+            try { rootPublicKey?.destroy() } catch (_: Exception) {}
+            try { accountPath.destroy() } catch (_: Exception) {}
+            try { rootSecretKey.destroy() } catch (_: Exception) {}
+            try { mnemonic.destroy() } catch (_: Exception) {}
+        }
+    }
+
+    override suspend fun hasMultisigPhoneSigner(walletId: String): Boolean = withContext(Dispatchers.IO) {
+        val walletEntity = walletDao.getById(walletId) ?: return@withContext false
+        walletEntity.isMultisig &&
+            keystoreManager.getSecretDescriptor(walletId) != null &&
+            keystoreManager.getSecretChangeDescriptor(walletId) != null
+    }
+
+    override suspend fun signMultisigPsbtWithPhoneKeys(walletId: String, psbtBase64: String): String = withContext(Dispatchers.IO) {
+        val walletEntity = walletDao.getById(walletId)
+            ?: throw IllegalArgumentException("Wallet not found: $walletId")
+        require(walletEntity.isMultisig) { "Phone signer PSBT signing is only available for multisig wallets" }
+        val externalSecret = keystoreManager.getSecretDescriptor(walletId)
+            ?: throw IllegalStateException("No Clench phone signer keys are stored for this wallet")
+        val changeSecret = keystoreManager.getSecretChangeDescriptor(walletId)
+            ?: throw IllegalStateException("No Clench phone signer change keys are stored for this wallet")
+        val network = if (walletEntity.network == "testnet") Network.TESTNET else Network.BITCOIN
+        val signingWallet = Wallet(
+            Descriptor(externalSecret, network),
+            Descriptor(changeSecret, network),
+            network,
+            Persister.newInMemory()
+        )
+        val psbt = Psbt(psbtBase64)
+        signingWallet.sign(psbt)
+        psbt.serialize()
     }
 
     private fun normalizeMultisigSignerKey(raw: String, signerNumber: Int, network: Network): String {
@@ -2531,6 +2659,36 @@ class BdkBitcoinRepository @Inject constructor(
         return "$origin$publicKey$suffix"
     }
 
+    private fun normalizeMultisigSecretSignerKey(raw: String, signerNumber: Int, network: Network): String {
+        val trimmed = raw.trim()
+        require(trimmed.isNotBlank()) { "Signer $signerNumber: phone signer secret is missing" }
+
+        val origin: String
+        val keyWithSuffix: String
+        if (trimmed.startsWith("[")) {
+            val closeBracket = trimmed.indexOf(']')
+            require(closeBracket > 0) { "Signer $signerNumber: malformed phone signer origin — missing closing ']'" }
+            origin = trimmed.substring(0, closeBracket + 1)
+            validateMultisigOriginNetwork(origin, signerNumber, network)
+            keyWithSuffix = trimmed.substring(closeBracket + 1)
+        } else {
+            origin = ""
+            keyWithSuffix = trimmed
+        }
+
+        val suffix = when {
+            keyWithSuffix.endsWith("/0/*") -> "/0/*"
+            keyWithSuffix.endsWith("/1/*") -> "/1/*"
+            else -> ""
+        }
+        val key = keyWithSuffix.removeSuffix("/0/*").removeSuffix("/1/*")
+        validateMultisigSecretSignerNetwork(key, signerNumber, network)
+        require(key.startsWith("xprv") || key.startsWith("tprv")) {
+            "Signer $signerNumber: phone signer secret must be an xprv/tprv account key"
+        }
+        return "$origin$key$suffix"
+    }
+
     private fun validateMultisigSignerNetwork(key: String, signerNumber: Int, network: Network) {
         val mainnetKey = listOf("xpub", "ypub", "zpub", "Ypub", "Zpub").any { key.startsWith(it) }
         val testnetKey = listOf("tpub", "upub", "vpub", "Upub", "Vpub").any { key.startsWith(it) }
@@ -2539,6 +2697,17 @@ class BdkBitcoinRepository @Inject constructor(
         }
         if (network == Network.BITCOIN && testnetKey) {
             throw IllegalArgumentException("Signer $signerNumber: testnet public key used while Clench is set to mainnet")
+        }
+    }
+
+    private fun validateMultisigSecretSignerNetwork(key: String, signerNumber: Int, network: Network) {
+        val mainnetKey = key.startsWith("xprv")
+        val testnetKey = key.startsWith("tprv")
+        if (network == Network.TESTNET && mainnetKey) {
+            throw IllegalArgumentException("Signer $signerNumber: mainnet phone signer key used while Clench is set to testnet")
+        }
+        if (network == Network.BITCOIN && testnetKey) {
+            throw IllegalArgumentException("Signer $signerNumber: testnet phone signer key used while Clench is set to mainnet")
         }
     }
 
@@ -2556,6 +2725,53 @@ class BdkBitcoinRepository @Inject constructor(
                 "Signer $signerNumber: origin path coin type $coinType does not match ${if (network == Network.TESTNET) "testnet" else "mainnet"}"
             }
         }
+    }
+
+    private data class ParsedSignerKey(
+        val fingerprint: String?,
+        val derivationPath: String?,
+        val xpub: String
+    )
+
+    private fun parseSignerKeyForMetadata(raw: String): ParsedSignerKey? {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return null
+        val originMatch = Regex("""^\[([0-9a-fA-F]{8})(?:/([^\]]+))?\](.+)$""").find(trimmed)
+        val fingerprint = originMatch?.groupValues?.getOrNull(1)?.uppercase(Locale.US)
+        val originPath = originMatch?.groupValues?.getOrNull(2)?.takeIf { it.isNotBlank() }
+        val keyWithPath = originMatch?.groupValues?.getOrNull(3) ?: trimmed
+        val xpub = keyWithPath
+            .removeSuffix("/0/*")
+            .removeSuffix("/1/*")
+            .removeSuffix("/**")
+            .trim()
+            .ifBlank { return null }
+        return ParsedSignerKey(fingerprint, originPath, xpub)
+    }
+
+    private fun stableKeystoreId(
+        fingerprint: String?,
+        derivationPath: String?,
+        xpub: String
+    ): String {
+        val input = listOf(
+            fingerprint.orEmpty().uppercase(Locale.US),
+            derivationPath.orEmpty().lowercase(Locale.US),
+            xpub.trim()
+        ).joinToString("|")
+        return java.security.MessageDigest.getInstance("SHA-256")
+            .digest(input.toByteArray(Charsets.UTF_8))
+            .take(12)
+            .joinToString("") { "%02x".format(it) }
+    }
+
+    private fun originWrapAccountKey(rawKey: String, fingerprint: String, derivationPath: String): String {
+        val key = rawKey.trim()
+            .removeSuffix("/0/*")
+            .removeSuffix("/1/*")
+            .removeSuffix("/**")
+        if (key.startsWith("[")) return key
+        return "[${fingerprint.uppercase(Locale.US)}/${derivationPath.removePrefix("m/")}]$key"
     }
 
     private fun canonicalMultisigSignerKey(raw: String): String {

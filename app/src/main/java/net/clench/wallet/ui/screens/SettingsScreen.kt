@@ -122,6 +122,27 @@ fun SettingsScreen(
                 HorizontalDivider()
             }
             item {
+                ListItem(
+                    headlineContent = { Text("Advanced Phone Signers", fontWeight = FontWeight.Medium) },
+                    supportingContent = {
+                        Text(
+                            "Show Clench phone signer options when assembling new multisig wallets",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    trailingContent = {
+                        Switch(
+                            checked = uiState.phoneSignerOptionsEnabled,
+                            onCheckedChange = { viewModel.setPhoneSignerOptionsEnabled(it) }
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        viewModel.setPhoneSignerOptionsEnabled(!uiState.phoneSignerOptionsEnabled)
+                    }
+                )
+                HorizontalDivider()
+            }
+            item {
                 SettingsSectionCard(
                     title = "Network",
                     subtitle = if (uiState.useTestnet) "Testnet" else "Mainnet",

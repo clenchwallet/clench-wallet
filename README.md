@@ -103,6 +103,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 | Version | Highlights |
 | --- | --- |
 | Unreleased | Ongoing hardening and usability improvements. |
+| 0.3.15 | Added advanced multisig phone signer setup, encrypted phone-key PSBT signing, and guardrails for multi-key hot signer policies. |
 | 0.3.14 | Hid hardware-signer selection from hot wallets, clarified Tor via Orbot, changed Recovery to method-based import guidance, and added app diagnostics/F-Droid polish. |
 | 0.3.13 | Switched passphrase wallet fingerprint graphics to Sparrow Wallet's LifeHash v2 generation method and added Toucan attribution. |
 | 0.3.12 | Added device-backed multisig signer slots, signer-device metadata in Wallet Info, and clearer multisig import choices for complete backups, device exports, and signer assembly. |

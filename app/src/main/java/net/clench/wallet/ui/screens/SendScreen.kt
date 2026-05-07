@@ -45,6 +45,7 @@ fun SendScreen(
     selectedUtxos: String? = null,
     cpfpMode: Boolean = false,
     onNavigateHardwarePsbt: ((walletId: String, psbtBase64: String, deviceType: HardwareWalletType) -> Unit)? = null,
+    onNavigatePhonePsbt: ((walletId: String, psbtBase64: String) -> Unit)? = null,
     viewModel: SendViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -823,6 +824,14 @@ fun SendScreen(
                     onNavigateHardwarePsbt?.invoke(walletId, psbtBase64, deviceType)
                 }
             },
+            onPhoneSigner = {
+                showWatchOnlySheet = false
+                viewModel.createPsbt { psbtBase64 ->
+                    viewModel.storePsbtForNavigation(walletId, psbtBase64, net.clench.wallet.domain.model.PhoneSigner.DEVICE_TYPE)
+                    onNavigatePhonePsbt?.invoke(walletId, psbtBase64)
+                }
+            },
+            hasPhoneSigner = uiState.hasPhoneSigner,
             preferredDevice = uiState.preferredHardwareWallet
         )
     }

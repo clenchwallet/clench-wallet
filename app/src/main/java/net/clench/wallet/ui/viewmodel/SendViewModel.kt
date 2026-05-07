@@ -50,6 +50,7 @@ class SendViewModel @Inject constructor(
     data class UiState(
         val walletId: String = "",
         val isWatchOnly: Boolean = false,
+        val hasPhoneSigner: Boolean = false,
         val preferredHardwareWallet: String? = null,
         val toAddress: String = "",
         val amountSat: String = "",
@@ -172,6 +173,9 @@ class SendViewModel @Inject constructor(
 
                 _uiState.update { it.copy(
                     isWatchOnly = wallet?.isWatchOnly ?: false,
+                    hasPhoneSigner = if (wallet?.isMultisig == true) {
+                        bitcoinRepository.hasMultisigPhoneSigner(walletId)
+                    } else false,
                     preferredHardwareWallet = wallet?.preferredHardwareWallet,
                     availableBalanceSat = effectiveBalance,
                     frozenUtxoCount = frozenCount,

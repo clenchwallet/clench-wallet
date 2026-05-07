@@ -27,6 +27,8 @@ fun WatchOnlySendSheet(
     onDismiss: () -> Unit,
     onHardwareWallet: () -> Unit,
     onHardwareWalletDirect: ((HardwareWalletType) -> Unit)? = null,
+    onPhoneSigner: (() -> Unit)? = null,
+    hasPhoneSigner: Boolean = false,
     preferredDevice: String? = null
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -45,6 +47,24 @@ fun WatchOnlySendSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(24.dp))
+
+            if (hasPhoneSigner && onPhoneSigner != null) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    onClick = onPhoneSigner
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Sign with Clench Phone Signer", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Use encrypted multisig signer keys stored on this phone. If more signatures are required, export the signed PSBT to the next signer.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             Card(
                 modifier = Modifier.fillMaxWidth(),

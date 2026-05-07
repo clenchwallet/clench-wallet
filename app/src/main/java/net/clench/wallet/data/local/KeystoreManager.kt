@@ -88,6 +88,15 @@ class KeystoreManager @Inject constructor(
     fun hasMnemonic(walletId: String): Boolean =
         prefs.contains(mnemonicKey(walletId))
 
+    /** Store a generated multisig phone-signer mnemonic for a specific keystore id. */
+    fun storeMultisigSignerMnemonic(walletId: String, keyId: String, mnemonic: String) {
+        prefs.edit().putString(multisigSignerMnemonicKey(walletId, keyId), mnemonic).apply()
+    }
+
+    /** Retrieve a generated multisig phone-signer mnemonic. */
+    fun getMultisigSignerMnemonic(walletId: String, keyId: String): String? =
+        prefs.getString(multisigSignerMnemonicKey(walletId, keyId), null)
+
     /**
      * Delete all stale passphrase entries from encrypted prefs.
      * Passphrases are no longer stored for security — this is a one-time migration cleanup.
@@ -102,12 +111,16 @@ class KeystoreManager @Inject constructor(
 
     /** Delete all stored secrets for a wallet. Call when deleting a wallet. */
     fun deleteWalletSecrets(walletId: String) {
-        prefs.edit()
+        val editor = prefs.edit()
             .remove(mnemonicKey(walletId))
             .remove(passphraseKey(walletId))
             .remove(secretDescriptorKey(walletId))
             .remove(secretChangeDescriptorKey(walletId))
-            .apply()
+        val signerPrefix = multisigSignerMnemonicPrefix(walletId)
+        prefs.all.keys
+            .filter { it.startsWith(signerPrefix) }
+            .forEach { editor.remove(it) }
+        editor.apply()
     }
 
     /**
@@ -129,6 +142,9 @@ class KeystoreManager @Inject constructor(
     private fun passphraseKey(walletId: String) = "passphrase_$walletId"
     private fun secretDescriptorKey(walletId: String) = "secret_descriptor_$walletId"
     private fun secretChangeDescriptorKey(walletId: String) = "secret_change_descriptor_$walletId"
+    private fun multisigSignerMnemonicKey(walletId: String, keyId: String) =
+        "${multisigSignerMnemonicPrefix(walletId)}$keyId"
+    private fun multisigSignerMnemonicPrefix(walletId: String) = "multisig_signer_mnemonic_${walletId}_"
 
     companion object {
         private const val DATABASE_KEY = "clench_database_encryption_key"

@@ -267,6 +267,10 @@ fun ClenchNavHost(navController: NavHostController) {
                 onNavigateHardwarePsbt = { wId, _, deviceType ->
                     // PSBT already stored in PsbtStore by SendViewModel.storePsbtForNavigation()
                     navController.navigate(Routes.HardwarePsbt.build(wId, deviceType.name))
+                },
+                onNavigatePhonePsbt = { wId, _ ->
+                    // PSBT already stored in PsbtStore by SendViewModel.storePsbtForNavigation()
+                    navController.navigate(Routes.PhoneSignerPsbt.build(wId))
                 }
             )
         }
@@ -626,6 +630,17 @@ fun ClenchNavHost(navController: NavHostController) {
             HardwareWalletPsbtScreen(
                 walletId = walletId,
                 deviceType = deviceType,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.PhoneSignerPsbt.route,
+            arguments = listOf(navArgument("walletId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
+            PhoneSignerPsbtScreen(
+                walletId = walletId,
                 onBack = { navController.popBackStack() }
             )
         }

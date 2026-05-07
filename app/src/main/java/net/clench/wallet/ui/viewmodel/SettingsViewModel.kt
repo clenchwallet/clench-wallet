@@ -53,6 +53,7 @@ class SettingsViewModel @Inject constructor(
         val mempoolUrl: String = "https://mempool.space",
         val btcPriceEnabled: Boolean = false,
         val externalFeeLookupEnabled: Boolean = false,
+        val phoneSignerOptionsEnabled: Boolean = false,
         val useTestnet: Boolean = false,
         val biometricForSeed: Boolean = true,
         val biometricForSend: Boolean = true,
@@ -114,6 +115,7 @@ class SettingsViewModel @Inject constructor(
                 mempoolUrl = settingsManager.getMempoolUrl(),
                 btcPriceEnabled = settingsManager.isBtcPriceEnabled(),
                 externalFeeLookupEnabled = settingsManager.isExternalFeeLookupEnabled(),
+                phoneSignerOptionsEnabled = settingsManager.isPhoneSignerOptionsEnabled(),
                 useTestnet = settingsManager.isTestnet(),
                 biometricForSeed = settingsManager.isBiometricForSeedEnabled(),
                 biometricForSend = settingsManager.isBiometricForSendEnabled(),
@@ -382,6 +384,11 @@ class SettingsViewModel @Inject constructor(
     fun setExternalFeeLookupEnabled(enabled: Boolean) {
         settingsManager.setExternalFeeLookupEnabled(enabled)
         _uiState.update { it.copy(externalFeeLookupEnabled = enabled) }
+    }
+
+    fun setPhoneSignerOptionsEnabled(enabled: Boolean) {
+        settingsManager.setPhoneSignerOptionsEnabled(enabled)
+        _uiState.update { it.copy(phoneSignerOptionsEnabled = enabled) }
     }
 
     // --- Network settings ---

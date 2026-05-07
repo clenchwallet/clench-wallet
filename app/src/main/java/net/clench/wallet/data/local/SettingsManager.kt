@@ -207,6 +207,13 @@ class SettingsManager @Inject constructor(
         prefs.edit { putBoolean("external_fee_lookup_enabled", enabled) }
     }
 
+    // --- Advanced multisig signer options ---
+
+    fun isPhoneSignerOptionsEnabled(): Boolean = prefs.getBoolean("phone_signer_options_enabled", false)
+    fun setPhoneSignerOptionsEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean("phone_signer_options_enabled", enabled) }
+    }
+
     // --- Last viewed wallet ---
 
     fun getLastViewedWalletId(): String? = prefs.getString("last_viewed_wallet_id", null)
@@ -236,6 +243,7 @@ class SettingsManager @Inject constructor(
             put("mempoolUrl", getMempoolUrl())
             put("btcPriceEnabled", isBtcPriceEnabled())
             put("externalFeeLookupEnabled", isExternalFeeLookupEnabled())
+            put("phoneSignerOptionsEnabled", isPhoneSignerOptionsEnabled())
             put("biometricForSeed", isBiometricForSeedEnabled())
             put("biometricForSend", isBiometricForSendEnabled())
             put("lockTimeoutKey", getLockTimeoutKey())
@@ -257,6 +265,7 @@ class SettingsManager @Inject constructor(
         settings.optNullableString("mempoolUrl")?.let { setMempoolUrl(it) }
         if (settings.has("btcPriceEnabled")) setBtcPriceEnabled(settings.optBoolean("btcPriceEnabled"))
         if (settings.has("externalFeeLookupEnabled")) setExternalFeeLookupEnabled(settings.optBoolean("externalFeeLookupEnabled"))
+        if (settings.has("phoneSignerOptionsEnabled")) setPhoneSignerOptionsEnabled(settings.optBoolean("phoneSignerOptionsEnabled"))
         if (settings.has("biometricForSeed")) setBiometricForSeedEnabled(settings.optBoolean("biometricForSeed"))
         if (settings.has("biometricForSend")) setBiometricForSendEnabled(settings.optBoolean("biometricForSend"))
         settings.optNullableString("lockTimeoutKey")?.let { setLockTimeout(it) }
