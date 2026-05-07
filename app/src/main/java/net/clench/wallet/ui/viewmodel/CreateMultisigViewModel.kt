@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
+import net.clench.wallet.ui.util.walletRuntimeMessage
 import org.json.JSONObject
 import javax.inject.Inject
 
@@ -128,11 +130,22 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun onQrScanned(result: String) {
-        val index = _uiState.value.qrScannerTargetIndex
-        if (index >= 0) {
-            updateSigner(index, xpub = result.trim())
+        try {
+            val index = _uiState.value.qrScannerTargetIndex
+            if (index >= 0) {
+                updateSigner(index, xpub = result.trim())
+            }
+            hideQrScanner()
+        } catch (t: Throwable) {
+            if (t.shouldRethrowForUiBoundary()) throw t
+            _uiState.update {
+                it.copy(
+                    showQrScanner = false,
+                    qrScannerTargetIndex = -1,
+                    error = "QR import failed: ${t.walletRuntimeMessage("reading the cosigner QR")}"
+                )
+            }
         }
-        hideQrScanner()
     }
 
     fun nextStep() {
@@ -151,6 +164,10 @@ class CreateMultisigViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    fun setError(message: String) {
+        _uiState.update { it.copy(error = message) }
     }
 
     fun clearWarning() {
@@ -351,10 +368,11 @@ class CreateMultisigViewModel @Inject constructor(
                     it.copy(isCreating = false, createdWalletId = walletData.id)
                 }
                 onCreated(walletData.id)
-            } catch (e: Exception) {
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("CreateMultisig", "createMultisigWallet failed: ${e.message}", e)
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("CreateMultisig", "createMultisigWallet failed: ${t.message}", t)
                 _uiState.update {
-                    it.copy(isCreating = false, error = e.message ?: "Failed to create multisig wallet")
+                    it.copy(isCreating = false, error = t.walletRuntimeMessage("creating the multisig wallet"))
                 }
             }
         }

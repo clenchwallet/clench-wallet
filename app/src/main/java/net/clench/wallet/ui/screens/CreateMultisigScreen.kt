@@ -41,7 +41,8 @@ fun CreateMultisigScreen(
     if (uiState.showQrScanner) {
         QrScanner(
             onResult = { result -> viewModel.onQrScanned(result) },
-            onCancel = { viewModel.hideQrScanner() }
+            onCancel = { viewModel.hideQrScanner() },
+            onError = { message -> viewModel.setError(message) }
         )
         return
     }

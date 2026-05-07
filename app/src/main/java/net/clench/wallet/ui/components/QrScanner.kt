@@ -23,6 +23,8 @@ import com.google.zxing.*
 import com.google.zxing.common.HybridBinarizer
 import com.sparrowwallet.hummingbird.ResultType
 import com.sparrowwallet.hummingbird.URDecoder
+import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
+import net.clench.wallet.ui.util.walletRuntimeMessage
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -178,6 +180,7 @@ fun QrScanner(
     var progress by remember { mutableFloatStateOf(0f) }
     var isProcessing by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
+    val mainExecutor = remember(context) { androidx.core.content.ContextCompat.getMainExecutor(context) }
 
     // BBQr accumulator for Coldcard Q animated frames
     val bbqrFrames = remember { mutableMapOf<Int, String>() }
@@ -188,6 +191,21 @@ fun QrScanner(
     // Generic p1ofN animated-text accumulator used by SeedSigner/Specter-style exports
     val multipartTextFrames = remember { mutableMapOf<Int, String>() }
     var multipartTextTotalFrames by remember { mutableIntStateOf(0) }
+
+    fun deliverResult(payload: String) {
+        isProcessing = true
+        mainExecutor.execute {
+            try {
+                onResult(payload)
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                val msg = "QR import failed. Paste the xpub, descriptor, or PSBT manually instead. ${t.walletRuntimeMessage("processing the QR")}"
+                cameraError = msg
+                onError?.invoke(msg)
+                isProcessing = false
+            }
+        }
+    }
 
     // Early camera availability check
     LaunchedEffect(Unit) {
@@ -335,8 +353,9 @@ fun QrScanner(
                                                 isProcessing = true
                                                 try {
                                                     val rawBytes = BBQrEncoder.reassemble(orderedChunks, bbqrEncoding)
-                                                    onResult(HardwareWalletQrPayloadDecoder.decodeBbqrPayload(bbqrFileType, rawBytes))
-                                                } catch (_: Exception) {
+                                                    deliverResult(HardwareWalletQrPayloadDecoder.decodeBbqrPayload(bbqrFileType, rawBytes))
+                                                } catch (t: Throwable) {
+                                                    if (t.shouldRethrowForUiBoundary()) throw t
                                                     // Reset on decode error and keep scanning
                                                     bbqrFrames.clear()
                                                     bbqrTotalFrames = 0
@@ -359,8 +378,7 @@ fun QrScanner(
                                         multipartTextFrames[index] = data
                                         progress = multipartTextFrames.size.toFloat() / total.toFloat()
                                         if (multipartTextFrames.size == total) {
-                                            isProcessing = true
-                                            onResult((1..total).joinToString("") { i -> multipartTextFrames[i].orEmpty() }.trim())
+                                            deliverResult((1..total).joinToString("") { i -> multipartTextFrames[i].orEmpty() }.trim())
                                         }
                                     }
                                 } else if (lowerText.startsWith("ur:")) {
@@ -373,20 +391,19 @@ fun QrScanner(
                                         val ur = decoderResult.ur
                                         val decodedPayload = HardwareWalletQrPayloadDecoder.decodeUrPayload(ur)
                                         if (!decodedPayload.isNullOrBlank()) {
-                                            isProcessing = true
-                                            onResult(decodedPayload)
+                                            deliverResult(decodedPayload)
                                         }
                                     }
                                 } else {
                                     // Static QR — check for SeedQR (Standard format) first,
                                     // then fall through as raw text (xpub, descriptor, base64 PSBT, etc.)
-                                    isProcessing = true
                                     val decoded = decodeSeedQr(context, text, result.byteSegments())
-                                    onResult(decoded ?: text)
+                                    deliverResult(decoded ?: text)
                                 }
                             } catch (_: NotFoundException) {
                                 // No QR code found in this frame
-                            } catch (_: Exception) {
+                            } catch (t: Throwable) {
+                                if (t.shouldRethrowForUiBoundary()) throw t
                                 // Ignore decode errors
                             } finally {
                                 multiReader.reset()

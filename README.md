@@ -103,6 +103,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 | Version | Highlights |
 | --- | --- |
 | Unreleased | Ongoing hardening and usability improvements. |
+| 0.3.10 | Kept JNA intact in minified releases for BDK native calls, prevented QR/import/create-wallet native boundary crashes from closing the app, and fixed onboarding background contrast. |
 | 0.3.9 | Migrated release SQLCipher runtime to the 16 KB page-size compatible Android package and labeled debug builds as Clench Debug. |
 | 0.3.8 | Hid single-sig wallet fingerprints, seed phrase conversion, and seed phrase viewing for multisig wallets even when an imported descriptor is misclassified. |
 | 0.3.7 | Hardened wallet data-loss, logging, passphrase recovery, multisig metadata, and release-trust surfaces. |

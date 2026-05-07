@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.domain.model.ScriptType
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
+import net.clench.wallet.ui.util.walletRuntimeMessage
 import org.bitcoindevkit.Mnemonic
 import org.bitcoindevkit.WordCount
 import java.security.MessageDigest
@@ -98,8 +100,9 @@ class CreateWalletViewModel @Inject constructor(
                 pendingMnemonic = mnemonicWords
 
                 _uiState.update { it.copy(mnemonic = mnemonicWords, isLoading = false) }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, error = e.message) }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                _uiState.update { it.copy(isLoading = false, error = t.walletRuntimeMessage("generating a wallet")) }
             }
         }
     }
@@ -123,9 +126,10 @@ class CreateWalletViewModel @Inject constructor(
                 _uiState.update { it.copy(mnemonic = emptyList()) }
 
                 onCreated(walletData.second.id)
-            } catch (e: Exception) {
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("CreateWallet", "confirmAndSave failed: ${e.javaClass.simpleName}: ${e.message}", e)
-                _uiState.update { it.copy(isLoading = false, error = "${e.javaClass.simpleName}: ${e.message}") }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("CreateWallet", "confirmAndSave failed: ${t.javaClass.simpleName}: ${t.message}", t)
+                _uiState.update { it.copy(isLoading = false, error = t.walletRuntimeMessage("saving the wallet")) }
             }
         }
     }

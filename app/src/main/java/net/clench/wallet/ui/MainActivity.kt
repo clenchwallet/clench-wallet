@@ -96,7 +96,11 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             ClenchTheme {
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                ) {
                     // Main app content always rendered underneath
                     val navController = rememberNavController()
                     ClenchNavHost(navController = navController)

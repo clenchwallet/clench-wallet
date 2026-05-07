@@ -30,6 +30,8 @@ import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.PublicElectrumServers
 import net.clench.wallet.domain.model.PublicServer
+import net.clench.wallet.ui.util.connectionRuntimeMessage
+import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
 import javax.inject.Inject
 
 @HiltViewModel
@@ -90,15 +92,9 @@ class ConnectionSetupViewModel @Inject constructor(
                 } else {
                     "✓ Connected to $host:$port"
                 }
-            } catch (e: Exception) {
-                val msg = e.message ?: "Connection error"
-                when {
-                    msg.contains("SSL", ignoreCase = true) || msg.contains("certificate", ignoreCase = true) ->
-                        "✗ SSL/TLS error — self-signed certificates are not supported. Try plain TCP (port 50001) with SSL off."
-                    msg.contains("refused", ignoreCase = true) ->
-                        "✗ Connection refused — check host/port and that your server is running."
-                    else -> "✗ Failed: ${msg.take(120)}"
-                }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                "✗ ${t.connectionRuntimeMessage()}"
             }
             _setupState.update { it.copy(testingConnection = false, connectionTestResult = result) }
         }

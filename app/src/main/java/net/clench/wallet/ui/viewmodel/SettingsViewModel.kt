@@ -21,6 +21,8 @@ import net.clench.wallet.domain.model.PublicElectrumServers
 import net.clench.wallet.domain.model.PublicServer
 import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.ui.util.connectionRuntimeMessage
+import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.security.cert.CertificateFactory
@@ -242,20 +244,9 @@ class SettingsViewModel @Inject constructor(
                 "✗ TLS handshake failed — check that the server supports TLS on this port.\n${e.message}"
             } catch (e: net.clench.wallet.data.network.ElectrumConnectionException.ConnectionFailed) {
                 "✗ Connection failed — check host/port.\n${e.message}"
-            } catch (e: Exception) {
-                val msg = e.message ?: "Connection error"
-                when {
-                    msg.contains("SSL", ignoreCase = true) ||
-                    msg.contains("TLS", ignoreCase = true) ||
-                    msg.contains("certificate", ignoreCase = true) ||
-                    msg.contains("handshake", ignoreCase = true) ->
-                        "✗ SSL/TLS error — try pinning the server's certificate, or disable SSL and use port 50001."
-                    msg.contains("Connection refused", ignoreCase = true) ->
-                        "✗ Connection refused — check host/port and that your server is running."
-                    msg.contains("SOCKS", ignoreCase = true) || msg.contains("Tor", ignoreCase = true) ->
-                        "✗ Tor proxy error — is Orbot running?\n${msg.take(100)}"
-                    else -> "✗ Failed: ${msg.take(150)}"
-                }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                "✗ ${t.connectionRuntimeMessage()}"
             }
             _uiState.update { it.copy(testingConnection = false, connectionTestResult = result) }
         }
@@ -329,8 +320,9 @@ class SettingsViewModel @Inject constructor(
                         }
                     }
                 }
-            } catch (e: Exception) {
-                diagnosticFailureMessage(e, config, resolved.mode.name)
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                diagnosticFailureMessage(t, config, resolved.mode.name)
             }
             _uiState.update { it.copy(testingServerHealth = false, serverHealthResult = result) }
         }
@@ -681,7 +673,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    private fun diagnosticFailureMessage(e: Exception, config: ElectrumConfig, mode: String): String {
+    private fun diagnosticFailureMessage(e: Throwable, config: ElectrumConfig, mode: String): String {
         val prefix = "✗ Server health check failed\nTarget: ${config.serverUrl}:${config.port}\nMode: $mode"
         return when (e) {
             is net.clench.wallet.data.network.ElectrumConnectionException.TorProxyUnavailable ->
@@ -692,6 +684,8 @@ class SettingsViewModel @Inject constructor(
                 "$prefix\nTLS handshake failed. Check SSL/TLS and port settings.\n${e.message}"
             is net.clench.wallet.data.network.ElectrumConnectionException.ConnectionFailed ->
                 "$prefix\nConnection failed. Check host, port, and network reachability.\n${e.message}"
+            is LinkageError ->
+                "$prefix\n${e.connectionRuntimeMessage()}"
             else -> "$prefix\n${e.message ?: e.javaClass.simpleName}"
         }
     }
