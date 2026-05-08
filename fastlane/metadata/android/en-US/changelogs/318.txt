@@ -1,0 +1,1 @@
+Removed Android dependency metadata from release APK signing blocks for F-Droid binary scanning, and fixed multisig hardware signer PSBT flows.
