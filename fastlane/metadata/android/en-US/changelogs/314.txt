@@ -1,0 +1,1 @@
+Polished recovery, diagnostics, Tor copy, and signer selection behavior for F-Droid-ready release metadata.

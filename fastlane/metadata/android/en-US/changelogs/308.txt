@@ -1,0 +1,1 @@
+Hid single-sig wallet fingerprints, seed phrase conversion, and seed phrase viewing for multisig wallets.

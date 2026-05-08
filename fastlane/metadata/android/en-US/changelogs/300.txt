@@ -1,15 +1,1 @@
-v0.3.0 — Initial public release
-
-• Single-sig and multisig wallet creation
-• Hardware wallet support: SeedSigner, Keystone, Passport, Jade (QR), Coldcard (NFC)
-• Tor-enabled Electrum support (SOCKS5 proxy)
-• Custom Electrum server configuration
-• Coin control with UTXO freezing
-• Batch sending to multiple recipients
-• Transaction labeling with BIP-329 export/import
-• Replace-By-Fee (RBF) fee bumping
-• Sweep functionality
-• Biometric and PIN authentication
-• AES-256-GCM encrypted key storage
-• SQLCipher database encryption
-• Testnet support
+Initial public release with single-sig and multisig wallets, descriptor imports, QR and NFC hardware-wallet PSBT flows, Tor Electrum support, coin control, batch sending, labels, RBF fee bumping, sweep support, PIN/biometric authentication, encrypted key storage, SQLCipher database encryption, and testnet support.

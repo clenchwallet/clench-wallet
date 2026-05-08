@@ -1,0 +1,1 @@
+Kept JNA intact in minified releases, prevented native-boundary crashes, and fixed onboarding background contrast.

@@ -1,0 +1,1 @@
+Added SATSCARD NFC Tap Protocol status checks in sweep tools while keeping CVC-authenticated unseal and sweep blocked pending dedicated support. Updated project contact email to cw@clench.net.

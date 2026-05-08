@@ -1,47 +1,29 @@
-Clench is a Bitcoin-only, non-custodial on-chain wallet built with Bitcoin Dev Kit (BDK). Your keys, your coins — no custodians, no accounts, no tracking.
+Clench is a Bitcoin-only, non-custodial wallet for Android. It uses Bitcoin Dev Kit and stores wallet data locally on the device.
 
-🔑 WALLET FEATURES
-• Create single-sig or multisig (M-of-N) wallets
-• Import watch-only wallets via descriptors
-• BIP-39 seed phrases (12 or 24 words) with optional passphrase
-• Multiple script types: Native SegWit (BIP-84), Nested SegWit (BIP-49), Legacy (BIP-44), Taproot (BIP-86)
-• Full testnet support for development and testing
+Wallet features:
+- Create single-sig and multisig wallets.
+- Import watch-only wallets from descriptors.
+- Create or restore BIP-39 seed phrase wallets with an optional passphrase.
+- Use native SegWit, nested SegWit, legacy, and Taproot script types.
+- Connect to Electrum servers, including personal servers and Tor SOCKS5 routes.
+- Use coin control, UTXO freezing, labels, batch payments, RBF fee bumping, CPFP, cancel replacement attempts, raw transaction import, and sweep flows.
+- Run node diagnostics for Electrum route, Tor mode, TLS pinning, server version, and tip height.
 
-🔒 HARDWARE WALLET SUPPORT
-Clench works with the hardware wallets you already own:
-• QR-based: SeedSigner, Keystone, Foundation Passport, Blockstream Jade
-• NFC-based: Coldcard Mk4, Coldcard Q
-• Animated QR codes via BC-UR for large PSBTs
-• Full BIP-174 PSBT workflow — build on phone, sign on hardware
+Hardware-wallet features:
+- Exchange PSBTs by animated QR, BBQr, NFC, SD card, virtual disk, file import, or signed-return import where supported.
+- Work with QR-based signers such as SeedSigner, Keystone, Foundation Passport, and Blockstream Jade.
+- Work with Coldcard Q, Coldcard Mk4, and Coldcard Mk5 transfer paths.
+- Check Tapsigner and SATSCARD NFC Tap Protocol status.
+- Block screenless-signer and card flows that require CVC-authenticated signing or unseal/sweep until dedicated authenticated support is complete.
+- Require explicit broadcast confirmation after hardware-wallet signing.
 
-🕵️ PRIVACY
-Privacy isn't a feature, it's a right:
-• Tor-enabled Electrum support via SOCKS5 proxy
-• Connect to your own Electrum server — don't trust anyone else's
-• Coin control — manually select and freeze UTXOs
-• No analytics, no tracking, no third-party tracking SDKs
+Security and privacy features:
+- Encrypt keys with Android Keystore.
+- Encrypt the local wallet database with SQLCipher.
+- Protect wallet access with PIN and biometric authentication where available.
+- Validate signed PSBTs and finalized transactions before broadcast.
+- Avoid analytics, advertising SDKs, Firebase, Google Play Services, crash reporting services, and account sign-in.
 
-💸 TRANSACTIONS
-• Batch sending — pay multiple recipients in a single transaction, saving fees
-• Transaction labeling with BIP-329 export/import
-• Replace-By-Fee (RBF) fee bumping for stuck transactions
-• Sweep functionality to empty a wallet into a destination address
-• Smart fee estimation via Electrum with mempool.space fallback
+Network use is limited to wallet sync and optional user-triggered fee or price data lookups.
 
-🛡️ SECURITY
-• AES-256-GCM encrypted key storage via Android Keystore
-• SQLCipher-encrypted local database
-• Biometric authentication bound to cryptographic keys
-• PIN lock with brute-force protection
-• PSBT output validation prevents address substitution attacks
-
-🚫 NO TRACKING
-Zero analytics. Zero telemetry. No third-party tracking or analytics SDKs. No Firebase, no Google Analytics, no crash reporting services, no advertising. The app makes no network connections except the ones you configure for wallet sync and optional price/fee data.
-
-⚙️ BUILT WITH
-• Bitcoin Dev Kit (BDK) 2.3.1 — battle-tested Bitcoin library
-• Jetpack Compose — modern Android UI
-• Room + SQLCipher — encrypted local storage
-• 100% open source — audit the code yourself
-
-Clench is free, open source software licensed under the MIT License.
+Clench is free software under the MIT License.

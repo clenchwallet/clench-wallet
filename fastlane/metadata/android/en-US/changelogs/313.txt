@@ -1,0 +1,1 @@
+Switched passphrase wallet fingerprint graphics to Sparrow Wallet's LifeHash v2 generation method and added Toucan attribution.

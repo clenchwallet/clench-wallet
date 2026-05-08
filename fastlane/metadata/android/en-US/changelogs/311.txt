@@ -1,0 +1,1 @@
+Fixed onboarding text contrast, improved seed phrase reveal auth fallback, pre-synced imports, and removed descriptor-backup prompts from hot single-sig wallets.

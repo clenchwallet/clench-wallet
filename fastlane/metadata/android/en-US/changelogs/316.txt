@@ -1,0 +1,1 @@
+Fixed multisig signer-key progress reporting during cosigner setup.
