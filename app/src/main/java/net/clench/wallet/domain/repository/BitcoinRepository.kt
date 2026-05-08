@@ -22,6 +22,12 @@ data class MultisigPhoneSignerSecret(
     val accountXprvWithOrigin: String
 )
 
+data class PsbtSigningProgress(
+    val psbtBase64: String,
+    val readyToBroadcast: Boolean,
+    val message: String
+)
+
 /**
  * Core Bitcoin wallet operations.
  * Implemented by BdkBitcoinRepository (BDK-backed).
@@ -270,6 +276,16 @@ interface BitcoinRepository {
      * @return txid of the broadcast transaction
      */
     suspend fun applyAndBroadcastPsbt(walletId: String, signedPsbtBase64: String, unsignedPsbtBase64: String): String
+
+    /**
+     * Merge returned signer data into the current PSBT and report whether the
+     * policy now has enough signatures to broadcast.
+     */
+    suspend fun mergeSignedPsbt(
+        unsignedPsbtBase64: String,
+        currentPsbtBase64: String,
+        signedPsbtPayload: String
+    ): PsbtSigningProgress
 
     /**
      * Unlock a passphrase wallet by deriving secret descriptors from stored mnemonic + passphrase.

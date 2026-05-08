@@ -27,6 +27,7 @@ import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.MainActivity
 import net.clench.wallet.ui.components.AnimatedQrCode
 import net.clench.wallet.ui.components.ColdcardNfcPayload
+import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.components.encodePsbtForDevice
@@ -39,13 +40,15 @@ private enum class ColdcardNfcMode { Idle, SendUnsigned, ReceiveSigned }
 @Composable
 fun HardwareWalletPsbtScreen(
     walletId: String,
-    deviceType: HardwareWalletType,
+    initialDeviceType: HardwareWalletType,
     onBack: () -> Unit,
     viewModel: HardwareWalletPsbtViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    var deviceType by remember { mutableStateOf(initialDeviceType) }
     var showScanner by remember { mutableStateOf(false) }
+    var showSignerPicker by remember { mutableStateOf(false) }
     val activity = context as? Activity
     val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
     val coldcardSupportsNfc = deviceType == HardwareWalletType.COLDCARD_Q ||
@@ -58,6 +61,23 @@ fun HardwareWalletPsbtScreen(
     var tapsignerReaderActive by remember { mutableStateOf(false) }
     var tapsignerStatus by remember { mutableStateOf<String?>(null) }
     var tapsignerError by remember { mutableStateOf<String?>(null) }
+
+    if (showSignerPicker) {
+        HardwareWalletPickerSheet(
+            title = "Continue with signer",
+            onDismiss = { showSignerPicker = false },
+            onDeviceSelected = { selected ->
+                deviceType = selected
+                showSignerPicker = false
+                nfcMode = ColdcardNfcMode.Idle
+                nfcStatus = null
+                nfcError = null
+                tapsignerReaderActive = false
+                tapsignerStatus = null
+                tapsignerError = null
+            }
+        )
+    }
 
     // R7-20: FLAG_SECURE — prevent screenshots of PSBT data
     DisposableEffect(Unit) {
@@ -99,7 +119,7 @@ fun HardwareWalletPsbtScreen(
                                 }
                                 hostActivity.runOnUiThread {
                                     nfcError = null
-                                    nfcStatus = "Unsigned PSBT sent. Review and sign on ${deviceType.displayName}, then tap Receive Signed NFC Return when Coldcard is sharing the signed payload."
+                                    nfcStatus = "PSBT sent. Review and sign on ${deviceType.displayName}, then tap Receive Signed NFC Return when Coldcard is sharing the signed payload."
                                     nfcMode = ColdcardNfcMode.Idle
                                 }
                             }
@@ -115,7 +135,7 @@ fun HardwareWalletPsbtScreen(
                                     ?: error("NFC payload did not include a signed PSBT or transaction")
                                 hostActivity.runOnUiThread {
                                     nfcError = null
-                                    nfcStatus = "Signed transaction data imported from ${deviceType.displayName}. Review in Clench before broadcasting."
+                                    nfcStatus = "Signed data imported from ${deviceType.displayName}. Clench will check whether more signatures are required."
                                     nfcMode = ColdcardNfcMode.Idle
                                     viewModel.onSignedPsbtReceived(walletId, payload)
                                 }
@@ -247,6 +267,9 @@ fun HardwareWalletPsbtScreen(
         deviceType == HardwareWalletType.COLDCARD_MK5 ||
         deviceType == HardwareWalletType.KEYSTONE ||
         deviceType == HardwareWalletType.FOUNDATION_PASSPORT
+    val outboundPsbtLabel = if (uiState.hasCollectedSignature) "partially signed PSBT" else "unsigned PSBT"
+    val signedReturnLabel = if (uiState.hasCollectedSignature) "next signed PSBT" else "signed PSBT"
+    val psbtFileName = "${walletId.take(8)}_${if (uiState.hasCollectedSignature) "partial" else "unsigned"}.psbt"
 
     LaunchedEffect(qrFrames) {
         manualFrameIndex = 0
@@ -381,8 +404,24 @@ fun HardwareWalletPsbtScreen(
                 return@Column
             }
 
+            if (uiState.isProcessingSignedPsbt) {
+                Card(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Checking signatures...")
+                    }
+                }
+                return@Column
+            }
+
             // Signed PSBT ready state — require explicit user confirmation before broadcast.
-            if (uiState.signedPsbtBase64 != null) {
+            if (uiState.readyToBroadcast && uiState.signedPsbtBase64 != null) {
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer
@@ -394,14 +433,15 @@ fun HardwareWalletPsbtScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            "Signed Transaction Ready",
+                            "Enough Signatures Collected",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Clench imported signed transaction data from your ${deviceType.displayName}. Broadcast only after you have verified the transaction on your signer.",
+                            uiState.signingMessage
+                                ?: "Clench verified the signed transaction data against the original PSBT. Broadcast only after you have verified the transaction on your signer.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSecondaryContainer,
                             textAlign = TextAlign.Center
@@ -416,7 +456,7 @@ fun HardwareWalletPsbtScreen(
                             OutlinedButton(
                                 onClick = { showScanner = true },
                                 modifier = Modifier.fillMaxWidth()
-                            ) { Text("Scan Signed PSBT Again") }
+                            ) { Text("Scan Different Signed PSBT") }
                         }
                         if (isColdcardFileDevice) {
                             Spacer(modifier = Modifier.height(8.dp))
@@ -462,7 +502,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "On SeedSigner: choose Scan transaction, scan this QR, review and approve, then show the signed PSBT QR and scan it back into Clench.",
+                            "On SeedSigner: choose Scan transaction, scan the current QR, review and approve, then show the signed PSBT QR and scan it back into Clench. For multisig, repeat until Clench says enough signatures are collected.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -681,6 +721,36 @@ fun HardwareWalletPsbtScreen(
                 }
             }
 
+            if (uiState.signingMessage != null && !uiState.readyToBroadcast) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Signature Collected",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "${uiState.signingMessage} The QR, NFC, and file export below now contain the current PSBT. Continue with another signer, then scan or import the next signed PSBT.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = { showSignerPicker = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Choose Another Signer Type") }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             // QR-based flow (SeedSigner, Keystone, Passport, Coldcard Q, Jade)
             if (deviceType.supportsQr) {
                 // Step 1: Show PSBT as animated QR
@@ -690,7 +760,7 @@ fun HardwareWalletPsbtScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            "Step 1: Scan this QR with your ${deviceType.displayName}",
+                            "Step 1: Scan this $outboundPsbtLabel with your ${deviceType.displayName}",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -760,7 +830,7 @@ fun HardwareWalletPsbtScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            "Step 2: Scan the signed QR from your ${deviceType.displayName}",
+                            "Step 2: Scan the $signedReturnLabel from your ${deviceType.displayName}",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -768,7 +838,7 @@ fun HardwareWalletPsbtScreen(
                         Button(
                             onClick = { showScanner = true },
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text("Scan Signed PSBT") }
+                        ) { Text(if (uiState.hasCollectedSignature) "Scan Next Signed PSBT" else "Scan Signed PSBT") }
                     }
                 }
             }
@@ -787,7 +857,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Enable NFC on ${deviceType.displayName}. To sign: choose NFC Tools → Sign PSBT, tap the device to send this PSBT, review/sign on Coldcard, then use Receive Signed NFC Return when Coldcard shares the signed PSBT or transaction.",
+                            "Enable NFC on ${deviceType.displayName}. To sign: choose NFC Tools → Sign PSBT, tap the device to send the current PSBT, review/sign on Coldcard, then use Receive Signed NFC Return when Coldcard shares the signed PSBT or transaction.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -868,15 +938,15 @@ fun HardwareWalletPsbtScreen(
                     ) {
                         Text(
                             if (deviceType.supportsQr)
-                                "Optional: Save PSBT file for microSD transfer"
+                                "Optional: Save current PSBT file for microSD transfer"
                             else
-                                "Step 1: Save PSBT to file, transfer to ${deviceType.displayName}",
+                                "Step 1: Save current PSBT to file, transfer to ${deviceType.displayName}",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
-                            onClick = { psbtSaveLauncher.launch("${walletId.take(8)}_unsigned.psbt") },
+                            onClick = { psbtSaveLauncher.launch(psbtFileName) },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("Save PSBT File") }
                     }
@@ -892,9 +962,9 @@ fun HardwareWalletPsbtScreen(
                     ) {
                         Text(
                             if (deviceType.supportsQr)
-                                "Optional: after signing on ${deviceType.displayName}, import the signed PSBT file"
+                                "Optional: after signing on ${deviceType.displayName}, import the $signedReturnLabel file"
                             else
-                                "Step 2: After signing on ${deviceType.displayName}, import the signed PSBT or transaction",
+                                "Step 2: After signing on ${deviceType.displayName}, import the $signedReturnLabel or transaction",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -902,7 +972,7 @@ fun HardwareWalletPsbtScreen(
                         Button(
                             onClick = { filePickerLauncher.launch("*/*") },
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text("Import Signed File") }
+                        ) { Text(if (uiState.hasCollectedSignature) "Import Next Signed File" else "Import Signed File") }
                     }
                 }
             }

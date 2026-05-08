@@ -21,7 +21,11 @@ class HardwareWalletPsbtViewModel @Inject constructor(
         val txid: String? = null,
         val error: String? = null,
         val isBroadcasting: Boolean = false,
+        val isProcessingSignedPsbt: Boolean = false,
         val signedPsbtBase64: String? = null,
+        val readyToBroadcast: Boolean = false,
+        val hasCollectedSignature: Boolean = false,
+        val signingMessage: String? = null,
         val walletId: String = "",
         val psbtBase64: String = "",
         val deviceType: String = ""
@@ -40,22 +44,76 @@ class HardwareWalletPsbtViewModel @Inject constructor(
         val data = psbtStore.consume()
         if (data != null) {
             unsignedPsbtBase64 = data.second
-            _uiState.update { it.copy(walletId = data.first, psbtBase64 = data.second, deviceType = data.third) }
+            _uiState.update {
+                it.copy(
+                    walletId = data.first,
+                    psbtBase64 = data.second,
+                    deviceType = data.third,
+                    signedPsbtBase64 = null,
+                    readyToBroadcast = false,
+                    hasCollectedSignature = false,
+                    signingMessage = null
+                )
+            }
         }
         return data
     }
 
     /**
-     * Called when a signed PSBT is received from the hardware wallet (via QR, NFC, or file).
-     * Keep it pending until the user explicitly confirms broadcast.
+     * Called when signer data is received from the hardware wallet (via QR, NFC, or file).
+     * Merge it into the current PSBT and only enable broadcast after the policy finalizes.
      */
-    fun onSignedPsbtReceived(walletId: String, signedPsbtBase64: String) {
-        _uiState.update {
-            it.copy(
-                walletId = walletId,
-                signedPsbtBase64 = signedPsbtBase64,
-                error = null
-            )
+    fun onSignedPsbtReceived(walletId: String, signedPsbtPayload: String) {
+        val current = _uiState.value
+        val currentPsbtBase64 = current.psbtBase64
+        if (currentPsbtBase64.isBlank() || unsignedPsbtBase64.isBlank()) {
+            _uiState.update { it.copy(error = "No PSBT is loaded") }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    walletId = walletId,
+                    isProcessingSignedPsbt = true,
+                    signedPsbtBase64 = null,
+                    readyToBroadcast = false,
+                    signingMessage = null,
+                    error = null
+                )
+            }
+            try {
+                val progress = bitcoinRepository.mergeSignedPsbt(
+                    unsignedPsbtBase64 = unsignedPsbtBase64,
+                    currentPsbtBase64 = currentPsbtBase64,
+                    signedPsbtPayload = signedPsbtPayload
+                )
+                _uiState.update {
+                    it.copy(
+                        isProcessingSignedPsbt = false,
+                        psbtBase64 = progress.psbtBase64,
+                        signedPsbtBase64 = if (progress.readyToBroadcast) progress.psbtBase64 else null,
+                        readyToBroadcast = progress.readyToBroadcast,
+                        hasCollectedSignature = true,
+                        signingMessage = progress.message,
+                        error = null
+                    )
+                }
+            } catch (e: SecurityException) {
+                _uiState.update {
+                    it.copy(
+                        isProcessingSignedPsbt = false,
+                        error = "Security: ${e.message}"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isProcessingSignedPsbt = false,
+                        error = e.message ?: "Signed PSBT import failed"
+                    )
+                }
+            }
         }
     }
 
@@ -64,8 +122,8 @@ class HardwareWalletPsbtViewModel @Inject constructor(
      */
     fun broadcastSignedPsbt(walletId: String) {
         val signedPsbtBase64 = _uiState.value.signedPsbtBase64
-        if (signedPsbtBase64.isNullOrBlank()) {
-            _uiState.update { it.copy(error = "Scan or import the signed PSBT before broadcasting") }
+        if (signedPsbtBase64.isNullOrBlank() || !_uiState.value.readyToBroadcast) {
+            _uiState.update { it.copy(error = "Collect enough signatures before broadcasting") }
             return
         }
 
@@ -73,7 +131,14 @@ class HardwareWalletPsbtViewModel @Inject constructor(
             _uiState.update { it.copy(isBroadcasting = true, error = null) }
             try {
                 val txid = bitcoinRepository.applyAndBroadcastPsbt(walletId, signedPsbtBase64, unsignedPsbtBase64)
-                _uiState.update { it.copy(isBroadcasting = false, signedPsbtBase64 = null, txid = txid) }
+                _uiState.update {
+                    it.copy(
+                        isBroadcasting = false,
+                        signedPsbtBase64 = null,
+                        readyToBroadcast = false,
+                        txid = txid
+                    )
+                }
             } catch (e: SecurityException) {
                 _uiState.update { it.copy(isBroadcasting = false, error = "Security: ${e.message}") }
             } catch (e: Exception) {

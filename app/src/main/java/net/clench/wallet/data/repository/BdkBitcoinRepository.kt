@@ -28,6 +28,7 @@ import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.domain.repository.GeneratedMultisigPhoneSigner
 import net.clench.wallet.domain.repository.MultisigPhoneSignerSecret
+import net.clench.wallet.domain.repository.PsbtSigningProgress
 import org.bitcoindevkit.Amount
 import org.bitcoindevkit.ChainPosition
 import org.bitcoindevkit.DerivationPath
@@ -1776,6 +1777,57 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
+    override suspend fun mergeSignedPsbt(
+        unsignedPsbtBase64: String,
+        currentPsbtBase64: String,
+        signedPsbtPayload: String
+    ): PsbtSigningProgress = withContext(Dispatchers.IO) {
+        val returnedPsbt = parseSignedPsbtPayload(signedPsbtPayload)
+
+        if (returnedPsbt == null) {
+            val tx = Transaction(decodeTransactionPayload(signedPsbtPayload))
+            validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, tx)
+            return@withContext PsbtSigningProgress(
+                psbtBase64 = signedPsbtPayload.trim(),
+                readyToBroadcast = true,
+                message = "Clench imported a finalized transaction and verified it matches the original PSBT."
+            )
+        }
+
+        val currentPsbt = Psbt(currentPsbtBase64.ifBlank { unsignedPsbtBase64 })
+        val signatureCountBefore = signatureMaterialCount(currentPsbt)
+        val mergedPsbt = try {
+            currentPsbt.combine(returnedPsbt)
+        } catch (e: Exception) {
+            throw IllegalStateException("Signed PSBT could not be merged with the current PSBT: ${e.message}")
+        }
+
+        validatePsbtMatchesUnsignedPsbt(unsignedPsbtBase64, mergedPsbt)
+        val mergedSerialized = mergedPsbt.serialize()
+        val signatureCountAfter = signatureMaterialCount(mergedPsbt)
+        val finalizeResult = mergedPsbt.finalize()
+
+        if (finalizeResult.couldFinalize) {
+            val finalizedPsbt = finalizeResult.psbt
+            validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, finalizedPsbt.extractTx())
+            return@withContext PsbtSigningProgress(
+                psbtBase64 = finalizedPsbt.serialize(),
+                readyToBroadcast = true,
+                message = "Enough signatures collected. Clench verified the finalized transaction matches the original PSBT."
+            )
+        }
+
+        if (signatureCountAfter <= signatureCountBefore) {
+            throw IllegalStateException("No new usable signature was found for this PSBT. Check that the signer belongs to this multisig wallet.")
+        }
+
+        PsbtSigningProgress(
+            psbtBase64 = mergedSerialized,
+            readyToBroadcast = false,
+            message = "Signature added. More signatures are required before broadcast."
+        )
+    }
+
     private fun decodeTransactionPayload(payload: String): ByteArray {
         val trimmed = payload.trim()
         if (trimmed.matches(Regex("^[0-9a-fA-F]+$")) && trimmed.length % 2 == 0) {
@@ -1892,6 +1944,75 @@ class BdkBitcoinRepository @Inject constructor(
                 "PSBT output validation failed: unable to verify outputs match (${e.message}). " +
                 "Refusing to broadcast — re-create the PSBT and try again."
             )
+        }
+    }
+
+    private fun validatePsbtMatchesUnsignedPsbt(unsignedBase64: String, candidate: Psbt) {
+        val unsigned = Psbt(unsignedBase64)
+        val expected = try {
+            fingerprintTransaction(unsigned.extractTx())
+        } catch (e: Exception) {
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "Unsigned PSBT transaction extraction failed during PSBT merge validation, falling back to JSON outputs: ${e.message}")
+            null
+        }
+
+        val actual = try {
+            fingerprintTransaction(candidate.extractTx())
+        } catch (e: Exception) {
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "Signed PSBT transaction extraction failed during PSBT merge validation, falling back to JSON outputs: ${e.message}")
+            null
+        }
+
+        if (expected != null && actual != null) {
+            if (expected.inputs != actual.inputs) {
+                throw SecurityException("PSBT tampered: transaction inputs changed")
+            }
+            compareOutputs(expected.outputs, actual.outputs)
+            return
+        }
+
+        compareOutputs(parsePsbtJsonOutputs(unsigned, "original"), parsePsbtJsonOutputs(candidate, "signed"))
+    }
+
+    private fun parsePsbtJsonOutputs(psbt: Psbt, label: String): List<OutputFingerprint> {
+        try {
+            val json = org.json.JSONObject(psbt.jsonSerialize())
+            val outputs = json.optJSONArray("outputs")
+                ?: json.optJSONArray("tx_outputs")
+                ?: json.optJSONObject("unsigned_tx")?.optJSONArray("output")
+                ?: throw SecurityException(
+                    "PSBT output validation failed: unable to parse $label transaction outputs. " +
+                    "Refusing to continue — re-create the PSBT and try again."
+                )
+
+            val fingerprints = mutableListOf<OutputFingerprint>()
+            for (i in 0 until outputs.length()) {
+                val output = outputs.getJSONObject(i)
+                val amount = output.optLong("value", -1)
+                val script = output.optString("script_pubkey", "")
+                if (amount < 0 || script.isBlank()) {
+                    throw SecurityException("PSBT output validation failed: $label output $i missing amount or script")
+                }
+                fingerprints.add(OutputFingerprint(amount, script.lowercase()))
+            }
+            return fingerprints
+        } catch (e: SecurityException) {
+            throw e
+        } catch (e: Exception) {
+            throw SecurityException(
+                "PSBT output validation failed: unable to verify $label outputs (${e.message}). " +
+                "Refusing to continue — re-create the PSBT and try again."
+            )
+        }
+    }
+
+    private fun signatureMaterialCount(psbt: Psbt): Int {
+        return psbt.input().sumOf { input ->
+            input.partialSigs.size +
+                input.tapScriptSigs.size +
+                (input.finalScriptWitness?.size ?: 0) +
+                (if (input.tapKeySig?.isNotEmpty() == true) 1 else 0) +
+                (if (input.finalScriptSig?.toBytes()?.isNotEmpty() == true) 1 else 0)
         }
     }
 

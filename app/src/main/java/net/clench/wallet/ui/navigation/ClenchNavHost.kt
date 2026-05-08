@@ -629,7 +629,7 @@ fun ClenchNavHost(navController: NavHostController) {
             // PSBT retrieved from PsbtStore in ViewModel (not from nav args)
             HardwareWalletPsbtScreen(
                 walletId = walletId,
-                deviceType = deviceType,
+                initialDeviceType = deviceType,
                 onBack = { navController.popBackStack() }
             )
         }
