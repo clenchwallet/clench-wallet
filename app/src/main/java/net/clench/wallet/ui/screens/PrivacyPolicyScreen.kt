@@ -186,7 +186,7 @@ fun PrivacyPolicyScreen(onBack: () -> Unit) {
             // Contact
             SectionHeader("Contact")
             BodyText(
-                "Questions about this privacy policy? Open an issue on GitHub or email privacy@clench.net."
+                "Questions about this privacy policy? Open an issue on GitHub or email cw@clench.net."
             )
 
             Spacer(modifier = Modifier.height(32.dp))
