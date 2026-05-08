@@ -95,7 +95,7 @@ Contributions welcome. Please open an issue first to discuss significant changes
 
 ## Security
 
-If you discover a security vulnerability, please report it responsibly by emailing security@clench.net (do NOT open a public issue).
+If you discover a security vulnerability, please report it responsibly by emailing cw@clench.net (do NOT open a public issue).
 
 For release verification and security-review scope, see [docs/release/README.md](docs/release/README.md) and [docs/security/threat-model.md](docs/security/threat-model.md).
 
