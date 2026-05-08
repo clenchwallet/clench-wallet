@@ -81,4 +81,4 @@ If we ever change this policy, we'll update it in the repository and increment t
 
 ## Contact
 
-Questions about this privacy policy? Open an issue on GitHub or email privacy@clench.net.
+Questions about this privacy policy? Open an issue on GitHub or email cw@clench.net.
