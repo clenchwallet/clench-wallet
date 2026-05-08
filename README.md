@@ -16,6 +16,7 @@ A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](http
 - **Coldcard Q:** BBQr QR, NFC, and file-based PSBT transfer
 - **Coldcard Mk4/Mk5:** NFC, SD card, and virtual disk PSBT transfer
 - **Tapsigner:** NFC Tap Protocol status checks and screenless-signer guardrails; direct PSBT signing is blocked until authenticated signing support is complete
+- **SATSCARD:** NFC Tap Protocol status checks in the sweep tool; CVC-authenticated unseal/sweep is blocked until authenticated sweep support is complete
 - **Signed-return support:** signed PSBT import, plus finalized transaction returns where supported
 - Explicit broadcast confirmation after hardware-wallet signing
 - Full PSBT (BIP-174) workflow
@@ -102,7 +103,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 
 | Version | Highlights |
 | --- | --- |
-| Unreleased | Ongoing hardening and usability improvements. |
+| Unreleased | Added SATSCARD NFC Tap Protocol status checks in the sweep tool while keeping CVC-authenticated unseal/sweep blocked pending dedicated support. |
 | 0.3.16 | Fixed multisig signer-key progress reporting during cosigner setup. |
 | 0.3.15 | Added advanced multisig phone signer setup, encrypted phone-key PSBT signing, and guardrails for multi-key hot signer policies. |
 | 0.3.14 | Hid hardware-signer selection from hot wallets, clarified Tor via Orbot, changed Recovery to method-based import guidance, and added app diagnostics/F-Droid polish. |

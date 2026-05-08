@@ -288,6 +288,20 @@ Use this checklist for release candidates and for changes that touch wallet stat
 - No QR, file, Coldcard NDEF, or fake signed-PSBT flow is offered
 - Direct signing stays blocked until CVC-authenticated Tap Protocol signing is implemented
 
+### H3. SATSCARD sweep status guardrail
+**Steps**
+1. Open Sweep External Seed from a wallet
+2. Tap Read SATSCARD NFC Status
+3. Hold a SATSCARD to the phone
+4. Repeat with a Tapsigner card if available
+
+**Expected**
+- Clench uses ISO-DEP Tap Protocol status, not Coldcard NDEF
+- SATSCARD firmware/address/slot status appears when the card responds
+- Clench does not ask for the CVC
+- Clench does not unseal a slot, display private keys, or sweep SATSCARD funds
+- A Tapsigner in this flow is rejected with a clear "only reads SATSCARD status" message
+
 ---
 
 ## I. Transaction Tooling Tests

@@ -14,7 +14,13 @@ import co.nstant.`in`.cbor.model.SimpleValue
 import co.nstant.`in`.cbor.model.UnicodeString
 import java.io.ByteArrayOutputStream
 
-data class TapsignerStatus(
+enum class CoinkiteTapCardKind {
+    TAPSIGNER,
+    SATSCARD,
+    UNKNOWN
+}
+
+data class CoinkiteTapCardStatus(
     val isTapsigner: Boolean,
     val version: String?,
     val birthHeight: Long?,
@@ -22,8 +28,22 @@ data class TapsignerStatus(
     val numberOfBackups: Long?,
     val authDelaySeconds: Long?,
     val cardPubkeyHex: String?,
-    val cardNonceHex: String?
+    val cardNonceHex: String?,
+    val address: String?,
+    val slots: List<Long>?,
+    val isTestnet: Boolean?,
+    val isTampered: Boolean?
 ) {
+    val isSatscard: Boolean
+        get() = !isTapsigner && (address != null || !slots.isNullOrEmpty())
+
+    val kind: CoinkiteTapCardKind
+        get() = when {
+            isTapsigner -> CoinkiteTapCardKind.TAPSIGNER
+            isSatscard -> CoinkiteTapCardKind.SATSCARD
+            else -> CoinkiteTapCardKind.UNKNOWN
+        }
+
     val displayPath: String?
         get() = derivationPath?.let { path ->
             if (path.isEmpty()) {
@@ -40,16 +60,34 @@ data class TapsignerStatus(
     fun summary(): String {
         val parts = mutableListOf<String>()
         version?.let { parts += "firmware $it" }
-        displayPath?.let { parts += "path $it" }
-        numberOfBackups?.let { parts += "$it backup${if (it == 1L) "" else "s"}" }
+        when (kind) {
+            CoinkiteTapCardKind.TAPSIGNER -> {
+                displayPath?.let { parts += "path $it" }
+                numberOfBackups?.let { parts += "$it backup${if (it == 1L) "" else "s"}" }
+            }
+            CoinkiteTapCardKind.SATSCARD -> {
+                address?.let { parts += "address $it" }
+                slots?.takeIf { it.isNotEmpty() }?.let { parts += "${it.size} slot${if (it.size == 1) "" else "s"}" }
+                isTestnet?.takeIf { it }?.let { parts += "testnet" }
+            }
+            CoinkiteTapCardKind.UNKNOWN -> {}
+        }
+        isTampered?.takeIf { it }?.let { parts += "tamper warning" }
         authDelaySeconds?.takeIf { it > 0 }?.let { parts += "auth delay ${it}s" }
-        return if (parts.isEmpty()) "Tapsigner detected" else "Tapsigner detected: ${parts.joinToString(", ")}"
+        val name = when (kind) {
+            CoinkiteTapCardKind.TAPSIGNER -> "Tapsigner"
+            CoinkiteTapCardKind.SATSCARD -> "SATSCARD"
+            CoinkiteTapCardKind.UNKNOWN -> "Coinkite card"
+        }
+        return if (parts.isEmpty()) "$name detected" else "$name detected: ${parts.joinToString(", ")}"
     }
 
     private companion object {
         const val HARDENED_FLAG = 0x80000000L
     }
 }
+
+typealias TapsignerStatus = CoinkiteTapCardStatus
 
 object TapsignerTapProtocol {
     private val appletId = byteArrayOf(
@@ -86,16 +124,16 @@ object TapsignerTapProtocol {
         data = cborMap("cmd" to "status")
     )
 
-    fun parseStatusResponse(response: ByteArray): TapsignerStatus {
+    fun parseStatusResponse(response: ByteArray): CoinkiteTapCardStatus {
         val body = responseBodyOrThrow(response)
-        if (body.isEmpty()) error("Tapsigner returned success without a CBOR status body")
+        if (body.isEmpty()) error("Coinkite Tap card returned success without a CBOR status body")
         val dataItem = CborDecoder.decode(body).firstOrNull() as? Map
-            ?: error("Tapsigner response was not a CBOR map")
+            ?: error("Coinkite Tap card response was not a CBOR map")
         dataItem.string("error")?.let { errorText ->
             val code = dataItem.long("code")?.let { " ($it)" }.orEmpty()
-            error("Tapsigner returned error$code: $errorText")
+            error("Coinkite Tap card returned error$code: $errorText")
         }
-        return TapsignerStatus(
+        return CoinkiteTapCardStatus(
             isTapsigner = dataItem.boolean("tapsigner") == true,
             version = dataItem.string("ver"),
             birthHeight = dataItem.long("birth"),
@@ -103,7 +141,11 @@ object TapsignerTapProtocol {
             numberOfBackups = dataItem.long("num_backups"),
             authDelaySeconds = dataItem.long("auth_delay"),
             cardPubkeyHex = dataItem.bytes("pubkey")?.toHex(),
-            cardNonceHex = dataItem.bytes("card_nonce")?.toHex()
+            cardNonceHex = dataItem.bytes("card_nonce")?.toHex(),
+            address = dataItem.string("addr"),
+            slots = dataItem.longArray("slots"),
+            isTestnet = dataItem.boolean("testnet"),
+            isTampered = dataItem.boolean("tampered")
         )
     }
 
@@ -118,10 +160,10 @@ object TapsignerTapProtocol {
     }
 
     private fun responseBodyOrThrow(response: ByteArray): ByteArray {
-        if (response.size < 2) error("Tapsigner NFC response was too short")
+        if (response.size < 2) error("Coinkite Tap card NFC response was too short")
         if (!isSuccessResponse(response)) {
             val sw = response.takeLast(2).joinToString("") { "%02X".format(it) }
-            error("Tapsigner NFC command failed with status word 0x$sw")
+            error("Coinkite Tap card NFC command failed with status word 0x$sw")
         }
         return responseBody(response)
     }
@@ -169,16 +211,16 @@ object TapsignerTapProtocol {
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 }
 
-object TapsignerNfcReader {
-    fun readStatus(tag: Tag): TapsignerStatus {
-        val isoDep = IsoDep.get(tag) ?: error("Tapsigner requires ISO-DEP NFC, not NDEF")
+object CoinkiteTapCardNfcReader {
+    fun readStatus(tag: Tag): CoinkiteTapCardStatus {
+        val isoDep = IsoDep.get(tag) ?: error("Coinkite Tap Protocol cards require ISO-DEP NFC, not NDEF")
         isoDep.connect()
         try {
             isoDep.timeout = 5000
             val selectResponse = isoDep.transceive(TapsignerTapProtocol.selectAppletCommand())
             if (!TapsignerTapProtocol.isSuccessResponse(selectResponse)) {
                 val sw = selectResponse.takeLast(2).joinToString("") { "%02X".format(it) }
-                error("Tapsigner applet select failed with status word 0x$sw")
+                error("Coinkite Tap card applet select failed with status word 0x$sw")
             }
             val selectBody = TapsignerTapProtocol.responseBody(selectResponse)
             val response = if (selectBody.isNotEmpty()) {
@@ -187,10 +229,20 @@ object TapsignerNfcReader {
                 isoDep.transceive(TapsignerTapProtocol.statusCommand())
             }
             val status = TapsignerTapProtocol.parseStatusResponse(response)
-            if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
+            if (status.kind == CoinkiteTapCardKind.UNKNOWN) {
+                error("Coinkite NFC card is not reporting Tapsigner or SATSCARD mode")
+            }
             return status
         } finally {
             isoDep.close()
         }
+    }
+}
+
+object TapsignerNfcReader {
+    fun readStatus(tag: Tag): CoinkiteTapCardStatus {
+        val status = CoinkiteTapCardNfcReader.readStatus(tag)
+        if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
+        return status
     }
 }

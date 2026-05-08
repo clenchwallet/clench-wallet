@@ -1,5 +1,7 @@
 package net.clench.wallet.ui.screens
 
+import android.app.Activity
+import android.nfc.NfcAdapter
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,12 +14,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import net.clench.wallet.ui.components.CoinkiteTapCardNfcReader
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.FeeTier
 import net.clench.wallet.ui.viewmodel.SweepViewModel
@@ -35,6 +39,9 @@ fun SweepScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     SecureWindowEffect()
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
 
     // Seed phrase input state (kept local for security — never exposed to ViewModel until submit)
     var seedInput by remember { mutableStateOf("") }
@@ -42,8 +49,49 @@ fun SweepScreen(
     var showPassphrase by remember { mutableStateOf(false) }
     var showPassphraseText by remember { mutableStateOf(false) }
     var seedError by remember { mutableStateOf<String?>(null) }
+    var satscardReaderActive by remember { mutableStateOf(false) }
+    var satscardStatus by remember { mutableStateOf<String?>(null) }
+    var satscardError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
+
+    DisposableEffect(satscardReaderActive) {
+        val hostActivity = activity
+        val adapter = nfcAdapter
+        if (!satscardReaderActive || hostActivity == null || adapter == null || !adapter.isEnabled) {
+            onDispose { }
+        } else {
+            val flags = NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
+            adapter.enableReaderMode(
+                hostActivity,
+                { tag ->
+                    try {
+                        val status = CoinkiteTapCardNfcReader.readStatus(tag)
+                        hostActivity.runOnUiThread {
+                            if (status.isSatscard) {
+                                satscardStatus = "${status.summary()}. CVC-authenticated unseal and sweep are not enabled yet."
+                                satscardError = null
+                            } else {
+                                val cardName = if (status.isTapsigner) "Tapsigner" else "Coinkite card"
+                                satscardStatus = null
+                                satscardError = "$cardName detected; this sweep tool only reads SATSCARD status."
+                            }
+                            satscardReaderActive = false
+                        }
+                    } catch (e: Exception) {
+                        hostActivity.runOnUiThread {
+                            satscardStatus = null
+                            satscardError = e.message ?: "SATSCARD NFC status read failed"
+                            satscardReaderActive = false
+                        }
+                    }
+                },
+                flags,
+                null
+            )
+            onDispose { adapter.disableReaderMode(hostActivity) }
+        }
+    }
 
     // Navigate back on successful broadcast
     LaunchedEffect(uiState.broadcastTxid) {
@@ -113,6 +161,75 @@ fun SweepScreen(
             }
 
             Spacer(modifier = Modifier.height(12.dp))
+
+            // SATSCARD status-only NFC check. Unseal/sweep requires CVC-authenticated Tap Protocol
+            // support and stays blocked until that path has dedicated signing tests.
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("SATSCARD NFC", fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Read SATSCARD status over Coinkite Tap Protocol. Clench will not ask for the CVC, unseal slots, or sweep SATSCARD funds until authenticated sweep support is complete.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    when {
+                        nfcAdapter == null -> Text(
+                            "This phone does not report NFC hardware.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        !nfcAdapter.isEnabled -> Text(
+                            "NFC is off in Android settings.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        else -> {
+                            Button(
+                                onClick = {
+                                    satscardStatus = "Ready for NFC status. Hold SATSCARD against the phone."
+                                    satscardError = null
+                                    satscardReaderActive = true
+                                },
+                                enabled = !satscardReaderActive,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (satscardReaderActive) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Reading...")
+                                } else {
+                                    Text("Read SATSCARD NFC Status")
+                                }
+                            }
+                            if (satscardReaderActive) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                TextButton(
+                                    onClick = {
+                                        satscardReaderActive = false
+                                        satscardStatus = null
+                                        satscardError = null
+                                    }
+                                ) { Text("Cancel NFC") }
+                            }
+                        }
+                    }
+                    satscardStatus?.let { status ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    satscardError?.let { error ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Source seed phrase
             Text("Source Wallet Seed Phrase", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)

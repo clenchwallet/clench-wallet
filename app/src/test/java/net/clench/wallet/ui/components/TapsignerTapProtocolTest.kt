@@ -33,6 +33,8 @@ class TapsignerTapProtocolTest {
         val status = TapsignerTapProtocol.parseStatusResponse(response)
 
         assertTrue(status.isTapsigner)
+        assertFalse(status.isSatscard)
+        assertEquals(CoinkiteTapCardKind.TAPSIGNER, status.kind)
         assertEquals("1.1.0", status.version)
         assertEquals(700553L, status.birthHeight)
         assertEquals("m/84'/0'/0'", status.displayPath)
@@ -40,6 +42,27 @@ class TapsignerTapProtocolTest {
         assertEquals("Tapsigner detected: firmware 1.1.0, path m/84'/0'/0', 3 backups", status.summary())
         assertEquals(66, status.cardPubkeyHex?.length)
         assertEquals(32, status.cardNonceHex?.length)
+    }
+
+    @Test
+    fun `status parser extracts Satscard metadata`() {
+        val response = satscardStatusResponse()
+
+        val status = TapsignerTapProtocol.parseStatusResponse(response)
+
+        assertFalse(status.isTapsigner)
+        assertTrue(status.isSatscard)
+        assertEquals(CoinkiteTapCardKind.SATSCARD, status.kind)
+        assertEquals("1.2.0", status.version)
+        assertEquals(725000L, status.birthHeight)
+        assertEquals("bc1qexampleaddress000000000000000000000000000", status.address)
+        assertEquals(listOf(0L, 1L, 2L, 3L, 4L), status.slots)
+        assertEquals(false, status.isTestnet)
+        assertEquals(false, status.isTampered)
+        assertEquals(
+            "SATSCARD detected: firmware 1.2.0, address bc1qexampleaddress000000000000000000000000000, 5 slots",
+            status.summary()
+        )
     }
 
     @Test
@@ -70,6 +93,24 @@ class TapsignerTapProtocolTest {
         path.forEach { pathArray.add(it) }
         val out = ByteArrayOutputStream()
         CborEncoder(out).encode(pathArray.end().end().build())
+        return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+    }
+
+    private fun satscardStatusResponse(): ByteArray {
+        val map = CborBuilder().addMap()
+            .put("proto", 1L)
+            .put("ver", "1.2.0")
+            .put("birth", 725000L)
+            .put("tapsigner", false)
+            .put("addr", "bc1qexampleaddress000000000000000000000000000")
+            .put("testnet", false)
+            .put("tampered", false)
+            .put("pubkey", ByteArray(33) { index -> if (index == 0) 0x02.toByte() else (index + 1).toByte() })
+            .put("card_nonce", ByteArray(16) { index -> (index + 2).toByte() })
+        val slotsArray = map.putArray("slots")
+        listOf(0L, 1L, 2L, 3L, 4L).forEach { slotsArray.add(it) }
+        val out = ByteArrayOutputStream()
+        CborEncoder(out).encode(slotsArray.end().end().build())
         return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
     }
 
