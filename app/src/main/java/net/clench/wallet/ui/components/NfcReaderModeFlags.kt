@@ -5,6 +5,7 @@ import android.nfc.NfcAdapter
 object NfcReaderModeFlags {
     val coinkiteTap: Int =
         NfcAdapter.FLAG_READER_NFC_A or
+            NfcAdapter.FLAG_READER_NFC_B or
             NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
             NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
 

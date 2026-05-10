@@ -1,8 +1,12 @@
 package net.clench.wallet.ui.screens
 
 import android.app.Activity
+import android.app.PendingIntent
+import android.content.Intent
 import android.nfc.NfcAdapter
+import android.nfc.Tag
 import android.nfc.tech.Ndef
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -30,7 +34,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.ui.MainActivity
 import net.clench.wallet.ui.components.ColdcardNfcPayload
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.NfcReaderModeFlags
@@ -69,6 +75,7 @@ fun ImportWalletScreen(
     var nfcError by remember { mutableStateOf<String?>(null) }
     var tapsignerCvcInput by remember { mutableStateOf("") }
     var pendingTapsignerCvc by remember { mutableStateOf<CharArray?>(null) }
+    val nfcProcessing = remember { AtomicBoolean(false) }
 
     val hardwareFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -122,10 +129,74 @@ fun ImportWalletScreen(
         val adapter = nfcAdapter
         if (hostActivity != null && adapter != null) {
             adapter.disableReaderMode(hostActivity)
+            runCatching { adapter.disableForegroundDispatch(hostActivity) }
         }
         nfcReaderActive = false
         clearPendingTapsignerCvc()
         if (clearTapsignerPin) tapsignerCvcInput = ""
+    }
+
+    fun enableActiveForegroundDispatch(hostActivity: Activity, adapter: NfcAdapter) {
+        val mutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_MUTABLE
+        } else {
+            0
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            hostActivity,
+            0,
+            Intent(hostActivity, hostActivity.javaClass)
+                .setAction(NfcAdapter.ACTION_TAG_DISCOVERED)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or mutableFlag
+        )
+        // Active-session fallback: if Android dispatches the URL/tag anyway, route it back here.
+        adapter.enableForegroundDispatch(hostActivity, pendingIntent, null, null)
+    }
+
+    fun processHardwareNfcTag(
+        tag: Tag,
+        hostActivity: Activity,
+        device: HardwareWalletType,
+        cvc: CharArray?
+    ) {
+        if (!nfcProcessing.compareAndSet(false, true)) return
+        try {
+            if (device.usesCoinkiteTapProtocol) {
+                val readerCvc = cvc ?: error("Enter the Tapsigner PIN before importing over NFC")
+                val result = TapsignerNfcReader.readAccountXpub(tag, readerCvc)
+                hostActivity.runOnUiThread {
+                    viewModel.setInput(result.originWrappedXpub)
+                    nfcStatus = result.summary
+                    nfcError = null
+                    stopNfcReader(clearTapsignerPin = true)
+                }
+            } else {
+                val ndef = Ndef.get(tag) ?: error("NFC tag does not expose an NDEF message")
+                ndef.connect()
+                val message = try {
+                    ndef.ndefMessage ?: ndef.cachedNdefMessage
+                } finally {
+                    ndef.close()
+                } ?: error("No NDEF payload found on NFC tag")
+                val payload = ColdcardNfcPayload.extractTextPayload(message)
+                    ?: error("NFC payload did not contain an xpub, descriptor, or readable text export")
+                hostActivity.runOnUiThread {
+                    viewModel.setInput(payload.trim())
+                    nfcStatus = "Loaded hardware wallet data from NFC"
+                    nfcError = null
+                    stopNfcReader()
+                }
+            }
+        } catch (e: Exception) {
+            hostActivity.runOnUiThread {
+                nfcError = e.message ?: "NFC import failed"
+                nfcStatus = null
+                stopNfcReader()
+            }
+        } finally {
+            nfcProcessing.set(false)
+        }
     }
 
     fun startHardwareNfcReader(device: HardwareWalletType, cvc: CharArray?) {
@@ -151,43 +222,11 @@ fun ImportWalletScreen(
         pendingTapsignerCvc = cvc
 
         try {
+            enableActiveForegroundDispatch(hostActivity, adapter)
             adapter.enableReaderMode(
                 hostActivity,
                 { tag ->
-                    try {
-                        if (isCoinkiteTap) {
-                            val readerCvc = cvc ?: error("Enter the Tapsigner PIN before importing over NFC")
-                            val result = TapsignerNfcReader.readAccountXpub(tag, readerCvc)
-                            hostActivity.runOnUiThread {
-                                viewModel.setInput(result.originWrappedXpub)
-                                nfcStatus = result.summary
-                                nfcError = null
-                                stopNfcReader(clearTapsignerPin = true)
-                            }
-                        } else {
-                            val ndef = Ndef.get(tag) ?: error("NFC tag does not expose an NDEF message")
-                            ndef.connect()
-                            val message = try {
-                                ndef.ndefMessage ?: ndef.cachedNdefMessage
-                            } finally {
-                                ndef.close()
-                            } ?: error("No NDEF payload found on NFC tag")
-                            val payload = ColdcardNfcPayload.extractTextPayload(message)
-                                ?: error("NFC payload did not contain an xpub, descriptor, or readable text export")
-                            hostActivity.runOnUiThread {
-                                viewModel.setInput(payload.trim())
-                                nfcStatus = "Loaded hardware wallet data from NFC"
-                                nfcError = null
-                                stopNfcReader()
-                            }
-                        }
-                    } catch (e: Exception) {
-                        hostActivity.runOnUiThread {
-                            nfcError = e.message ?: "NFC import failed"
-                            nfcStatus = null
-                            stopNfcReader()
-                        }
-                    }
+                    processHardwareNfcTag(tag, hostActivity, device, cvc)
                 },
                 flags,
                 null
@@ -214,7 +253,20 @@ fun ImportWalletScreen(
         onDispose {
             if (nfcReaderActive && hostActivity != null && adapter != null) {
                 adapter.disableReaderMode(hostActivity)
+                runCatching { adapter.disableForegroundDispatch(hostActivity) }
             }
+        }
+    }
+
+    val mainActivity = activity as? MainActivity
+    LaunchedEffect(nfcReaderActive, selectedDevice, pendingTapsignerCvc, mainActivity) {
+        val hostActivity = activity
+        val device = selectedDevice
+        if (!nfcReaderActive || hostActivity == null || mainActivity == null || device == null) {
+            return@LaunchedEffect
+        }
+        mainActivity.nfcTagFlow.collect { tag ->
+            processHardwareNfcTag(tag, hostActivity, device, pendingTapsignerCvc)
         }
     }
 

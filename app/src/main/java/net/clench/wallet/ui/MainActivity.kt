@@ -3,6 +3,7 @@ package net.clench.wallet.ui
 import android.content.Intent
 import android.nfc.NdefMessage
 import android.nfc.NfcAdapter
+import android.nfc.Tag
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -60,6 +61,10 @@ class MainActivity : FragmentActivity() {
     // NFC PSBT flow — hardware wallets (Coldcard) can deliver signed PSBTs via NFC
     private val _nfcPsbtFlow = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val nfcPsbtFlow = _nfcPsbtFlow.asSharedFlow()
+
+    // Raw NFC tag flow — active hardware-wallet screens can consume foreground-dispatch fallbacks.
+    private val _nfcTagFlow = MutableSharedFlow<Tag>(extraBufferCapacity = 1)
+    val nfcTagFlow = _nfcTagFlow.asSharedFlow()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -159,7 +164,13 @@ class MainActivity : FragmentActivity() {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("MainActivity", "NFC intent received while locked — ignored")
             return
         }
+        @Suppress("DEPRECATION")
+        intent.getParcelableExtra<Tag>(NfcAdapter.EXTRA_TAG)?.let { tag ->
+            _nfcTagFlow.tryEmit(tag)
+        }
+
         if (NfcAdapter.ACTION_NDEF_DISCOVERED == intent.action ||
+            NfcAdapter.ACTION_TECH_DISCOVERED == intent.action ||
             NfcAdapter.ACTION_TAG_DISCOVERED == intent.action
         ) {
             @Suppress("DEPRECATION")
