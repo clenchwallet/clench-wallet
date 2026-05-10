@@ -455,7 +455,7 @@ object TapsignerTapProtocol {
         cardNonce: ByteArray,
         cvc: CharArray
     ): AuthenticatedCommand {
-        require(cvc.size in 6..32) { "Coinkite card CVC must be 6 to 32 characters" }
+        require(cvc.size in 6..32) { "Coinkite card code must be 6 to 32 characters" }
         require(cardPubkey.size == 33) { "Coinkite card pubkey was invalid" }
         require(cardNonce.size == 16) { "Coinkite card nonce was invalid" }
 
@@ -471,7 +471,7 @@ object TapsignerTapProtocol {
         val mask = xorBytes(sessionKey, nonceDigest)
         val cvcBytes = ByteArray(cvc.size) { index ->
             val code = cvc[index].code
-            require(code in 0x21..0x7E) { "Coinkite card CVC must contain printable ASCII characters" }
+            require(code in 0x21..0x7E) { "Coinkite card code must contain printable ASCII characters" }
             code.toByte()
         }
         val encryptedCvc = xorBytes(cvcBytes, mask.copyOfRange(0, cvcBytes.size))
@@ -559,7 +559,7 @@ object SatscardNfcReader {
                 error("SATSCARD is $cardNetwork but this wallet is $walletNetwork")
             }
             if ((status.authDelaySeconds ?: 0L) > 0L) {
-                error("SATSCARD requires waiting ${status.authDelaySeconds}s before another CVC attempt")
+                error("SATSCARD requires waiting ${status.authDelaySeconds}s before another spend code attempt")
             }
             val slot = status.activeSlot
                 ?: error("SATSCARD did not report an active slot")
@@ -644,7 +644,7 @@ object TapsignerNfcReader {
             if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
             if (status.isTampered == true) error("Tapsigner tamper warning is set")
             if ((status.authDelaySeconds ?: 0L) > 0L) {
-                error("Tapsigner requires waiting ${status.authDelaySeconds}s before another CVC attempt")
+                error("Tapsigner requires waiting ${status.authDelaySeconds}s before another PIN attempt")
             }
             val path = status.displayPath
                 ?: error("Tapsigner is not initialized yet. Initialize it with a Tapsigner-compatible setup flow before importing.")

@@ -127,7 +127,7 @@ fun ImportWalletScreen(
                 { tag ->
                     try {
                         if (isCoinkiteTap) {
-                            val cvc = pendingTapsignerCvc ?: error("Enter the Tapsigner CVC before importing over NFC")
+                            val cvc = pendingTapsignerCvc ?: error("Enter the Tapsigner PIN before importing over NFC")
                             val result = TapsignerNfcReader.readAccountXpub(tag, cvc)
                             hostActivity.runOnUiThread {
                                 viewModel.setInput(result.originWrappedXpub)
@@ -317,7 +317,7 @@ fun ImportWalletScreen(
                             tapsignerCvcInput = it.take(32)
                             nfcError = null
                         },
-                        label = { Text("Tapsigner CVC") },
+                        label = { Text("Tapsigner PIN") },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         modifier = Modifier.fillMaxWidth(),
@@ -351,7 +351,7 @@ fun ImportWalletScreen(
                                     !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
                                     activity == null -> nfcError = "NFC reader is unavailable in this view"
                                     needsTapsignerCvc && tapsignerCvcInput.length !in 6..32 -> {
-                                        nfcError = "Enter the Tapsigner CVC"
+                                        nfcError = "Enter the Tapsigner PIN"
                                     }
                                     else -> {
                                         if (needsTapsignerCvc) {
@@ -843,7 +843,7 @@ private fun getDeviceInstructions(device: HardwareWalletType): String {
         HardwareWalletType.SEEDSIGNER -> "On your SeedSigner: Seeds → [Your Seed] → Export Xpub. Choose Native SegWit (BIP84) for single-sig, or Multisig (BIP48) for a cosigner export. SeedSigner displays an animated QR series for scanning."
         HardwareWalletType.KEYSTONE -> "On your Keystone, export a Sparrow-compatible wallet descriptor by QR or file. Clench accepts static/animated QR, UR account/output payloads, descriptors, and multisig wallet config text."
         HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport, export a wallet descriptor or account QR for a wallet such as Envoy/Sparrow. Clench accepts Passport UR account/output QR payloads, descriptors, and multisig wallet config text."
-        HardwareWalletType.TAPSIGNER -> "Enter your Tapsigner CVC, then tap NFC to verify the card and import its current account xpub. If the card has not been initialized yet, set it up with a Tapsigner-compatible coordinator first."
+        HardwareWalletType.TAPSIGNER -> "Enter your Tapsigner PIN, then tap NFC to verify the card and import its current account xpub. If you never changed it, use the Starting PIN Code printed on the card. Do not enter the AES backup key."
         HardwareWalletType.JADE -> "On your Jade: Options → Wallet → Export Xpub. Jade displays the account xpub as an animated QR; scan it here."
     }
 }

@@ -99,7 +99,7 @@ fun SweepScreen(
                 { tag ->
                     try {
                         if (satscardSweepReaderActive) {
-                            val cvc = pendingSatscardCvc ?: error("Enter the SATSCARD CVC before sweeping")
+                            val cvc = pendingSatscardCvc ?: error("Enter the SATSCARD spend code before sweeping")
                             val result = SatscardNfcReader.unsealCurrentSlot(
                                 tag = tag,
                                 cvc = cvc,
@@ -116,7 +116,7 @@ fun SweepScreen(
                             val status = CoinkiteTapCardNfcReader.readStatus(tag)
                             hostActivity.runOnUiThread {
                                 if (status.isSatscard) {
-                                    satscardStatus = "${status.summary()}. Enter the CVC to unseal the active slot and sweep it."
+                                    satscardStatus = "${status.summary()}. Enter the spend code to unseal the active slot and sweep it."
                                     satscardError = null
                                 } else {
                                     val cardName = if (status.isTapsigner) "Tapsigner" else "Coinkite card"
@@ -220,7 +220,7 @@ fun SweepScreen(
                     Text("SATSCARD NFC", fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Read SATSCARD status, or enter the printed CVC to unseal the active slot and sweep its confirmed funds to this wallet. Unsealing is irreversible.",
+                        "Read SATSCARD status, or enter the 6-digit spend code printed on the back of the SATSCARD to unseal the active slot and sweep its confirmed funds to this wallet. Unsealing is irreversible.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -231,7 +231,7 @@ fun SweepScreen(
                             satscardCvcInput = it.take(32)
                             satscardError = null
                         },
-                        label = { Text("SATSCARD CVC") },
+                        label = { Text("SATSCARD spend code") },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         modifier = Modifier.fillMaxWidth(),
@@ -284,7 +284,7 @@ fun SweepScreen(
                                 Button(
                                     onClick = {
                                         if (satscardCvcInput.length !in 6..32) {
-                                            satscardError = "Enter the 6-digit SATSCARD CVC"
+                                            satscardError = "Enter the 6-digit SATSCARD spend code"
                                             return@Button
                                         }
                                         pendingSatscardCvc?.fill('0')

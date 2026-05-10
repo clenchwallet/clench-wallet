@@ -615,7 +615,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Tapsigner is a screenless NFC signer. Clench can verify the card responds to Coinkite Tap Protocol status, but direct PSBT signing is not enabled until CVC-authenticated signing and safe PSBT signature injection are implemented.",
+                            "Tapsigner is a screenless NFC signer. Clench can verify the card responds to Coinkite Tap Protocol status, but direct PSBT signing is not enabled until PIN-authenticated signing and safe PSBT signature injection are implemented.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -712,7 +712,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Clench will not send this PSBT to a Tapsigner yet. The remaining bridge must compute each input digest, CVC-authenticate Tap Protocol sign commands, inject signatures into the PSBT, finalize it, and re-run output validation before broadcast.",
+                            "Clench will not send this PSBT to a Tapsigner yet. The remaining bridge must compute each input digest, authenticate Tap Protocol sign commands with the Tapsigner PIN, inject signatures into the PSBT, finalize it, and re-run output validation before broadcast.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
