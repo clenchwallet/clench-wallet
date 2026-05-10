@@ -2,6 +2,7 @@ package net.clench.wallet.ui.screens
 
 import android.app.Activity
 import android.nfc.NfcAdapter
+import android.nfc.Tag
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -24,7 +25,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import java.util.concurrent.atomic.AtomicBoolean
 import net.clench.wallet.ui.components.CoinkiteTapCardNfcReader
+import net.clench.wallet.ui.MainActivity
+import net.clench.wallet.ui.components.NfcDispatch
 import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.SatscardNfcReader
@@ -66,6 +70,7 @@ fun SweepScreen(
     var satscardCvcInput by remember { mutableStateOf("") }
     var satscardSweepConfirmed by remember { mutableStateOf(false) }
     var pendingSatscardCvc by remember { mutableStateOf<CharArray?>(null) }
+    val satscardNfcProcessing = remember { AtomicBoolean(false) }
     val wifFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -88,6 +93,51 @@ fun SweepScreen(
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
 
+    fun processSatscardNfcTag(tag: Tag, hostActivity: Activity, sweep: Boolean) {
+        if (!satscardNfcProcessing.compareAndSet(false, true)) return
+        try {
+            if (sweep) {
+                val cvc = pendingSatscardCvc ?: error("Enter the SATSCARD spend code before sweeping")
+                val result = SatscardNfcReader.unsealCurrentSlot(
+                    tag = tag,
+                    cvc = cvc,
+                    expectedTestnet = uiState.isTestnet
+                )
+                hostActivity.runOnUiThread {
+                    satscardStatus = "${result.summary}. Building sweep transaction..."
+                    satscardError = null
+                    satscardSweepReaderActive = false
+                    pendingSatscardCvc = null
+                    viewModel.sweepSatscardPrivateKey(result.privateKey, result.isTestnet)
+                }
+            } else {
+                val status = CoinkiteTapCardNfcReader.readStatus(tag)
+                hostActivity.runOnUiThread {
+                    if (status.isSatscard) {
+                        satscardStatus = "${status.summary()}. Enter the spend code to unseal the active slot and sweep it."
+                        satscardError = null
+                    } else {
+                        val cardName = if (status.isTapsigner) "Tapsigner" else "Coinkite card"
+                        satscardStatus = null
+                        satscardError = "$cardName detected; this sweep tool only supports SATSCARD here."
+                    }
+                    satscardReaderActive = false
+                }
+            }
+        } catch (e: Exception) {
+            hostActivity.runOnUiThread {
+                satscardStatus = null
+                satscardError = e.message ?: "SATSCARD NFC read failed"
+                satscardReaderActive = false
+                satscardSweepReaderActive = false
+                pendingSatscardCvc?.fill('0')
+                pendingSatscardCvc = null
+            }
+        } finally {
+            satscardNfcProcessing.set(false)
+        }
+    }
+
     DisposableEffect(satscardReaderActive, satscardSweepReaderActive, pendingSatscardCvc) {
         val hostActivity = activity
         val adapter = nfcAdapter
@@ -97,50 +147,34 @@ fun SweepScreen(
             adapter.enableReaderMode(
                 hostActivity,
                 { tag ->
-                    try {
-                        if (satscardSweepReaderActive) {
-                            val cvc = pendingSatscardCvc ?: error("Enter the SATSCARD spend code before sweeping")
-                            val result = SatscardNfcReader.unsealCurrentSlot(
-                                tag = tag,
-                                cvc = cvc,
-                                expectedTestnet = uiState.isTestnet
-                            )
-                            hostActivity.runOnUiThread {
-                                satscardStatus = "${result.summary}. Building sweep transaction..."
-                                satscardError = null
-                                satscardSweepReaderActive = false
-                                pendingSatscardCvc = null
-                                viewModel.sweepSatscardPrivateKey(result.privateKey, result.isTestnet)
-                            }
-                        } else {
-                            val status = CoinkiteTapCardNfcReader.readStatus(tag)
-                            hostActivity.runOnUiThread {
-                                if (status.isSatscard) {
-                                    satscardStatus = "${status.summary()}. Enter the spend code to unseal the active slot and sweep it."
-                                    satscardError = null
-                                } else {
-                                    val cardName = if (status.isTapsigner) "Tapsigner" else "Coinkite card"
-                                    satscardStatus = null
-                                    satscardError = "$cardName detected; this sweep tool only supports SATSCARD here."
-                                }
-                                satscardReaderActive = false
-                            }
-                        }
-                    } catch (e: Exception) {
-                        hostActivity.runOnUiThread {
-                            satscardStatus = null
-                            satscardError = e.message ?: "SATSCARD NFC read failed"
-                            satscardReaderActive = false
-                            satscardSweepReaderActive = false
-                            pendingSatscardCvc?.fill('0')
-                            pendingSatscardCvc = null
-                        }
-                    }
+                    processSatscardNfcTag(tag, hostActivity, satscardSweepReaderActive)
                 },
                 NfcReaderModeFlags.coinkiteTap,
                 null
             )
             onDispose { adapter.disableReaderMode(hostActivity) }
+        }
+    }
+
+    DisposableEffect(activity, nfcAdapter) {
+        val hostActivity = activity
+        val adapter = nfcAdapter
+        if (hostActivity != null && adapter != null && adapter.isEnabled) {
+            runCatching { NfcDispatch.enableCoinkiteForegroundDispatch(hostActivity, adapter) }
+            onDispose {
+                NfcDispatch.disableForegroundDispatch(hostActivity, adapter)
+            }
+        } else {
+            onDispose { }
+        }
+    }
+
+    val mainActivity = activity as? MainActivity
+    LaunchedEffect(mainActivity, satscardSweepReaderActive, pendingSatscardCvc) {
+        val hostActivity = activity
+        if (hostActivity == null || mainActivity == null) return@LaunchedEffect
+        mainActivity.nfcTagFlow.collect { tag ->
+            processSatscardNfcTag(tag, hostActivity, satscardSweepReaderActive)
         }
     }
 

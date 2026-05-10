@@ -1,12 +1,9 @@
 package net.clench.wallet.ui.screens
 
 import android.app.Activity
-import android.app.PendingIntent
-import android.content.Intent
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.Ndef
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -39,6 +36,7 @@ import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.MainActivity
 import net.clench.wallet.ui.components.ColdcardNfcPayload
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
+import net.clench.wallet.ui.components.NfcDispatch
 import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.TapsignerNfcReader
@@ -129,29 +127,13 @@ fun ImportWalletScreen(
         val adapter = nfcAdapter
         if (hostActivity != null && adapter != null) {
             adapter.disableReaderMode(hostActivity)
-            runCatching { adapter.disableForegroundDispatch(hostActivity) }
+            if (selectedDevice?.usesCoinkiteTapProtocol != true) {
+                NfcDispatch.disableForegroundDispatch(hostActivity, adapter)
+            }
         }
         nfcReaderActive = false
         clearPendingTapsignerCvc()
         if (clearTapsignerPin) tapsignerCvcInput = ""
-    }
-
-    fun enableActiveForegroundDispatch(hostActivity: Activity, adapter: NfcAdapter) {
-        val mutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            PendingIntent.FLAG_MUTABLE
-        } else {
-            0
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            hostActivity,
-            0,
-            Intent(hostActivity, hostActivity.javaClass)
-                .setAction(NfcAdapter.ACTION_TAG_DISCOVERED)
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or mutableFlag
-        )
-        // Active-session fallback: if Android dispatches the URL/tag anyway, route it back here.
-        adapter.enableForegroundDispatch(hostActivity, pendingIntent, null, null)
     }
 
     fun processHardwareNfcTag(
@@ -199,6 +181,24 @@ fun ImportWalletScreen(
         }
     }
 
+    fun processTapsignerStatusTag(tag: Tag, hostActivity: Activity) {
+        if (!nfcProcessing.compareAndSet(false, true)) return
+        try {
+            val status = TapsignerNfcReader.readStatus(tag)
+            hostActivity.runOnUiThread {
+                nfcStatus = "${status.summary()}. Enter the Tapsigner PIN and tap NFC to import the xpub."
+                nfcError = null
+            }
+        } catch (e: Exception) {
+            hostActivity.runOnUiThread {
+                nfcError = e.message ?: "Tapsigner NFC read failed"
+                nfcStatus = null
+            }
+        } finally {
+            nfcProcessing.set(false)
+        }
+    }
+
     fun startHardwareNfcReader(device: HardwareWalletType, cvc: CharArray?) {
         val hostActivity = activity ?: run {
             cvc?.fill('0')
@@ -222,7 +222,9 @@ fun ImportWalletScreen(
         pendingTapsignerCvc = cvc
 
         try {
-            enableActiveForegroundDispatch(hostActivity, adapter)
+            if (isCoinkiteTap) {
+                NfcDispatch.enableCoinkiteForegroundDispatch(hostActivity, adapter)
+            }
             adapter.enableReaderMode(
                 hostActivity,
                 { tag ->
@@ -253,7 +255,9 @@ fun ImportWalletScreen(
         onDispose {
             if (nfcReaderActive && hostActivity != null && adapter != null) {
                 adapter.disableReaderMode(hostActivity)
-                runCatching { adapter.disableForegroundDispatch(hostActivity) }
+                if (selectedDevice?.usesCoinkiteTapProtocol != true) {
+                    NfcDispatch.disableForegroundDispatch(hostActivity, adapter)
+                }
             }
         }
     }
@@ -262,11 +266,29 @@ fun ImportWalletScreen(
     LaunchedEffect(nfcReaderActive, selectedDevice, pendingTapsignerCvc, mainActivity) {
         val hostActivity = activity
         val device = selectedDevice
-        if (!nfcReaderActive || hostActivity == null || mainActivity == null || device == null) {
+        if (hostActivity == null || mainActivity == null || device == null) {
             return@LaunchedEffect
         }
+        if (!nfcReaderActive && !device.usesCoinkiteTapProtocol) return@LaunchedEffect
         mainActivity.nfcTagFlow.collect { tag ->
-            processHardwareNfcTag(tag, hostActivity, device, pendingTapsignerCvc)
+            if (nfcReaderActive) {
+                processHardwareNfcTag(tag, hostActivity, device, pendingTapsignerCvc)
+            } else if (device.usesCoinkiteTapProtocol) {
+                processTapsignerStatusTag(tag, hostActivity)
+            }
+        }
+    }
+
+    DisposableEffect(selectedDevice, activity, nfcAdapter) {
+        val hostActivity = activity
+        val adapter = nfcAdapter
+        if (selectedDevice?.usesCoinkiteTapProtocol == true && hostActivity != null && adapter != null && adapter.isEnabled) {
+            runCatching { NfcDispatch.enableCoinkiteForegroundDispatch(hostActivity, adapter) }
+            onDispose {
+                NfcDispatch.disableForegroundDispatch(hostActivity, adapter)
+            }
+        } else {
+            onDispose { }
         }
     }
 
@@ -930,7 +952,7 @@ private fun getDeviceInstructions(device: HardwareWalletType): String {
         HardwareWalletType.SEEDSIGNER -> "On your SeedSigner: Seeds → [Your Seed] → Export Xpub. Choose Native SegWit (BIP84) for single-sig, or Multisig (BIP48) for a cosigner export. SeedSigner displays an animated QR series for scanning."
         HardwareWalletType.KEYSTONE -> "On your Keystone, export a Sparrow-compatible wallet descriptor by QR or file. Clench accepts static/animated QR, UR account/output payloads, descriptors, and multisig wallet config text."
         HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport, export a wallet descriptor or account QR for a wallet such as Envoy/Sparrow. Clench accepts Passport UR account/output QR payloads, descriptors, and multisig wallet config text."
-        HardwareWalletType.TAPSIGNER -> "Enter your Tapsigner PIN, then tap NFC to verify the card and import its current account xpub. If you never changed it, use the Starting PIN Code printed on the card. Do not enter the AES backup key."
+        HardwareWalletType.TAPSIGNER -> "Tap the card on this screen to read status. To import, enter your Tapsigner PIN, then tap NFC to verify the card and import its current account xpub. If you never changed it, use the Starting PIN Code printed on the card. Do not enter the AES backup key."
         HardwareWalletType.JADE -> "On your Jade: Options → Wallet → Export Xpub. Jade displays the account xpub as an animated QR; scan it here."
     }
 }
