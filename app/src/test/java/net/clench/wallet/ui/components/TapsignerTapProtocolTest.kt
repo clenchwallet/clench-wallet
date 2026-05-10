@@ -3,6 +3,13 @@ package net.clench.wallet.ui.components
 import co.nstant.`in`.cbor.CborBuilder
 import co.nstant.`in`.cbor.CborEncoder
 import java.io.ByteArrayOutputStream
+import java.math.BigInteger
+import org.bouncycastle.asn1.sec.SECNamedCurves
+import org.bouncycastle.crypto.digests.SHA256Digest
+import org.bouncycastle.crypto.params.ECDomainParameters
+import org.bouncycastle.crypto.params.ECPrivateKeyParameters
+import org.bouncycastle.crypto.signers.ECDSASigner
+import org.bouncycastle.crypto.signers.HMacDSAKCalculator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -169,6 +176,21 @@ class TapsignerTapProtocolTest {
         )
     }
 
+    @Test
+    fun `certificate recovery accepts compressed compact signature headers`() {
+        val privateKey = ByteArray(32).also { it[31] = 1 }
+        val expectedPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey)
+        val digest = ByteArray(32) { index -> (index + 7).toByte() }
+        val signature = compactSignature(privateKey, digest)
+
+        val recovered = (31..34).firstNotNullOfOrNull { header ->
+            CoinkiteTapCardVerifier.recoverPublicKey(digest, byteArrayOf(header.toByte()) + signature)
+                ?.takeIf { it.contentEquals(expectedPubkey) }
+        }
+
+        assertTrue(recovered?.contentEquals(expectedPubkey) == true)
+    }
+
     private fun tapsignerStatusResponse(): ByteArray {
         val path = listOf(0x80000054L, 0x80000000L, 0x80000000L)
         val map = CborBuilder().addMap()
@@ -237,6 +259,26 @@ class TapsignerTapProtocolTest {
         val out = ByteArrayOutputStream()
         CborEncoder(out).encode(map.end().build())
         return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+    }
+
+    private fun compactSignature(privateKey: ByteArray, digest: ByteArray): ByteArray {
+        val params = SECNamedCurves.getByName("secp256k1")
+        val domain = ECDomainParameters(params.curve, params.g, params.n, params.h)
+        val signer = ECDSASigner(HMacDSAKCalculator(SHA256Digest()))
+        signer.init(true, ECPrivateKeyParameters(BigInteger(1, privateKey), domain))
+        val components = signer.generateSignature(digest)
+        val r = components[0]
+        val s = components[1].let { if (it > domain.n.shiftRight(1)) domain.n.subtract(it) else it }
+        return r.toFixed32() + s.toFixed32()
+    }
+
+    private fun BigInteger.toFixed32(): ByteArray {
+        val bytes = toByteArray()
+        return when {
+            bytes.size == 32 -> bytes
+            bytes.size > 32 -> bytes.copyOfRange(bytes.size - 32, bytes.size)
+            else -> ByteArray(32 - bytes.size) + bytes
+        }
     }
 
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }

@@ -150,11 +150,12 @@ object CoinkiteTapCardVerifier {
         return point.affineXCoord.toBigInteger().mod(domain.n) == r
     }
 
-    private fun recoverPublicKey(digest: ByteArray, signature: ByteArray): ByteArray? {
+    internal fun recoverPublicKey(digest: ByteArray, signature: ByteArray): ByteArray? {
         if (digest.size != 32 || signature.size != 65) return null
         val header = signature[0].toInt() and 0xFF
         val recId = when (header) {
             in 27..30 -> header - 27
+            in 31..34 -> header - 31
             in 39..42 -> header - 39
             else -> return null
         }
