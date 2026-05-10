@@ -118,6 +118,13 @@ object CoinkiteTapCardVerifier {
         return bech32Encode(if (testnet) "tb" else "bc", data)
     }
 
+    fun fingerprintHexFromPublicKey(pubkey: ByteArray): String {
+        require(pubkey.size == 33) { "Compressed public key must be 33 bytes" }
+        return hash160(pubkey)
+            .copyOfRange(0, 4)
+            .joinToString("") { "%02X".format(it) }
+    }
+
     private fun matchesCardAddress(expected: String, actual: String): Boolean {
         if (!expected.contains("_")) return expected.equals(actual, ignoreCase = false)
         val left = expected.substringBefore("_")

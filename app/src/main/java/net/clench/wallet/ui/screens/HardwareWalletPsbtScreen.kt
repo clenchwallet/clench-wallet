@@ -28,6 +28,7 @@ import net.clench.wallet.ui.MainActivity
 import net.clench.wallet.ui.components.AnimatedQrCode
 import net.clench.wallet.ui.components.ColdcardNfcPayload
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
+import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.components.encodePsbtForDevice
@@ -98,7 +99,6 @@ fun HardwareWalletPsbtScreen(
         if (nfcMode == ColdcardNfcMode.Idle || hostActivity == null || adapter == null || !adapter.isEnabled) {
             onDispose { }
         } else {
-            val flags = NfcAdapter.FLAG_READER_NFC_V or NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
             adapter.enableReaderMode(
                 hostActivity,
                 { tag ->
@@ -149,7 +149,7 @@ fun HardwareWalletPsbtScreen(
                         }
                     }
                 },
-                flags,
+                NfcReaderModeFlags.coldcardNdef,
                 null
             )
             onDispose { adapter.disableReaderMode(hostActivity) }
@@ -162,7 +162,6 @@ fun HardwareWalletPsbtScreen(
         if (!tapsignerReaderActive || !isTapsigner || hostActivity == null || adapter == null || !adapter.isEnabled) {
             onDispose { }
         } else {
-            val flags = NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
             adapter.enableReaderMode(
                 hostActivity,
                 { tag ->
@@ -180,7 +179,7 @@ fun HardwareWalletPsbtScreen(
                         }
                     }
                 },
-                flags,
+                NfcReaderModeFlags.coinkiteTap,
                 null
             )
             onDispose { adapter.disableReaderMode(hostActivity) }

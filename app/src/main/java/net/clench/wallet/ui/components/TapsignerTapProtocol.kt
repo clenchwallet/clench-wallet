@@ -16,6 +16,7 @@ import java.io.ByteArrayOutputStream
 import java.math.BigInteger
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Locale
 import org.bouncycastle.asn1.sec.SECNamedCurves
 import org.bouncycastle.crypto.params.ECDomainParameters
 
@@ -124,6 +125,19 @@ data class CoinkiteCheckResult(
     val cardNonce: ByteArray
 )
 
+data class TapsignerXpubResponse(
+    val xpub: ByteArray,
+    val cardNonce: ByteArray?
+)
+
+data class TapsignerAccountXpubResult(
+    val xpub: String,
+    val originWrappedXpub: String,
+    val masterFingerprint: String,
+    val derivationPath: String,
+    val summary: String
+)
+
 object TapsignerTapProtocol {
     private val appletId = byteArrayOf(
         0xF0.toByte(),
@@ -222,6 +236,27 @@ object TapsignerTapProtocol {
         return command to auth.sessionKey
     }
 
+    fun authenticatedXpubCommand(
+        master: Boolean,
+        cardPubkey: ByteArray,
+        cardNonce: ByteArray,
+        cvc: CharArray
+    ): ByteArray {
+        val auth = authenticatedCommand("xpub", cardPubkey, cardNonce, cvc)
+        return apdu(
+            cla = 0x00,
+            ins = 0xCB,
+            p1 = 0x00,
+            p2 = 0x00,
+            data = cborMap(
+                "cmd" to "xpub",
+                "master" to master,
+                "epubkey" to auth.ephemeralPublicKey,
+                "xcvc" to auth.encryptedCvc
+            )
+        )
+    }
+
     fun parseStatusResponse(response: ByteArray): CoinkiteTapCardStatus {
         val body = responseBodyOrThrow(response)
         if (body.isEmpty()) error("Coinkite Tap card returned success without a CBOR status body")
@@ -272,6 +307,15 @@ object TapsignerTapProtocol {
         if (authSig.size != 64) error("Coinkite check response had an invalid signature length")
         if (cardNonce.size != 16) error("Coinkite check response had an invalid card nonce length")
         return CoinkiteCheckResult(authSig, cardNonce)
+    }
+
+    fun parseTapsignerXpubResponse(response: ByteArray): TapsignerXpubResponse {
+        val dataItem = responseMapOrThrow(response)
+        val xpub = dataItem.bytes("xpub") ?: error("Tapsigner xpub response did not include xpub")
+        if (xpub.size != 78) error("Tapsigner returned an invalid xpub length")
+        val cardNonce = dataItem.bytes("card_nonce")
+        cardNonce?.let { if (it.size != 16) error("Tapsigner xpub response had an invalid card nonce length") }
+        return TapsignerXpubResponse(xpub, cardNonce)
     }
 
     fun parseSatscardUnsealResponse(
@@ -350,6 +394,7 @@ object TapsignerTapProtocol {
                 is String -> map.put(key, value)
                 is Long -> map.put(key, value)
                 is Int -> map.put(key, value.toLong())
+                is Boolean -> map.put(key, value)
                 is ByteArray -> map.put(key, value)
                 else -> error("Unsupported CBOR value for $key")
             }
@@ -410,9 +455,9 @@ object TapsignerTapProtocol {
         cardNonce: ByteArray,
         cvc: CharArray
     ): AuthenticatedCommand {
-        require(cvc.size in 6..32) { "SATSCARD CVC must be 6 to 32 characters" }
-        require(cardPubkey.size == 33) { "SATSCARD card pubkey was invalid" }
-        require(cardNonce.size == 16) { "SATSCARD card nonce was invalid" }
+        require(cvc.size in 6..32) { "Coinkite card CVC must be 6 to 32 characters" }
+        require(cardPubkey.size == 33) { "Coinkite card pubkey was invalid" }
+        require(cardNonce.size == 16) { "Coinkite card nonce was invalid" }
 
         val params = SECNamedCurves.getByName("secp256k1")
         val domain = ECDomainParameters(params.curve, params.g, params.n, params.h)
@@ -426,7 +471,7 @@ object TapsignerTapProtocol {
         val mask = xorBytes(sessionKey, nonceDigest)
         val cvcBytes = ByteArray(cvc.size) { index ->
             val code = cvc[index].code
-            require(code in 0x21..0x7E) { "SATSCARD CVC must contain printable ASCII characters" }
+            require(code in 0x21..0x7E) { "Coinkite card CVC must contain printable ASCII characters" }
             code.toByte()
         }
         val encryptedCvc = xorBytes(cvcBytes, mask.copyOfRange(0, cvcBytes.size))
@@ -588,5 +633,134 @@ object TapsignerNfcReader {
         val status = CoinkiteTapCardNfcReader.readStatus(tag)
         if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
         return status
+    }
+
+    fun readAccountXpub(tag: Tag, cvc: CharArray): TapsignerAccountXpubResult {
+        val isoDep = IsoDep.get(tag) ?: error("Tapsigner requires ISO-DEP NFC, not NDEF")
+        isoDep.connect()
+        try {
+            isoDep.timeout = 10000
+            var status = selectOrReadStatus(isoDep)
+            if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
+            if (status.isTampered == true) error("Tapsigner tamper warning is set")
+            if ((status.authDelaySeconds ?: 0L) > 0L) {
+                error("Tapsigner requires waiting ${status.authDelaySeconds}s before another CVC attempt")
+            }
+            val path = status.displayPath
+                ?: error("Tapsigner is not initialized yet. Initialize it with a Tapsigner-compatible setup flow before importing.")
+            val cardPubkey = status.cardPubkeyHex?.hexToBytes()
+                ?: error("Tapsigner status did not include card pubkey")
+            var latestCardNonce = status.cardNonceHex?.hexToBytes()
+                ?: error("Tapsigner status did not include card nonce")
+
+            val certs = TapsignerTapProtocol.parseCertsResponse(
+                isoDep.transceive(TapsignerTapProtocol.certsCommand())
+            )
+            val checkNonce = randomNonce()
+            val check = TapsignerTapProtocol.parseCheckResponse(
+                isoDep.transceive(TapsignerTapProtocol.checkCommand(checkNonce))
+            )
+            CoinkiteTapCardVerifier.verifyCertificateChain(
+                cardPubkey = cardPubkey,
+                cardNonce = latestCardNonce,
+                checkNonce = checkNonce,
+                authSignature = check.authSignature,
+                certChain = certs.certChain,
+                sealedSlotPubkey = null,
+                cardVersion = status.version
+            )
+            latestCardNonce = check.cardNonce
+
+            val master = TapsignerTapProtocol.parseTapsignerXpubResponse(
+                isoDep.transceive(
+                    TapsignerTapProtocol.authenticatedXpubCommand(
+                        master = true,
+                        cardPubkey = cardPubkey,
+                        cardNonce = latestCardNonce,
+                        cvc = cvc
+                    )
+                )
+            )
+            val masterPubkey = master.xpub.copyOfRange(45, 78)
+            val fingerprint = CoinkiteTapCardVerifier.fingerprintHexFromPublicKey(masterPubkey)
+            latestCardNonce = master.cardNonce ?: readStatusNonce(isoDep)
+
+            val account = TapsignerTapProtocol.parseTapsignerXpubResponse(
+                isoDep.transceive(
+                    TapsignerTapProtocol.authenticatedXpubCommand(
+                        master = false,
+                        cardPubkey = cardPubkey,
+                        cardNonce = latestCardNonce,
+                        cvc = cvc
+                    )
+                )
+            )
+            val xpub = account.xpub.base58CheckEncode()
+            status = selectOrReadStatus(isoDep)
+            val refreshedPath = status.displayPath ?: path
+            val originPath = refreshedPath.removePrefix("m/")
+            val originWrapped = "[$fingerprint/$originPath]$xpub"
+            return TapsignerAccountXpubResult(
+                xpub = xpub,
+                originWrappedXpub = originWrapped,
+                masterFingerprint = fingerprint,
+                derivationPath = refreshedPath,
+                summary = "Tapsigner xpub imported: path $refreshedPath, fingerprint ${fingerprint.uppercase(Locale.US)}"
+            )
+        } finally {
+            isoDep.close()
+            cvc.fill('0')
+        }
+    }
+
+    private fun selectOrReadStatus(isoDep: IsoDep): CoinkiteTapCardStatus {
+        val selectResponse = isoDep.transceive(TapsignerTapProtocol.selectAppletCommand())
+        if (!TapsignerTapProtocol.isSuccessResponse(selectResponse)) {
+            val sw = selectResponse.takeLast(2).joinToString("") { "%02X".format(it) }
+            error("Coinkite Tap card applet select failed with status word 0x$sw")
+        }
+        val statusResponse = if (TapsignerTapProtocol.responseBody(selectResponse).isNotEmpty()) {
+            selectResponse
+        } else {
+            isoDep.transceive(TapsignerTapProtocol.statusCommand())
+        }
+        return TapsignerTapProtocol.parseStatusResponse(statusResponse)
+    }
+
+    private fun readStatusNonce(isoDep: IsoDep): ByteArray {
+        val status = TapsignerTapProtocol.parseStatusResponse(
+            isoDep.transceive(TapsignerTapProtocol.statusCommand())
+        )
+        return status.cardNonceHex?.hexToBytes() ?: error("Tapsigner status did not include card nonce")
+    }
+
+    private fun randomNonce(): ByteArray {
+        return ByteArray(16).also { SecureRandom().nextBytes(it) }
+    }
+
+    private fun ByteArray.base58CheckEncode(): String {
+        val checksum = doubleSha256(this).copyOfRange(0, 4)
+        return (this + checksum).base58Encode()
+    }
+
+    private fun ByteArray.base58Encode(): String {
+        val alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        var value = BigInteger(1, this)
+        val base = BigInteger.valueOf(58)
+        val output = StringBuilder()
+        while (value > BigInteger.ZERO) {
+            val parts = value.divideAndRemainder(base)
+            output.append(alphabet[parts[1].toInt()])
+            value = parts[0]
+        }
+        for (byte in this) {
+            if (byte == 0.toByte()) output.append('1') else break
+        }
+        return output.reverse().toString()
+    }
+
+    private fun doubleSha256(data: ByteArray): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        return digest.digest(digest.digest(data))
     }
 }

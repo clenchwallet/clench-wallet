@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -23,6 +24,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
@@ -30,6 +33,7 @@ import kotlinx.coroutines.launch
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.components.ColdcardNfcPayload
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
+import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.components.WalletFingerprint
@@ -63,6 +67,8 @@ fun ImportWalletScreen(
     var nfcReaderActive by remember { mutableStateOf(false) }
     var nfcStatus by remember { mutableStateOf<String?>(null) }
     var nfcError by remember { mutableStateOf<String?>(null) }
+    var tapsignerCvcInput by remember { mutableStateOf("") }
+    var pendingTapsignerCvc by remember { mutableStateOf<CharArray?>(null) }
 
     val hardwareFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -107,26 +113,28 @@ fun ImportWalletScreen(
     }
 
     // Hardware wallet onboarding is choice-based: select file, scan QR, or NFC explicitly.
-    DisposableEffect(nfcReaderActive, selectedDevice) {
+    DisposableEffect(nfcReaderActive, selectedDevice, pendingTapsignerCvc) {
         val hostActivity = activity
         val adapter = nfcAdapter
         if (!nfcReaderActive || hostActivity == null || adapter == null || !adapter.isEnabled) {
             onDispose { }
         } else {
-            val flags = NfcAdapter.FLAG_READER_NFC_V or
-                NfcAdapter.FLAG_READER_NFC_A or
-                NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
+            val device = selectedDevice
+            val isCoinkiteTap = device?.usesCoinkiteTapProtocol == true
+            val flags = if (isCoinkiteTap) NfcReaderModeFlags.coinkiteTap else NfcReaderModeFlags.hardwareImport
             adapter.enableReaderMode(
                 hostActivity,
                 { tag ->
                     try {
-                        val device = selectedDevice
-                        if (device?.usesCoinkiteTapProtocol == true) {
-                            val status = TapsignerNfcReader.readStatus(tag)
+                        if (isCoinkiteTap) {
+                            val cvc = pendingTapsignerCvc ?: error("Enter the Tapsigner CVC before importing over NFC")
+                            val result = TapsignerNfcReader.readAccountXpub(tag, cvc)
                             hostActivity.runOnUiThread {
-                                nfcStatus = "${status.summary()}. Direct xpub import needs CVC-authenticated Tap Protocol support; paste an xpub or descriptor exported from your Tapsigner wallet setup for now."
+                                viewModel.setInput(result.originWrappedXpub)
+                                nfcStatus = result.summary
                                 nfcError = null
                                 nfcReaderActive = false
+                                pendingTapsignerCvc = null
                             }
                         } else {
                             val ndef = Ndef.get(tag) ?: error("NFC tag does not expose an NDEF message")
@@ -149,6 +157,9 @@ fun ImportWalletScreen(
                         hostActivity.runOnUiThread {
                             nfcError = e.message ?: "NFC import failed"
                             nfcStatus = null
+                            nfcReaderActive = false
+                            pendingTapsignerCvc?.fill('0')
+                            pendingTapsignerCvc = null
                         }
                     }
                 },
@@ -170,6 +181,10 @@ fun ImportWalletScreen(
             onDeviceSelected = { device ->
                 selectedDevice = device
                 showDevicePicker = false
+                tapsignerCvcInput = ""
+                pendingTapsignerCvc?.fill('0')
+                pendingTapsignerCvc = null
+                nfcReaderActive = false
                 // Store selected device in viewModel so it gets passed to importWatchOnly
                 viewModel.setHardwareDeviceType(device.name)
             }
@@ -288,12 +303,28 @@ fun ImportWalletScreen(
                 val canLoadFile = selectedDevice?.let { supportsHardwareImportFile(it) } == true
                 val canScanQr = selectedDevice?.supportsQr == true
                 val canUseNfc = selectedDevice?.supportsNfc == true
+                val needsTapsignerCvc = selectedDevice?.usesCoinkiteTapProtocol == true
                 Text(
                     "Choose how to import from ${selectedDevice?.displayName ?: "your hardware wallet"}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+                if (needsTapsignerCvc) {
+                    OutlinedTextField(
+                        value = tapsignerCvcInput,
+                        onValueChange = {
+                            tapsignerCvcInput = it.take(32)
+                            nfcError = null
+                        },
+                        label = { Text("Tapsigner CVC") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (canLoadFile) {
                         OutlinedButton(
@@ -319,10 +350,18 @@ fun ImportWalletScreen(
                                     nfcAdapter == null -> nfcError = "This phone does not report NFC hardware"
                                     !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
                                     activity == null -> nfcError = "NFC reader is unavailable in this view"
+                                    needsTapsignerCvc && tapsignerCvcInput.length !in 6..32 -> {
+                                        nfcError = "Enter the Tapsigner CVC"
+                                    }
                                     else -> {
+                                        if (needsTapsignerCvc) {
+                                            pendingTapsignerCvc?.fill('0')
+                                            pendingTapsignerCvc = tapsignerCvcInput.toCharArray()
+                                            tapsignerCvcInput = ""
+                                        }
                                         nfcError = null
                                         nfcStatus = if (selectedDevice?.usesCoinkiteTapProtocol == true) {
-                                            "Ready for NFC status. Hold ${selectedDevice?.displayName ?: "the card"} against the phone."
+                                            "Ready to import. Hold ${selectedDevice?.displayName ?: "the card"} against the phone."
                                         } else {
                                             "Ready for NFC. Hold ${selectedDevice?.displayName ?: "the device"} against the phone."
                                         }
@@ -330,6 +369,7 @@ fun ImportWalletScreen(
                                     }
                                 }
                             },
+                            enabled = !needsTapsignerCvc || tapsignerCvcInput.length in 6..32,
                             modifier = Modifier.weight(1f)
                         ) { Text("NFC") }
                     }
@@ -349,6 +389,8 @@ fun ImportWalletScreen(
                             nfcReaderActive = false
                             nfcStatus = null
                             nfcError = null
+                            pendingTapsignerCvc?.fill('0')
+                            pendingTapsignerCvc = null
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Cancel NFC") }
@@ -801,7 +843,7 @@ private fun getDeviceInstructions(device: HardwareWalletType): String {
         HardwareWalletType.SEEDSIGNER -> "On your SeedSigner: Seeds → [Your Seed] → Export Xpub. Choose Native SegWit (BIP84) for single-sig, or Multisig (BIP48) for a cosigner export. SeedSigner displays an animated QR series for scanning."
         HardwareWalletType.KEYSTONE -> "On your Keystone, export a Sparrow-compatible wallet descriptor by QR or file. Clench accepts static/animated QR, UR account/output payloads, descriptors, and multisig wallet config text."
         HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport, export a wallet descriptor or account QR for a wallet such as Envoy/Sparrow. Clench accepts Passport UR account/output QR payloads, descriptors, and multisig wallet config text."
-        HardwareWalletType.TAPSIGNER -> "Tap your Tapsigner to verify the card over NFC. Tapsigner xpub export requires CVC-authenticated Tap Protocol support, so paste a descriptor or xpub exported from a trusted Tapsigner coordinator until direct xpub import is enabled."
+        HardwareWalletType.TAPSIGNER -> "Enter your Tapsigner CVC, then tap NFC to verify the card and import its current account xpub. If the card has not been initialized yet, set it up with a Tapsigner-compatible coordinator first."
         HardwareWalletType.JADE -> "On your Jade: Options → Wallet → Export Xpub. Jade displays the account xpub as an animated QR; scan it here."
     }
 }

@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.components.CoinkiteTapCardNfcReader
+import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.SatscardNfcReader
 import net.clench.wallet.ui.util.SecureWindowEffect
@@ -93,7 +94,6 @@ fun SweepScreen(
         if ((!satscardReaderActive && !satscardSweepReaderActive) || hostActivity == null || adapter == null || !adapter.isEnabled) {
             onDispose { }
         } else {
-            val flags = NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
             adapter.enableReaderMode(
                 hostActivity,
                 { tag ->
@@ -137,7 +137,7 @@ fun SweepScreen(
                         }
                     }
                 },
-                flags,
+                NfcReaderModeFlags.coinkiteTap,
                 null
             )
             onDispose { adapter.disableReaderMode(hostActivity) }

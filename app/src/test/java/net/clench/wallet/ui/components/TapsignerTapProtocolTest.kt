@@ -35,6 +35,22 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
+    fun `authenticated xpub command encodes xpub request`() {
+        val cardPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 1 })
+        val command = TapsignerTapProtocol.authenticatedXpubCommand(
+            master = true,
+            cardPubkey = cardPubkey,
+            cardNonce = ByteArray(16) { (it + 1).toByte() },
+            cvc = "123456".toCharArray()
+        )
+
+        assertEquals("00cb0000", command.take(4).toByteArray().toHex())
+        assertEquals(command.size - 5, command[4].toInt() and 0xFF)
+        assertTrue(command.toHex().contains("63636d646478707562"))
+        assertTrue(command.toHex().contains("666d6173746572f5"))
+    }
+
+    @Test
     fun `status parser extracts Tapsigner metadata`() {
         val response = tapsignerStatusResponse()
 
@@ -115,6 +131,19 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
+    fun `xpub parser extracts raw serialized xpub and nonce`() {
+        val rawXpub = ByteArray(78) { index -> index.toByte() }
+        rawXpub[45] = 0x02
+        val nonce = ByteArray(16) { index -> (index + 4).toByte() }
+        val response = tapsignerXpubResponse(rawXpub, nonce)
+
+        val result = TapsignerTapProtocol.parseTapsignerXpubResponse(response)
+
+        assertTrue(result.xpub.contentEquals(rawXpub))
+        assertTrue(result.cardNonce!!.contentEquals(nonce))
+    }
+
+    @Test
     fun `renders verified native segwit address for secp256k1 generator key`() {
         val privateKey = ByteArray(32).also { it[31] = 1 }
         val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey)
@@ -170,6 +199,15 @@ class TapsignerTapProtocolTest {
             .put("privkey", encryptedPrivateKey)
             .put("pubkey", pubkey)
             .put("card_nonce", ByteArray(16) { index -> (index + 4).toByte() })
+        val out = ByteArrayOutputStream()
+        CborEncoder(out).encode(map.end().build())
+        return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+    }
+
+    private fun tapsignerXpubResponse(xpub: ByteArray, cardNonce: ByteArray): ByteArray {
+        val map = CborBuilder().addMap()
+            .put("xpub", xpub)
+            .put("card_nonce", cardNonce)
         val out = ByteArrayOutputStream()
         CborEncoder(out).encode(map.end().build())
         return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
