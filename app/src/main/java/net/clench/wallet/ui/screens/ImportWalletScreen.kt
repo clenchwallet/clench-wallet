@@ -436,6 +436,7 @@ fun ImportWalletScreen(
                         onValueChange = {
                             tapsignerCvcInput = it.take(32)
                             nfcError = null
+                            viewModel.clearError()
                         },
                         label = { Text("Tapsigner PIN") },
                         visualTransformation = PasswordVisualTransformation(),
@@ -475,6 +476,7 @@ fun ImportWalletScreen(
                                         nfcError = "Enter the Tapsigner PIN"
                                     }
                                     else -> {
+                                        viewModel.clearError()
                                         val cvc = if (needsTapsignerCvc) tapsignerCvcInput.toCharArray() else null
                                         startHardwareNfcReader(selectedDevice!!, cvc)
                                     }
@@ -870,6 +872,9 @@ fun ImportWalletScreen(
                 )
             }
 
+            val canConnectWallet = !uiState.isLoading &&
+                (!hardwareWalletMode || uiState.detectedType != ImportWalletViewModel.DetectedType.NONE)
+
             Button(
                 onClick = {
                     // [H-4] Require confirmation before importing passphrase wallets
@@ -883,7 +888,7 @@ fun ImportWalletScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !uiState.isLoading
+                enabled = canConnectWallet
             ) {
                 if (uiState.isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp))
                 else Text(if (hardwareWalletMode) "Connect Wallet" else "Import Wallet")

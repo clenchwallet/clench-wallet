@@ -42,6 +42,15 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
+    fun `wait command encodes unauthenticated retry delay request`() {
+        val command = TapsignerTapProtocol.waitCommand()
+
+        assertEquals("00cb0000", command.take(4).toByteArray().toHex())
+        assertEquals(command.size - 5, command[4].toInt() and 0xFF)
+        assertTrue(command.toHex().contains("63636d646477616974"))
+    }
+
+    @Test
     fun `authenticated xpub command encodes xpub request`() {
         val cardPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 1 })
         val command = TapsignerTapProtocol.authenticatedXpubCommand(
@@ -73,6 +82,15 @@ class TapsignerTapProtocolTest {
         assertEquals("Tapsigner detected: firmware 1.1.0, path m/84'/0'/0', 3 backups", status.summary())
         assertEquals(66, status.cardPubkeyHex?.length)
         assertEquals(32, status.cardNonceHex?.length)
+    }
+
+    @Test
+    fun `wait parser extracts remaining auth delay`() {
+        val response = waitResponse(authDelay = 14L)
+
+        val result = TapsignerTapProtocol.parseWaitResponse(response)
+
+        assertEquals(14L, result.authDelaySeconds)
     }
 
     @Test
@@ -218,6 +236,15 @@ class TapsignerTapProtocolTest {
             .put("num_backups", 0L)
             .put("pubkey", ByteArray(33) { index -> if (index == 0) 0x02.toByte() else index.toByte() })
             .put("card_nonce", ByteArray(16) { index -> (index + 1).toByte() })
+        val out = ByteArrayOutputStream()
+        CborEncoder(out).encode(map.end().build())
+        return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+    }
+
+    private fun waitResponse(authDelay: Long): ByteArray {
+        val map = CborBuilder().addMap()
+            .put("success", true)
+            .put("auth_delay", authDelay)
         val out = ByteArrayOutputStream()
         CborEncoder(out).encode(map.end().build())
         return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)

@@ -91,6 +91,8 @@ class ImportWalletViewModel @Inject constructor(
 
     fun setHardwareDeviceType(deviceType: String?) = _uiState.update { it.copy(hardwareDeviceType = deviceType) }
 
+    fun clearError() = _uiState.update { it.copy(error = null) }
+
     fun setInput(text: String) {
         val normalized = normalizeHardwareExport(text)
         val inferredName = inferWalletNameFromImport(text)

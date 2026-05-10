@@ -128,6 +128,10 @@ data class CoinkiteCheckResult(
     val cardNonce: ByteArray
 )
 
+data class CoinkiteWaitResult(
+    val authDelaySeconds: Long?
+)
+
 data class TapsignerXpubResponse(
     val xpub: ByteArray,
     val cardNonce: ByteArray?
@@ -204,6 +208,14 @@ object TapsignerTapProtocol {
             "cmd" to "check",
             "nonce" to nonce
         )
+    )
+
+    fun waitCommand(): ByteArray = apdu(
+        cla = 0x00,
+        ins = 0xCB,
+        p1 = 0x00,
+        p2 = 0x00,
+        data = cborMap("cmd" to "wait")
     )
 
     fun dumpCommand(slot: Long): ByteArray = apdu(
@@ -310,6 +322,12 @@ object TapsignerTapProtocol {
         if (authSig.size != 64) error("Coinkite check response had an invalid signature length")
         if (cardNonce.size != 16) error("Coinkite check response had an invalid card nonce length")
         return CoinkiteCheckResult(authSig, cardNonce)
+    }
+
+    fun parseWaitResponse(response: ByteArray): CoinkiteWaitResult {
+        val dataItem = responseMapOrThrow(response)
+        if (dataItem.boolean("success") != true) error("Coinkite Tap card wait command did not succeed")
+        return CoinkiteWaitResult(authDelaySeconds = dataItem.long("auth_delay"))
     }
 
     fun parseTapsignerXpubResponse(response: ByteArray): TapsignerXpubResponse {
@@ -552,7 +570,7 @@ object SatscardNfcReader {
             } else {
                 isoDep.transceive(TapsignerTapProtocol.statusCommand())
             }
-            val status = TapsignerTapProtocol.parseStatusResponse(statusResponse)
+            var status = TapsignerTapProtocol.parseStatusResponse(statusResponse)
             if (!status.isSatscard) error("Coinkite NFC card is not reporting SATSCARD mode")
             if (status.isTampered == true) error("SATSCARD tamper warning is set")
             val cardIsTestnet = status.isTestnet == true
@@ -562,7 +580,12 @@ object SatscardNfcReader {
                 error("SATSCARD is $cardNetwork but this wallet is $walletNetwork")
             }
             if ((status.authDelaySeconds ?: 0L) > 0L) {
-                error("SATSCARD requires waiting ${status.authDelaySeconds}s before another spend code attempt")
+                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "SATSCARD")
+                status = TapsignerTapProtocol.parseStatusResponse(
+                    isoDep.transceive(TapsignerTapProtocol.statusCommand())
+                )
+                if (!status.isSatscard) error("Coinkite NFC card is not reporting SATSCARD mode")
+                if (status.isTampered == true) error("SATSCARD tamper warning is set")
             }
             val slot = status.activeSlot
                 ?: error("SATSCARD did not report an active slot")
@@ -647,7 +670,12 @@ object TapsignerNfcReader {
             if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
             if (status.isTampered == true) error("Tapsigner tamper warning is set")
             if ((status.authDelaySeconds ?: 0L) > 0L) {
-                error("Tapsigner requires waiting ${status.authDelaySeconds}s before another PIN attempt")
+                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "Tapsigner")
+                status = TapsignerTapProtocol.parseStatusResponse(
+                    isoDep.transceive(TapsignerTapProtocol.statusCommand())
+                )
+                if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
+                if (status.isTampered == true) error("Tapsigner tamper warning is set")
             }
             val cardPubkey = status.cardPubkeyHex?.hexToBytes()
                 ?: error("Tapsigner status did not include card pubkey")
@@ -764,5 +792,23 @@ object TapsignerNfcReader {
     private fun doubleSha256(data: ByteArray): ByteArray {
         val digest = MessageDigest.getInstance("SHA-256")
         return digest.digest(digest.digest(data))
+    }
+}
+
+private fun clearCoinkiteAuthDelay(isoDep: IsoDep, initialDelaySeconds: Long, cardName: String) {
+    var remaining = initialDelaySeconds
+    if (remaining <= 0L) return
+    if (remaining > 60L) {
+        error("$cardName requires a ${remaining}s retry delay before another code attempt")
+    }
+
+    var attempts = 0
+    while (remaining > 0L) {
+        attempts += 1
+        if (attempts > 65) error("$cardName retry delay did not clear")
+        val wait = TapsignerTapProtocol.parseWaitResponse(
+            isoDep.transceive(TapsignerTapProtocol.waitCommand())
+        )
+        remaining = wait.authDelaySeconds ?: (remaining - 1L)
     }
 }
