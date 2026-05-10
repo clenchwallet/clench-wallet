@@ -112,29 +112,57 @@ fun ImportWalletScreen(
         }
     }
 
-    // Hardware wallet onboarding is choice-based: select file, scan QR, or NFC explicitly.
-    DisposableEffect(nfcReaderActive, selectedDevice, pendingTapsignerCvc) {
+    fun clearPendingTapsignerCvc() {
+        pendingTapsignerCvc?.fill('0')
+        pendingTapsignerCvc = null
+    }
+
+    fun stopNfcReader(clearTapsignerPin: Boolean = false) {
         val hostActivity = activity
         val adapter = nfcAdapter
-        if (!nfcReaderActive || hostActivity == null || adapter == null || !adapter.isEnabled) {
-            onDispose { }
-        } else {
-            val device = selectedDevice
-            val isCoinkiteTap = device?.usesCoinkiteTapProtocol == true
-            val flags = if (isCoinkiteTap) NfcReaderModeFlags.coinkiteTap else NfcReaderModeFlags.hardwareImport
+        if (hostActivity != null && adapter != null) {
+            adapter.disableReaderMode(hostActivity)
+        }
+        nfcReaderActive = false
+        clearPendingTapsignerCvc()
+        if (clearTapsignerPin) tapsignerCvcInput = ""
+    }
+
+    fun startHardwareNfcReader(device: HardwareWalletType, cvc: CharArray?) {
+        val hostActivity = activity ?: run {
+            cvc?.fill('0')
+            nfcError = "NFC reader is unavailable in this view"
+            return
+        }
+        val adapter = nfcAdapter ?: run {
+            cvc?.fill('0')
+            nfcError = "This phone does not report NFC hardware"
+            return
+        }
+        if (!adapter.isEnabled) {
+            cvc?.fill('0')
+            nfcError = "NFC is off in Android settings"
+            return
+        }
+
+        val isCoinkiteTap = device.usesCoinkiteTapProtocol
+        val flags = if (isCoinkiteTap) NfcReaderModeFlags.coinkiteTap else NfcReaderModeFlags.hardwareImport
+        clearPendingTapsignerCvc()
+        pendingTapsignerCvc = cvc
+
+        try {
             adapter.enableReaderMode(
                 hostActivity,
                 { tag ->
                     try {
                         if (isCoinkiteTap) {
-                            val cvc = pendingTapsignerCvc ?: error("Enter the Tapsigner PIN before importing over NFC")
-                            val result = TapsignerNfcReader.readAccountXpub(tag, cvc)
+                            val readerCvc = cvc ?: error("Enter the Tapsigner PIN before importing over NFC")
+                            val result = TapsignerNfcReader.readAccountXpub(tag, readerCvc)
                             hostActivity.runOnUiThread {
                                 viewModel.setInput(result.originWrappedXpub)
                                 nfcStatus = result.summary
                                 nfcError = null
-                                nfcReaderActive = false
-                                pendingTapsignerCvc = null
+                                stopNfcReader(clearTapsignerPin = true)
                             }
                         } else {
                             val ndef = Ndef.get(tag) ?: error("NFC tag does not expose an NDEF message")
@@ -150,23 +178,43 @@ fun ImportWalletScreen(
                                 viewModel.setInput(payload.trim())
                                 nfcStatus = "Loaded hardware wallet data from NFC"
                                 nfcError = null
-                                nfcReaderActive = false
+                                stopNfcReader()
                             }
                         }
                     } catch (e: Exception) {
                         hostActivity.runOnUiThread {
                             nfcError = e.message ?: "NFC import failed"
                             nfcStatus = null
-                            nfcReaderActive = false
-                            pendingTapsignerCvc?.fill('0')
-                            pendingTapsignerCvc = null
+                            stopNfcReader()
                         }
                     }
                 },
                 flags,
                 null
             )
-            onDispose { adapter.disableReaderMode(hostActivity) }
+            nfcError = null
+            nfcStatus = if (isCoinkiteTap) {
+                "Ready to import. Hold ${device.displayName} against the phone."
+            } else {
+                "Ready for NFC. Hold ${device.displayName} against the phone."
+            }
+            nfcReaderActive = true
+        } catch (e: Exception) {
+            clearPendingTapsignerCvc()
+            nfcError = e.message ?: "Could not start NFC reader"
+            nfcStatus = null
+            nfcReaderActive = false
+        }
+    }
+
+    // Hardware wallet onboarding is choice-based: select file, scan QR, or NFC explicitly.
+    DisposableEffect(nfcReaderActive, activity, nfcAdapter) {
+        val hostActivity = activity
+        val adapter = nfcAdapter
+        onDispose {
+            if (nfcReaderActive && hostActivity != null && adapter != null) {
+                adapter.disableReaderMode(hostActivity)
+            }
         }
     }
 
@@ -182,9 +230,7 @@ fun ImportWalletScreen(
                 selectedDevice = device
                 showDevicePicker = false
                 tapsignerCvcInput = ""
-                pendingTapsignerCvc?.fill('0')
-                pendingTapsignerCvc = null
-                nfcReaderActive = false
+                stopNfcReader()
                 // Store selected device in viewModel so it gets passed to importWatchOnly
                 viewModel.setHardwareDeviceType(device.name)
             }
@@ -350,26 +396,17 @@ fun ImportWalletScreen(
                                     nfcAdapter == null -> nfcError = "This phone does not report NFC hardware"
                                     !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
                                     activity == null -> nfcError = "NFC reader is unavailable in this view"
+                                    selectedDevice == null -> nfcError = "Choose a hardware wallet first"
                                     needsTapsignerCvc && tapsignerCvcInput.length !in 6..32 -> {
                                         nfcError = "Enter the Tapsigner PIN"
                                     }
                                     else -> {
-                                        if (needsTapsignerCvc) {
-                                            pendingTapsignerCvc?.fill('0')
-                                            pendingTapsignerCvc = tapsignerCvcInput.toCharArray()
-                                            tapsignerCvcInput = ""
-                                        }
-                                        nfcError = null
-                                        nfcStatus = if (selectedDevice?.usesCoinkiteTapProtocol == true) {
-                                            "Ready to import. Hold ${selectedDevice?.displayName ?: "the card"} against the phone."
-                                        } else {
-                                            "Ready for NFC. Hold ${selectedDevice?.displayName ?: "the device"} against the phone."
-                                        }
-                                        nfcReaderActive = true
+                                        val cvc = if (needsTapsignerCvc) tapsignerCvcInput.toCharArray() else null
+                                        startHardwareNfcReader(selectedDevice!!, cvc)
                                     }
                                 }
                             },
-                            enabled = !needsTapsignerCvc || tapsignerCvcInput.length in 6..32,
+                            enabled = !nfcReaderActive && (!needsTapsignerCvc || tapsignerCvcInput.length in 6..32),
                             modifier = Modifier.weight(1f)
                         ) { Text("NFC") }
                     }
@@ -386,11 +423,9 @@ fun ImportWalletScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     OutlinedButton(
                         onClick = {
-                            nfcReaderActive = false
+                            stopNfcReader()
                             nfcStatus = null
                             nfcError = null
-                            pendingTapsignerCvc?.fill('0')
-                            pendingTapsignerCvc = null
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Cancel NFC") }

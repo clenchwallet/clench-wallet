@@ -69,6 +69,17 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
+    fun `Tapsigner status without path uses default BIP84 account path`() {
+        val mainnetStatus = TapsignerTapProtocol.parseStatusResponse(tapsignerStatusWithoutPathResponse(testnet = false))
+        val testnetStatus = TapsignerTapProtocol.parseStatusResponse(tapsignerStatusWithoutPathResponse(testnet = true))
+
+        assertEquals(null, mainnetStatus.displayPath)
+        assertEquals("m/84'/0'/0'", mainnetStatus.defaultTapsignerAccountPath)
+        assertEquals(null, testnetStatus.displayPath)
+        assertEquals("m/84'/1'/0'", testnetStatus.defaultTapsignerAccountPath)
+    }
+
+    @Test
     fun `status parser extracts Satscard metadata`() {
         val response = satscardStatusResponse()
 
@@ -172,6 +183,21 @@ class TapsignerTapProtocolTest {
         path.forEach { pathArray.add(it) }
         val out = ByteArrayOutputStream()
         CborEncoder(out).encode(pathArray.end().end().build())
+        return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+    }
+
+    private fun tapsignerStatusWithoutPathResponse(testnet: Boolean): ByteArray {
+        val map = CborBuilder().addMap()
+            .put("proto", 1L)
+            .put("ver", "1.0.3")
+            .put("birth", 700553L)
+            .put("tapsigner", true)
+            .put("testnet", testnet)
+            .put("num_backups", 0L)
+            .put("pubkey", ByteArray(33) { index -> if (index == 0) 0x02.toByte() else index.toByte() })
+            .put("card_nonce", ByteArray(16) { index -> (index + 1).toByte() })
+        val out = ByteArrayOutputStream()
+        CborEncoder(out).encode(map.end().build())
         return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
     }
 

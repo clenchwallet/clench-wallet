@@ -69,6 +69,9 @@ data class CoinkiteTapCardStatus(
             }
         }
 
+    val defaultTapsignerAccountPath: String
+        get() = "m/84'/${if (isTestnet == true) 1 else 0}'/0'"
+
     fun summary(): String {
         val parts = mutableListOf<String>()
         version?.let { parts += "firmware $it" }
@@ -646,12 +649,11 @@ object TapsignerNfcReader {
             if ((status.authDelaySeconds ?: 0L) > 0L) {
                 error("Tapsigner requires waiting ${status.authDelaySeconds}s before another PIN attempt")
             }
-            val path = status.displayPath
-                ?: error("Tapsigner is not initialized yet. Initialize it with a Tapsigner-compatible setup flow before importing.")
             val cardPubkey = status.cardPubkeyHex?.hexToBytes()
                 ?: error("Tapsigner status did not include card pubkey")
             var latestCardNonce = status.cardNonceHex?.hexToBytes()
                 ?: error("Tapsigner status did not include card nonce")
+            val reportedPath = status.displayPath
 
             val certs = TapsignerTapProtocol.parseCertsResponse(
                 isoDep.transceive(TapsignerTapProtocol.certsCommand())
@@ -697,7 +699,7 @@ object TapsignerNfcReader {
             )
             val xpub = account.xpub.base58CheckEncode()
             status = selectOrReadStatus(isoDep)
-            val refreshedPath = status.displayPath ?: path
+            val refreshedPath = status.displayPath ?: reportedPath ?: status.defaultTapsignerAccountPath
             val originPath = refreshedPath.removePrefix("m/")
             val originWrapped = "[$fingerprint/$originPath]$xpub"
             return TapsignerAccountXpubResult(
