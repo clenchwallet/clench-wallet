@@ -67,6 +67,22 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
+    fun `authenticated new command encodes Tapsigner initialize request`() {
+        val cardPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 1 })
+        val command = TapsignerTapProtocol.authenticatedNewTapsignerCommand(
+            cardPubkey = cardPubkey,
+            cardNonce = ByteArray(16) { (it + 1).toByte() },
+            cvc = "123456".toCharArray(),
+            chainCode = ByteArray(32) { (it + 10).toByte() }
+        )
+
+        assertEquals("00cb0000", command.take(4).toByteArray().toHex())
+        assertEquals(command.size - 5, command[4].toInt() and 0xFF)
+        assertTrue(command.toHex().contains("63636d64636e6577"))
+        assertTrue(command.toHex().contains("6a636861696e5f636f64655820"))
+    }
+
+    @Test
     fun `status parser extracts Tapsigner metadata`() {
         val response = tapsignerStatusResponse()
 
@@ -177,6 +193,17 @@ class TapsignerTapProtocolTest {
 
         assertTrue(result.xpub.contentEquals(rawXpub))
         assertTrue(result.cardNonce!!.contentEquals(nonce))
+    }
+
+    @Test
+    fun `new parser extracts initialized slot and nonce`() {
+        val nonce = ByteArray(16) { index -> (index + 5).toByte() }
+        val response = tapsignerNewResponse(slot = 0L, cardNonce = nonce)
+
+        val result = TapsignerTapProtocol.parseTapsignerNewResponse(response)
+
+        assertEquals(0L, result.slot)
+        assertTrue(result.cardNonce.contentEquals(nonce))
     }
 
     @Test
@@ -297,6 +324,15 @@ class TapsignerTapProtocolTest {
     private fun tapsignerXpubResponse(xpub: ByteArray, cardNonce: ByteArray): ByteArray {
         val map = CborBuilder().addMap()
             .put("xpub", xpub)
+            .put("card_nonce", cardNonce)
+        val out = ByteArrayOutputStream()
+        CborEncoder(out).encode(map.end().build())
+        return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+    }
+
+    private fun tapsignerNewResponse(slot: Long, cardNonce: ByteArray): ByteArray {
+        val map = CborBuilder().addMap()
+            .put("slot", slot)
             .put("card_nonce", cardNonce)
         val out = ByteArrayOutputStream()
         CborEncoder(out).encode(map.end().build())
