@@ -288,19 +288,25 @@ Use this checklist for release candidates and for changes that touch wallet stat
 - No QR, file, Coldcard NDEF, or fake signed-PSBT flow is offered
 - Direct signing stays blocked until CVC-authenticated Tap Protocol signing is implemented
 
-### H3. SATSCARD sweep status guardrail
+### H3. SATSCARD active-slot sweep
 **Steps**
 1. Open Sweep External Seed from a wallet
-2. Tap Read SATSCARD NFC Status
-3. Hold a SATSCARD to the phone
-4. Repeat with a Tapsigner card if available
+2. Tap Read Status and hold a SATSCARD to the phone
+3. Enter the SATSCARD CVC
+4. Confirm the irreversible unseal warning
+5. Tap Unseal and Sweep and hold the SATSCARD to the phone until Clench starts building the sweep
+6. Repeat status read with a Tapsigner card if available
 
 **Expected**
 - Clench uses ISO-DEP Tap Protocol status, not Coldcard NDEF
 - SATSCARD firmware/address/slot status appears when the card responds
-- Clench does not ask for the CVC
-- Clench does not unseal a slot, display private keys, or sweep SATSCARD funds
-- A Tapsigner in this flow is rejected with a clear "only reads SATSCARD status" message
+- Sweep requires CVC entry and explicit confirmation that unseal is irreversible
+- Clench rejects card/wallet network mismatches before unseal
+- Clench rejects counterfeit/invalid SATSCARD certificate checks before sending the CVC-authenticated unseal command
+- Clench verifies the unsealed private key matches the verified SATSCARD slot public key and payment address before broadcasting
+- Wrong CVC, unused slot, already-unsealed slot, tamper warning, or NFC errors are shown clearly
+- On a valid sealed active slot with confirmed funds, Clench unseals, builds a native SegWit drain transaction, signs locally from the returned key, and broadcasts to the selected destination wallet address
+- A Tapsigner in this flow is rejected with a clear "only supports SATSCARD" message
 
 ---
 

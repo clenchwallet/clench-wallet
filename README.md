@@ -16,7 +16,7 @@ A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](http
 - **Coldcard Q:** BBQr QR, NFC, and file-based PSBT transfer
 - **Coldcard Mk4/Mk5:** NFC, SD card, and virtual disk PSBT transfer
 - **Tapsigner:** NFC Tap Protocol status checks and screenless-signer guardrails; direct PSBT signing is blocked until authenticated signing support is complete
-- **SATSCARD:** NFC Tap Protocol status checks in the sweep tool; CVC-authenticated unseal/sweep is blocked until authenticated sweep support is complete
+- **SATSCARD:** NFC Tap Protocol status checks plus certificate-verified, CVC-authenticated active-slot unseal and sweep
 - **Signed-return support:** signed PSBT import, plus finalized transaction returns where supported
 - Explicit broadcast confirmation after hardware-wallet signing
 - Full PSBT (BIP-174) workflow
@@ -36,7 +36,7 @@ A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](http
 - RBF cancel replacement attempts back to the same wallet
 - Raw transaction import, preview, and explicit broadcast
 - Saved payees and BDK-backed network/script address verification
-- Sweep functionality
+- Sweep functionality for external seeds, WIF paper wallets/OpenDime exports, and SATSCARD active slots
 - Fee and confirmation context via Electrum, with optional external mempool.space fee fallback
 - Recovery wizard for state backups, seed phrase restores, descriptor imports, and cross-wallet verification
 

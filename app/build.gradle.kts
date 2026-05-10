@@ -143,6 +143,7 @@ dependencies {
 
     // Coinkite Tap Protocol NFC status messages use CBOR.
     implementation("co.nstant.in:cbor:0.9")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.79")
 
     // Unit testing
     testImplementation("junit:junit:4.13.2")

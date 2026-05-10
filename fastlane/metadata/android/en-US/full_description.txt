@@ -13,8 +13,9 @@ Hardware-wallet features:
 - Exchange PSBTs by animated QR, BBQr, NFC, SD card, virtual disk, file import, or signed-return import where supported.
 - Work with QR-based signers such as SeedSigner, Keystone, Foundation Passport, and Blockstream Jade.
 - Work with Coldcard Q, Coldcard Mk4, and Coldcard Mk5 transfer paths.
-- Check Tapsigner and SATSCARD NFC Tap Protocol status.
-- Block screenless-signer and card flows that require CVC-authenticated signing or unseal/sweep until dedicated authenticated support is complete.
+- Check Tapsigner NFC Tap Protocol status.
+- Sweep SATSCARD active slots with certificate verification and explicit CVC-authenticated unseal confirmation.
+- Block screenless-signer flows that require CVC-authenticated PSBT signing until dedicated authenticated support is complete.
 - Require explicit broadcast confirmation after hardware-wallet signing.
 
 Security and privacy features:

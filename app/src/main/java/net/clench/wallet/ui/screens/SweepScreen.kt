@@ -2,6 +2,8 @@ package net.clench.wallet.ui.screens
 
 import android.app.Activity
 import android.nfc.NfcAdapter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -9,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +25,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.components.CoinkiteTapCardNfcReader
+import net.clench.wallet.ui.components.QrScanner
+import net.clench.wallet.ui.components.SatscardNfcReader
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.FeeTier
 import net.clench.wallet.ui.viewmodel.SweepViewModel
@@ -48,17 +53,44 @@ fun SweepScreen(
     var passphraseInput by remember { mutableStateOf("") }
     var showPassphrase by remember { mutableStateOf(false) }
     var showPassphraseText by remember { mutableStateOf(false) }
+    var wifInput by remember { mutableStateOf("") }
+    var sourceType by remember { mutableStateOf(SweepSourceType.SeedPhrase) }
+    var showScanner by remember { mutableStateOf(false) }
     var seedError by remember { mutableStateOf<String?>(null) }
+    var wifError by remember { mutableStateOf<String?>(null) }
     var satscardReaderActive by remember { mutableStateOf(false) }
+    var satscardSweepReaderActive by remember { mutableStateOf(false) }
     var satscardStatus by remember { mutableStateOf<String?>(null) }
     var satscardError by remember { mutableStateOf<String?>(null) }
+    var satscardCvcInput by remember { mutableStateOf("") }
+    var satscardSweepConfirmed by remember { mutableStateOf(false) }
+    var pendingSatscardCvc by remember { mutableStateOf<CharArray?>(null) }
+    val wifFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            try {
+                val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader -> reader.readText() }
+                if (text.isNullOrBlank()) {
+                    wifError = "Selected file was empty"
+                } else {
+                    sourceType = SweepSourceType.WifPrivateKey
+                    wifInput = text.trim()
+                    wifError = null
+                    viewModel.clearSourceValidation()
+                }
+            } catch (e: Exception) {
+                wifError = "Could not read file: ${e.message}"
+            }
+        }
+    }
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
 
-    DisposableEffect(satscardReaderActive) {
+    DisposableEffect(satscardReaderActive, satscardSweepReaderActive, pendingSatscardCvc) {
         val hostActivity = activity
         val adapter = nfcAdapter
-        if (!satscardReaderActive || hostActivity == null || adapter == null || !adapter.isEnabled) {
+        if ((!satscardReaderActive && !satscardSweepReaderActive) || hostActivity == null || adapter == null || !adapter.isEnabled) {
             onDispose { }
         } else {
             val flags = NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS
@@ -66,23 +98,42 @@ fun SweepScreen(
                 hostActivity,
                 { tag ->
                     try {
-                        val status = CoinkiteTapCardNfcReader.readStatus(tag)
-                        hostActivity.runOnUiThread {
-                            if (status.isSatscard) {
-                                satscardStatus = "${status.summary()}. CVC-authenticated unseal and sweep are not enabled yet."
+                        if (satscardSweepReaderActive) {
+                            val cvc = pendingSatscardCvc ?: error("Enter the SATSCARD CVC before sweeping")
+                            val result = SatscardNfcReader.unsealCurrentSlot(
+                                tag = tag,
+                                cvc = cvc,
+                                expectedTestnet = uiState.isTestnet
+                            )
+                            hostActivity.runOnUiThread {
+                                satscardStatus = "${result.summary}. Building sweep transaction..."
                                 satscardError = null
-                            } else {
-                                val cardName = if (status.isTapsigner) "Tapsigner" else "Coinkite card"
-                                satscardStatus = null
-                                satscardError = "$cardName detected; this sweep tool only reads SATSCARD status."
+                                satscardSweepReaderActive = false
+                                pendingSatscardCvc = null
+                                viewModel.sweepSatscardPrivateKey(result.privateKey, result.isTestnet)
                             }
-                            satscardReaderActive = false
+                        } else {
+                            val status = CoinkiteTapCardNfcReader.readStatus(tag)
+                            hostActivity.runOnUiThread {
+                                if (status.isSatscard) {
+                                    satscardStatus = "${status.summary()}. Enter the CVC to unseal the active slot and sweep it."
+                                    satscardError = null
+                                } else {
+                                    val cardName = if (status.isTapsigner) "Tapsigner" else "Coinkite card"
+                                    satscardStatus = null
+                                    satscardError = "$cardName detected; this sweep tool only supports SATSCARD here."
+                                }
+                                satscardReaderActive = false
+                            }
                         }
                     } catch (e: Exception) {
                         hostActivity.runOnUiThread {
                             satscardStatus = null
-                            satscardError = e.message ?: "SATSCARD NFC status read failed"
+                            satscardError = e.message ?: "SATSCARD NFC read failed"
                             satscardReaderActive = false
+                            satscardSweepReaderActive = false
+                            pendingSatscardCvc?.fill('0')
+                            pendingSatscardCvc = null
                         }
                     }
                 },
@@ -128,8 +179,7 @@ fun SweepScreen(
                     Text("Sweep External Wallet", fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Enter the seed phrase of the wallet you want to sweep FROM. " +
-                        "All confirmed funds will be sent to this wallet's receive address.",
+                        "Enter a source seed phrase, or scan/paste a WIF private key from a paper wallet or unsealed OpenDime. All confirmed funds will be sent to this wallet's receive address.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
@@ -152,7 +202,7 @@ fun SweepScreen(
             // Security warning
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0))) {
                 Text(
-                    "⚠ Your seed phrase is used in memory only. Key material is zeroed " +
+                    "⚠ Source key material is used in memory only. Char buffers are zeroed " +
                     "immediately after the sweep transaction is broadcast.",
                     modifier = Modifier.padding(10.dp),
                     style = MaterialTheme.typography.bodySmall,
@@ -162,8 +212,6 @@ fun SweepScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // SATSCARD status-only NFC check. Unseal/sweep requires CVC-authenticated Tap Protocol
-            // support and stays blocked until that path has dedicated signing tests.
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -172,11 +220,35 @@ fun SweepScreen(
                     Text("SATSCARD NFC", fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Read SATSCARD status over Coinkite Tap Protocol. Clench will not ask for the CVC, unseal slots, or sweep SATSCARD funds until authenticated sweep support is complete.",
+                        "Read SATSCARD status, or enter the printed CVC to unseal the active slot and sweep its confirmed funds to this wallet. Unsealing is irreversible.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = satscardCvcInput,
+                        onValueChange = {
+                            satscardCvcInput = it.take(32)
+                            satscardError = null
+                        },
+                        label = { Text("SATSCARD CVC") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = satscardSweepConfirmed,
+                            onCheckedChange = { satscardSweepConfirmed = it }
+                        )
+                        Text(
+                            "I understand this will permanently unseal the active slot.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                     when {
                         nfcAdapter == null -> Text(
                             "This phone does not report NFC hardware.",
@@ -189,30 +261,64 @@ fun SweepScreen(
                             color = MaterialTheme.colorScheme.error
                         )
                         else -> {
-                            Button(
-                                onClick = {
-                                    satscardStatus = "Ready for NFC status. Hold SATSCARD against the phone."
-                                    satscardError = null
-                                    satscardReaderActive = true
-                                },
-                                enabled = !satscardReaderActive,
-                                modifier = Modifier.fillMaxWidth()
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                if (satscardReaderActive) {
-                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Reading...")
-                                } else {
-                                    Text("Read SATSCARD NFC Status")
+                                OutlinedButton(
+                                    onClick = {
+                                        satscardStatus = "Ready for NFC status. Hold SATSCARD against the phone."
+                                        satscardError = null
+                                        satscardReaderActive = true
+                                    },
+                                    enabled = !satscardReaderActive && !satscardSweepReaderActive && !uiState.isSweeping
+                                ) {
+                                    if (satscardReaderActive) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Reading...")
+                                    } else {
+                                        Text("Read Status")
+                                    }
+                                }
+                                Button(
+                                    onClick = {
+                                        if (satscardCvcInput.length !in 6..32) {
+                                            satscardError = "Enter the 6-digit SATSCARD CVC"
+                                            return@Button
+                                        }
+                                        pendingSatscardCvc?.fill('0')
+                                        pendingSatscardCvc = satscardCvcInput.toCharArray()
+                                        satscardCvcInput = ""
+                                        satscardStatus = "Ready to unseal. Hold SATSCARD against the phone."
+                                        satscardError = null
+                                        satscardSweepReaderActive = true
+                                    },
+                                    enabled = satscardSweepConfirmed &&
+                                        satscardCvcInput.length in 6..32 &&
+                                        !satscardReaderActive &&
+                                        !satscardSweepReaderActive &&
+                                        !uiState.isSweeping
+                                ) {
+                                    if (satscardSweepReaderActive || uiState.isSweeping) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Sweeping...")
+                                    } else {
+                                        Text("Unseal and Sweep")
+                                    }
                                 }
                             }
-                            if (satscardReaderActive) {
+                            if (satscardReaderActive || satscardSweepReaderActive) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 TextButton(
                                     onClick = {
                                         satscardReaderActive = false
+                                        satscardSweepReaderActive = false
                                         satscardStatus = null
                                         satscardError = null
+                                        pendingSatscardCvc?.fill('0')
+                                        pendingSatscardCvc = null
                                     }
                                 ) { Text("Cancel NFC") }
                             }
@@ -232,46 +338,119 @@ fun SweepScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Source seed phrase
-            Text("Source Wallet Seed Phrase", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text("Source", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
-                value = seedInput,
-                onValueChange = { seedInput = it; seedError = null },
-                label = { Text("Seed phrase (12 or 24 words)") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp),
-                placeholder = { Text("word1 word2 word3…") },
-                isError = seedError != null
-            )
-            seedError?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = sourceType == SweepSourceType.SeedPhrase,
+                    onClick = {
+                        sourceType = SweepSourceType.SeedPhrase
+                        seedError = null
+                        wifError = null
+                        viewModel.clearSourceValidation()
+                    },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                ) { Text("Seed phrase") }
+                SegmentedButton(
+                    selected = sourceType == SweepSourceType.WifPrivateKey,
+                    onClick = {
+                        sourceType = SweepSourceType.WifPrivateKey
+                        seedError = null
+                        wifError = null
+                        viewModel.clearSourceValidation()
+                    },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                ) { Text("WIF key") }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Optional passphrase
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = showPassphrase, onCheckedChange = { showPassphrase = it })
-                Text("BIP39 passphrase (optional)")
-            }
-
-            AnimatedVisibility(visible = showPassphrase) {
+            if (sourceType == SweepSourceType.SeedPhrase) {
                 OutlinedTextField(
-                    value = passphraseInput,
-                    onValueChange = { passphraseInput = it },
-                    label = { Text("Passphrase") },
-                    visualTransformation = if (showPassphraseText) VisualTransformation.None else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    trailingIcon = {
-                        TextButton(onClick = { showPassphraseText = !showPassphraseText }) {
-                            Text(if (showPassphraseText) "Hide" else "Show")
-                        }
-                    }
+                    value = seedInput,
+                    onValueChange = {
+                        seedInput = it
+                        seedError = null
+                        viewModel.clearSourceValidation()
+                    },
+                    label = { Text("Seed phrase (12 or 24 words)") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    placeholder = { Text("word1 word2 word3…") },
+                    isError = seedError != null
                 )
+                seedError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Optional passphrase
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = showPassphrase,
+                        onCheckedChange = {
+                            showPassphrase = it
+                            viewModel.clearSourceValidation()
+                        }
+                    )
+                    Text("BIP39 passphrase (optional)")
+                }
+
+                AnimatedVisibility(visible = showPassphrase) {
+                    OutlinedTextField(
+                        value = passphraseInput,
+                        onValueChange = {
+                            passphraseInput = it
+                            viewModel.clearSourceValidation()
+                        },
+                        label = { Text("Passphrase") },
+                        visualTransformation = if (showPassphraseText) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        trailingIcon = {
+                            TextButton(onClick = { showPassphraseText = !showPassphraseText }) {
+                                Text(if (showPassphraseText) "Hide" else "Show")
+                            }
+                        }
+                    )
+                }
+            } else {
+                OutlinedTextField(
+                    value = wifInput,
+                    onValueChange = {
+                        wifInput = it
+                        wifError = null
+                        viewModel.clearSourceValidation()
+                    },
+                    label = { Text("WIF private key") },
+                    placeholder = { Text("Scan a paper wallet or OpenDime private-key QR") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = false,
+                    minLines = 2,
+                    visualTransformation = PasswordVisualTransformation(),
+                    isError = wifError != null
+                )
+                wifError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(onClick = { showScanner = true }) {
+                        Icon(Icons.Filled.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Scan QR")
+                    }
+                    OutlinedButton(onClick = { wifFileLauncher.launch(arrayOf("text/*", "application/octet-stream", "*/*")) }) {
+                        Text("Load private-key.txt")
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -347,21 +526,33 @@ fun SweepScreen(
             if (!uiState.seedValidated) {
                 val words = seedInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
                 val isValidWordCount = words.size == 12 || words.size == 24
+                val isWifReady = wifInput.isNotBlank()
 
                 Button(
                     onClick = {
-                        if (!isValidWordCount) {
+                        if (sourceType == SweepSourceType.SeedPhrase && !isValidWordCount) {
                             seedError = "Enter 12 or 24 words"
                             return@Button
                         }
-                        val mnemonic = seedInput.trim().toCharArray()
-                        val passphrase = if (showPassphrase && passphraseInput.isNotBlank())
-                            passphraseInput.toCharArray() else null
-                        // Note: chars zeroed inside ViewModel after use
-                        viewModel.validateSeedAndFetchBalance(mnemonic, passphrase)
+                        if (sourceType == SweepSourceType.WifPrivateKey && !isWifReady) {
+                            wifError = "Enter or scan a WIF private key"
+                            return@Button
+                        }
+                        if (sourceType == SweepSourceType.SeedPhrase) {
+                            val mnemonic = seedInput.trim().toCharArray()
+                            val passphrase = if (showPassphrase && passphraseInput.isNotBlank())
+                                passphraseInput.toCharArray() else null
+                            // Note: chars zeroed inside ViewModel after use
+                            viewModel.validateSeedAndFetchBalance(mnemonic, passphrase)
+                        } else {
+                            viewModel.validateWifAndFetchBalance(wifInput.toCharArray())
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !uiState.isLoadingBalance && isValidWordCount
+                    enabled = !uiState.isLoadingBalance && (
+                        (sourceType == SweepSourceType.SeedPhrase && isValidWordCount) ||
+                            (sourceType == SweepSourceType.WifPrivateKey && isWifReady)
+                        )
                 ) {
                     if (uiState.isLoadingBalance) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp))
@@ -399,17 +590,27 @@ fun SweepScreen(
                 if (uiState.sourceBalanceSat > 0) {
                     Button(
                         onClick = {
-                            val words = seedInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
-                            if (words.size != 12 && words.size != 24) {
-                                seedError = "Seed phrase was cleared — re-enter it"
-                                return@Button
+                            if (sourceType == SweepSourceType.SeedPhrase) {
+                                val words = seedInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
+                                if (words.size != 12 && words.size != 24) {
+                                    seedError = "Seed phrase was cleared — re-enter it"
+                                    return@Button
+                                }
+                                val mnemonic = seedInput.trim().toCharArray()
+                                val passphrase = if (showPassphrase && passphraseInput.isNotBlank())
+                                    passphraseInput.toCharArray() else null
+                                seedInput = ""
+                                passphraseInput = ""
+                                viewModel.sweep(mnemonic, passphrase)
+                            } else {
+                                if (wifInput.isBlank()) {
+                                    wifError = "WIF private key was cleared — re-enter it"
+                                    return@Button
+                                }
+                                val wif = wifInput.toCharArray()
+                                wifInput = ""
+                                viewModel.sweepWif(wif)
                             }
-                            val mnemonic = seedInput.trim().toCharArray()
-                            val passphrase = if (showPassphrase && passphraseInput.isNotBlank())
-                                passphraseInput.toCharArray() else null
-                            seedInput = ""
-                            passphraseInput = ""
-                            viewModel.sweep(mnemonic, passphrase)
                         },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !uiState.isSweeping
@@ -442,4 +643,22 @@ fun SweepScreen(
             }
         }
     }
+
+    AnimatedVisibility(visible = showScanner) {
+        QrScanner(
+            onResult = { result ->
+                wifInput = result
+                wifError = null
+                sourceType = SweepSourceType.WifPrivateKey
+                viewModel.clearSourceValidation()
+                showScanner = false
+            },
+            onCancel = { showScanner = false }
+        )
+    }
+}
+
+private enum class SweepSourceType {
+    SeedPhrase,
+    WifPrivateKey
 }

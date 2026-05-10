@@ -27,6 +27,14 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
+    fun `dump command includes slot number`() {
+        val command = TapsignerTapProtocol.dumpCommand(3)
+
+        assertEquals("00cb0000", command.take(4).toByteArray().toHex())
+        assertTrue(command.toHex().contains("64736c6f7403"))
+    }
+
+    @Test
     fun `status parser extracts Tapsigner metadata`() {
         val response = tapsignerStatusResponse()
 
@@ -56,11 +64,13 @@ class TapsignerTapProtocolTest {
         assertEquals("1.2.0", status.version)
         assertEquals(725000L, status.birthHeight)
         assertEquals("bc1qexampleaddress000000000000000000000000000", status.address)
-        assertEquals(listOf(0L, 1L, 2L, 3L, 4L), status.slots)
+        assertEquals(listOf(2L, 10L), status.slots)
+        assertEquals(2L, status.activeSlot)
+        assertEquals(10L, status.slotCount)
         assertEquals(false, status.isTestnet)
         assertEquals(false, status.isTampered)
         assertEquals(
-            "SATSCARD detected: firmware 1.2.0, address bc1qexampleaddress000000000000000000000000000, 5 slots",
+            "SATSCARD detected: firmware 1.2.0, address bc1qexampleaddress000000000000000000000000000, 10 slots",
             status.summary()
         )
     }
@@ -77,6 +87,46 @@ class TapsignerTapProtocolTest {
             return
         }
         error("Expected failed status word to be rejected")
+    }
+
+    @Test
+    fun `unseal parser decrypts private key with session key`() {
+        val sessionKey = ByteArray(32) { (it + 20).toByte() }
+        val privateKey = ByteArray(32) { (it + 1).toByte() }
+        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey)
+        val address = CoinkiteTapCardVerifier.segwitAddress(pubkey, testnet = false)
+        val verifiedSlot = VerifiedSatscardSlot(
+            slot = 2L,
+            pubkey = pubkey,
+            address = address,
+            isTestnet = false
+        )
+        val encrypted = privateKey.zip(sessionKey).map { (left, right) ->
+            (left.toInt() xor right.toInt()).toByte()
+        }.toByteArray()
+        val response = satscardUnsealResponse(encrypted, pubkey)
+
+        val result = TapsignerTapProtocol.parseSatscardUnsealResponse(response, sessionKey, verifiedSlot)
+
+        assertEquals(2L, result.slot)
+        assertTrue(result.privateKey.contentEquals(privateKey))
+        assertEquals(66, result.publicKeyHex?.length)
+        assertEquals(address, result.address)
+    }
+
+    @Test
+    fun `renders verified native segwit address for secp256k1 generator key`() {
+        val privateKey = ByteArray(32).also { it[31] = 1 }
+        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey)
+
+        assertEquals(
+            "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            pubkey.toHex()
+        )
+        assertEquals(
+            "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+            CoinkiteTapCardVerifier.segwitAddress(pubkey, testnet = false)
+        )
     }
 
     private fun tapsignerStatusResponse(): ByteArray {
@@ -108,9 +158,20 @@ class TapsignerTapProtocolTest {
             .put("pubkey", ByteArray(33) { index -> if (index == 0) 0x02.toByte() else (index + 1).toByte() })
             .put("card_nonce", ByteArray(16) { index -> (index + 2).toByte() })
         val slotsArray = map.putArray("slots")
-        listOf(0L, 1L, 2L, 3L, 4L).forEach { slotsArray.add(it) }
+        listOf(2L, 10L).forEach { slotsArray.add(it) }
         val out = ByteArrayOutputStream()
         CborEncoder(out).encode(slotsArray.end().end().build())
+        return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+    }
+
+    private fun satscardUnsealResponse(encryptedPrivateKey: ByteArray, pubkey: ByteArray): ByteArray {
+        val map = CborBuilder().addMap()
+            .put("slot", 2L)
+            .put("privkey", encryptedPrivateKey)
+            .put("pubkey", pubkey)
+            .put("card_nonce", ByteArray(16) { index -> (index + 4).toByte() })
+        val out = ByteArrayOutputStream()
+        CborEncoder(out).encode(map.end().build())
         return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
     }
 
