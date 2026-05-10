@@ -71,6 +71,7 @@ fun ImportWalletScreen(
     var nfcReaderActive by remember { mutableStateOf(false) }
     var nfcStatus by remember { mutableStateOf<String?>(null) }
     var nfcError by remember { mutableStateOf<String?>(null) }
+    var suppressPassiveTapsignerStatusUntil by remember { mutableStateOf(0L) }
     var tapsignerCvcInput by remember { mutableStateOf("") }
     var pendingTapsignerCvc by remember { mutableStateOf<CharArray?>(null) }
     val nfcProcessing = remember { AtomicBoolean(false) }
@@ -174,6 +175,7 @@ fun ImportWalletScreen(
             hostActivity.runOnUiThread {
                 nfcError = e.message ?: "NFC import failed"
                 nfcStatus = null
+                suppressPassiveTapsignerStatusUntil = System.currentTimeMillis() + 15_000L
                 stopNfcReader()
             }
         } finally {
@@ -184,15 +186,24 @@ fun ImportWalletScreen(
     fun processTapsignerStatusTag(tag: Tag, hostActivity: Activity) {
         if (!nfcProcessing.compareAndSet(false, true)) return
         try {
+            if (System.currentTimeMillis() < suppressPassiveTapsignerStatusUntil) return
             val status = TapsignerNfcReader.readStatus(tag)
             hostActivity.runOnUiThread {
-                nfcStatus = "${status.summary()}. Enter the Tapsigner PIN and tap NFC to import the xpub."
-                nfcError = null
+                if (nfcError == null) {
+                    if (status.derivationPath == null) {
+                        nfcStatus = null
+                        nfcError = "${status.summary()}. This Tapsigner has not been set up yet. Initialize it with a Tapsigner-compatible wallet first, then return to Clench to import its xpub."
+                    } else {
+                        nfcStatus = "${status.summary()}. Enter the Tapsigner PIN and tap NFC to import the xpub."
+                    }
+                }
             }
         } catch (e: Exception) {
             hostActivity.runOnUiThread {
-                nfcError = e.message ?: "Tapsigner NFC read failed"
-                nfcStatus = null
+                if (nfcError == null) {
+                    nfcError = e.message ?: "Tapsigner NFC read failed"
+                    nfcStatus = null
+                }
             }
         } finally {
             nfcProcessing.set(false)
@@ -477,6 +488,7 @@ fun ImportWalletScreen(
                                     }
                                     else -> {
                                         viewModel.clearError()
+                                        suppressPassiveTapsignerStatusUntil = 0L
                                         val cvc = if (needsTapsignerCvc) tapsignerCvcInput.toCharArray() else null
                                         startHardwareNfcReader(selectedDevice!!, cvc)
                                     }

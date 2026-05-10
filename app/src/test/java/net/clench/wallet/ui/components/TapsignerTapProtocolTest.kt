@@ -180,6 +180,21 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
+    fun `xpub parser preserves Coinkite error code`() {
+        val response = coinkiteErrorResponse(code = 406L, error = "invalid state")
+
+        try {
+            TapsignerTapProtocol.parseTapsignerXpubResponse(response)
+        } catch (e: CoinkiteTapCardException) {
+            assertEquals(406L, e.code)
+            assertEquals("invalid state", e.cardError)
+            assertTrue(e.message!!.contains("406"))
+            return
+        }
+        error("Expected Coinkite Tap error to be preserved")
+    }
+
+    @Test
     fun `renders verified native segwit address for secp256k1 generator key`() {
         val privateKey = ByteArray(32).also { it[31] = 1 }
         val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey)
@@ -283,6 +298,15 @@ class TapsignerTapProtocolTest {
         val map = CborBuilder().addMap()
             .put("xpub", xpub)
             .put("card_nonce", cardNonce)
+        val out = ByteArrayOutputStream()
+        CborEncoder(out).encode(map.end().build())
+        return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+    }
+
+    private fun coinkiteErrorResponse(code: Long, error: String): ByteArray {
+        val map = CborBuilder().addMap()
+            .put("code", code)
+            .put("error", error)
         val out = ByteArrayOutputStream()
         CborEncoder(out).encode(map.end().build())
         return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
