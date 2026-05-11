@@ -1,5 +1,9 @@
 package net.clench.wallet.ui.screens
 
+import android.app.Activity
+import android.net.Uri
+import android.nfc.NfcAdapter
+import android.nfc.Tag
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -24,11 +28,47 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import java.util.concurrent.atomic.AtomicBoolean
+import net.clench.wallet.ui.MainActivity
+import net.clench.wallet.ui.components.CoinkiteTapCardStatus
+import net.clench.wallet.ui.components.NfcDispatch
+import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrCodeImage
+import net.clench.wallet.ui.components.TapsignerAccountXpubResult
+import net.clench.wallet.ui.components.TapsignerNfcReader
+import net.clench.wallet.ui.components.WalletFingerprint
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.PhoneSigner
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.WalletInfoViewModel
+
+private enum class TapsignerWalletNfcAction {
+    REFRESH_STATUS,
+    VERIFY_CARD,
+    SAVE_BACKUP
+}
+
+private data class TapsignerWalletLiveStatus(
+    val firmwareVersion: String?,
+    val birthHeight: Long?,
+    val derivationPath: String?,
+    val numberOfBackups: Long?,
+    val authDelaySeconds: Long?,
+    val isTestnet: Boolean?,
+    val isTampered: Boolean?,
+    val verifiedAt: String
+)
+
+private data class TapsignerCardMatchResult(
+    val matches: Boolean,
+    val message: String,
+    val verifiedAt: String
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,6 +81,13 @@ fun WalletInfoScreen(
     viewModel: WalletInfoViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val isTapsignerWallet = !uiState.isMultisig && (
+        uiState.importedViaDevice == HardwareWalletType.TAPSIGNER.name ||
+            uiState.preferredHardwareWallet == HardwareWalletType.TAPSIGNER.name
+        )
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
     var showQrDialog by remember { mutableStateOf(false) }
     var showSeedImportSheet by remember { mutableStateOf(false) }
     var expandedXpub by remember { mutableStateOf(false) }
@@ -49,6 +96,17 @@ fun WalletInfoScreen(
     var keystoreRenameTarget by remember { mutableStateOf<WalletInfoViewModel.MultisigKeystoreInfo?>(null) }
     var keystoreRenameText by remember { mutableStateOf("") }
     var showHardwareWalletMenu by remember { mutableStateOf(false) }
+    var tapsignerPinInput by remember { mutableStateOf("") }
+    var tapsignerNfcReaderActive by remember { mutableStateOf(false) }
+    var tapsignerPendingAction by remember { mutableStateOf<TapsignerWalletNfcAction?>(null) }
+    var tapsignerPendingCvc by remember { mutableStateOf<CharArray?>(null) }
+    var tapsignerPendingBackupUri by remember { mutableStateOf<Uri?>(null) }
+    var tapsignerNfcStatus by remember { mutableStateOf<String?>(null) }
+    var tapsignerNfcError by remember { mutableStateOf<String?>(null) }
+    var tapsignerLiveStatus by remember { mutableStateOf<TapsignerWalletLiveStatus?>(null) }
+    var tapsignerCardMatch by remember { mutableStateOf<TapsignerCardMatchResult?>(null) }
+    var showTapsignerBackupConfirm by remember { mutableStateOf(false) }
+    val tapsignerNfcProcessing = remember { AtomicBoolean(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val labelImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -56,7 +114,201 @@ fun WalletInfoScreen(
         uri?.let { viewModel.importLabels(it) }
     }
 
+    SecureWindowEffect(enabled = isTapsignerWallet && tapsignerPinInput.isNotBlank())
+
+    fun clearTapsignerPendingCvc() {
+        tapsignerPendingCvc?.fill('0')
+        tapsignerPendingCvc = null
+    }
+
+    fun stopTapsignerNfcReader(clearPin: Boolean = false) {
+        val hostActivity = activity
+        val adapter = nfcAdapter
+        if (hostActivity != null && adapter != null) {
+            runCatching { adapter.disableReaderMode(hostActivity) }
+        }
+        tapsignerNfcReaderActive = false
+        tapsignerPendingAction = null
+        tapsignerPendingBackupUri = null
+        clearTapsignerPendingCvc()
+        if (clearPin) tapsignerPinInput = ""
+    }
+
+    fun updateLiveStatus(status: CoinkiteTapCardStatus) {
+        tapsignerLiveStatus = status.toTapsignerWalletLiveStatus()
+    }
+
+    fun processTapsignerWalletTag(
+        tag: Tag,
+        hostActivity: Activity,
+        action: TapsignerWalletNfcAction?,
+        cvc: CharArray?
+    ) {
+        if (!tapsignerNfcProcessing.compareAndSet(false, true)) return
+        try {
+            when (action ?: TapsignerWalletNfcAction.REFRESH_STATUS) {
+                TapsignerWalletNfcAction.REFRESH_STATUS -> {
+                    val status = TapsignerNfcReader.readStatus(tag)
+                    hostActivity.runOnUiThread {
+                        updateLiveStatus(status)
+                        tapsignerNfcStatus = "${status.summary()}. Card status refreshed."
+                        tapsignerNfcError = null
+                        stopTapsignerNfcReader()
+                    }
+                }
+                TapsignerWalletNfcAction.VERIFY_CARD -> {
+                    val readerCvc = cvc ?: error("Enter the TAPSIGNER PIN before verifying this card")
+                    val result = TapsignerNfcReader.readAccountXpub(tag, readerCvc)
+                    val matchResult = buildTapsignerCardMatchResult(result, uiState)
+                    hostActivity.runOnUiThread {
+                        tapsignerCardMatch = matchResult
+                        tapsignerNfcStatus = if (matchResult.matches) {
+                            "TAPSIGNER verified and matches this wallet."
+                        } else {
+                            "TAPSIGNER verified, but it does not match this wallet."
+                        }
+                        tapsignerNfcError = null
+                        stopTapsignerNfcReader(clearPin = true)
+                    }
+                }
+                TapsignerWalletNfcAction.SAVE_BACKUP -> {
+                    val readerCvc = cvc ?: error("Enter the TAPSIGNER PIN before saving a backup")
+                    val backupUri = tapsignerPendingBackupUri ?: error("Choose a backup file first")
+                    val backup = TapsignerNfcReader.createBackup(tag, readerCvc)
+                    try {
+                        try {
+                            context.contentResolver.openOutputStream(backupUri)?.use { output ->
+                                output.write(backup.data)
+                            } ?: error("Could not open backup file")
+                        } catch (writeError: Exception) {
+                            error("TAPSIGNER backup was created, but Clench could not save the file: ${writeError.message}")
+                        }
+                    } finally {
+                        backup.data.fill(0)
+                    }
+                    hostActivity.runOnUiThread {
+                        val checkedAt = nowUtcLabel()
+                        tapsignerLiveStatus = tapsignerLiveStatus?.copy(
+                            numberOfBackups = backup.numberOfBackups,
+                            verifiedAt = checkedAt
+                        ) ?: TapsignerWalletLiveStatus(
+                            firmwareVersion = null,
+                            birthHeight = null,
+                            derivationPath = null,
+                            numberOfBackups = backup.numberOfBackups,
+                            authDelaySeconds = null,
+                            isTestnet = null,
+                            isTampered = null,
+                            verifiedAt = checkedAt
+                        )
+                        tapsignerNfcStatus = "Encrypted TAPSIGNER backup saved. ${backup.summary}"
+                        tapsignerNfcError = null
+                        stopTapsignerNfcReader(clearPin = true)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            hostActivity.runOnUiThread {
+                tapsignerNfcError = e.message ?: "TAPSIGNER NFC action failed"
+                tapsignerNfcStatus = null
+                stopTapsignerNfcReader()
+            }
+        } finally {
+            cvc?.fill('0')
+            tapsignerNfcProcessing.set(false)
+        }
+    }
+
+    fun startTapsignerNfcReader(action: TapsignerWalletNfcAction) {
+        val hostActivity = activity ?: run {
+            tapsignerNfcError = "NFC reader is unavailable in this view"
+            return
+        }
+        val adapter = nfcAdapter ?: run {
+            tapsignerNfcError = "This phone does not report NFC hardware"
+            return
+        }
+        if (!adapter.isEnabled) {
+            tapsignerNfcError = "NFC is off in Android settings"
+            return
+        }
+        if (action != TapsignerWalletNfcAction.REFRESH_STATUS && tapsignerPinInput.length !in 6..32) {
+            tapsignerNfcError = "Enter the TAPSIGNER PIN"
+            return
+        }
+
+        clearTapsignerPendingCvc()
+        tapsignerPendingAction = action
+        tapsignerPendingCvc = if (action == TapsignerWalletNfcAction.REFRESH_STATUS) null else tapsignerPinInput.toCharArray()
+        try {
+            NfcDispatch.enableCoinkiteForegroundDispatch(hostActivity, adapter)
+            adapter.enableReaderMode(
+                hostActivity,
+                { tag -> processTapsignerWalletTag(tag, hostActivity, action, tapsignerPendingCvc) },
+                NfcReaderModeFlags.coinkiteTap,
+                null
+            )
+            tapsignerNfcReaderActive = true
+            tapsignerNfcError = null
+            tapsignerNfcStatus = when (action) {
+                TapsignerWalletNfcAction.REFRESH_STATUS -> "Ready to refresh status. Hold TAPSIGNER against the phone."
+                TapsignerWalletNfcAction.VERIFY_CARD -> "Ready to verify. Hold TAPSIGNER against the phone."
+                TapsignerWalletNfcAction.SAVE_BACKUP -> "Ready to save backup. Hold TAPSIGNER against the phone."
+            }
+        } catch (e: Exception) {
+            clearTapsignerPendingCvc()
+            tapsignerPendingAction = null
+            tapsignerPendingBackupUri = null
+            tapsignerNfcReaderActive = false
+            tapsignerNfcError = e.message ?: "Could not start NFC reader"
+            tapsignerNfcStatus = null
+        }
+    }
+
+    fun tapsignerBackupFilename(): String {
+        val suffix = uiState.masterFingerprint?.lowercase(Locale.US)?.takeIf { it.isNotBlank() } ?: "card"
+        return "tapsigner-backup-$suffix-${LocalDate.now()}.aes"
+    }
+
+    val tapsignerBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        when {
+            uri == null -> tapsignerNfcStatus = "TAPSIGNER backup save cancelled"
+            tapsignerPinInput.length !in 6..32 -> tapsignerNfcError = "Enter the TAPSIGNER PIN"
+            else -> {
+                tapsignerPendingBackupUri = uri
+                tapsignerNfcError = null
+                startTapsignerNfcReader(TapsignerWalletNfcAction.SAVE_BACKUP)
+            }
+        }
+    }
+
     LaunchedEffect(walletId) { viewModel.load(walletId) }
+
+    DisposableEffect(isTapsignerWallet, activity, nfcAdapter) {
+        val hostActivity = activity
+        val adapter = nfcAdapter
+        if (isTapsignerWallet && hostActivity != null && adapter != null && adapter.isEnabled) {
+            runCatching { NfcDispatch.enableCoinkiteForegroundDispatch(hostActivity, adapter) }
+            onDispose {
+                runCatching { adapter.disableReaderMode(hostActivity) }
+                NfcDispatch.disableForegroundDispatch(hostActivity, adapter)
+                clearTapsignerPendingCvc()
+            }
+        } else {
+            onDispose { clearTapsignerPendingCvc() }
+        }
+    }
+
+    val mainActivity = activity as? MainActivity
+    LaunchedEffect(isTapsignerWallet, mainActivity, tapsignerNfcReaderActive, tapsignerPendingAction, tapsignerPendingCvc) {
+        val hostActivity = activity
+        if (!isTapsignerWallet || hostActivity == null || mainActivity == null) return@LaunchedEffect
+        mainActivity.nfcTagFlow.collect { tag ->
+            processTapsignerWalletTag(tag, hostActivity, tapsignerPendingAction, tapsignerPendingCvc)
+        }
+    }
 
     LaunchedEffect(uiState.labelImportExportResult) {
         uiState.labelImportExportResult?.let { message ->
@@ -65,7 +317,7 @@ fun WalletInfoScreen(
         }
     }
 
-    if (showSeedImportSheet && uiState.isWatchOnly && !uiState.isMultisig) {
+    if (showSeedImportSheet && uiState.isWatchOnly && !uiState.isMultisig && !isTapsignerWallet) {
         AddSeedPhraseToWalletSheet(
             isLoading = uiState.isConvertingToHot,
             onDismiss = { showSeedImportSheet = false },
@@ -111,6 +363,31 @@ fun WalletInfoScreen(
             },
             dismissButton = {
                 TextButton(onClick = { keystoreRenameTarget = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showTapsignerBackupConfirm) {
+        AlertDialog(
+            onDismissRequest = { showTapsignerBackupConfirm = false },
+            title = { Text("Save TAPSIGNER Backup?") },
+            text = {
+                Text(
+                    "Clench will save the encrypted backup file returned by the card. The file is encrypted by the AES backup key printed on your TAPSIGNER. Store the file and printed key separately."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showTapsignerBackupConfirm = false
+                        tapsignerBackupLauncher.launch(tapsignerBackupFilename())
+                    }
+                ) { Text("Choose File") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTapsignerBackupConfirm = false }) {
+                    Text("Cancel")
+                }
             }
         )
     }
@@ -215,6 +492,7 @@ fun WalletInfoScreen(
                             val walletType = when {
                                 uiState.isMultisig && uiState.isWatchOnly -> "Multisig Watch-Only"
                                 uiState.isMultisig -> "Multisig"
+                                isTapsignerWallet -> "TAPSIGNER Watch-Only"
                                 uiState.isWatchOnly -> "Watch-Only"
                                 else -> "Full Wallet"
                             }
@@ -290,136 +568,158 @@ fun WalletInfoScreen(
                     )
                 }
 
-                // ─── Hardware Wallet Info ───
-                // Only show if wallet was imported via a hardware wallet
-                if (uiState.importedViaDevice != null && !uiState.isMultisig) {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Hardware Wallet",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
+                if (isTapsignerWallet) {
+                    TapsignerSignerCard(
+                        liveStatus = tapsignerLiveStatus,
+                        cardMatch = tapsignerCardMatch,
+                        nfcStatus = tapsignerNfcStatus,
+                        nfcError = tapsignerNfcError,
+                        nfcReaderActive = tapsignerNfcReaderActive,
+                        pinInput = tapsignerPinInput,
+                        onPinChange = { tapsignerPinInput = it },
+                        onRefreshStatus = { startTapsignerNfcReader(TapsignerWalletNfcAction.REFRESH_STATUS) },
+                        onVerifyCard = { startTapsignerNfcReader(TapsignerWalletNfcAction.VERIFY_CARD) },
+                        onRequestBackup = {
+                            if (tapsignerPinInput.length !in 6..32) {
+                                tapsignerNfcError = "Enter the TAPSIGNER PIN"
+                            } else {
+                                showTapsignerBackupConfirm = true
+                            }
+                        }
+                    )
 
-                            // Device name with connection method badge
-                            val hwType = try {
-                                HardwareWalletType.valueOf(uiState.importedViaDevice!!)
-                            } catch (_: Exception) { null }
+                    TapsignerPublicWalletCard(
+                        uiState = uiState,
+                        expandedXpub = expandedXpub,
+                        copied = uiState.copied,
+                        onToggleXpub = { expandedXpub = !expandedXpub },
+                        onCopyXpub = { viewModel.copyToClipboard(uiState.accountXpub, "Account Public Key") },
+                        onShowQr = { showQrDialog = true }
+                    )
+                } else {
+                    // ─── Hardware Wallet Info ───
+                    // Only show if wallet was imported via a hardware wallet
+                    if (uiState.importedViaDevice != null && !uiState.isMultisig) {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("Hardware Wallet",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Device: ", style = MaterialTheme.typography.labelMedium)
-                                Text(
-                                    hwType?.displayName ?: uiState.importedViaDevice!!,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                if (hwType != null) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Surface(
-                                        shape = MaterialTheme.shapes.small,
-                                        color = MaterialTheme.colorScheme.secondaryContainer
-                                    ) {
-                                        Text(
-                                            hwType.connectionMethod,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
+                                // Device name with connection method badge
+                                val hwType = try {
+                                    HardwareWalletType.valueOf(uiState.importedViaDevice!!)
+                                } catch (_: Exception) { null }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Device: ", style = MaterialTheme.typography.labelMedium)
+                                    Text(
+                                        hwType?.displayName ?: uiState.importedViaDevice!!,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    if (hwType != null) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Surface(
+                                            shape = MaterialTheme.shapes.small,
+                                            color = MaterialTheme.colorScheme.secondaryContainer
+                                        ) {
+                                            Text(
+                                                hwType.connectionMethod,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                            )
+                                        }
                                     }
                                 }
-                            }
 
-                            // Master fingerprint
-                            uiState.masterFingerprint?.let { fp ->
+                                // Master fingerprint
+                                uiState.masterFingerprint?.let { fp ->
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row {
+                                        Text("Master Fingerprint: ", style = MaterialTheme.typography.labelMedium)
+                                        Text(fp,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontFamily = FontFamily.Monospace
+                                            ))
+                                    }
+                                }
+
+                                // Derivation path (from stored origin, not derived)
+                                uiState.storedDerivationPath?.let { path ->
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row {
+                                        Text("Origin Path: ", style = MaterialTheme.typography.labelMedium)
+                                        Text("m/$path",
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontFamily = FontFamily.Monospace
+                                            ))
+                                    }
+                                }
+
+                                // Script type (derived from descriptor prefix)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Row {
-                                    Text("Master Fingerprint: ", style = MaterialTheme.typography.labelMedium)
-                                    Text(fp,
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontFamily = FontFamily.Monospace
-                                        ))
+                                    Text("Script Type: ", style = MaterialTheme.typography.labelMedium)
+                                    Text(walletScriptType(uiState.descriptor), style = MaterialTheme.typography.bodyMedium)
                                 }
-                            }
-
-                            // Derivation path (from stored origin, not derived)
-                            uiState.storedDerivationPath?.let { path ->
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row {
-                                    Text("Origin Path: ", style = MaterialTheme.typography.labelMedium)
-                                    Text("m/$path",
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontFamily = FontFamily.Monospace
-                                        ))
-                                }
-                            }
-
-                            // Script type (derived from descriptor prefix)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row {
-                                Text("Script Type: ", style = MaterialTheme.typography.labelMedium)
-                                val scriptType = when {
-                                    uiState.descriptor.startsWith("wpkh(") -> "Native SegWit (P2WPKH)"
-                                    uiState.descriptor.startsWith("tr(") -> "Taproot (P2TR)"
-                                    uiState.descriptor.startsWith("sh(wpkh(") -> "Nested SegWit (P2SH-P2WPKH)"
-                                    uiState.descriptor.startsWith("pkh(") -> "Legacy (P2PKH)"
-                                    uiState.descriptor.startsWith("wsh(") -> "SegWit Multisig (P2WSH)"
-                                    else -> "Unknown"
-                                }
-                                Text(scriptType, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
-                }
 
-                // ─── Per-wallet External Signer Preference ───
-                if (uiState.isWatchOnly && !uiState.isMultisig) Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            "External Signer for Spending",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            "Choose the hardware signer Clench should use when this watch-only wallet creates PSBTs. Hot wallets sign on this device and do not use this setting.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        val preferredType = uiState.preferredHardwareWallet?.let { device ->
-                            runCatching { HardwareWalletType.valueOf(device) }.getOrNull()
-                        }
-                        ExposedDropdownMenuBox(
-                            expanded = showHardwareWalletMenu,
-                            onExpandedChange = { showHardwareWalletMenu = !showHardwareWalletMenu }
-                        ) {
-                            OutlinedTextField(
-                                value = preferredType?.displayName ?: "None",
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Preferred device") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showHardwareWalletMenu) },
-                                modifier = Modifier.menuAnchor().fillMaxWidth()
+                    // ─── Per-wallet External Signer Preference ───
+                    if (uiState.isWatchOnly && !uiState.isMultisig) Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "External Signer for Spending",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
                             )
-                            ExposedDropdownMenu(
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Choose the hardware signer Clench should use when this watch-only wallet creates PSBTs. Hot wallets sign on this device and do not use this setting.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            val preferredType = uiState.preferredHardwareWallet?.let { device ->
+                                runCatching { HardwareWalletType.valueOf(device) }.getOrNull()
+                            }
+                            ExposedDropdownMenuBox(
                                 expanded = showHardwareWalletMenu,
-                                onDismissRequest = { showHardwareWalletMenu = false }
+                                onExpandedChange = { showHardwareWalletMenu = !showHardwareWalletMenu }
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("None") },
-                                    onClick = {
-                                        viewModel.setPreferredHardwareWallet(null)
-                                        showHardwareWalletMenu = false
-                                    }
+                                OutlinedTextField(
+                                    value = preferredType?.displayName ?: "None",
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Preferred device") },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showHardwareWalletMenu) },
+                                    modifier = Modifier.menuAnchor().fillMaxWidth()
                                 )
-                                HardwareWalletType.entries.forEach { device ->
+                                ExposedDropdownMenu(
+                                    expanded = showHardwareWalletMenu,
+                                    onDismissRequest = { showHardwareWalletMenu = false }
+                                ) {
                                     DropdownMenuItem(
-                                        text = { Text("${device.displayName} — ${device.connectionMethod}") },
+                                        text = { Text("None") },
                                         onClick = {
-                                            viewModel.setPreferredHardwareWallet(device.name)
+                                            viewModel.setPreferredHardwareWallet(null)
                                             showHardwareWalletMenu = false
                                         }
                                     )
+                                    HardwareWalletType.entries.forEach { device ->
+                                        DropdownMenuItem(
+                                            text = { Text("${device.displayName} - ${device.connectionMethod}") },
+                                            onClick = {
+                                                viewModel.setPreferredHardwareWallet(device.name)
+                                                showHardwareWalletMenu = false
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -455,7 +755,7 @@ fun WalletInfoScreen(
                 }
 
                 // ─── Extended Public Key ───
-                if (uiState.accountXpub.isNotEmpty()) {
+                if (uiState.accountXpub.isNotEmpty() && !isTapsignerWallet) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("Extended Public Key (${uiState.xpubLabel})",
@@ -485,7 +785,7 @@ fun WalletInfoScreen(
                 }
 
                 // ─── Fingerprint ───
-                if (!uiState.isMultisig) uiState.fingerprintBytes?.let { fpBytes ->
+                if (!uiState.isMultisig && !isTapsignerWallet) uiState.fingerprintBytes?.let { fpBytes ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier.padding(16.dp),
@@ -521,7 +821,7 @@ fun WalletInfoScreen(
                         }
                     }
                 }
-                if (uiState.isWatchOnly && !uiState.isMultisig) {
+                if (uiState.isWatchOnly && !uiState.isMultisig && !isTapsignerWallet) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
@@ -567,23 +867,37 @@ fun WalletInfoScreen(
 
                 // ─── Backup & Export ───
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = onBackup,
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Backup & Export") }
+                    if (!isTapsignerWallet) {
+                        Button(
+                            onClick = onBackup,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Backup & Export") }
+                    }
                     val showDescriptorExport = uiState.isMultisig || uiState.isWatchOnly
                     if (showDescriptorExport) {
                         OutlinedButton(
                             onClick = { viewModel.exportWalletDescriptorBackup() },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(if (uiState.isMultisig) "Export Multisig Descriptor Backup" else "Export Watch-Only Descriptor")
+                            Text(
+                                when {
+                                    uiState.isMultisig -> "Export Multisig Descriptor Backup"
+                                    isTapsignerWallet -> "Export TAPSIGNER Watch-Only Descriptor"
+                                    else -> "Export Watch-Only Descriptor"
+                                }
+                            )
                         }
                         Text(
-                            if (uiState.isMultisig) {
-                                "Descriptor backups restore multisig policy and watch-only structure. They do not include seed phrases, passphrases, or private keys."
-                            } else {
-                                "Descriptor exports restore watch-only structure. They do not include seed phrases, passphrases, or private keys."
+                            when {
+                                uiState.isMultisig -> {
+                                    "Descriptor backups restore multisig policy and watch-only structure. They do not include seed phrases, passphrases, or private keys."
+                                }
+                                isTapsignerWallet -> {
+                                    "Descriptor exports restore the public watch-only wallet in Clench. They do not replace the encrypted TAPSIGNER card backup."
+                                }
+                                else -> {
+                                    "Descriptor exports restore watch-only structure. They do not include seed phrases, passphrases, or private keys."
+                                }
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -608,6 +922,190 @@ fun WalletInfoScreen(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TapsignerSignerCard(
+    liveStatus: TapsignerWalletLiveStatus?,
+    cardMatch: TapsignerCardMatchResult?,
+    nfcStatus: String?,
+    nfcError: String?,
+    nfcReaderActive: Boolean,
+    pinInput: String,
+    onPinChange: (String) -> Unit,
+    onRefreshStatus: () -> Unit,
+    onVerifyCard: () -> Unit,
+    onRequestBackup: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "TAPSIGNER",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "This wallet is watch-only in Clench. Spending, card verification, and encrypted card backups require the physical TAPSIGNER and its PIN.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            InfoLine("Signer", "TAPSIGNER NFC")
+            InfoLine("Wallet mode", "Watch-only until signing")
+
+            liveStatus?.let { status ->
+                Divider()
+                Text("Card Status", style = MaterialTheme.typography.labelMedium)
+                status.firmwareVersion?.let { InfoLine("Firmware", it, mono = true) }
+                status.derivationPath?.let { InfoLine("Card path", it, mono = true) }
+                status.birthHeight?.let { InfoLine("Birth height", it.toString()) }
+                status.numberOfBackups?.let { count ->
+                    InfoLine("Encrypted backups", count.toString())
+                    if (count == 0L) {
+                        Text(
+                            "No encrypted card backups are recorded. Save one before receiving funds.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+                status.authDelaySeconds?.takeIf { it > 0 }?.let { InfoLine("Auth delay", "${it}s") }
+                status.isTestnet?.let { InfoLine("Card network", if (it) "Testnet" else "Mainnet") }
+                status.isTampered?.takeIf { it }?.let {
+                    Text(
+                        "Tamper warning reported by card.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                InfoLine("Last checked", status.verifiedAt)
+            } ?: Text(
+                "Tap TAPSIGNER to refresh firmware, path, backup count, auth delay, and tamper status.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            cardMatch?.let { match ->
+                val colors = if (match.matches) {
+                    CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                } else {
+                    CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                }
+                Card(colors = colors, modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            if (match.matches) "Physical card matches wallet" else "Physical card does not match wallet",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(match.message, style = MaterialTheme.typography.bodySmall)
+                        Text("Verified ${match.verifiedAt}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = pinInput,
+                onValueChange = onPinChange,
+                label = { Text("TAPSIGNER PIN") },
+                supportingText = {
+                    Text("Use the current PIN. If unchanged, this is the Starting PIN Code printed on the card. Do not enter the AES backup key.")
+                },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedButton(
+                onClick = onRefreshStatus,
+                enabled = !nfcReaderActive,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Tap to Refresh Card Status") }
+            Button(
+                onClick = onVerifyCard,
+                enabled = !nfcReaderActive,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Verify Card Matches Wallet") }
+            OutlinedButton(
+                onClick = onRequestBackup,
+                enabled = !nfcReaderActive,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Save Encrypted TAPSIGNER Backup") }
+
+            nfcStatus?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+            nfcError?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TapsignerPublicWalletCard(
+    uiState: WalletInfoViewModel.UiState,
+    expandedXpub: Boolean,
+    copied: Boolean,
+    onToggleXpub: () -> Unit,
+    onCopyXpub: () -> Unit,
+    onShowQr: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "Public Wallet Identity",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "Clench stores this public descriptor so the wallet can open, sync, and receive without tapping the card. The private key stays on TAPSIGNER.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            uiState.masterFingerprint?.let { InfoLine("Master fingerprint", it, mono = true) }
+            uiState.storedDerivationPath?.let { InfoLine("Derivation", "m/$it", mono = true) }
+            InfoLine("Script type", walletScriptType(uiState.descriptor))
+            InfoLine("Network", if (uiState.network == "testnet") "Testnet" else "Mainnet")
+
+            uiState.fingerprintBytes?.let { fpBytes ->
+                WalletFingerprint(
+                    fingerprintBytes = fpBytes,
+                    masterFingerprint = uiState.masterFingerprintBytes,
+                    label = "Master fingerprint visual check - local wallet identifier"
+                )
+            }
+
+            if (uiState.accountXpub.isNotEmpty()) {
+                Divider()
+                Text(
+                    "Account Public Key (${uiState.xpubLabel})",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Text(
+                    if (expandedXpub) uiState.accountXpub
+                    else uiState.accountXpub.take(8) + "..." + uiState.accountXpub.takeLast(6),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    maxLines = if (expandedXpub) Int.MAX_VALUE else 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onToggleXpub) {
+                        Text(if (expandedXpub) "Collapse" else "Expand")
+                    }
+                    TextButton(onClick = onCopyXpub) {
+                        Text(if (copied) "Copied" else "Copy")
+                    }
+                    TextButton(onClick = onShowQr) {
+                        Text("Show QR")
+                    }
+                }
             }
         }
     }
@@ -826,6 +1324,81 @@ private fun InfoLine(label: String, value: String, mono: Boolean = false) {
 private fun shortenMiddle(value: String, prefix: Int, suffix: Int): String {
     if (value.length <= prefix + suffix + 3) return value
     return value.take(prefix) + "..." + value.takeLast(suffix)
+}
+
+private fun walletScriptType(descriptor: String): String = when {
+    descriptor.startsWith("wpkh(") -> "Native SegWit (P2WPKH)"
+    descriptor.startsWith("tr(") -> "Taproot (P2TR)"
+    descriptor.startsWith("sh(wpkh(") -> "Nested SegWit (P2SH-P2WPKH)"
+    descriptor.startsWith("pkh(") -> "Legacy (P2PKH)"
+    descriptor.startsWith("wsh(") -> "SegWit Multisig (P2WSH)"
+    else -> "Unknown"
+}
+
+private fun CoinkiteTapCardStatus.toTapsignerWalletLiveStatus(): TapsignerWalletLiveStatus {
+    return TapsignerWalletLiveStatus(
+        firmwareVersion = version,
+        birthHeight = birthHeight,
+        derivationPath = displayPath,
+        numberOfBackups = numberOfBackups,
+        authDelaySeconds = authDelaySeconds,
+        isTestnet = isTestnet,
+        isTampered = isTampered,
+        verifiedAt = nowUtcLabel()
+    )
+}
+
+private fun buildTapsignerCardMatchResult(
+    result: TapsignerAccountXpubResult,
+    uiState: WalletInfoViewModel.UiState
+): TapsignerCardMatchResult {
+    val problems = mutableListOf<String>()
+    val expectedFingerprint = uiState.masterFingerprint?.uppercase(Locale.US)
+    val actualFingerprint = result.masterFingerprint.uppercase(Locale.US)
+    if (expectedFingerprint != null && expectedFingerprint != actualFingerprint) {
+        problems += "fingerprint expected $expectedFingerprint but card returned $actualFingerprint"
+    }
+
+    val expectedPath = normalizeDerivationPath(uiState.storedDerivationPath ?: uiState.derivationPath)
+    val actualPath = normalizeDerivationPath(result.derivationPath)
+    if (expectedPath.isNotBlank() && expectedPath != actualPath) {
+        problems += "path expected m/$expectedPath but card returned m/$actualPath"
+    }
+
+    val descriptorContainsXpub = uiState.descriptor.contains(result.xpub) ||
+        uiState.changeDescriptor.contains(result.xpub)
+    if (!descriptorContainsXpub) {
+        problems += "card account xpub is not in this wallet descriptor"
+    }
+
+    val now = nowUtcLabel()
+    return if (problems.isEmpty()) {
+        TapsignerCardMatchResult(
+            matches = true,
+            message = "Fingerprint, derivation path, and account xpub match the stored Clench descriptor.",
+            verifiedAt = now
+        )
+    } else {
+        TapsignerCardMatchResult(
+            matches = false,
+            message = problems.joinToString(separator = "; "),
+            verifiedAt = now
+        )
+    }
+}
+
+private fun normalizeDerivationPath(value: String?): String {
+    return value.orEmpty()
+        .trim()
+        .removePrefix("m/")
+        .replace("h", "'")
+        .replace("H", "'")
+}
+
+private fun nowUtcLabel(): String {
+    val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US)
+    formatter.timeZone = TimeZone.getTimeZone("UTC")
+    return formatter.format(Date())
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
