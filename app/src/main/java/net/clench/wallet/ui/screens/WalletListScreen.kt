@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +29,7 @@ fun WalletListScreen(
     onAddWallet: () -> Unit,
     onBack: () -> Unit,
     onSettings: () -> Unit = {},
+    onSigners: () -> Unit = {},
     onNavigateWelcome: () -> Unit = {},
     onNavigateHome: (walletId: String) -> Unit = {},
     viewModel: WalletListViewModel = hiltViewModel()
@@ -82,6 +84,9 @@ fun WalletListScreen(
             TopAppBar(
                 title = { Text("Wallets") },
                 actions = {
+                    IconButton(onClick = onSigners) {
+                        Icon(Icons.Default.VpnKey, contentDescription = "Signers")
+                    }
                     IconButton(onClick = onSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }

@@ -440,6 +440,7 @@ fun ClenchNavHost(navController: NavHostController) {
                 },
                 onBack = { navController.popBackStack() },
                 onSettings = { navController.navigate(Routes.Settings.route) },
+                onSigners = { navController.navigate(Routes.SignerVault.route) },
                 onNavigateWelcome = {
                     // Pop entire back stack so swiping back doesn't return to deleted wallet
                     navController.navigate(Routes.Welcome.route) {

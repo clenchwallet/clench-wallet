@@ -6,9 +6,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -88,15 +89,6 @@ fun HomeScreen(
                     OutlinedButton(
                         onClick = {
                             showAdvancedTools = false
-                            onSignerVault()
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Signer Vault")
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            showAdvancedTools = false
                             onRawTransaction()
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -128,7 +120,10 @@ fun HomeScreen(
                 },
                 actions = {
                     IconButton(onClick = onWalletList) {
-                        Icon(Icons.Default.Menu, contentDescription = "Wallets")
+                        Icon(Icons.Default.AccountBalanceWallet, contentDescription = "Wallets")
+                    }
+                    IconButton(onClick = onSignerVault) {
+                        Icon(Icons.Default.VpnKey, contentDescription = "Signers")
                     }
                     IconButton(onClick = onSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
