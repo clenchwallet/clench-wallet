@@ -126,6 +126,9 @@ fun WalletInfoScreen(
         val adapter = nfcAdapter
         if (hostActivity != null && adapter != null) {
             runCatching { adapter.disableReaderMode(hostActivity) }
+            if (isTapsignerWallet && adapter.isEnabled) {
+                runCatching { NfcDispatch.enableCoinkiteForegroundDispatch(hostActivity, adapter) }
+            }
         }
         tapsignerNfcReaderActive = false
         tapsignerPendingAction = null
@@ -209,7 +212,12 @@ fun WalletInfoScreen(
             }
         } catch (e: Exception) {
             hostActivity.runOnUiThread {
-                tapsignerNfcError = e.message ?: "TAPSIGNER NFC action failed"
+                val message = e.message ?: "TAPSIGNER NFC action failed"
+                tapsignerNfcError = if (message.contains("transceive failed", ignoreCase = true)) {
+                    "TAPSIGNER NFC connection dropped. Hold the card still against the phone until the action finishes."
+                } else {
+                    message
+                }
                 tapsignerNfcStatus = null
                 stopTapsignerNfcReader()
             }
@@ -240,15 +248,15 @@ fun WalletInfoScreen(
         clearTapsignerPendingCvc()
         tapsignerPendingAction = action
         tapsignerPendingCvc = if (action == TapsignerWalletNfcAction.REFRESH_STATUS) null else tapsignerPinInput.toCharArray()
+        tapsignerNfcReaderActive = true
         try {
-            NfcDispatch.enableCoinkiteForegroundDispatch(hostActivity, adapter)
+            NfcDispatch.disableForegroundDispatch(hostActivity, adapter)
             adapter.enableReaderMode(
                 hostActivity,
                 { tag -> processTapsignerWalletTag(tag, hostActivity, action, tapsignerPendingCvc) },
                 NfcReaderModeFlags.coinkiteTap,
                 null
             )
-            tapsignerNfcReaderActive = true
             tapsignerNfcError = null
             tapsignerNfcStatus = when (action) {
                 TapsignerWalletNfcAction.REFRESH_STATUS -> "Ready to refresh status. Hold TAPSIGNER against the phone."
@@ -306,7 +314,9 @@ fun WalletInfoScreen(
         val hostActivity = activity
         if (!isTapsignerWallet || hostActivity == null || mainActivity == null) return@LaunchedEffect
         mainActivity.nfcTagFlow.collect { tag ->
-            processTapsignerWalletTag(tag, hostActivity, tapsignerPendingAction, tapsignerPendingCvc)
+            if (!tapsignerNfcReaderActive) {
+                processTapsignerWalletTag(tag, hostActivity, null, null)
+            }
         }
     }
 
