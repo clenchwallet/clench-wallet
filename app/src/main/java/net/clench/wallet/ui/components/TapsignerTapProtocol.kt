@@ -154,11 +154,22 @@ data class TapsignerNewResult(
     val cardNonce: ByteArray
 )
 
+data class TapsignerBackupResponse(
+    val data: ByteArray,
+    val cardNonce: ByteArray
+)
+
 data class TapsignerAccountXpubResult(
     val xpub: String,
     val originWrappedXpub: String,
     val masterFingerprint: String,
     val derivationPath: String,
+    val summary: String
+)
+
+data class TapsignerBackupResult(
+    val data: ByteArray,
+    val numberOfBackups: Long?,
     val summary: String
 )
 
@@ -312,6 +323,25 @@ object TapsignerTapProtocol {
         )
     }
 
+    fun authenticatedBackupCommand(
+        cardPubkey: ByteArray,
+        cardNonce: ByteArray,
+        cvc: CharArray
+    ): ByteArray {
+        val auth = authenticatedCommand("backup", cardPubkey, cardNonce, cvc)
+        return apdu(
+            cla = 0x00,
+            ins = 0xCB,
+            p1 = 0x00,
+            p2 = 0x00,
+            data = cborMap(
+                "cmd" to "backup",
+                "epubkey" to auth.ephemeralPublicKey,
+                "xcvc" to auth.encryptedCvc
+            )
+        )
+    }
+
     fun parseStatusResponse(response: ByteArray): CoinkiteTapCardStatus {
         val body = responseBodyOrThrow(response)
         if (body.isEmpty()) error("Coinkite Tap card returned success without a CBOR status body")
@@ -384,6 +414,15 @@ object TapsignerTapProtocol {
         val cardNonce = dataItem.bytes("card_nonce") ?: error("Tapsigner initialize response did not include card nonce")
         if (cardNonce.size != 16) error("Tapsigner initialize response had an invalid card nonce length")
         return TapsignerNewResult(slot, cardNonce)
+    }
+
+    fun parseTapsignerBackupResponse(response: ByteArray): TapsignerBackupResponse {
+        val dataItem = responseMapOrThrow(response)
+        val data = dataItem.bytes("data") ?: error("Tapsigner backup response did not include backup data")
+        val cardNonce = dataItem.bytes("card_nonce") ?: error("Tapsigner backup response did not include card nonce")
+        if (data.isEmpty()) error("Tapsigner backup response returned empty backup data")
+        if (cardNonce.size != 16) error("Tapsigner backup response had an invalid card nonce length")
+        return TapsignerBackupResponse(data, cardNonce)
     }
 
     fun parseSatscardUnsealResponse(
@@ -792,6 +831,63 @@ object TapsignerNfcReader {
                 cvc = cvc,
                 reportedPath = status.displayPath,
                 summaryPrefix = "Tapsigner initialized and xpub imported"
+            )
+        } finally {
+            isoDep.close()
+            cvc.fill('0')
+        }
+    }
+
+    fun createBackup(tag: Tag, cvc: CharArray): TapsignerBackupResult {
+        val isoDep = IsoDep.get(tag) ?: error("Tapsigner requires ISO-DEP NFC, not NDEF")
+        isoDep.connect()
+        try {
+            isoDep.timeout = 10000
+            var status = selectOrReadStatus(isoDep)
+            if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
+            if (status.isTampered == true) error("Tapsigner tamper warning is set")
+            if (status.derivationPath == null) {
+                error("Initialize this Tapsigner before creating a backup.")
+            }
+            if ((status.authDelaySeconds ?: 0L) > 0L) {
+                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "Tapsigner")
+                status = TapsignerTapProtocol.parseStatusResponse(
+                    isoDep.transceive(TapsignerTapProtocol.statusCommand())
+                )
+                if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
+                if (status.isTampered == true) error("Tapsigner tamper warning is set")
+                if (status.derivationPath == null) {
+                    error("Initialize this Tapsigner before creating a backup.")
+                }
+            }
+            val cardPubkey = verifiedCardPubkey(status)
+            val verifiedCardNonce = verifyTapsignerCard(isoDep, status, cardPubkey)
+            val backup = try {
+                TapsignerTapProtocol.parseTapsignerBackupResponse(
+                    isoDep.transceive(
+                        TapsignerTapProtocol.authenticatedBackupCommand(
+                            cardPubkey = cardPubkey,
+                            cardNonce = verifiedCardNonce,
+                            cvc = cvc
+                        )
+                    )
+                )
+            } catch (e: CoinkiteTapCardException) {
+                if (e.code == 406L) {
+                    error("This Tapsigner is not initialized yet, so it cannot create a backup.")
+                }
+                throw e
+            }
+            status = TapsignerTapProtocol.parseStatusResponse(
+                isoDep.transceive(TapsignerTapProtocol.statusCommand())
+            )
+            val count = status.numberOfBackups
+            val countText = count?.let { "$it backup${if (it == 1L) "" else "s"} recorded" }
+                ?: "backup count unavailable"
+            return TapsignerBackupResult(
+                data = backup.data,
+                numberOfBackups = count,
+                summary = "Tapsigner encrypted backup created; $countText"
             )
         } finally {
             isoDep.close()

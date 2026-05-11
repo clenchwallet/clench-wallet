@@ -83,6 +83,20 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
+    fun `authenticated backup command encodes Tapsigner backup request`() {
+        val cardPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 1 })
+        val command = TapsignerTapProtocol.authenticatedBackupCommand(
+            cardPubkey = cardPubkey,
+            cardNonce = ByteArray(16) { (it + 1).toByte() },
+            cvc = "123456".toCharArray()
+        )
+
+        assertEquals("00cb0000", command.take(4).toByteArray().toHex())
+        assertEquals(command.size - 5, command[4].toInt() and 0xFF)
+        assertTrue(command.toHex().contains("63636d64666261636b7570"))
+    }
+
+    @Test
     fun `status parser extracts Tapsigner metadata`() {
         val response = tapsignerStatusResponse()
 
@@ -203,6 +217,18 @@ class TapsignerTapProtocolTest {
         val result = TapsignerTapProtocol.parseTapsignerNewResponse(response)
 
         assertEquals(0L, result.slot)
+        assertTrue(result.cardNonce.contentEquals(nonce))
+    }
+
+    @Test
+    fun `backup parser extracts encrypted data and nonce`() {
+        val data = "encrypted backup".toByteArray()
+        val nonce = ByteArray(16) { index -> (index + 8).toByte() }
+        val response = tapsignerBackupResponse(data, nonce)
+
+        val result = TapsignerTapProtocol.parseTapsignerBackupResponse(response)
+
+        assertTrue(result.data.contentEquals(data))
         assertTrue(result.cardNonce.contentEquals(nonce))
     }
 
@@ -333,6 +359,15 @@ class TapsignerTapProtocolTest {
     private fun tapsignerNewResponse(slot: Long, cardNonce: ByteArray): ByteArray {
         val map = CborBuilder().addMap()
             .put("slot", slot)
+            .put("card_nonce", cardNonce)
+        val out = ByteArrayOutputStream()
+        CborEncoder(out).encode(map.end().build())
+        return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+    }
+
+    private fun tapsignerBackupResponse(data: ByteArray, cardNonce: ByteArray): ByteArray {
+        val map = CborBuilder().addMap()
+            .put("data", data)
             .put("card_nonce", cardNonce)
         val out = ByteArrayOutputStream()
         CborEncoder(out).encode(map.end().build())
