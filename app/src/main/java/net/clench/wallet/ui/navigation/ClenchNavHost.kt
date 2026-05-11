@@ -238,6 +238,7 @@ fun ClenchNavHost(navController: NavHostController) {
                 onAddresses = { navController.navigate(Routes.WalletInfo.build(walletId)) },
                 onUtxoList = { navController.navigate(Routes.UtxoList.build(walletId)) },
                 onSweep = { navController.navigate(Routes.Sweep.build(walletId)) },
+                onFundSatscard = { navController.navigate(Routes.FundSatscard.build(walletId)) },
                 onRawTransaction = { navController.navigate(Routes.RawTransaction.build(walletId)) },
                 onRecoveryWizard = { navController.navigate(Routes.RecoveryWizard.route) },
                 onTransactionDetail = { txid ->
@@ -251,18 +252,24 @@ fun ClenchNavHost(navController: NavHostController) {
             arguments = listOf(
                 navArgument("walletId") { type = NavType.StringType },
                 navArgument("utxo") { type = NavType.StringType; nullable = true; defaultValue = null },
-                navArgument("cpfp") { type = NavType.BoolType; defaultValue = false }
+                navArgument("cpfp") { type = NavType.BoolType; defaultValue = false },
+                navArgument("address") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("label") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStackEntry ->
             val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
             val utxoFromRoute = backStackEntry.arguments?.getString("utxo")
             val cpfpMode = backStackEntry.arguments?.getBoolean("cpfp") ?: false
+            val prefillAddress = backStackEntry.arguments?.getString("address")
+            val prefillLabel = backStackEntry.arguments?.getString("label")
             val selectedUtxos = backStackEntry.savedStateHandle.get<String>("selectedUtxos")
             SendScreen(
                 walletId = walletId,
                 utxoOutpoint = utxoFromRoute,
                 selectedUtxos = selectedUtxos,
                 cpfpMode = cpfpMode,
+                prefillAddress = prefillAddress,
+                prefillLabel = prefillLabel,
                 onBack = { navController.popBackStack() },
                 onNavigateHardwarePsbt = { wId, _, deviceType ->
                     // PSBT already stored in PsbtStore by SendViewModel.storePsbtForNavigation()
@@ -653,6 +660,26 @@ fun ClenchNavHost(navController: NavHostController) {
             SweepScreen(
                 walletId = walletId,
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.FundSatscard.route,
+            arguments = listOf(navArgument("walletId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
+            FundSatscardScreen(
+                walletId = walletId,
+                onBack = { navController.popBackStack() },
+                onFundAddress = { address, label ->
+                    navController.navigate(
+                        Routes.Send.build(
+                            walletId = walletId,
+                            address = address,
+                            label = label
+                        )
+                    )
+                }
             )
         }
     }

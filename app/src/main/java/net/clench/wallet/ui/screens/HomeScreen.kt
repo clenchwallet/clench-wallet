@@ -38,6 +38,7 @@ fun HomeScreen(
     onAddresses: () -> Unit = {},
     onUtxoList: () -> Unit = {},
     onSweep: () -> Unit = {},
+    onFundSatscard: () -> Unit = {},
     onRawTransaction: () -> Unit = {},
     onRecoveryWizard: () -> Unit = {},
     onTransactionDetail: (txid: String) -> Unit = {},
@@ -73,6 +74,15 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Sweep External Seed")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            showAdvancedTools = false
+                            onFundSatscard()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Fund SATSCARD")
                     }
                     OutlinedButton(
                         onClick = {

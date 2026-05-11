@@ -44,6 +44,8 @@ fun SendScreen(
     utxoOutpoint: String? = null,  // format: "txid:vout"
     selectedUtxos: String? = null,
     cpfpMode: Boolean = false,
+    prefillAddress: String? = null,
+    prefillLabel: String? = null,
     onNavigateHardwarePsbt: ((walletId: String, psbtBase64: String, deviceType: HardwareWalletType) -> Unit)? = null,
     onNavigatePhonePsbt: ((walletId: String, psbtBase64: String) -> Unit)? = null,
     viewModel: SendViewModel = hiltViewModel()
@@ -109,7 +111,7 @@ fun SendScreen(
         }
     }
 
-    LaunchedEffect(walletId) {
+    LaunchedEffect(walletId, utxoOutpoint, selectedUtxos, cpfpMode, prefillAddress, prefillLabel) {
         // utxoOutpoint may be a single "txid:vout" OR a comma-separated list of "txid:vout" outpoints
         // (coin control passes multiple outpoints through the same route param)
         val outpointList = utxoOutpoint?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
@@ -136,6 +138,12 @@ fun SendScreen(
         }
         if (cpfpMode && outpointList.isNotEmpty()) {
             viewModel.prepareCpfpSend(walletId, outpointList)
+        }
+        if (!prefillAddress.isNullOrBlank()) {
+            viewModel.setAddress(prefillAddress)
+            if (!prefillLabel.isNullOrBlank()) {
+                viewModel.setLabel(prefillLabel)
+            }
         }
     }
 

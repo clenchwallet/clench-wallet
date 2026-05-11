@@ -113,6 +113,14 @@ data class SatscardUnsealResult(
     val summary: String
 )
 
+data class SatscardFundingSlotResult(
+    val slot: Long,
+    val address: String,
+    val isTestnet: Boolean,
+    val newlySetup: Boolean,
+    val summary: String
+)
+
 data class SatscardReadResult(
     val signature: ByteArray,
     val pubkey: ByteArray,
@@ -316,6 +324,40 @@ object TapsignerTapProtocol {
         chainCode: ByteArray
     ): ByteArray {
         require(chainCode.size == 32) { "TAPSIGNER chain code must be 32 bytes" }
+        return authenticatedNewSlotCommand(
+            slot = 0L,
+            cardPubkey = cardPubkey,
+            cardNonce = cardNonce,
+            cvc = cvc,
+            chainCode = chainCode
+        )
+    }
+
+    fun authenticatedNewSatscardCommand(
+        slot: Long,
+        cardPubkey: ByteArray,
+        cardNonce: ByteArray,
+        cvc: CharArray,
+        chainCode: ByteArray
+    ): ByteArray {
+        require(slot >= 0L) { "SATSCARD slot must be non-negative" }
+        require(chainCode.size == 32) { "SATSCARD chain code must be 32 bytes" }
+        return authenticatedNewSlotCommand(
+            slot = slot,
+            cardPubkey = cardPubkey,
+            cardNonce = cardNonce,
+            cvc = cvc,
+            chainCode = chainCode
+        )
+    }
+
+    private fun authenticatedNewSlotCommand(
+        slot: Long,
+        cardPubkey: ByteArray,
+        cardNonce: ByteArray,
+        cvc: CharArray,
+        chainCode: ByteArray
+    ): ByteArray {
         val auth = authenticatedCommand("new", cardPubkey, cardNonce, cvc)
         return apdu(
             cla = 0x00,
@@ -324,7 +366,7 @@ object TapsignerTapProtocol {
             p2 = 0x00,
             data = cborMap(
                 "cmd" to "new",
-                "slot" to 0L,
+                "slot" to slot,
                 "chain_code" to chainCode,
                 "epubkey" to auth.ephemeralPublicKey,
                 "xcvc" to auth.encryptedCvc
@@ -701,6 +743,106 @@ object CoinkiteTapCardNfcReader {
 }
 
 object SatscardNfcReader {
+    fun readCurrentSlot(tag: Tag, expectedTestnet: Boolean): SatscardFundingSlotResult {
+        val isoDep = IsoDep.get(tag) ?: error("SATSCARD requires ISO-DEP NFC, not NDEF")
+        isoDep.connect()
+        try {
+            isoDep.timeout = 10000
+            var status = selectOrReadStatus(isoDep)
+            validateSatscardStatus(status, expectedTestnet)
+            if ((status.authDelaySeconds ?: 0L) > 0L) {
+                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "SATSCARD")
+                status = TapsignerTapProtocol.parseStatusResponse(
+                    isoDep.transceive(TapsignerTapProtocol.statusCommand())
+                )
+                validateSatscardStatus(status, expectedTestnet)
+            }
+            return verifyActiveFundingSlot(isoDep, status, newlySetup = false)
+        } finally {
+            isoDep.close()
+        }
+    }
+
+    fun setupCurrentSlot(tag: Tag, cvc: CharArray, expectedTestnet: Boolean): SatscardFundingSlotResult {
+        val isoDep = IsoDep.get(tag) ?: error("SATSCARD requires ISO-DEP NFC, not NDEF")
+        isoDep.connect()
+        try {
+            isoDep.timeout = 10000
+            var status = selectOrReadStatus(isoDep)
+            validateSatscardStatus(status, expectedTestnet)
+            if ((status.authDelaySeconds ?: 0L) > 0L) {
+                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "SATSCARD")
+                status = TapsignerTapProtocol.parseStatusResponse(
+                    isoDep.transceive(TapsignerTapProtocol.statusCommand())
+                )
+                validateSatscardStatus(status, expectedTestnet)
+            }
+            val slot = status.activeSlot
+                ?: error("SATSCARD did not report an active slot")
+            if (!status.address.isNullOrBlank()) {
+                error("SATSCARD slot $slot is already set up. Read the active slot to fund its existing address.")
+            }
+            val cardPubkey = status.cardPubkeyHex?.hexToBytes()
+                ?: error("SATSCARD status did not include card pubkey")
+            var latestCardNonce = status.cardNonceHex?.hexToBytes()
+                ?: error("SATSCARD status did not include card nonce")
+
+            val dump = TapsignerTapProtocol.parseDumpResponse(
+                isoDep.transceive(TapsignerTapProtocol.dumpCommand(slot))
+            )
+            if (dump.slot != null && dump.slot != slot) error("SATSCARD dump response returned a different slot")
+            if (dump.used == true || !dump.address.isNullOrBlank()) {
+                error("SATSCARD slot $slot is already set up. Read the active slot to fund its existing address.")
+            }
+            latestCardNonce = dump.cardNonce ?: latestCardNonce
+
+            val certs = TapsignerTapProtocol.parseCertsResponse(
+                isoDep.transceive(TapsignerTapProtocol.certsCommand())
+            )
+            val checkNonce = randomNonce()
+            val check = TapsignerTapProtocol.parseCheckResponse(
+                isoDep.transceive(TapsignerTapProtocol.checkCommand(checkNonce))
+            )
+            CoinkiteTapCardVerifier.verifyCertificateChain(
+                cardPubkey = cardPubkey,
+                cardNonce = latestCardNonce,
+                checkNonce = checkNonce,
+                authSignature = check.authSignature,
+                certChain = certs.certChain,
+                sealedSlotPubkey = null,
+                cardVersion = status.version
+            )
+            latestCardNonce = check.cardNonce
+
+            val chainCode = randomChainCode()
+            try {
+                val newResult = TapsignerTapProtocol.parseTapsignerNewResponse(
+                    isoDep.transceive(
+                        TapsignerTapProtocol.authenticatedNewSatscardCommand(
+                            slot = slot,
+                            cardPubkey = cardPubkey,
+                            cardNonce = latestCardNonce,
+                            cvc = cvc,
+                            chainCode = chainCode
+                        )
+                    )
+                )
+                if (newResult.slot != slot) error("SATSCARD set up a different slot than requested")
+            } finally {
+                chainCode.fill(0)
+            }
+
+            val refreshedStatus = TapsignerTapProtocol.parseStatusResponse(
+                isoDep.transceive(TapsignerTapProtocol.statusCommand())
+            )
+            validateSatscardStatus(refreshedStatus, expectedTestnet)
+            return verifyActiveFundingSlot(isoDep, refreshedStatus, newlySetup = true)
+        } finally {
+            isoDep.close()
+            cvc.fill('0')
+        }
+    }
+
     fun unsealCurrentSlot(tag: Tag, cvc: CharArray, expectedTestnet: Boolean): SatscardUnsealResult {
         val isoDep = IsoDep.get(tag) ?: error("SATSCARD requires ISO-DEP NFC, not NDEF")
         isoDep.connect()
@@ -797,6 +939,103 @@ object SatscardNfcReader {
 
     private fun randomNonce(): ByteArray {
         return ByteArray(16).also { SecureRandom().nextBytes(it) }
+    }
+
+    private fun randomChainCode(): ByteArray {
+        return ByteArray(32).also { SecureRandom().nextBytes(it) }
+    }
+
+    private fun selectOrReadStatus(isoDep: IsoDep): CoinkiteTapCardStatus {
+        val selectResponse = isoDep.transceive(TapsignerTapProtocol.selectAppletCommand())
+        if (!TapsignerTapProtocol.isSuccessResponse(selectResponse)) {
+            val sw = selectResponse.takeLast(2).joinToString("") { "%02X".format(it) }
+            error("Coinkite Tap card applet select failed with status word 0x$sw")
+        }
+        val statusResponse = if (TapsignerTapProtocol.responseBody(selectResponse).isNotEmpty()) {
+            selectResponse
+        } else {
+            isoDep.transceive(TapsignerTapProtocol.statusCommand())
+        }
+        return TapsignerTapProtocol.parseStatusResponse(statusResponse)
+    }
+
+    private fun validateSatscardStatus(status: CoinkiteTapCardStatus, expectedTestnet: Boolean) {
+        if (!status.isSatscard) error("Coinkite NFC card is not reporting SATSCARD mode")
+        if (status.isTampered == true) error("SATSCARD tamper warning is set")
+        val cardIsTestnet = status.isTestnet == true
+        if (cardIsTestnet != expectedTestnet) {
+            val cardNetwork = if (cardIsTestnet) "testnet" else "mainnet"
+            val walletNetwork = if (expectedTestnet) "testnet" else "mainnet"
+            error("SATSCARD is $cardNetwork but this wallet is $walletNetwork")
+        }
+    }
+
+    private fun verifyActiveFundingSlot(
+        isoDep: IsoDep,
+        status: CoinkiteTapCardStatus,
+        newlySetup: Boolean
+    ): SatscardFundingSlotResult {
+        val slot = status.activeSlot
+            ?: error("SATSCARD did not report an active slot")
+        val cardPubkey = status.cardPubkeyHex?.hexToBytes()
+            ?: error("SATSCARD status did not include card pubkey")
+        var latestCardNonce = status.cardNonceHex?.hexToBytes()
+            ?: error("SATSCARD status did not include card nonce")
+
+        val dump = TapsignerTapProtocol.parseDumpResponse(
+            isoDep.transceive(TapsignerTapProtocol.dumpCommand(slot))
+        )
+        if (dump.slot != null && dump.slot != slot) error("SATSCARD dump response returned a different slot")
+        if (dump.used == false && !newlySetup) {
+            error("SATSCARD active slot $slot has not been set up yet. Enter the spend code and set up the slot before funding it.")
+        }
+        if (dump.sealed == false) error("SATSCARD active slot $slot is already unsealed")
+        latestCardNonce = dump.cardNonce ?: latestCardNonce
+
+        val statusForAddress = status.copy(address = status.address ?: dump.address)
+        if (statusForAddress.address.isNullOrBlank()) {
+            error("SATSCARD active slot $slot did not report a deposit address")
+        }
+        val readNonce = randomNonce()
+        val read = TapsignerTapProtocol.parseReadResponse(
+            isoDep.transceive(TapsignerTapProtocol.readCommand(readNonce))
+        )
+        val verifiedSlot = CoinkiteTapCardVerifier.verifySatscardRead(
+            status = statusForAddress,
+            cardNonce = latestCardNonce,
+            readNonce = readNonce,
+            read = read
+        )
+        latestCardNonce = read.cardNonce
+
+        val certs = TapsignerTapProtocol.parseCertsResponse(
+            isoDep.transceive(TapsignerTapProtocol.certsCommand())
+        )
+        val checkNonce = randomNonce()
+        val check = TapsignerTapProtocol.parseCheckResponse(
+            isoDep.transceive(TapsignerTapProtocol.checkCommand(checkNonce))
+        )
+        CoinkiteTapCardVerifier.verifyCertificateChain(
+            cardPubkey = cardPubkey,
+            cardNonce = latestCardNonce,
+            checkNonce = checkNonce,
+            authSignature = check.authSignature,
+            certChain = certs.certChain,
+            sealedSlotPubkey = verifiedSlot.pubkey,
+            cardVersion = status.version
+        )
+
+        return SatscardFundingSlotResult(
+            slot = verifiedSlot.slot,
+            address = verifiedSlot.address,
+            isTestnet = verifiedSlot.isTestnet,
+            newlySetup = newlySetup,
+            summary = if (newlySetup) {
+                "SATSCARD slot ${verifiedSlot.slot} is set up and ready to fund"
+            } else {
+                "SATSCARD slot ${verifiedSlot.slot} address verified"
+            }
+        )
     }
 }
 

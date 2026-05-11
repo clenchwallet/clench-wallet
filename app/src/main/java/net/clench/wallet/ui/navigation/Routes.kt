@@ -12,11 +12,19 @@ sealed class Routes(val route: String) {
     object Home         : Routes("home/{walletId}") {
         fun build(walletId: String) = "home/$walletId"
     }
-    object Send         : Routes("send/{walletId}?utxo={utxo}&cpfp={cpfp}") {
-        fun build(walletId: String, utxo: String? = null, cpfp: Boolean = false): String {
+    object Send         : Routes("send/{walletId}?utxo={utxo}&cpfp={cpfp}&address={address}&label={label}") {
+        fun build(
+            walletId: String,
+            utxo: String? = null,
+            cpfp: Boolean = false,
+            address: String? = null,
+            label: String? = null
+        ): String {
             val params = mutableListOf<String>()
             if (utxo != null) params += "utxo=${Uri.encode(utxo)}"
             if (cpfp) params += "cpfp=true"
+            if (!address.isNullOrBlank()) params += "address=${Uri.encode(address)}"
+            if (!label.isNullOrBlank()) params += "label=${Uri.encode(label)}"
             return if (params.isNotEmpty()) "send/$walletId?${params.joinToString("&")}"
             else "send/$walletId"
         }
@@ -69,6 +77,9 @@ sealed class Routes(val route: String) {
     }
     object Sweep : Routes("sweep/{walletId}") {
         fun build(walletId: String) = "sweep/$walletId"
+    }
+    object FundSatscard : Routes("fund_satscard/{walletId}") {
+        fun build(walletId: String) = "fund_satscard/$walletId"
     }
     object RawTransaction : Routes("raw_tx/{walletId}") {
         fun build(walletId: String) = "raw_tx/$walletId"
