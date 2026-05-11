@@ -83,6 +83,24 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
+    fun `authenticated derive command encodes BIP48 multisig path`() {
+        val cardPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 1 })
+        val command = TapsignerTapProtocol.authenticatedDeriveCommand(
+            path = listOf(0x80000030L, 0x80000000L, 0x80000000L, 0x80000002L),
+            nonce = ByteArray(16) { (it + 3).toByte() },
+            cardPubkey = cardPubkey,
+            cardNonce = ByteArray(16) { (it + 1).toByte() },
+            cvc = "123456".toCharArray()
+        )
+
+        assertEquals("00cb0000", command.take(4).toByteArray().toHex())
+        assertEquals(command.size - 5, command[4].toInt() and 0xFF)
+        assertTrue(command.toHex().contains("63636d6466646572697665"))
+        assertTrue(command.toHex().contains("6470617468841a800000301a800000001a800000001a80000002"))
+        assertTrue(command.toHex().contains("656e6f6e636550"))
+    }
+
+    @Test
     fun `authenticated backup command encodes Tapsigner backup request`() {
         val cardPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 1 })
         val command = TapsignerTapProtocol.authenticatedBackupCommand(
@@ -217,6 +235,22 @@ class TapsignerTapProtocolTest {
         val result = TapsignerTapProtocol.parseTapsignerNewResponse(response)
 
         assertEquals(0L, result.slot)
+        assertTrue(result.cardNonce.contentEquals(nonce))
+    }
+
+    @Test
+    fun `derive parser extracts returned pubkeys and nonce`() {
+        val chainCode = ByteArray(32) { index -> (index + 1).toByte() }
+        val masterPubkey = ByteArray(33) { index -> if (index == 0) 0x02.toByte() else index.toByte() }
+        val pubkey = ByteArray(33) { index -> if (index == 0) 0x03.toByte() else (index + 1).toByte() }
+        val nonce = ByteArray(16) { index -> (index + 5).toByte() }
+        val response = tapsignerDeriveResponse(chainCode, masterPubkey, pubkey, nonce)
+
+        val result = TapsignerTapProtocol.parseTapsignerDeriveResponse(response)
+
+        assertTrue(result.chainCode.contentEquals(chainCode))
+        assertTrue(result.masterPubkey.contentEquals(masterPubkey))
+        assertTrue(result.pubkey.contentEquals(pubkey))
         assertTrue(result.cardNonce.contentEquals(nonce))
     }
 
@@ -359,6 +393,23 @@ class TapsignerTapProtocolTest {
     private fun tapsignerNewResponse(slot: Long, cardNonce: ByteArray): ByteArray {
         val map = CborBuilder().addMap()
             .put("slot", slot)
+            .put("card_nonce", cardNonce)
+        val out = ByteArrayOutputStream()
+        CborEncoder(out).encode(map.end().build())
+        return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+    }
+
+    private fun tapsignerDeriveResponse(
+        chainCode: ByteArray,
+        masterPubkey: ByteArray,
+        pubkey: ByteArray,
+        cardNonce: ByteArray
+    ): ByteArray {
+        val map = CborBuilder().addMap()
+            .put("sig", ByteArray(64) { index -> (index + 1).toByte() })
+            .put("chain_code", chainCode)
+            .put("master_pubkey", masterPubkey)
+            .put("pubkey", pubkey)
             .put("card_nonce", cardNonce)
         val out = ByteArrayOutputStream()
         CborEncoder(out).encode(map.end().build())

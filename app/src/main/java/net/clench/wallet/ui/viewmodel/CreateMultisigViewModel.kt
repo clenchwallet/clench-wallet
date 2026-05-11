@@ -63,7 +63,7 @@ class CreateMultisigViewModel @Inject constructor(
 
     init {
         // Initialize signers list based on default totalSigners
-        _uiState.update { it.copy(showPhoneSignerOptions = settingsManager.isPhoneSignerOptionsEnabled()) }
+        _uiState.update { it.copy(showPhoneSignerOptions = true) }
         initializeSigners()
     }
 
@@ -152,10 +152,6 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun generatePhoneSigner(index: Int) {
-        if (!_uiState.value.showPhoneSignerOptions) {
-            _uiState.update { it.copy(error = "Enable Advanced Phone Signers in Settings first") }
-            return
-        }
         viewModelScope.launch {
             _uiState.update { it.copy(generatingPhoneSignerIndex = index, error = null) }
             try {

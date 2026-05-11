@@ -1,5 +1,8 @@
 package net.clench.wallet.ui.screens
 
+import android.app.Activity
+import android.nfc.NfcAdapter
+import android.nfc.Tag
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
@@ -24,6 +27,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,9 +37,18 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.PhoneSigner
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
+import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
+import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.CreateMultisigViewModel
+import java.util.concurrent.atomic.AtomicBoolean
+
+private enum class TapsignerMultisigNfcAction {
+    READ_STATUS,
+    IMPORT_BIP48,
+    SETUP_BIP48
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,11 +59,147 @@ fun CreateMultisigScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val activity = context as? Activity
+    val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
     if (uiState.signers.any { it.isLocalKey }) {
         SecureWindowEffect()
     }
     var devicePickerTargetIndex by remember { mutableStateOf<Int?>(null) }
     var fileImportTargetIndex by remember { mutableStateOf<Int?>(null) }
+    var tapsignerReaderActiveIndex by remember { mutableStateOf<Int?>(null) }
+    var tapsignerPendingAction by remember { mutableStateOf<TapsignerMultisigNfcAction?>(null) }
+    var tapsignerPendingCvc by remember { mutableStateOf<CharArray?>(null) }
+    var tapsignerPathConfirmIndex by remember { mutableStateOf<Int?>(null) }
+    val tapsignerPinInputs = remember { mutableStateMapOf<Int, String>() }
+    val tapsignerNfcStatuses = remember { mutableStateMapOf<Int, String>() }
+    val tapsignerNfcErrors = remember { mutableStateMapOf<Int, String>() }
+    val tapsignerNfcProcessing = remember { AtomicBoolean(false) }
+
+    fun clearTapsignerPendingCvc() {
+        tapsignerPendingCvc?.fill('0')
+        tapsignerPendingCvc = null
+    }
+
+    fun stopTapsignerNfcReader(clearPin: Boolean = false) {
+        val hostActivity = activity
+        val adapter = nfcAdapter
+        if (hostActivity != null && adapter != null) {
+            adapter.disableReaderMode(hostActivity)
+        }
+        val index = tapsignerReaderActiveIndex
+        tapsignerReaderActiveIndex = null
+        tapsignerPendingAction = null
+        clearTapsignerPendingCvc()
+        if (clearPin && index != null) tapsignerPinInputs.remove(index)
+    }
+
+    fun processTapsignerMultisigTag(
+        tag: Tag,
+        hostActivity: Activity,
+        signerIndex: Int,
+        action: TapsignerMultisigNfcAction,
+        cvc: CharArray?,
+        isTestnet: Boolean
+    ) {
+        if (!tapsignerNfcProcessing.compareAndSet(false, true)) return
+        try {
+            when (action) {
+                TapsignerMultisigNfcAction.READ_STATUS -> {
+                    val status = TapsignerNfcReader.readStatus(tag)
+                    hostActivity.runOnUiThread {
+                        tapsignerNfcStatuses[signerIndex] = status.summary()
+                        tapsignerNfcErrors.remove(signerIndex)
+                        stopTapsignerNfcReader()
+                    }
+                }
+                TapsignerMultisigNfcAction.IMPORT_BIP48,
+                TapsignerMultisigNfcAction.SETUP_BIP48 -> {
+                    val readerCvc = cvc ?: error("Enter the TAPSIGNER PIN before importing this cosigner")
+                    val result = TapsignerNfcReader.readMultisigAccountXpub(
+                        tag = tag,
+                        cvc = readerCvc,
+                        isTestnet = isTestnet,
+                        setPathIfNeeded = action == TapsignerMultisigNfcAction.SETUP_BIP48,
+                        initializeIfNeeded = action == TapsignerMultisigNfcAction.SETUP_BIP48
+                    )
+                    hostActivity.runOnUiThread {
+                        viewModel.updateSigner(signerIndex, label = "TAPSIGNER", xpub = result.originWrappedXpub)
+                        tapsignerNfcStatuses[signerIndex] = result.summary
+                        tapsignerNfcErrors.remove(signerIndex)
+                        stopTapsignerNfcReader(clearPin = true)
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            hostActivity.runOnUiThread {
+                tapsignerNfcErrors[signerIndex] = t.message ?: "TAPSIGNER NFC action failed"
+                tapsignerNfcStatuses.remove(signerIndex)
+                stopTapsignerNfcReader()
+            }
+        } finally {
+            tapsignerNfcProcessing.set(false)
+        }
+    }
+
+    fun startTapsignerNfcReader(signerIndex: Int, action: TapsignerMultisigNfcAction, cvc: CharArray?) {
+        val hostActivity = activity
+        val adapter = nfcAdapter
+        when {
+            hostActivity == null -> {
+                cvc?.fill('0')
+                tapsignerNfcErrors[signerIndex] = "NFC reader is unavailable in this view"
+                return
+            }
+            adapter == null -> {
+                cvc?.fill('0')
+                tapsignerNfcErrors[signerIndex] = "This phone does not report NFC hardware"
+                return
+            }
+            !adapter.isEnabled -> {
+                cvc?.fill('0')
+                tapsignerNfcErrors[signerIndex] = "NFC is off in Android settings"
+                return
+            }
+            action != TapsignerMultisigNfcAction.READ_STATUS && (cvc == null || cvc.size !in 6..32) -> {
+                cvc?.fill('0')
+                tapsignerNfcErrors[signerIndex] = "Enter the TAPSIGNER PIN"
+                return
+            }
+        }
+
+        stopTapsignerNfcReader()
+        val isTestnet = uiState.signers.getOrNull(signerIndex)?.derivationPath?.contains("/1'") == true
+        tapsignerReaderActiveIndex = signerIndex
+        tapsignerPendingAction = action
+        tapsignerPendingCvc = cvc
+        tapsignerNfcErrors.remove(signerIndex)
+        tapsignerNfcStatuses[signerIndex] = when (action) {
+            TapsignerMultisigNfcAction.READ_STATUS -> "Ready to read status. Hold TAPSIGNER against the phone."
+            TapsignerMultisigNfcAction.IMPORT_BIP48 -> "Ready to import multisig cosigner. Hold TAPSIGNER against the phone."
+            TapsignerMultisigNfcAction.SETUP_BIP48 -> "Ready to set multisig path. Hold TAPSIGNER against the phone."
+        }
+        adapter.enableReaderMode(
+            hostActivity,
+            { tag ->
+                processTapsignerMultisigTag(
+                    tag = tag,
+                    hostActivity = hostActivity,
+                    signerIndex = signerIndex,
+                    action = action,
+                    cvc = tapsignerPendingCvc,
+                    isTestnet = isTestnet
+                )
+            },
+            NfcReaderModeFlags.coinkiteTap,
+            null
+        )
+    }
+
+    DisposableEffect(activity, nfcAdapter) {
+        onDispose {
+            stopTapsignerNfcReader()
+        }
+    }
     val signerFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -75,6 +226,39 @@ fun CreateMultisigScreen(
             onDeviceSelected = { device ->
                 viewModel.setSignerDevice(targetIndex, device)
                 devicePickerTargetIndex = null
+            }
+        )
+    }
+
+    tapsignerPathConfirmIndex?.let { targetIndex ->
+        val signer = uiState.signers.getOrNull(targetIndex)
+        val targetPath = signer?.derivationPath ?: "m/48'/0'/0'/2'"
+        AlertDialog(
+            onDismissRequest = { tapsignerPathConfirmIndex = null },
+            title = { Text("Use TAPSIGNER as Multisig Cosigner?") },
+            text = {
+                Text(
+                    "Clench will initialize an unused TAPSIGNER or set its current derivation path to $targetPath. " +
+                        "This does not move funds or delete keys, but a TAPSIGNER previously used for single-sig may stop reporting its m/84 account until that path is selected again. " +
+                        "Make sure you have the card and backup details before funding this multisig wallet."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        tapsignerPathConfirmIndex = null
+                        startTapsignerNfcReader(
+                            signerIndex = targetIndex,
+                            action = TapsignerMultisigNfcAction.SETUP_BIP48,
+                            cvc = tapsignerPinInputs[targetIndex].orEmpty().toCharArray()
+                        )
+                    }
+                ) { Text("Use Multisig Path") }
+            },
+            dismissButton = {
+                TextButton(onClick = { tapsignerPathConfirmIndex = null }) {
+                    Text("Cancel")
+                }
             }
         )
     }
@@ -205,6 +389,23 @@ fun CreateMultisigScreen(
                         fileImportTargetIndex = index
                         signerFileLauncher.launch(arrayOf("*/*"))
                     },
+                    tapsignerPinInputs = tapsignerPinInputs,
+                    tapsignerNfcStatuses = tapsignerNfcStatuses,
+                    tapsignerNfcErrors = tapsignerNfcErrors,
+                    tapsignerReaderActiveIndex = tapsignerReaderActiveIndex,
+                    onTapsignerPinChanged = { index, pin -> tapsignerPinInputs[index] = pin.take(32) },
+                    onReadTapsignerStatus = { index ->
+                        startTapsignerNfcReader(index, TapsignerMultisigNfcAction.READ_STATUS, null)
+                    },
+                    onImportTapsignerMultisig = { index ->
+                        startTapsignerNfcReader(
+                            signerIndex = index,
+                            action = TapsignerMultisigNfcAction.IMPORT_BIP48,
+                            cvc = tapsignerPinInputs[index].orEmpty().toCharArray()
+                        )
+                    },
+                    onSetupTapsignerMultisig = { index -> tapsignerPathConfirmIndex = index },
+                    onCancelTapsignerNfc = { stopTapsignerNfcReader() },
                     onNext = {
                         if (viewModel.validateCurrentStep()) viewModel.nextStep()
                     },
@@ -294,6 +495,24 @@ private fun ConfigurationStep(
             }
             PresetChip("2-of-2", selected = threshold == 2 && totalSigners == 2) {
                 onPreset(2, 2)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    "Recommended secure wallet",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "Use 2-of-3 with a Clench phone key, a TAPSIGNER cosigner, and one offline recovery cosigner. Any two can spend; no server holds your keys.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 
@@ -410,6 +629,15 @@ private fun SignersStep(
     onRemoveSigner: (Int) -> Unit,
     onScanQr: (Int) -> Unit,
     onLoadFile: (Int) -> Unit,
+    tapsignerPinInputs: Map<Int, String>,
+    tapsignerNfcStatuses: Map<Int, String>,
+    tapsignerNfcErrors: Map<Int, String>,
+    tapsignerReaderActiveIndex: Int?,
+    onTapsignerPinChanged: (Int, String) -> Unit,
+    onReadTapsignerStatus: (Int) -> Unit,
+    onImportTapsignerMultisig: (Int) -> Unit,
+    onSetupTapsignerMultisig: (Int) -> Unit,
+    onCancelTapsignerNfc: () -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit,
     showPhoneSignerOptions: Boolean,
@@ -442,6 +670,15 @@ private fun SignersStep(
                     },
                     onScanQr = { onScanQr(index) },
                     onLoadFile = { onLoadFile(index) },
+                    tapsignerPinInput = tapsignerPinInputs[index].orEmpty(),
+                    tapsignerNfcStatus = tapsignerNfcStatuses[index],
+                    tapsignerNfcError = tapsignerNfcErrors[index],
+                    tapsignerReaderActive = tapsignerReaderActiveIndex == index,
+                    onTapsignerPinChanged = { onTapsignerPinChanged(index, it) },
+                    onReadTapsignerStatus = { onReadTapsignerStatus(index) },
+                    onImportTapsignerMultisig = { onImportTapsignerMultisig(index) },
+                    onSetupTapsignerMultisig = { onSetupTapsignerMultisig(index) },
+                    onCancelTapsignerNfc = onCancelTapsignerNfc,
                     showPhoneSignerOptions = showPhoneSignerOptions,
                     isGeneratingPhoneSigner = generatingPhoneSignerIndex == index,
                     canRemove = signers.size > 2,
@@ -483,6 +720,15 @@ private fun SignerCard(
     onPaste: () -> Unit,
     onScanQr: () -> Unit,
     onLoadFile: () -> Unit,
+    tapsignerPinInput: String,
+    tapsignerNfcStatus: String?,
+    tapsignerNfcError: String?,
+    tapsignerReaderActive: Boolean,
+    onTapsignerPinChanged: (String) -> Unit,
+    onReadTapsignerStatus: () -> Unit,
+    onImportTapsignerMultisig: () -> Unit,
+    onSetupTapsignerMultisig: () -> Unit,
+    onCancelTapsignerNfc: () -> Unit,
     showPhoneSignerOptions: Boolean,
     isGeneratingPhoneSigner: Boolean,
     canRemove: Boolean,
@@ -539,7 +785,7 @@ private fun SignerCard(
                     if (signer.isLocalKey) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "Advanced hot signer: this phone can sign as this cosigner. Keep the wallet threshold higher than the number of phone signers.",
+                            "Phone key: this device can sign as one cosigner. Keep the other required signer off this phone.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -585,6 +831,22 @@ private fun SignerCard(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+
+            if (device == HardwareWalletType.TAPSIGNER && !signer.isLocalKey) {
+                TapsignerMultisigControls(
+                    targetPath = signer.derivationPath,
+                    pinInput = tapsignerPinInput,
+                    nfcStatus = tapsignerNfcStatus,
+                    nfcError = tapsignerNfcError,
+                    readerActive = tapsignerReaderActive,
+                    onPinChanged = onTapsignerPinChanged,
+                    onReadStatus = onReadTapsignerStatus,
+                    onImport = onImportTapsignerMultisig,
+                    onSetup = onSetupTapsignerMultisig,
+                    onCancel = onCancelTapsignerNfc
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Label
             OutlinedTextField(
@@ -657,6 +919,83 @@ private fun SignerCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun TapsignerMultisigControls(
+    targetPath: String,
+    pinInput: String,
+    nfcStatus: String?,
+    nfcError: String?,
+    readerActive: Boolean,
+    onPinChanged: (String) -> Unit,
+    onReadStatus: () -> Unit,
+    onImport: () -> Unit,
+    onSetup: () -> Unit,
+    onCancel: () -> Unit
+) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                "TAPSIGNER multisig cosigner",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "This signer slot expects $targetPath. Single-sig TAPSIGNER accounts use m/84 and should be imported from the standalone TAPSIGNER flow instead.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = pinInput,
+                onValueChange = onPinChanged,
+                label = { Text("TAPSIGNER PIN") },
+                supportingText = {
+                    Text("Use the current PIN. If unchanged, this is the Starting PIN Code printed on the card.")
+                },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onReadStatus,
+                    enabled = !readerActive,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Read Status") }
+                Button(
+                    onClick = onImport,
+                    enabled = !readerActive && pinInput.length in 6..32,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Import Key") }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onSetup,
+                enabled = !readerActive && pinInput.length in 6..32,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Set Up as Multisig Cosigner") }
+            if (readerActive) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Cancel NFC") }
+            }
+            nfcStatus?.let {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+            nfcError?.let {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
         }
     }
 }
@@ -734,7 +1073,7 @@ private fun signerImportHint(device: HardwareWalletType?): String {
         HardwareWalletType.KEYSTONE,
         HardwareWalletType.FOUNDATION_PASSPORT -> "Use the device's multisig account/export QR or file for this signer."
         HardwareWalletType.JADE -> "Use Jade's account xpub export for the BIP48 multisig path."
-        HardwareWalletType.TAPSIGNER -> "Direct TAPSIGNER PIN-authenticated xpub export is not enabled here yet; paste an origin-wrapped xpub from a trusted coordinator."
+        HardwareWalletType.TAPSIGNER -> "Tap TAPSIGNER to import its BIP48 multisig cosigner key. Clench will not use the single-sig m/84 account in this multisig flow."
     }
 }
 

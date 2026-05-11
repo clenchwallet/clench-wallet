@@ -154,6 +154,13 @@ data class TapsignerNewResult(
     val cardNonce: ByteArray
 )
 
+data class TapsignerDeriveResult(
+    val chainCode: ByteArray,
+    val masterPubkey: ByteArray,
+    val pubkey: ByteArray,
+    val cardNonce: ByteArray
+)
+
 data class TapsignerBackupResponse(
     val data: ByteArray,
     val cardNonce: ByteArray
@@ -174,6 +181,8 @@ data class TapsignerBackupResult(
 )
 
 object TapsignerTapProtocol {
+    private const val HARDENED_FLAG = 0x80000000L
+
     private val appletId = byteArrayOf(
         0xF0.toByte(),
         0x43,
@@ -323,6 +332,32 @@ object TapsignerTapProtocol {
         )
     }
 
+    fun authenticatedDeriveCommand(
+        path: List<Long>,
+        nonce: ByteArray,
+        cardPubkey: ByteArray,
+        cardNonce: ByteArray,
+        cvc: CharArray
+    ): ByteArray {
+        require(path.size <= 8) { "TAPSIGNER derivation path is too deep" }
+        require(path.all { it and HARDENED_FLAG != 0L }) { "TAPSIGNER derive supports hardened path components only" }
+        require(nonce.size == 16) { "TAPSIGNER derive nonce must be 16 bytes" }
+        val auth = authenticatedCommand("derive", cardPubkey, cardNonce, cvc)
+        return apdu(
+            cla = 0x00,
+            ins = 0xCB,
+            p1 = 0x00,
+            p2 = 0x00,
+            data = cborMap(
+                "cmd" to "derive",
+                "path" to path,
+                "nonce" to nonce,
+                "epubkey" to auth.ephemeralPublicKey,
+                "xcvc" to auth.encryptedCvc
+            )
+        )
+    }
+
     fun authenticatedBackupCommand(
         cardPubkey: ByteArray,
         cardNonce: ByteArray,
@@ -416,6 +451,21 @@ object TapsignerTapProtocol {
         return TapsignerNewResult(slot, cardNonce)
     }
 
+    fun parseTapsignerDeriveResponse(response: ByteArray): TapsignerDeriveResult {
+        val dataItem = responseMapOrThrow(response)
+        val signature = dataItem.bytes("sig") ?: error("TAPSIGNER derive response did not include a signature")
+        val chainCode = dataItem.bytes("chain_code") ?: error("TAPSIGNER derive response did not include chain code")
+        val masterPubkey = dataItem.bytes("master_pubkey") ?: error("TAPSIGNER derive response did not include master pubkey")
+        val pubkey = dataItem.bytes("pubkey") ?: error("TAPSIGNER derive response did not include derived pubkey")
+        val cardNonce = dataItem.bytes("card_nonce") ?: error("TAPSIGNER derive response did not include card nonce")
+        if (signature.size != 64) error("TAPSIGNER derive response had an invalid signature length")
+        if (chainCode.size != 32) error("TAPSIGNER derive response had an invalid chain code length")
+        if (masterPubkey.size != 33) error("TAPSIGNER derive response had an invalid master pubkey length")
+        if (pubkey.size != 33) error("TAPSIGNER derive response had an invalid derived pubkey length")
+        if (cardNonce.size != 16) error("TAPSIGNER derive response had an invalid card nonce length")
+        return TapsignerDeriveResult(chainCode, masterPubkey, pubkey, cardNonce)
+    }
+
     fun parseTapsignerBackupResponse(response: ByteArray): TapsignerBackupResponse {
         val dataItem = responseMapOrThrow(response)
         val data = dataItem.bytes("data") ?: error("TAPSIGNER backup response did not include backup data")
@@ -502,6 +552,17 @@ object TapsignerTapProtocol {
                 is Int -> map.put(key, value.toLong())
                 is Boolean -> map.put(key, value)
                 is ByteArray -> map.put(key, value)
+                is List<*> -> {
+                    val array = map.putArray(key)
+                    value.forEach { item ->
+                        when (item) {
+                            is Long -> array.add(item)
+                            is Int -> array.add(item.toLong())
+                            else -> error("Unsupported CBOR array value for $key")
+                        }
+                    }
+                    array.end()
+                }
                 else -> error("Unsupported CBOR value for $key")
             }
         }
@@ -740,6 +801,8 @@ object SatscardNfcReader {
 }
 
 object TapsignerNfcReader {
+    private const val HARDENED_FLAG = 0x80000000L
+
     fun readStatus(tag: Tag): CoinkiteTapCardStatus {
         val status = CoinkiteTapCardNfcReader.readStatus(tag)
         if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
@@ -777,6 +840,94 @@ object TapsignerNfcReader {
                 cvc = cvc,
                 reportedPath = status.displayPath,
                 summaryPrefix = "TAPSIGNER xpub imported"
+            )
+        } finally {
+            isoDep.close()
+            cvc.fill('0')
+        }
+    }
+
+    fun readMultisigAccountXpub(
+        tag: Tag,
+        cvc: CharArray,
+        isTestnet: Boolean,
+        setPathIfNeeded: Boolean,
+        initializeIfNeeded: Boolean
+    ): TapsignerAccountXpubResult {
+        val targetPath = multisigAccountPath(isTestnet)
+        val targetPathDisplay = formatDerivationPath(targetPath)
+        val isoDep = IsoDep.get(tag) ?: error("TAPSIGNER requires ISO-DEP NFC, not NDEF")
+        isoDep.connect()
+        try {
+            isoDep.timeout = 10000
+            var status = selectOrReadStatus(isoDep)
+            if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
+            if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
+            if ((status.authDelaySeconds ?: 0L) > 0L) {
+                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "TAPSIGNER")
+                status = TapsignerTapProtocol.parseStatusResponse(
+                    isoDep.transceive(TapsignerTapProtocol.statusCommand())
+                )
+                if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
+                if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
+            }
+
+            val cardPubkey = verifiedCardPubkey(status)
+            var latestCardNonce = verifyTapsignerCard(isoDep, status, cardPubkey)
+
+            if (status.derivationPath == null) {
+                if (!initializeIfNeeded) {
+                    error("This TAPSIGNER has not been set up yet. Use Set up as multisig cosigner to initialize it at $targetPathDisplay.")
+                }
+                val chainCode = randomChainCode()
+                val newResult = try {
+                    TapsignerTapProtocol.parseTapsignerNewResponse(
+                        isoDep.transceive(
+                            TapsignerTapProtocol.authenticatedNewTapsignerCommand(
+                                cardPubkey = cardPubkey,
+                                cardNonce = latestCardNonce,
+                                cvc = cvc,
+                                chainCode = chainCode
+                            )
+                        )
+                    )
+                } finally {
+                    chainCode.fill(0)
+                }
+                if (newResult.slot != 0L) error("TAPSIGNER initialized an unexpected slot")
+                latestCardNonce = newResult.cardNonce
+                status = TapsignerTapProtocol.parseStatusResponse(
+                    isoDep.transceive(TapsignerTapProtocol.statusCommand())
+                )
+            }
+
+            if (status.derivationPath != targetPath) {
+                val currentPath = status.displayPath ?: "unknown"
+                if (!setPathIfNeeded) {
+                    error("This TAPSIGNER is currently set to $currentPath. Multisig import needs $targetPathDisplay. Use Set up as multisig cosigner if you want Clench to set that path.")
+                }
+                val deriveNonce = randomNonce()
+                val derive = TapsignerTapProtocol.parseTapsignerDeriveResponse(
+                    isoDep.transceive(
+                        TapsignerTapProtocol.authenticatedDeriveCommand(
+                            path = targetPath,
+                            nonce = deriveNonce,
+                            cardPubkey = cardPubkey,
+                            cardNonce = latestCardNonce,
+                            cvc = cvc
+                        )
+                    )
+                )
+                latestCardNonce = derive.cardNonce
+            }
+
+            return readVerifiedAccountXpub(
+                isoDep = isoDep,
+                cardPubkey = cardPubkey,
+                initialCardNonce = latestCardNonce,
+                cvc = cvc,
+                reportedPath = targetPathDisplay,
+                summaryPrefix = "TAPSIGNER multisig cosigner imported"
             )
         } finally {
             isoDep.close()
@@ -1012,6 +1163,22 @@ object TapsignerNfcReader {
 
     private fun randomChainCode(): ByteArray {
         return ByteArray(32).also { SecureRandom().nextBytes(it) }
+    }
+
+    private fun multisigAccountPath(isTestnet: Boolean): List<Long> {
+        return listOf(48L, if (isTestnet) 1L else 0L, 0L, 2L).map { it or HARDENED_FLAG }
+    }
+
+    private fun formatDerivationPath(path: List<Long>): String {
+        return if (path.isEmpty()) {
+            "m"
+        } else {
+            path.joinToString(separator = "/", prefix = "m/") { value ->
+                val hardened = value and HARDENED_FLAG != 0L
+                val index = if (hardened) value and HARDENED_FLAG.inv() else value
+                if (hardened) "$index'" else index.toString()
+            }
+        }
     }
 
     private fun ByteArray.base58CheckEncode(): String {
