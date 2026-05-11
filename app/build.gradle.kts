@@ -151,9 +151,9 @@ dependencies {
     testImplementation("io.mockk:mockk:1.14.9")
 
     // CameraX for QR scanning
-    implementation("androidx.camera:camera-core:1.6.0")
-    implementation("androidx.camera:camera-camera2:1.6.0")
-    implementation("androidx.camera:camera-lifecycle:1.6.0")
-    implementation("androidx.camera:camera-view:1.6.0")
+    implementation("androidx.camera:camera-core:1.6.1")
+    implementation("androidx.camera:camera-camera2:1.6.1")
+    implementation("androidx.camera:camera-lifecycle:1.6.1")
+    implementation("androidx.camera:camera-view:1.6.1")
     implementation("com.google.zxing:core:3.5.3")
 }
