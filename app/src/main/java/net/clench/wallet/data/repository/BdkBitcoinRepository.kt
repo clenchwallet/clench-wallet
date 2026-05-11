@@ -561,11 +561,13 @@ class BdkBitcoinRepository @Inject constructor(
             return@withContext getBalance(walletId)
         }
 
-        // R7-1: Per-wallet mutex — skip if already syncing to prevent concurrent BDK access
+        // R7-1: Per-wallet mutex — serialize syncs to prevent concurrent BDK access.
+        // Do not return stale data when another sync is already running; screens opened
+        // immediately after passphrase unlock need the completed scan before showing
+        // address usage and balances.
         val mutex = syncMutex(walletId)
-        if (mutex.isLocked) {
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: already syncing $walletId, skipping")
-            return@withContext getBalance(walletId)
+        if (mutex.isLocked && net.clench.wallet.BuildConfig.DEBUG) {
+            android.util.Log.d("BdkRepo", "syncWallet: already syncing $walletId, waiting")
         }
 
         mutex.withLock {
@@ -1064,9 +1066,23 @@ class BdkBitcoinRepository @Inject constructor(
         val entry = loadWallet(walletId)
         val wallet = entry.wallet
 
-        // Determine "used" addresses by checking BDK's unused address list
+        // Determine "used" addresses by checking BDK's unused address list and
+        // synced transaction outputs. Full-scan can discover history for addresses
+        // that were not explicitly revealed in this in-memory passphrase session,
+        // so transaction outputs are the authoritative fallback for address usage.
         val unusedAddresses = try {
             wallet.listUnusedAddresses(keychain).map { it.address.toString() }.toSet()
+        } catch (_: Exception) { emptySet() }
+        val transactionOutputAddresses = try {
+            wallet.transactions()
+                .flatMap { tx ->
+                    tx.transaction.output().mapNotNull { txout ->
+                        runCatching {
+                            org.bitcoindevkit.Address.fromScript(txout.scriptPubkey, wallet.network()).toString()
+                        }.getOrNull()
+                    }
+                }
+                .toSet()
         } catch (_: Exception) { emptySet() }
 
         // Get the last revealed index to know which addresses have been revealed
@@ -1089,7 +1105,8 @@ class BdkBitcoinRepository @Inject constructor(
             //   - lastRevealedIndex>0 + empty unused = all revealed addresses are used
             //   - address in unusedAddresses = definitively not used
             val nothingRevealed = lastRevealedIndex == 0 && unusedAddresses.isEmpty()
-            val isUsed = !nothingRevealed && i <= lastRevealedIndex && addrStr !in unusedAddresses
+            val isUsed = addrStr in transactionOutputAddresses ||
+                (!nothingRevealed && i <= lastRevealedIndex && addrStr !in unusedAddresses)
             // [S-4] Gate: address exposure (even partial addresses reveal wallet activity)
             if (logSensitive && i < 5) {
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "  addr[$i]=$addrStr revealed=${i <= lastRevealedIndex} inUnused=${addrStr in unusedAddresses} used=$isUsed")

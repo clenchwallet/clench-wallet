@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.Address
 import net.clench.wallet.domain.repository.BitcoinRepository
 import org.bitcoindevkit.KeychainKind
@@ -14,7 +15,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class AddressListViewModel @Inject constructor(
-    private val bitcoinRepository: BitcoinRepository
+    private val bitcoinRepository: BitcoinRepository,
+    private val settingsManager: SettingsManager
 ) : ViewModel() {
 
     data class UiState(
@@ -36,6 +38,9 @@ class AddressListViewModel @Inject constructor(
         _uiState.update { it.copy(walletId = walletId, isLoading = true, error = null) }
         viewModelScope.launch {
             try {
+                runCatching {
+                    bitcoinRepository.syncWallet(walletId, settingsManager.loadElectrumConfig())
+                }
                 val receiveAddrs = bitcoinRepository.getAddresses(walletId, KeychainKind.EXTERNAL, 20)
                 val changeAddrs = bitcoinRepository.getAddresses(walletId, KeychainKind.INTERNAL, 20)
 

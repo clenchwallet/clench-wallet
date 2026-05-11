@@ -153,6 +153,26 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
+    fun `Tapsigner import paths distinguish single sig and multisig`() {
+        assertEquals(
+            "m/84'/0'/0'",
+            TapsignerNfcReader.formatDerivationPath(TapsignerNfcReader.singleSigAccountPath(isTestnet = false))
+        )
+        assertEquals(
+            "m/84'/1'/0'",
+            TapsignerNfcReader.formatDerivationPath(TapsignerNfcReader.singleSigAccountPath(isTestnet = true))
+        )
+        assertEquals(
+            "m/48'/0'/0'/2'",
+            TapsignerNfcReader.formatDerivationPath(TapsignerNfcReader.multisigAccountPath(isTestnet = false))
+        )
+        assertEquals(
+            "m/48'/1'/0'/2'",
+            TapsignerNfcReader.formatDerivationPath(TapsignerNfcReader.multisigAccountPath(isTestnet = true))
+        )
+    }
+
+    @Test
     fun `status parser extracts Satscard metadata`() {
         val response = satscardStatusResponse()
 

@@ -251,7 +251,13 @@ fun ImportWalletScreen(
                         tapsignerInitializeAvailable = false
                         tapsignerBackupAvailable = true
                         tapsignerBackupCount = status.numberOfBackups
-                        nfcStatus = "${status.summary()}. Enter the TAPSIGNER PIN and tap NFC to import the xpub."
+                        val singleSigPath = status.defaultTapsignerAccountPath
+                        val pathNote = if (status.displayPath != singleSigPath) {
+                            " Clench will switch this single-sig import to $singleSigPath before reading the xpub."
+                        } else {
+                            ""
+                        }
+                        nfcStatus = "${status.summary()}. Enter the TAPSIGNER PIN and tap NFC to import the xpub.$pathNote"
                     }
                 }
             }

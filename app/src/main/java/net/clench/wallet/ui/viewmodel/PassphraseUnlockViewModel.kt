@@ -3,6 +3,7 @@ package net.clench.wallet.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -52,8 +53,10 @@ class PassphraseUnlockViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
+    private var fingerprintJob: Job? = null
 
     fun load(walletId: String, storedIdenticonBytes: ByteArray?) {
+        fingerprintJob?.cancel()
         viewModelScope.launch {
             try {
                 val walletEntity = bitcoinRepository.getWalletEntity(walletId)
@@ -61,7 +64,12 @@ class PassphraseUnlockViewModel @Inject constructor(
                     it.copy(
                         walletId = walletId,
                         walletName = walletEntity?.name ?: "Wallet",
-                        storedIdenticonBytes = storedIdenticonBytes
+                        passphrase = "",
+                        fingerprintBytes = null,
+                        masterFingerprintBytes = null,
+                        storedIdenticonBytes = storedIdenticonBytes,
+                        error = null,
+                        isUnlocked = false
                     )
                 }
             } catch (e: Exception) {
@@ -71,29 +79,36 @@ class PassphraseUnlockViewModel @Inject constructor(
     }
 
     fun clearPassphrase() {
+        fingerprintJob?.cancel()
         _uiState.update { it.copy(passphrase = "", fingerprintBytes = null, masterFingerprintBytes = null, error = null) }
     }
 
     fun setPassphrase(passphrase: String) {
         _uiState.update { it.copy(passphrase = passphrase, error = null) }
+        fingerprintJob?.cancel()
         
         // Update fingerprint in real-time as user types
         val walletId = _uiState.value.walletId
         if (passphrase.isNotEmpty() && walletId.isNotEmpty()) {
-            viewModelScope.launch {
+            fingerprintJob = viewModelScope.launch {
                 try {
-                    val fingerprint = (bitcoinRepository as? BdkBitcoinRepository)
-                        ?.getPassphraseFingerprint(walletId, passphrase)
-                    if (fingerprint != null) {
+                    val fingerprint = bitcoinRepository.getPassphraseFingerprint(walletId, passphrase)
+                    val stillCurrent = _uiState.value.walletId == walletId && _uiState.value.passphrase == passphrase
+                    if (fingerprint != null && stillCurrent) {
                         _uiState.update {
                             it.copy(
                                 fingerprintBytes = fingerprint.first,
                                 masterFingerprintBytes = fingerprint.second
                             )
                         }
+                    } else if (stillCurrent) {
+                        _uiState.update { it.copy(fingerprintBytes = null, masterFingerprintBytes = null) }
                     }
                 } catch (e: Exception) {
-                    // Fingerprint calculation failed - ignore, will show error on unlock attempt
+                    val stillCurrent = _uiState.value.walletId == walletId && _uiState.value.passphrase == passphrase
+                    if (stillCurrent) {
+                        _uiState.update { it.copy(fingerprintBytes = null, masterFingerprintBytes = null) }
+                    }
                 }
             }
         } else {
@@ -111,8 +126,7 @@ class PassphraseUnlockViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                (bitcoinRepository as? BdkBitcoinRepository)
-                    ?.unlockPassphraseWallet(state.walletId, state.passphrase)
+                bitcoinRepository.unlockPassphraseWallet(state.walletId, state.passphrase)
                 
                 _uiState.update { it.copy(isLoading = false, isUnlocked = true) }
             } catch (e: Exception) {

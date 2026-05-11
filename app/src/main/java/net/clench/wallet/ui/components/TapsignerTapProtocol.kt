@@ -831,15 +831,32 @@ object TapsignerNfcReader {
                     error("This TAPSIGNER has not been set up yet. Initialize it with a TAPSIGNER-compatible wallet first, then return to Clench to import its xpub.")
                 }
             }
+            val targetPath = singleSigAccountPath(status.isTestnet == true)
+            val targetPathDisplay = formatDerivationPath(targetPath)
             val cardPubkey = verifiedCardPubkey(status)
-            val latestCardNonce = verifyTapsignerCard(isoDep, status, cardPubkey)
+            var latestCardNonce = verifyTapsignerCard(isoDep, status, cardPubkey)
+            if (status.derivationPath != targetPath) {
+                val deriveNonce = randomNonce()
+                val derive = TapsignerTapProtocol.parseTapsignerDeriveResponse(
+                    isoDep.transceive(
+                        TapsignerTapProtocol.authenticatedDeriveCommand(
+                            path = targetPath,
+                            nonce = deriveNonce,
+                            cardPubkey = cardPubkey,
+                            cardNonce = latestCardNonce,
+                            cvc = cvc
+                        )
+                    )
+                )
+                latestCardNonce = derive.cardNonce
+            }
             return readVerifiedAccountXpub(
                 isoDep = isoDep,
                 cardPubkey = cardPubkey,
                 initialCardNonce = latestCardNonce,
                 cvc = cvc,
-                reportedPath = status.displayPath,
-                summaryPrefix = "TAPSIGNER xpub imported"
+                reportedPath = targetPathDisplay,
+                summaryPrefix = "TAPSIGNER single-sig xpub imported"
             )
         } finally {
             isoDep.close()
@@ -975,12 +992,26 @@ object TapsignerNfcReader {
                 chainCode.fill(0)
             }
             if (newResult.slot != 0L) error("TAPSIGNER initialized an unexpected slot")
+            val targetPath = singleSigAccountPath(status.isTestnet == true)
+            val targetPathDisplay = formatDerivationPath(targetPath)
+            val deriveNonce = randomNonce()
+            val derive = TapsignerTapProtocol.parseTapsignerDeriveResponse(
+                isoDep.transceive(
+                    TapsignerTapProtocol.authenticatedDeriveCommand(
+                        path = targetPath,
+                        nonce = deriveNonce,
+                        cardPubkey = cardPubkey,
+                        cardNonce = newResult.cardNonce,
+                        cvc = cvc
+                    )
+                )
+            )
             return readVerifiedAccountXpub(
                 isoDep = isoDep,
                 cardPubkey = cardPubkey,
-                initialCardNonce = newResult.cardNonce,
+                initialCardNonce = derive.cardNonce,
                 cvc = cvc,
-                reportedPath = status.displayPath,
+                reportedPath = targetPathDisplay,
                 summaryPrefix = "TAPSIGNER initialized and xpub imported"
             )
         } finally {
@@ -1165,11 +1196,15 @@ object TapsignerNfcReader {
         return ByteArray(32).also { SecureRandom().nextBytes(it) }
     }
 
-    private fun multisigAccountPath(isTestnet: Boolean): List<Long> {
+    internal fun singleSigAccountPath(isTestnet: Boolean): List<Long> {
+        return listOf(84L, if (isTestnet) 1L else 0L, 0L).map { it or HARDENED_FLAG }
+    }
+
+    internal fun multisigAccountPath(isTestnet: Boolean): List<Long> {
         return listOf(48L, if (isTestnet) 1L else 0L, 0L, 2L).map { it or HARDENED_FLAG }
     }
 
-    private fun formatDerivationPath(path: List<Long>): String {
+    internal fun formatDerivationPath(path: List<Long>): String {
         return if (path.isEmpty()) {
             "m"
         } else {
