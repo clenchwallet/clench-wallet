@@ -312,7 +312,7 @@ fun ImportWalletScreen(
             nfcStatus = if (isCoinkiteTap) {
                 when {
                     initializeTapsigner -> "Ready to initialize. Hold ${device.displayName} against the phone."
-                    backupTapsigner -> "Ready to save backup. Hold ${device.displayName} against the phone."
+                    backupTapsigner -> "Ready to save encrypted backup. Hold ${device.displayName} against the phone again."
                     else -> "Ready to import. Hold ${device.displayName} against the phone."
                 }
             } else {
@@ -503,7 +503,7 @@ fun ImportWalletScreen(
             title = { Text("Save TAPSIGNER Backup?") },
             text = {
                 Text(
-                    "Clench will save the encrypted backup file returned by the card. The file is encrypted by the AES backup key printed on your TAPSIGNER. Store the file and printed key separately."
+                    "Clench will ask where to save the encrypted .aes backup file. After you choose the file, hold the TAPSIGNER to the phone again; saving the backup is a separate authenticated NFC command that uses the TAPSIGNER PIN you entered. The file is encrypted by the AES backup key printed on your TAPSIGNER. Store the file and printed key separately."
                 )
             },
             confirmButton = {
@@ -512,7 +512,7 @@ fun ImportWalletScreen(
                         showTapsignerBackupConfirm = false
                         tapsignerBackupLauncher.launch(tapsignerBackupFilename())
                     }
-                ) { Text("Choose File") }
+                ) { Text("Choose File, Then Tap") }
             },
             dismissButton = {
                 TextButton(onClick = { showTapsignerBackupConfirm = false }) {
@@ -753,7 +753,7 @@ fun ImportWalletScreen(
                                 else -> "$count encrypted backups are recorded. You can save another copy."
                             }
                             Text(
-                                "$backupCopy Store the file separately from the AES backup key printed on the card.",
+                                "$backupCopy To save it, enter the TAPSIGNER PIN, choose where to save the .aes file, then tap the TAPSIGNER again when Clench starts NFC. Store the file separately from the AES backup key printed on the card.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

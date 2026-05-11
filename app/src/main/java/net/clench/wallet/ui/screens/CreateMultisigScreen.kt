@@ -124,7 +124,11 @@ fun CreateMultisigScreen(
                     )
                     hostActivity.runOnUiThread {
                         viewModel.updateSigner(signerIndex, label = "TAPSIGNER", xpub = result.originWrappedXpub)
-                        tapsignerNfcStatuses[signerIndex] = result.summary
+                        tapsignerNfcStatuses[signerIndex] = if (action == TapsignerMultisigNfcAction.SETUP_BIP48) {
+                            result.summary + " Save an encrypted TAPSIGNER backup before funding; backup is a separate PIN, file save, and NFC tap action."
+                        } else {
+                            result.summary
+                        }
                         tapsignerNfcErrors.remove(signerIndex)
                         stopTapsignerNfcReader(clearPin = true)
                     }
@@ -240,7 +244,7 @@ fun CreateMultisigScreen(
                 Text(
                     "Clench will initialize an unused TAPSIGNER or set its current derivation path to $targetPath. " +
                         "This does not move funds or delete keys, but a TAPSIGNER previously used for single-sig may stop reporting its m/84 account until that path is selected again. " +
-                        "Make sure you have the card and backup details before funding this multisig wallet."
+                        "Before funding this multisig wallet, save an encrypted TAPSIGNER backup as a separate step: enter the TAPSIGNER PIN, choose where to save the .aes file, then tap the card again."
                 )
             },
             confirmButton = {
@@ -945,7 +949,7 @@ private fun TapsignerMultisigControls(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                "This signer slot expects $targetPath. Single-sig TAPSIGNER accounts use m/84 and should be imported from the standalone TAPSIGNER flow instead.",
+                "This signer slot expects $targetPath. Single-sig TAPSIGNER accounts use m/84 and should be imported from the standalone TAPSIGNER flow instead. After setup, save an encrypted TAPSIGNER backup before funding; backup requires the PIN, choosing a .aes file, and tapping the card again.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

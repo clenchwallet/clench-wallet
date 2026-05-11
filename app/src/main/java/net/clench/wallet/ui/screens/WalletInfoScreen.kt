@@ -261,7 +261,7 @@ fun WalletInfoScreen(
             tapsignerNfcStatus = when (action) {
                 TapsignerWalletNfcAction.REFRESH_STATUS -> "Ready to refresh status. Hold TAPSIGNER against the phone."
                 TapsignerWalletNfcAction.VERIFY_CARD -> "Ready to verify. Hold TAPSIGNER against the phone."
-                TapsignerWalletNfcAction.SAVE_BACKUP -> "Ready to save backup. Hold TAPSIGNER against the phone."
+                TapsignerWalletNfcAction.SAVE_BACKUP -> "Ready to save encrypted backup. Hold TAPSIGNER against the phone again."
             }
         } catch (e: Exception) {
             clearTapsignerPendingCvc()
@@ -383,7 +383,7 @@ fun WalletInfoScreen(
             title = { Text("Save TAPSIGNER Backup?") },
             text = {
                 Text(
-                    "Clench will save the encrypted backup file returned by the card. The file is encrypted by the AES backup key printed on your TAPSIGNER. Store the file and printed key separately."
+                    "Clench will ask where to save the encrypted .aes backup file. After you choose the file, hold the TAPSIGNER to the phone again; saving the backup is a separate authenticated NFC command that uses the TAPSIGNER PIN you entered. The file is encrypted by the AES backup key printed on your TAPSIGNER. Store the file and printed key separately."
                 )
             },
             confirmButton = {
@@ -392,7 +392,7 @@ fun WalletInfoScreen(
                         showTapsignerBackupConfirm = false
                         tapsignerBackupLauncher.launch(tapsignerBackupFilename())
                     }
-                ) { Text("Choose File") }
+                ) { Text("Choose File, Then Tap") }
             },
             dismissButton = {
                 TextButton(onClick = { showTapsignerBackupConfirm = false }) {
@@ -962,6 +962,11 @@ private fun TapsignerSignerCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Text(
+                "Saving a backup is a separate action: enter the TAPSIGNER PIN, choose where to save the .aes file, then tap the card again when NFC starts.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             InfoLine("Signer", "TAPSIGNER NFC")
             InfoLine("Wallet mode", "Watch-only until signing")
@@ -976,7 +981,7 @@ private fun TapsignerSignerCard(
                     InfoLine("Encrypted backups", count.toString())
                     if (count == 0L) {
                         Text(
-                            "No encrypted card backups are recorded. Save one before receiving funds.",
+                            "No encrypted card backups are recorded. Save one before receiving funds. This requires the TAPSIGNER PIN, choosing a .aes file location, then tapping the card again.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
