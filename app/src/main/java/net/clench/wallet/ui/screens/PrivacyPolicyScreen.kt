@@ -158,7 +158,7 @@ fun PrivacyPolicyScreen(onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
             BulletItem("Internet — to connect to Electrum servers and optional price/fee APIs")
             BulletItem("Camera — to scan QR codes (addresses, PSBTs, hardware wallet communication). Only active when you open the scanner.")
-            BulletItem("NFC — to communicate with NFC-based hardware wallets and cards (Coldcard, Tapsigner, SATSCARD). Only active during explicit NFC flows.")
+            BulletItem("NFC — to communicate with NFC-based hardware wallets and cards (Coldcard, TAPSIGNER, SATSCARD). Only active during explicit NFC flows.")
             BulletItem("Bluetooth — to discover and connect to Bluetooth hardware wallets when that signing flow is used.")
             BulletItem("Biometrics — to authenticate wallet access")
             BulletItem("Clench does not require Google Play Services, Firebase, analytics, or third-party crash reporting.")

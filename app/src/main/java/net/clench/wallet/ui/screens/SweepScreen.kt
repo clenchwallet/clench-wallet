@@ -117,7 +117,7 @@ fun SweepScreen(
                         satscardStatus = "${status.summary()}. Enter the spend code to unseal the active slot and sweep it."
                         satscardError = null
                     } else {
-                        val cardName = if (status.isTapsigner) "Tapsigner" else "Coinkite card"
+                        val cardName = if (status.isTapsigner) "TAPSIGNER" else "Coinkite card"
                         satscardStatus = null
                         satscardError = "$cardName detected; this sweep tool only supports SATSCARD here."
                     }

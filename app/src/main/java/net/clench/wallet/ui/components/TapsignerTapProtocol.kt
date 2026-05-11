@@ -90,7 +90,7 @@ data class CoinkiteTapCardStatus(
         isTampered?.takeIf { it }?.let { parts += "tamper warning" }
         authDelaySeconds?.takeIf { it > 0 }?.let { parts += "auth delay ${it}s" }
         val name = when (kind) {
-            CoinkiteTapCardKind.TAPSIGNER -> "Tapsigner"
+            CoinkiteTapCardKind.TAPSIGNER -> "TAPSIGNER"
             CoinkiteTapCardKind.SATSCARD -> "SATSCARD"
             CoinkiteTapCardKind.UNKNOWN -> "Coinkite card"
         }
@@ -306,7 +306,7 @@ object TapsignerTapProtocol {
         cvc: CharArray,
         chainCode: ByteArray
     ): ByteArray {
-        require(chainCode.size == 32) { "Tapsigner chain code must be 32 bytes" }
+        require(chainCode.size == 32) { "TAPSIGNER chain code must be 32 bytes" }
         val auth = authenticatedCommand("new", cardPubkey, cardNonce, cvc)
         return apdu(
             cla = 0x00,
@@ -401,27 +401,27 @@ object TapsignerTapProtocol {
 
     fun parseTapsignerXpubResponse(response: ByteArray): TapsignerXpubResponse {
         val dataItem = responseMapOrThrow(response)
-        val xpub = dataItem.bytes("xpub") ?: error("Tapsigner xpub response did not include xpub")
-        if (xpub.size != 78) error("Tapsigner returned an invalid xpub length")
+        val xpub = dataItem.bytes("xpub") ?: error("TAPSIGNER xpub response did not include xpub")
+        if (xpub.size != 78) error("TAPSIGNER returned an invalid xpub length")
         val cardNonce = dataItem.bytes("card_nonce")
-        cardNonce?.let { if (it.size != 16) error("Tapsigner xpub response had an invalid card nonce length") }
+        cardNonce?.let { if (it.size != 16) error("TAPSIGNER xpub response had an invalid card nonce length") }
         return TapsignerXpubResponse(xpub, cardNonce)
     }
 
     fun parseTapsignerNewResponse(response: ByteArray): TapsignerNewResult {
         val dataItem = responseMapOrThrow(response)
-        val slot = dataItem.long("slot") ?: error("Tapsigner initialize response did not include slot")
-        val cardNonce = dataItem.bytes("card_nonce") ?: error("Tapsigner initialize response did not include card nonce")
-        if (cardNonce.size != 16) error("Tapsigner initialize response had an invalid card nonce length")
+        val slot = dataItem.long("slot") ?: error("TAPSIGNER initialize response did not include slot")
+        val cardNonce = dataItem.bytes("card_nonce") ?: error("TAPSIGNER initialize response did not include card nonce")
+        if (cardNonce.size != 16) error("TAPSIGNER initialize response had an invalid card nonce length")
         return TapsignerNewResult(slot, cardNonce)
     }
 
     fun parseTapsignerBackupResponse(response: ByteArray): TapsignerBackupResponse {
         val dataItem = responseMapOrThrow(response)
-        val data = dataItem.bytes("data") ?: error("Tapsigner backup response did not include backup data")
-        val cardNonce = dataItem.bytes("card_nonce") ?: error("Tapsigner backup response did not include card nonce")
-        if (data.isEmpty()) error("Tapsigner backup response returned empty backup data")
-        if (cardNonce.size != 16) error("Tapsigner backup response had an invalid card nonce length")
+        val data = dataItem.bytes("data") ?: error("TAPSIGNER backup response did not include backup data")
+        val cardNonce = dataItem.bytes("card_nonce") ?: error("TAPSIGNER backup response did not include card nonce")
+        if (data.isEmpty()) error("TAPSIGNER backup response returned empty backup data")
+        if (cardNonce.size != 16) error("TAPSIGNER backup response had an invalid card nonce length")
         return TapsignerBackupResponse(data, cardNonce)
     }
 
@@ -561,7 +561,7 @@ object TapsignerTapProtocol {
         cardNonce: ByteArray,
         cvc: CharArray
     ): AuthenticatedCommand {
-        require(cvc.size in 6..32) { "Coinkite card code must be 6 to 32 characters" }
+        require(cvc.size in 6..32) { "Coinkite card PIN/spend code must be 6 to 32 characters" }
         require(cardPubkey.size == 33) { "Coinkite card pubkey was invalid" }
         require(cardNonce.size == 16) { "Coinkite card nonce was invalid" }
 
@@ -577,7 +577,7 @@ object TapsignerTapProtocol {
         val mask = xorBytes(sessionKey, nonceDigest)
         val cvcBytes = ByteArray(cvc.size) { index ->
             val code = cvc[index].code
-            require(code in 0x21..0x7E) { "Coinkite card code must contain printable ASCII characters" }
+            require(code in 0x21..0x7E) { "Coinkite card PIN/spend code must contain printable ASCII characters" }
             code.toByte()
         }
         val encryptedCvc = xorBytes(cvcBytes, mask.copyOfRange(0, cvcBytes.size))
@@ -630,7 +630,7 @@ object CoinkiteTapCardNfcReader {
             }
             val status = TapsignerTapProtocol.parseStatusResponse(response)
             if (status.kind == CoinkiteTapCardKind.UNKNOWN) {
-                error("Coinkite NFC card is not reporting Tapsigner or SATSCARD mode")
+                error("Coinkite NFC card is not reporting TAPSIGNER or SATSCARD mode")
             }
             return status
         } finally {
@@ -742,30 +742,30 @@ object SatscardNfcReader {
 object TapsignerNfcReader {
     fun readStatus(tag: Tag): CoinkiteTapCardStatus {
         val status = CoinkiteTapCardNfcReader.readStatus(tag)
-        if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
+        if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
         return status
     }
 
     fun readAccountXpub(tag: Tag, cvc: CharArray): TapsignerAccountXpubResult {
-        val isoDep = IsoDep.get(tag) ?: error("Tapsigner requires ISO-DEP NFC, not NDEF")
+        val isoDep = IsoDep.get(tag) ?: error("TAPSIGNER requires ISO-DEP NFC, not NDEF")
         isoDep.connect()
         try {
             isoDep.timeout = 10000
             var status = selectOrReadStatus(isoDep)
-            if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
-            if (status.isTampered == true) error("Tapsigner tamper warning is set")
+            if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
+            if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
             if (status.derivationPath == null) {
-                error("This Tapsigner has not been set up yet. Initialize it with a Tapsigner-compatible wallet first, then return to Clench to import its xpub.")
+                error("This TAPSIGNER has not been set up yet. Initialize it with a TAPSIGNER-compatible wallet first, then return to Clench to import its xpub.")
             }
             if ((status.authDelaySeconds ?: 0L) > 0L) {
-                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "Tapsigner")
+                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "TAPSIGNER")
                 status = TapsignerTapProtocol.parseStatusResponse(
                     isoDep.transceive(TapsignerTapProtocol.statusCommand())
                 )
-                if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
-                if (status.isTampered == true) error("Tapsigner tamper warning is set")
+                if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
+                if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
                 if (status.derivationPath == null) {
-                    error("This Tapsigner has not been set up yet. Initialize it with a Tapsigner-compatible wallet first, then return to Clench to import its xpub.")
+                    error("This TAPSIGNER has not been set up yet. Initialize it with a TAPSIGNER-compatible wallet first, then return to Clench to import its xpub.")
                 }
             }
             val cardPubkey = verifiedCardPubkey(status)
@@ -776,7 +776,7 @@ object TapsignerNfcReader {
                 initialCardNonce = latestCardNonce,
                 cvc = cvc,
                 reportedPath = status.displayPath,
-                summaryPrefix = "Tapsigner xpub imported"
+                summaryPrefix = "TAPSIGNER xpub imported"
             )
         } finally {
             isoDep.close()
@@ -785,25 +785,25 @@ object TapsignerNfcReader {
     }
 
     fun initializeAndReadAccountXpub(tag: Tag, cvc: CharArray): TapsignerAccountXpubResult {
-        val isoDep = IsoDep.get(tag) ?: error("Tapsigner requires ISO-DEP NFC, not NDEF")
+        val isoDep = IsoDep.get(tag) ?: error("TAPSIGNER requires ISO-DEP NFC, not NDEF")
         isoDep.connect()
         try {
             isoDep.timeout = 10000
             var status = selectOrReadStatus(isoDep)
-            if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
-            if (status.isTampered == true) error("Tapsigner tamper warning is set")
+            if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
+            if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
             if (status.derivationPath != null) {
-                error("This Tapsigner is already initialized. Use NFC import instead.")
+                error("This TAPSIGNER is already initialized. Use NFC import instead.")
             }
             if ((status.authDelaySeconds ?: 0L) > 0L) {
-                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "Tapsigner")
+                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "TAPSIGNER")
                 status = TapsignerTapProtocol.parseStatusResponse(
                     isoDep.transceive(TapsignerTapProtocol.statusCommand())
                 )
-                if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
-                if (status.isTampered == true) error("Tapsigner tamper warning is set")
+                if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
+                if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
                 if (status.derivationPath != null) {
-                    error("This Tapsigner is already initialized. Use NFC import instead.")
+                    error("This TAPSIGNER is already initialized. Use NFC import instead.")
                 }
             }
             val cardPubkey = verifiedCardPubkey(status)
@@ -823,14 +823,14 @@ object TapsignerNfcReader {
             } finally {
                 chainCode.fill(0)
             }
-            if (newResult.slot != 0L) error("Tapsigner initialized an unexpected slot")
+            if (newResult.slot != 0L) error("TAPSIGNER initialized an unexpected slot")
             return readVerifiedAccountXpub(
                 isoDep = isoDep,
                 cardPubkey = cardPubkey,
                 initialCardNonce = newResult.cardNonce,
                 cvc = cvc,
                 reportedPath = status.displayPath,
-                summaryPrefix = "Tapsigner initialized and xpub imported"
+                summaryPrefix = "TAPSIGNER initialized and xpub imported"
             )
         } finally {
             isoDep.close()
@@ -839,25 +839,25 @@ object TapsignerNfcReader {
     }
 
     fun createBackup(tag: Tag, cvc: CharArray): TapsignerBackupResult {
-        val isoDep = IsoDep.get(tag) ?: error("Tapsigner requires ISO-DEP NFC, not NDEF")
+        val isoDep = IsoDep.get(tag) ?: error("TAPSIGNER requires ISO-DEP NFC, not NDEF")
         isoDep.connect()
         try {
             isoDep.timeout = 10000
             var status = selectOrReadStatus(isoDep)
-            if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
-            if (status.isTampered == true) error("Tapsigner tamper warning is set")
+            if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
+            if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
             if (status.derivationPath == null) {
-                error("Initialize this Tapsigner before creating a backup.")
+                error("Initialize this TAPSIGNER before creating a backup.")
             }
             if ((status.authDelaySeconds ?: 0L) > 0L) {
-                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "Tapsigner")
+                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "TAPSIGNER")
                 status = TapsignerTapProtocol.parseStatusResponse(
                     isoDep.transceive(TapsignerTapProtocol.statusCommand())
                 )
-                if (!status.isTapsigner) error("Coinkite NFC card is not reporting Tapsigner mode")
-                if (status.isTampered == true) error("Tapsigner tamper warning is set")
+                if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
+                if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
                 if (status.derivationPath == null) {
-                    error("Initialize this Tapsigner before creating a backup.")
+                    error("Initialize this TAPSIGNER before creating a backup.")
                 }
             }
             val cardPubkey = verifiedCardPubkey(status)
@@ -874,7 +874,7 @@ object TapsignerNfcReader {
                 )
             } catch (e: CoinkiteTapCardException) {
                 if (e.code == 406L) {
-                    error("This Tapsigner is not initialized yet, so it cannot create a backup.")
+                    error("This TAPSIGNER is not initialized yet, so it cannot create a backup.")
                 }
                 throw e
             }
@@ -887,7 +887,7 @@ object TapsignerNfcReader {
             return TapsignerBackupResult(
                 data = backup.data,
                 numberOfBackups = count,
-                summary = "Tapsigner encrypted backup created; $countText"
+                summary = "TAPSIGNER encrypted backup created; $countText"
             )
         } finally {
             isoDep.close()
@@ -917,7 +917,7 @@ object TapsignerNfcReader {
                 )
             } catch (e: CoinkiteTapCardException) {
                 if (e.code == 406L) {
-                    error("This Tapsigner is not ready to export an xpub. It may not be initialized yet; set it up with a Tapsigner-compatible wallet first.")
+                    error("This TAPSIGNER is not ready to export an xpub. It may not be initialized yet; set it up with a TAPSIGNER-compatible wallet first.")
                 }
                 throw e
             }
@@ -938,7 +938,7 @@ object TapsignerNfcReader {
                 )
             } catch (e: CoinkiteTapCardException) {
                 if (e.code == 406L) {
-                    error("This Tapsigner is not ready to export an account xpub. Confirm it has been initialized and has a derivation path set.")
+                    error("This TAPSIGNER is not ready to export an account xpub. Confirm it has been initialized and has a derivation path set.")
                 }
                 throw e
             }
@@ -957,7 +957,7 @@ object TapsignerNfcReader {
     }
 
     private fun verifiedCardPubkey(status: CoinkiteTapCardStatus): ByteArray {
-        return status.cardPubkeyHex?.hexToBytes() ?: error("Tapsigner status did not include card pubkey")
+        return status.cardPubkeyHex?.hexToBytes() ?: error("TAPSIGNER status did not include card pubkey")
     }
 
     private fun verifyTapsignerCard(
@@ -965,7 +965,7 @@ object TapsignerNfcReader {
         status: CoinkiteTapCardStatus,
         cardPubkey: ByteArray
     ): ByteArray {
-        val cardNonce = status.cardNonceHex?.hexToBytes() ?: error("Tapsigner status did not include card nonce")
+        val cardNonce = status.cardNonceHex?.hexToBytes() ?: error("TAPSIGNER status did not include card nonce")
         val certs = TapsignerTapProtocol.parseCertsResponse(
             isoDep.transceive(TapsignerTapProtocol.certsCommand())
         )
@@ -1003,7 +1003,7 @@ object TapsignerNfcReader {
         val status = TapsignerTapProtocol.parseStatusResponse(
             isoDep.transceive(TapsignerTapProtocol.statusCommand())
         )
-        return status.cardNonceHex?.hexToBytes() ?: error("Tapsigner status did not include card nonce")
+        return status.cardNonceHex?.hexToBytes() ?: error("TAPSIGNER status did not include card nonce")
     }
 
     private fun randomNonce(): ByteArray {

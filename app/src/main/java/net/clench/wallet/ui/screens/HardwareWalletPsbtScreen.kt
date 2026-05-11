@@ -174,7 +174,7 @@ fun HardwareWalletPsbtScreen(
                         }
                     } catch (e: Exception) {
                         hostActivity.runOnUiThread {
-                            tapsignerError = e.message ?: "Tapsigner NFC status read failed"
+                            tapsignerError = e.message ?: "TAPSIGNER NFC status read failed"
                             tapsignerStatus = null
                         }
                     }
@@ -609,13 +609,13 @@ fun HardwareWalletPsbtScreen(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            "Tapsigner signing status",
+                            "TAPSIGNER signing status",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Tapsigner is a screenless NFC signer. Clench can verify the card responds to Coinkite Tap Protocol status, but direct PSBT signing is not enabled until PIN-authenticated signing and safe PSBT signature injection are implemented.",
+                            "TAPSIGNER is a screenless NFC signer. Clench can verify the card responds to Coinkite Tap Protocol status, but direct PSBT signing is not enabled until PIN-authenticated signing and safe PSBT signature injection are implemented.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -635,7 +635,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Tap the Tapsigner to confirm NFC/app selection, firmware, derivation path, and backup count before using this wallet policy elsewhere.",
+                            "Tap the TAPSIGNER to confirm NFC/app selection, firmware, derivation path, and backup count before using this wallet policy elsewhere.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -658,11 +658,11 @@ fun HardwareWalletPsbtScreen(
                                 Button(
                                     onClick = {
                                         tapsignerError = null
-                                        tapsignerStatus = "Ready for NFC status. Hold Tapsigner against the phone."
+                                        tapsignerStatus = "Ready for NFC status. Hold TAPSIGNER against the phone."
                                         tapsignerReaderActive = true
                                     },
                                     modifier = Modifier.fillMaxWidth()
-                                ) { Text("Read Tapsigner NFC Status") }
+                                ) { Text("Read TAPSIGNER NFC Status") }
                                 if (tapsignerReaderActive) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     TextButton(
@@ -712,7 +712,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Clench will not send this PSBT to a Tapsigner yet. The remaining bridge must compute each input digest, authenticate Tap Protocol sign commands with the Tapsigner PIN, inject signatures into the PSBT, finalize it, and re-run output validation before broadcast.",
+                            "Clench will not send this PSBT to a TAPSIGNER yet. The remaining bridge must compute each input digest, authenticate Tap Protocol sign commands with the TAPSIGNER PIN, inject signatures into the PSBT, finalize it, and re-run output validation before broadcast.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )

@@ -162,7 +162,7 @@ fun ImportWalletScreen(
         if (!nfcProcessing.compareAndSet(false, true)) return
         try {
             if (device.usesCoinkiteTapProtocol) {
-                val readerCvc = cvc ?: error("Enter the Tapsigner PIN before importing over NFC")
+                val readerCvc = cvc ?: error("Enter the TAPSIGNER PIN before importing over NFC")
                 if (backupTapsigner) {
                     val backupUri = pendingTapsignerBackupUri ?: error("Choose a backup file first")
                     val backup = TapsignerNfcReader.createBackup(tag, readerCvc)
@@ -172,7 +172,7 @@ fun ImportWalletScreen(
                                 output.write(backup.data)
                             } ?: error("Could not open backup file")
                         } catch (writeError: Exception) {
-                            error("Tapsigner backup was created, but Clench could not save the file: ${writeError.message}")
+                            error("TAPSIGNER backup was created, but Clench could not save the file: ${writeError.message}")
                         }
                     } finally {
                         backup.data.fill(0)
@@ -246,19 +246,19 @@ fun ImportWalletScreen(
                         tapsignerInitializeAvailable = true
                         tapsignerBackupAvailable = false
                         tapsignerBackupCount = null
-                        nfcError = "${status.summary()}. This Tapsigner has not been set up yet. Initialize it with a Tapsigner-compatible wallet first, then return to Clench to import its xpub."
+                        nfcError = "${status.summary()}. This TAPSIGNER has not been set up yet. Initialize it with a TAPSIGNER-compatible wallet first, then return to Clench to import its xpub."
                     } else {
                         tapsignerInitializeAvailable = false
                         tapsignerBackupAvailable = true
                         tapsignerBackupCount = status.numberOfBackups
-                        nfcStatus = "${status.summary()}. Enter the Tapsigner PIN and tap NFC to import the xpub."
+                        nfcStatus = "${status.summary()}. Enter the TAPSIGNER PIN and tap NFC to import the xpub."
                     }
                 }
             }
         } catch (e: Exception) {
             hostActivity.runOnUiThread {
                 if (nfcError == null) {
-                    nfcError = e.message ?: "Tapsigner NFC read failed"
+                    nfcError = e.message ?: "TAPSIGNER NFC read failed"
                     nfcStatus = null
                 }
             }
@@ -336,7 +336,7 @@ fun ImportWalletScreen(
             !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
             activity == null -> nfcError = "NFC reader is unavailable in this view"
             selectedDevice == null -> nfcError = "Choose a hardware wallet first"
-            tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the Tapsigner PIN"
+            tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the TAPSIGNER PIN"
             else -> {
                 viewModel.clearError()
                 nfcError = null
@@ -364,7 +364,7 @@ fun ImportWalletScreen(
             !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
             activity == null -> nfcError = "NFC reader is unavailable in this view"
             selectedDevice == null -> nfcError = "Choose a hardware wallet first"
-            tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the Tapsigner PIN"
+            tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the TAPSIGNER PIN"
             else -> {
                 pendingTapsignerBackupUri = uri
                 viewModel.clearError()
@@ -385,7 +385,7 @@ fun ImportWalletScreen(
             !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
             activity == null -> nfcError = "NFC reader is unavailable in this view"
             selectedDevice == null -> nfcError = "Choose a hardware wallet first"
-            tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the Tapsigner PIN"
+            tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the TAPSIGNER PIN"
             else -> showTapsignerBackupConfirm = true
         }
     }
@@ -582,7 +582,7 @@ fun ImportWalletScreen(
                         if (selectedDevice!!.isScreenlessSigner) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "Tapsigner is screenless. Verify wallet policy, addresses, and transaction details in Clench or another trusted coordinator before signing.",
+                                "TAPSIGNER is screenless. Verify wallet policy, addresses, and transaction details in Clench or another trusted coordinator before signing.",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -649,7 +649,10 @@ fun ImportWalletScreen(
                             nfcError = null
                             viewModel.clearError()
                         },
-                        label = { Text("Tapsigner PIN") },
+                        label = { Text("TAPSIGNER PIN") },
+                        supportingText = {
+                            Text("Use the current PIN. If unchanged, this is the Starting PIN Code printed on the card. Do not enter the AES backup key.")
+                        },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         modifier = Modifier.fillMaxWidth(),
@@ -684,7 +687,7 @@ fun ImportWalletScreen(
                                     activity == null -> nfcError = "NFC reader is unavailable in this view"
                                     selectedDevice == null -> nfcError = "Choose a hardware wallet first"
                                     needsTapsignerCvc && tapsignerCvcInput.length !in 6..32 -> {
-                                        nfcError = "Enter the Tapsigner PIN"
+                                        nfcError = "Enter the TAPSIGNER PIN"
                                     }
                                     else -> {
                                         viewModel.clearError()
@@ -721,7 +724,7 @@ fun ImportWalletScreen(
                                         nfcAdapter == null -> nfcError = "This phone does not report NFC hardware"
                                         !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
                                         activity == null -> nfcError = "NFC reader is unavailable in this view"
-                                        tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the Tapsigner PIN"
+                                        tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the TAPSIGNER PIN"
                                         else -> showTapsignerInitializeConfirm = true
                                     }
                                 },
@@ -1234,7 +1237,7 @@ private fun getDeviceInstructions(device: HardwareWalletType): String {
         HardwareWalletType.SEEDSIGNER -> "On your SeedSigner: Seeds → [Your Seed] → Export Xpub. Choose Native SegWit (BIP84) for single-sig, or Multisig (BIP48) for a cosigner export. SeedSigner displays an animated QR series for scanning."
         HardwareWalletType.KEYSTONE -> "On your Keystone, export a Sparrow-compatible wallet descriptor by QR or file. Clench accepts static/animated QR, UR account/output payloads, descriptors, and multisig wallet config text."
         HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport, export a wallet descriptor or account QR for a wallet such as Envoy/Sparrow. Clench accepts Passport UR account/output QR payloads, descriptors, and multisig wallet config text."
-        HardwareWalletType.TAPSIGNER -> "Tap the card on this screen to read status. If it is not set up, Clench can initialize it after confirmation. To import or save an encrypted backup, enter your Tapsigner PIN, then tap NFC. If you never changed it, use the Starting PIN Code printed on the card. Do not enter the AES backup key."
+        HardwareWalletType.TAPSIGNER -> "Tap the card on this screen to read status. If it is not set up, Clench can initialize it after confirmation. To import or save an encrypted backup, enter your TAPSIGNER PIN, then tap NFC. If you never changed it, use the Starting PIN Code printed on the card. Do not enter the AES backup key."
         HardwareWalletType.JADE -> "On your Jade: Options → Wallet → Export Xpub. Jade displays the account xpub as an animated QR; scan it here."
     }
 }

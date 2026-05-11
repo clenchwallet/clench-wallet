@@ -109,7 +109,7 @@ class TapsignerTapProtocolTest {
         assertEquals(700553L, status.birthHeight)
         assertEquals("m/84'/0'/0'", status.displayPath)
         assertEquals(3L, status.numberOfBackups)
-        assertEquals("Tapsigner detected: firmware 1.1.0, path m/84'/0'/0', 3 backups", status.summary())
+        assertEquals("TAPSIGNER detected: firmware 1.1.0, path m/84'/0'/0', 3 backups", status.summary())
         assertEquals(66, status.cardPubkeyHex?.length)
         assertEquals(32, status.cardNonceHex?.length)
     }

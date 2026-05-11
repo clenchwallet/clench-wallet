@@ -734,7 +734,7 @@ private fun signerImportHint(device: HardwareWalletType?): String {
         HardwareWalletType.KEYSTONE,
         HardwareWalletType.FOUNDATION_PASSPORT -> "Use the device's multisig account/export QR or file for this signer."
         HardwareWalletType.JADE -> "Use Jade's account xpub export for the BIP48 multisig path."
-        HardwareWalletType.TAPSIGNER -> "Direct Tapsigner PIN-authenticated xpub export is not enabled here yet; paste an origin-wrapped xpub from a trusted coordinator."
+        HardwareWalletType.TAPSIGNER -> "Direct TAPSIGNER PIN-authenticated xpub export is not enabled here yet; paste an origin-wrapped xpub from a trusted coordinator."
     }
 }
 
