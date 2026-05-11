@@ -39,6 +39,7 @@ fun HomeScreen(
     onUtxoList: () -> Unit = {},
     onSweep: () -> Unit = {},
     onFundSatscard: () -> Unit = {},
+    onSignerVault: () -> Unit = {},
     onRawTransaction: () -> Unit = {},
     onRecoveryWizard: () -> Unit = {},
     onTransactionDetail: (txid: String) -> Unit = {},
@@ -83,6 +84,15 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Fund SATSCARD")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            showAdvancedTools = false
+                            onSignerVault()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Signer Vault")
                     }
                     OutlinedButton(
                         onClick = {

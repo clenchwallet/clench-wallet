@@ -9,8 +9,10 @@ import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
 import net.clench.wallet.data.local.dao.WalletDao
 import net.clench.wallet.data.local.dao.AddressBookDao
+import net.clench.wallet.data.local.dao.SavedSignerDao
 import net.clench.wallet.data.local.dao.WalletKeystoreMetadataDao
 import net.clench.wallet.data.local.entity.AddressBookEntryEntity
+import net.clench.wallet.data.local.entity.SavedSignerEntity
 import net.clench.wallet.data.local.entity.TransactionEntity
 import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.local.entity.UtxoMetadataEntity
@@ -24,9 +26,10 @@ import net.clench.wallet.data.local.entity.WalletKeystoreMetadataEntity
         UtxoMetadataEntity::class,
         TransactionLabelEntity::class,
         AddressBookEntryEntity::class,
+        SavedSignerEntity::class,
         WalletKeystoreMetadataEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 abstract class ClenchDatabase : RoomDatabase() {
@@ -35,6 +38,7 @@ abstract class ClenchDatabase : RoomDatabase() {
     abstract fun utxoMetadataDao(): UtxoMetadataDao
     abstract fun transactionLabelDao(): TransactionLabelDao
     abstract fun addressBookDao(): AddressBookDao
+    abstract fun savedSignerDao(): SavedSignerDao
     abstract fun walletKeystoreMetadataDao(): WalletKeystoreMetadataDao
 
     companion object {
@@ -128,6 +132,30 @@ abstract class ClenchDatabase : RoomDatabase() {
                     )
                 """.trimIndent())
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_wallet_keystore_metadata_walletId ON wallet_keystore_metadata(walletId)")
+            }
+        }
+
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS saved_signers (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        label TEXT NOT NULL,
+                        xpub TEXT NOT NULL,
+                        fingerprint TEXT,
+                        derivationPath TEXT NOT NULL,
+                        network TEXT NOT NULL,
+                        scriptType TEXT NOT NULL,
+                        deviceType TEXT,
+                        source TEXT,
+                        verified INTEGER NOT NULL,
+                        createdAtEpochMs INTEGER NOT NULL,
+                        updatedAtEpochMs INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_saved_signers_network ON saved_signers(network)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_saved_signers_scriptType ON saved_signers(scriptType)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_saved_signers_fingerprint_derivationPath_xpub ON saved_signers(fingerprint, derivationPath, xpub)")
             }
         }
 

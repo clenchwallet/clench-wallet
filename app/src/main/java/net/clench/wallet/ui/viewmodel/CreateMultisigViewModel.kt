@@ -9,24 +9,25 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.clench.wallet.data.local.dao.SavedSignerDao
 import net.clench.wallet.data.local.dao.WalletKeystoreMetadataDao
+import net.clench.wallet.data.local.entity.SavedSignerEntity
 import net.clench.wallet.data.local.entity.WalletKeystoreMetadataEntity
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.PhoneSigner
+import net.clench.wallet.domain.model.SignerAccountKeyParser
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.domain.repository.MultisigPhoneSignerSecret
 import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
 import net.clench.wallet.ui.util.walletRuntimeMessage
-import org.json.JSONObject
-import java.security.MessageDigest
-import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
 class CreateMultisigViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
     private val settingsManager: SettingsManager,
+    private val savedSignerDao: SavedSignerDao,
     private val walletKeystoreMetadataDao: WalletKeystoreMetadataDao
 ) : ViewModel() {
 
@@ -39,7 +40,18 @@ class CreateMultisigViewModel @Inject constructor(
         val isLocalKey: Boolean = false,
         val phoneSignerSeedWords: List<String> = emptyList(),
         val phoneSignerAccountXprv: String? = null,
-        val phoneSignerBackedUp: Boolean = false
+        val phoneSignerBackedUp: Boolean = false,
+        val savedSignerId: String? = null
+    )
+
+    data class SavedSignerOption(
+        val id: String,
+        val label: String,
+        val xpub: String,
+        val fingerprint: String?,
+        val derivationPath: String,
+        val deviceType: String?,
+        val network: String
     )
 
     data class UiState(
@@ -55,7 +67,8 @@ class CreateMultisigViewModel @Inject constructor(
         val showQrScanner: Boolean = false,
         val qrScannerTargetIndex: Int = -1,
         val showPhoneSignerOptions: Boolean = false,
-        val generatingPhoneSignerIndex: Int? = null
+        val generatingPhoneSignerIndex: Int? = null,
+        val savedSignerOptions: List<SavedSignerOption> = emptyList()
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -65,12 +78,13 @@ class CreateMultisigViewModel @Inject constructor(
         // Initialize signers list based on default totalSigners
         _uiState.update { it.copy(showPhoneSignerOptions = true) }
         initializeSigners()
+        loadSavedSigners()
     }
 
     private fun initializeSigners() {
         val total = _uiState.value.totalSigners
         val isTestnet = settingsManager.isTestnet()
-        val defaultPath = if (isTestnet) "m/48'/1'/0'/2'" else "m/48'/0'/0'/2'"
+        val defaultPath = SignerAccountKeyParser.expectedMultisigPath(isTestnet)
         val signers = (1..total).map { i ->
             SignerInfo(
                 label = "Signer $i",
@@ -78,6 +92,29 @@ class CreateMultisigViewModel @Inject constructor(
             )
         }
         _uiState.update { it.copy(signers = signers) }
+    }
+
+    fun loadSavedSigners() {
+        viewModelScope.launch {
+            val network = if (settingsManager.isTestnet()) "testnet" else "mainnet"
+            val options = withContext(Dispatchers.IO) {
+                savedSignerDao.getForNetworkAndScript(
+                    network = network,
+                    scriptType = SignerAccountKeyParser.SCRIPT_MULTISIG_NATIVE_SEGWIT
+                )
+            }.map {
+                SavedSignerOption(
+                    id = it.id,
+                    label = it.label,
+                    xpub = it.xpub,
+                    fingerprint = it.fingerprint,
+                    derivationPath = it.derivationPath,
+                    deviceType = it.deviceType,
+                    network = it.network
+                )
+            }
+            _uiState.update { it.copy(savedSignerOptions = options) }
+        }
     }
 
     fun setThreshold(threshold: Int) {
@@ -110,20 +147,67 @@ class CreateMultisigViewModel @Inject constructor(
             val signers = state.signers.toMutableList()
             if (index in signers.indices) {
                 val current = signers[index]
-                val newXpub = xpub?.let { normalizeHardwareExportForMultisig(it) } ?: current.xpub
-                val newFingerprint = if (xpub != null) extractFingerprint(newXpub) else current.fingerprint
+                val parsed = xpub?.let {
+                    SignerAccountKeyParser.parse(
+                        raw = it,
+                        fallbackDerivationPath = current.derivationPath
+                    )
+                }
+                val newXpub = parsed?.keyWithOrigin ?: xpub?.let { SignerAccountKeyParser.normalizeHardwareExportForMultisig(it) } ?: current.xpub
+                val newFingerprint = if (xpub != null) parsed?.fingerprint.orEmpty() else current.fingerprint
+                val newDerivationPath = if (xpub != null) parsed?.derivationPath ?: current.derivationPath else current.derivationPath
                 signers[index] = current.copy(
                     label = label ?: current.label,
                     xpub = newXpub,
                     fingerprint = newFingerprint,
+                    derivationPath = newDerivationPath,
                     isLocalKey = if (xpub != null) false else current.isLocalKey,
                     phoneSignerSeedWords = if (xpub != null) emptyList() else current.phoneSignerSeedWords,
                     phoneSignerAccountXprv = if (xpub != null) null else current.phoneSignerAccountXprv,
                     phoneSignerBackedUp = if (xpub != null) false else current.phoneSignerBackedUp,
-                    deviceType = if (xpub != null) current.deviceType?.takeUnless { it == PhoneSigner.DEVICE_TYPE } else current.deviceType
+                    deviceType = if (xpub != null) current.deviceType?.takeUnless { it == PhoneSigner.DEVICE_TYPE } else current.deviceType,
+                    savedSignerId = null
                 )
             }
             state.copy(signers = signers)
+        }
+    }
+
+    fun updateSignerMetadata(index: Int, fingerprint: String? = null, derivationPath: String? = null) {
+        _uiState.update { state ->
+            val signers = state.signers.toMutableList()
+            if (index in signers.indices) {
+                val current = signers[index]
+                signers[index] = current.copy(
+                    fingerprint = fingerprint?.let { SignerAccountKeyParser.normalizeFingerprint(it).orEmpty() } ?: current.fingerprint,
+                    derivationPath = derivationPath?.let { SignerAccountKeyParser.normalizeDerivationPath(it) ?: it } ?: current.derivationPath,
+                    savedSignerId = null
+                )
+            }
+            state.copy(signers = signers)
+        }
+    }
+
+    fun applySavedSigner(index: Int, signerId: String) {
+        _uiState.update { state ->
+            val option = state.savedSignerOptions.find { it.id == signerId } ?: return@update state
+            val signers = state.signers.toMutableList()
+            if (index in signers.indices) {
+                val current = signers[index]
+                signers[index] = current.copy(
+                    label = option.label,
+                    xpub = option.xpub,
+                    fingerprint = option.fingerprint.orEmpty(),
+                    derivationPath = option.derivationPath,
+                    deviceType = option.deviceType,
+                    isLocalKey = false,
+                    phoneSignerSeedWords = emptyList(),
+                    phoneSignerAccountXprv = null,
+                    phoneSignerBackedUp = false,
+                    savedSignerId = option.id
+                )
+            }
+            state.copy(signers = signers, warning = "Loaded saved signer ${option.label}", error = null)
         }
     }
 
@@ -172,7 +256,8 @@ class CreateMultisigViewModel @Inject constructor(
                             isLocalKey = true,
                             phoneSignerSeedWords = generated.mnemonicWords,
                             phoneSignerAccountXprv = generated.accountXprvWithOrigin,
-                            phoneSignerBackedUp = false
+                            phoneSignerBackedUp = false,
+                            savedSignerId = null
                         )
                     }
                     state.copy(signers = signers, generatingPhoneSignerIndex = null)
@@ -288,7 +373,7 @@ class CreateMultisigViewModel @Inject constructor(
     fun buildDescriptorPreview(): String {
         val state = _uiState.value
         val keys = state.signers.joinToString(",") { signer ->
-            val xpub = signer.xpub.trim()
+            val xpub = effectiveSignerXpub(signer)
             if (xpub.endsWith("/0/*") || xpub.endsWith("/1/*")) {
                 xpub.replace("/1/*", "/0/*")
             } else {
@@ -298,45 +383,13 @@ class CreateMultisigViewModel @Inject constructor(
         return "wsh(sortedmulti(${state.threshold},$keys))"
     }
 
-    private fun normalizeHardwareExportForMultisig(text: String): String {
-        val trimmed = text.trim()
-        if (!trimmed.startsWith("{")) return trimmed
-
-        return runCatching {
-            val root = JSONObject(trimmed)
-            val candidates = listOf(
-                "p2wsh", "bip48", "bip48_2", "p2sh_p2wsh", "p2sh-p2wsh",
-                "p2wpkh", "bip84", "native_segwit"
-            )
-            for (key in candidates) {
-                val obj = root.optJSONObject(key) ?: continue
-                val normalized = xpubWithOriginFromJsonObject(obj, root)
-                if (normalized != null) return@runCatching normalized
-            }
-            xpubWithOriginFromJsonObject(root, root) ?: trimmed
-        }.getOrDefault(trimmed)
-    }
-
-    private fun xpubWithOriginFromJsonObject(obj: JSONObject, root: JSONObject): String? {
-        val xpub = obj.optString("xpub")
-            .ifBlank { obj.optString("Zpub") }
-            .ifBlank { obj.optString("Ypub") }
-            .ifBlank { obj.optString("zpub") }
-            .ifBlank { obj.optString("ypub") }
-            .ifBlank { obj.optString("pub") }
-            .ifBlank { obj.optString("key") }
-            .takeIf { it.isNotBlank() }
-            ?: return null
-        val xfp = obj.optString("xfp")
-            .ifBlank { obj.optString("fingerprint") }
-            .ifBlank { root.optString("xfp") }
-            .ifBlank { root.optString("fingerprint") }
-        val deriv = obj.optString("deriv")
-            .ifBlank { obj.optString("derivation") }
-            .ifBlank { obj.optString("path") }
-        return if (xfp.isNotBlank() && deriv.isNotBlank()) {
-            "[${xfp.removePrefix("0x").uppercase()}/${deriv.removePrefix("m/")}]$xpub"
-        } else xpub
+    private fun effectiveSignerXpub(signer: SignerInfo): String {
+        val parsed = SignerAccountKeyParser.parse(
+            raw = signer.xpub,
+            fallbackFingerprint = signer.fingerprint,
+            fallbackDerivationPath = signer.derivationPath
+        )
+        return parsed?.keyWithOrigin ?: signer.xpub.trim()
     }
 
     private fun canonicalSignerKey(raw: String): String {
@@ -349,15 +402,6 @@ class CreateMultisigViewModel @Inject constructor(
             .removeSuffix("/0/*")
             .removeSuffix("/1/*")
             .lowercase()
-    }
-
-    companion object {
-        // Valid public extended key prefixes for Bitcoin multisig. Private extended keys are
-        // intentionally rejected so this watch-only flow never persists signer secrets.
-        private val VALID_KEY_PREFIXES = listOf(
-            "xpub", "ypub", "zpub", "tpub",
-            "Zpub", "Ypub", "Vpub", "Upub"
-        )
     }
 
     /**
@@ -374,7 +418,6 @@ class CreateMultisigViewModel @Inject constructor(
             }
             2 -> {
                 // Fix 7: Validate each signer's key format
-                var hasWarning = false
                 val localSignerCount = state.signers.count { it.isLocalKey }
                 if (localSignerCount >= state.threshold) {
                     _uiState.update {
@@ -388,68 +431,18 @@ class CreateMultisigViewModel @Inject constructor(
                     return false
                 }
                 state.signers.forEachIndexed { index, signer ->
-                    val xpub = signer.xpub.trim()
+                    val xpub = effectiveSignerXpub(signer)
                     if (xpub.isBlank()) {
                         _uiState.update { it.copy(error = "Signer ${index + 1}: extended public key is required") }
                         return false
                     }
 
-                    // Check if key has origin info [fingerprint/path]
-                    val hasOrigin = xpub.startsWith("[")
-                    val originText: String?
-                    val keyPart = if (hasOrigin) {
-                        val closeBracket = xpub.indexOf(']')
-                        if (closeBracket < 0) {
-                            _uiState.update { it.copy(error = "Signer ${index + 1}: malformed key origin — missing closing ']'") }
-                            return false
-                        }
-                        originText = xpub.substring(1, closeBracket)
-                        val originError = validateOriginPath(originText, settingsManager.isTestnet())
-                        if (originError != null) {
-                            _uiState.update { it.copy(error = "Signer ${index + 1}: $originError") }
-                            return false
-                        }
-                        xpub.substring(closeBracket + 1)
-                    } else {
-                        originText = null
-                        xpub
-                    }
-
-                    // Require public extended keys, not full descriptors or private keys.
-                    val isDescriptor = xpub.startsWith("wsh(") || xpub.startsWith("wpkh(") || xpub.startsWith("sh(")
-                    if (isDescriptor) {
-                        _uiState.update { it.copy(error = "Signer ${index + 1}: paste the signer public key, not a full descriptor") }
+                    SignerAccountKeyParser.validationError(xpub, settingsManager.isTestnet())?.let { error ->
+                        _uiState.update { it.copy(error = "Signer ${index + 1}: $error") }
                         return false
-                    }
-                    if (keyPart.startsWith("xprv") || keyPart.startsWith("yprv") ||
-                        keyPart.startsWith("zprv") || keyPart.startsWith("tprv")) {
-                        _uiState.update { it.copy(error = "Signer ${index + 1}: private extended keys are not allowed") }
-                        return false
-                    }
-                    val hasValidPrefix = VALID_KEY_PREFIXES.any { keyPart.startsWith(it) }
-                    if (!hasValidPrefix) {
-                        _uiState.update {
-                            it.copy(error = "Signer ${index + 1}: unrecognized key format. " +
-                                "Expected xpub, Zpub, tpub, or similar public extended key.")
-                        }
-                        return false
-                    }
-                    val networkError = validateSignerNetwork(keyPart, settingsManager.isTestnet())
-                    if (networkError != null) {
-                        _uiState.update { it.copy(error = "Signer ${index + 1}: $networkError") }
-                        return false
-                    }
-
-                    // Warn (not block) if key origin is missing — HW wallets need it to verify derivation
-                    if (!hasOrigin) {
-                        hasWarning = true
-                        _uiState.update {
-                            it.copy(warning = "Signer ${index + 1}: no key origin [fingerprint/path]. " +
-                                "Hardware wallets may not be able to verify this signer's derivation path.")
-                        }
                     }
                 }
-                val canonicalKeys = state.signers.map { canonicalSignerKey(it.xpub) }
+                val canonicalKeys = state.signers.map { canonicalSignerKey(effectiveSignerXpub(it)) }
                 if (canonicalKeys.distinct().size != canonicalKeys.size) {
                     _uiState.update { it.copy(error = "Duplicate cosigner key detected. Each signer must be unique.") }
                     return false
@@ -484,7 +477,7 @@ class CreateMultisigViewModel @Inject constructor(
                 val state = _uiState.value
 
                 // Build xpub list with origin info
-                val signerXpubs = state.signers.map { it.xpub.trim() }
+                val signerXpubs = state.signers.map { effectiveSignerXpub(it) }
                 val localSignerSecrets = state.signers.mapIndexedNotNull { index, signer ->
                     val accountXprv = signer.phoneSignerAccountXprv
                     if (!signer.isLocalKey || accountXprv.isNullOrBlank()) null
@@ -501,6 +494,8 @@ class CreateMultisigViewModel @Inject constructor(
                     localSignerSecrets = localSignerSecrets
                 )
                 persistSignerMetadata(walletData.id, state.signers)
+                saveSignersToVault(state.signers, source = "multisig_create")
+                loadSavedSigners()
 
                 _uiState.update {
                     it.copy(isCreating = false, createdWalletId = walletData.id)
@@ -519,7 +514,7 @@ class CreateMultisigViewModel @Inject constructor(
     private suspend fun persistSignerMetadata(walletId: String, signers: List<SignerInfo>) {
         withContext(Dispatchers.IO) {
             signers.forEachIndexed { index, signer ->
-                val parsed = parseSignerKeyForMetadata(signer.xpub) ?: return@forEachIndexed
+                val parsed = parseSignerKeyForMetadata(effectiveSignerXpub(signer)) ?: return@forEachIndexed
                 val label = signer.label.trim().ifBlank { "Signer ${index + 1}" }
                 walletKeystoreMetadataDao.upsert(
                     WalletKeystoreMetadataEntity(
@@ -534,6 +529,79 @@ class CreateMultisigViewModel @Inject constructor(
         }
     }
 
+    fun saveSignerToVault(index: Int) {
+        viewModelScope.launch {
+            try {
+                val signer = _uiState.value.signers.getOrNull(index) ?: return@launch
+                val saved = saveSignerToVaultInternal(signer, source = "manual_save")
+                loadSavedSigners()
+                _uiState.update {
+                    it.copy(
+                        warning = "Saved ${saved.label} to Signer Vault",
+                        error = null
+                    )
+                }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                _uiState.update { it.copy(error = t.walletRuntimeMessage("saving the signer")) }
+            }
+        }
+    }
+
+    private suspend fun saveSignersToVault(signers: List<SignerInfo>, source: String) {
+        withContext(Dispatchers.IO) {
+            signers.forEach { signer ->
+                if (signer.isLocalKey) return@forEach
+                runCatching { saveSignerToVaultInternal(signer, source) }
+            }
+        }
+    }
+
+    private suspend fun saveSignerToVaultInternal(
+        signer: SignerInfo,
+        source: String
+    ): SavedSignerEntity {
+        if (signer.isLocalKey) {
+            error("Phone signers are wallet-specific right now and cannot be reused from Signer Vault")
+        }
+        val isTestnet = settingsManager.isTestnet()
+        val parsed = SignerAccountKeyParser.parse(
+            raw = signer.xpub,
+            fallbackFingerprint = signer.fingerprint,
+            fallbackDerivationPath = signer.derivationPath
+        ) ?: error("Signer public key is empty")
+        SignerAccountKeyParser.validationError(parsed.keyWithOrigin, isTestnet)?.let { error(it) }
+        val fingerprint = parsed.fingerprint ?: error("Signer master fingerprint is missing")
+        val derivationPath = parsed.derivationPath ?: error("Signer derivation path is missing")
+        val id = SignerAccountKeyParser.stableId(fingerprint, derivationPath, parsed.xpub)
+        val now = System.currentTimeMillis()
+        val entity = SavedSignerEntity(
+            id = id,
+            label = signer.label.trim().ifBlank { "Signer $fingerprint" }.take(64),
+            xpub = parsed.keyWithOrigin,
+            fingerprint = fingerprint,
+            derivationPath = derivationPath,
+            network = if (isTestnet) "testnet" else "mainnet",
+            scriptType = SignerAccountKeyParser.SCRIPT_MULTISIG_NATIVE_SEGWIT,
+            deviceType = signer.deviceType,
+            source = source,
+            verified = signer.deviceType == HardwareWalletType.TAPSIGNER.name,
+            createdAtEpochMs = now,
+            updatedAtEpochMs = now
+        )
+        val saved = entity.copy(createdAtEpochMs = existingCreatedAt(id) ?: entity.createdAtEpochMs)
+        savedSignerDao.upsert(saved)
+        return saved
+    }
+
+    private suspend fun existingCreatedAt(id: String): Long? {
+        val network = if (settingsManager.isTestnet()) "testnet" else "mainnet"
+        return savedSignerDao.getForNetworkAndScript(
+            network = network,
+            scriptType = SignerAccountKeyParser.SCRIPT_MULTISIG_NATIVE_SEGWIT
+        ).find { it.id == id }?.createdAtEpochMs
+    }
+
     private data class ParsedSignerKey(
         val fingerprint: String?,
         val derivationPath: String?,
@@ -541,19 +609,8 @@ class CreateMultisigViewModel @Inject constructor(
     )
 
     private fun parseSignerKeyForMetadata(raw: String): ParsedSignerKey? {
-        val trimmed = raw.trim()
-        if (trimmed.isBlank()) return null
-        val originMatch = Regex("""^\[([0-9a-fA-F]{8})(?:/([^\]]+))?\](.+)$""").find(trimmed)
-        val fingerprint = originMatch?.groupValues?.getOrNull(1)?.uppercase(Locale.US)
-        val originPath = originMatch?.groupValues?.getOrNull(2)?.takeIf { it.isNotBlank() }
-        val keyWithPath = originMatch?.groupValues?.getOrNull(3) ?: trimmed
-        val xpub = keyWithPath
-            .removeSuffix("/0/*")
-            .removeSuffix("/1/*")
-            .removeSuffix("/**")
-            .trim()
-            .ifBlank { return null }
-        return ParsedSignerKey(fingerprint, originPath, xpub)
+        val parsed = SignerAccountKeyParser.parse(raw) ?: return null
+        return ParsedSignerKey(parsed.fingerprint, parsed.derivationPath, parsed.xpub)
     }
 
     private fun stableKeystoreId(
@@ -561,54 +618,6 @@ class CreateMultisigViewModel @Inject constructor(
         derivationPath: String?,
         xpub: String
     ): String {
-        val input = listOf(
-            fingerprint.orEmpty().uppercase(Locale.US),
-            derivationPath.orEmpty().lowercase(Locale.US),
-            xpub.trim()
-        ).joinToString("|")
-        return MessageDigest.getInstance("SHA-256")
-            .digest(input.toByteArray(Charsets.UTF_8))
-            .take(12)
-            .joinToString("") { "%02x".format(it) }
-    }
-
-    private fun validateSignerNetwork(keyPart: String, isTestnet: Boolean): String? {
-        val key = keyPart.removeSuffix("/0/*").removeSuffix("/1/*")
-        val isMainnetKey = listOf("xpub", "ypub", "zpub", "Ypub", "Zpub").any { key.startsWith(it) }
-        val isTestnetKey = listOf("tpub", "upub", "vpub", "Upub", "Vpub").any { key.startsWith(it) }
-        return when {
-            isTestnet && isMainnetKey -> "mainnet public key used while Clench is set to testnet"
-            !isTestnet && isTestnetKey -> "testnet public key used while Clench is set to mainnet"
-            else -> null
-        }
-    }
-
-    private fun validateOriginPath(origin: String, isTestnet: Boolean): String? {
-        val parts = origin.split('/')
-        if (parts.isEmpty() || !Regex("^[0-9a-fA-F]{8}$").matches(parts[0])) {
-            return "key origin must start with an 8-character master fingerprint"
-        }
-        val pathParts = parts.drop(1).let { if (it.firstOrNull() == "m") it.drop(1) else it }
-        if (pathParts.size >= 2) {
-            val coinType = pathParts[1].removeHardenedSuffix()
-            val expected = if (isTestnet) "1" else "0"
-            if (coinType != expected) {
-                return "origin path coin type $coinType does not match ${if (isTestnet) "testnet" else "mainnet"}"
-            }
-        }
-        return null
-    }
-
-    private fun String.removeHardenedSuffix(): String {
-        return removeSuffix("'").removeSuffix("h").removeSuffix("H")
-    }
-
-    /**
-     * Extract master fingerprint from xpub origin info.
-     * Handles formats like: [73c5da0a/48'/0'/0'/2']xpub...
-     */
-    private fun extractFingerprint(xpub: String): String {
-        val match = Regex("\\[([0-9a-fA-F]{8})/").find(xpub)
-        return match?.groupValues?.get(1) ?: ""
+        return SignerAccountKeyParser.stableId(fingerprint, derivationPath, xpub)
     }
 }

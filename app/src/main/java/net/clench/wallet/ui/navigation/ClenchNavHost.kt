@@ -239,6 +239,7 @@ fun ClenchNavHost(navController: NavHostController) {
                 onUtxoList = { navController.navigate(Routes.UtxoList.build(walletId)) },
                 onSweep = { navController.navigate(Routes.Sweep.build(walletId)) },
                 onFundSatscard = { navController.navigate(Routes.FundSatscard.build(walletId)) },
+                onSignerVault = { navController.navigate(Routes.SignerVault.route) },
                 onRawTransaction = { navController.navigate(Routes.RawTransaction.build(walletId)) },
                 onRecoveryWizard = { navController.navigate(Routes.RecoveryWizard.route) },
                 onTransactionDetail = { txid ->
@@ -324,6 +325,12 @@ fun ClenchNavHost(navController: NavHostController) {
                 onImportHardwareWallet = { navController.navigate(Routes.ImportHardwareWallet.route) },
                 onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) },
                 onOpenWalletList = { navController.navigate(Routes.WalletList.route) }
+            )
+        }
+
+        composable(Routes.SignerVault.route) {
+            SignerVaultScreen(
+                onBack = { navController.popBackStack() }
             )
         }
 

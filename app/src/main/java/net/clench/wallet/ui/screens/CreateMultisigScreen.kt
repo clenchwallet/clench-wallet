@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -70,6 +71,7 @@ fun CreateMultisigScreen(
     var tapsignerPendingAction by remember { mutableStateOf<TapsignerMultisigNfcAction?>(null) }
     var tapsignerPendingCvc by remember { mutableStateOf<CharArray?>(null) }
     var tapsignerPathConfirmIndex by remember { mutableStateOf<Int?>(null) }
+    var savedSignerPickerTargetIndex by remember { mutableStateOf<Int?>(null) }
     val tapsignerPinInputs = remember { mutableStateMapOf<Int, String>() }
     val tapsignerNfcStatuses = remember { mutableStateMapOf<Int, String>() }
     val tapsignerNfcErrors = remember { mutableStateMapOf<Int, String>() }
@@ -234,6 +236,17 @@ fun CreateMultisigScreen(
         )
     }
 
+    savedSignerPickerTargetIndex?.let { targetIndex ->
+        SavedSignerPickerDialog(
+            signers = uiState.savedSignerOptions,
+            onDismiss = { savedSignerPickerTargetIndex = null },
+            onSelect = { signerId ->
+                viewModel.applySavedSigner(targetIndex, signerId)
+                savedSignerPickerTargetIndex = null
+            }
+        )
+    }
+
     tapsignerPathConfirmIndex?.let { targetIndex ->
         val signer = uiState.signers.getOrNull(targetIndex)
         val targetPath = signer?.derivationPath ?: "m/48'/0'/0'/2'"
@@ -388,6 +401,9 @@ fun CreateMultisigScreen(
                     onClearPhoneSigner = { index -> viewModel.clearPhoneSigner(index) },
                     onPhoneSignerBackupChanged = { index, backedUp -> viewModel.setPhoneSignerBackedUp(index, backedUp) },
                     onRemoveSigner = { viewModel.removeSigner(it) },
+                    savedSignerOptions = uiState.savedSignerOptions,
+                    onChooseSavedSigner = { index -> savedSignerPickerTargetIndex = index },
+                    onSaveSigner = { index -> viewModel.saveSignerToVault(index) },
                     onScanQr = { viewModel.showQrScanner(it) },
                     onLoadFile = { index ->
                         fileImportTargetIndex = index
@@ -398,6 +414,9 @@ fun CreateMultisigScreen(
                     tapsignerNfcErrors = tapsignerNfcErrors,
                     tapsignerReaderActiveIndex = tapsignerReaderActiveIndex,
                     onTapsignerPinChanged = { index, pin -> tapsignerPinInputs[index] = pin.take(32) },
+                    onSignerMetadataChanged = { index, fingerprint, path ->
+                        viewModel.updateSignerMetadata(index, fingerprint, path)
+                    },
                     onReadTapsignerStatus = { index ->
                         startTapsignerNfcReader(index, TapsignerMultisigNfcAction.READ_STATUS, null)
                     },
@@ -631,6 +650,9 @@ private fun SignersStep(
     onClearPhoneSigner: (Int) -> Unit,
     onPhoneSignerBackupChanged: (Int, Boolean) -> Unit,
     onRemoveSigner: (Int) -> Unit,
+    savedSignerOptions: List<CreateMultisigViewModel.SavedSignerOption>,
+    onChooseSavedSigner: (Int) -> Unit,
+    onSaveSigner: (Int) -> Unit,
     onScanQr: (Int) -> Unit,
     onLoadFile: (Int) -> Unit,
     tapsignerPinInputs: Map<Int, String>,
@@ -638,6 +660,7 @@ private fun SignersStep(
     tapsignerNfcErrors: Map<Int, String>,
     tapsignerReaderActiveIndex: Int?,
     onTapsignerPinChanged: (Int, String) -> Unit,
+    onSignerMetadataChanged: (Int, String?, String?) -> Unit,
     onReadTapsignerStatus: (Int) -> Unit,
     onImportTapsignerMultisig: (Int) -> Unit,
     onSetupTapsignerMultisig: (Int) -> Unit,
@@ -667,6 +690,9 @@ private fun SignersStep(
                     onUsePhoneSigner = { onUsePhoneSigner(index) },
                     onClearPhoneSigner = { onClearPhoneSigner(index) },
                     onPhoneSignerBackupChanged = { backedUp -> onPhoneSignerBackupChanged(index, backedUp) },
+                    savedSignerOptionsAvailable = savedSignerOptions.isNotEmpty(),
+                    onChooseSavedSigner = { onChooseSavedSigner(index) },
+                    onSaveSigner = { onSaveSigner(index) },
                     onPaste = {
                         clipboardManager.getText()?.text?.let { text ->
                             onUpdateSigner(index, null, text.trim())
@@ -679,6 +705,7 @@ private fun SignersStep(
                     tapsignerNfcError = tapsignerNfcErrors[index],
                     tapsignerReaderActive = tapsignerReaderActiveIndex == index,
                     onTapsignerPinChanged = { onTapsignerPinChanged(index, it) },
+                    onSignerMetadataChanged = { fingerprint, path -> onSignerMetadataChanged(index, fingerprint, path) },
                     onReadTapsignerStatus = { onReadTapsignerStatus(index) },
                     onImportTapsignerMultisig = { onImportTapsignerMultisig(index) },
                     onSetupTapsignerMultisig = { onSetupTapsignerMultisig(index) },
@@ -711,6 +738,59 @@ private fun SignersStep(
 }
 
 @Composable
+private fun SavedSignerPickerDialog(
+    signers: List<CreateMultisigViewModel.SavedSignerOption>,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose Saved Signer") },
+        text = {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(signers, key = { it.id }) { signer ->
+                    OutlinedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(signer.id) }
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(signer.label, fontWeight = FontWeight.Bold)
+                            Text(
+                                "${signer.network} • ${signer.derivationPath} • ${signer.deviceType ?: "manual"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            signer.fingerprint?.let {
+                                Text(
+                                    "Fingerprint: $it",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                signer.xpub.take(42) + if (signer.xpub.length > 42) "..." else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
 private fun SignerCard(
     index: Int,
     signer: CreateMultisigViewModel.SignerInfo,
@@ -721,6 +801,9 @@ private fun SignerCard(
     onUsePhoneSigner: () -> Unit,
     onClearPhoneSigner: () -> Unit,
     onPhoneSignerBackupChanged: (Boolean) -> Unit,
+    savedSignerOptionsAvailable: Boolean,
+    onChooseSavedSigner: () -> Unit,
+    onSaveSigner: () -> Unit,
     onPaste: () -> Unit,
     onScanQr: () -> Unit,
     onLoadFile: () -> Unit,
@@ -729,6 +812,7 @@ private fun SignerCard(
     tapsignerNfcError: String?,
     tapsignerReaderActive: Boolean,
     onTapsignerPinChanged: (String) -> Unit,
+    onSignerMetadataChanged: (String?, String?) -> Unit,
     onReadTapsignerStatus: () -> Unit,
     onImportTapsignerMultisig: () -> Unit,
     onSetupTapsignerMultisig: () -> Unit,
@@ -815,6 +899,15 @@ private fun SignerCard(
                             TextButton(onClick = onClearDevice) { Text("Clear") }
                         }
                     }
+                    if (!signer.isLocalKey && savedSignerOptionsAvailable) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OutlinedButton(
+                            onClick = onChooseSavedSigner,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Use Saved Signer")
+                        }
+                    }
                     if (showPhoneSignerOptions && !signer.isLocalKey) {
                         Spacer(modifier = Modifier.height(4.dp))
                         OutlinedButton(
@@ -890,6 +983,44 @@ private fun SignerCard(
                 }
             )
 
+            if (!signer.isLocalKey && signer.xpub.isNotBlank() && !signer.xpub.trim().startsWith("[")) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "Complete signer origin",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "A bare xpub is not enough for safe multisig recovery. Add the master fingerprint and account path before creating the wallet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = signer.fingerprint,
+                                onValueChange = { onSignerMetadataChanged(it, null) },
+                                label = { Text("Fingerprint") },
+                                placeholder = { Text("8 hex") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = signer.derivationPath,
+                                onValueChange = { onSignerMetadataChanged(null, it) },
+                                label = { Text("Path") },
+                                singleLine = true,
+                                modifier = Modifier.weight(2f)
+                            )
+                        }
+                    }
+                }
+            }
+
             Text(
                 if (signer.isLocalKey) {
                     "Clench generated this cosigner key on-device from the seed phrase below."
@@ -906,6 +1037,16 @@ private fun SignerCard(
                     backedUp = signer.phoneSignerBackedUp,
                     onBackedUpChanged = onPhoneSignerBackupChanged
                 )
+            }
+
+            if (!signer.isLocalKey && signer.xpub.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onSaveSigner,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Save to Signer Vault")
+                }
             }
 
             // Show fingerprint and derivation path if available
