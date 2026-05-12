@@ -74,6 +74,7 @@ class SignerVaultViewModel @Inject constructor(
     fun setDerivationPath(value: String) = _uiState.update { it.copy(derivationPath = value, message = null) }
     fun setDeviceType(value: String) = _uiState.update { it.copy(deviceType = value.take(40), message = null) }
     fun clearError() = _uiState.update { it.copy(error = null) }
+    fun setError(message: String) = _uiState.update { it.copy(error = message, message = null) }
 
     fun setScriptType(value: String) {
         _uiState.update { state ->

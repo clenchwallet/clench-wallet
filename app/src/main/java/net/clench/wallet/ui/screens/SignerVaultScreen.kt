@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,9 +18,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -40,6 +41,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -88,6 +90,7 @@ fun SignerVaultScreen(
     var tapsignerPinInput by remember { mutableStateOf("") }
     var pendingTapsignerPin by remember { mutableStateOf<CharArray?>(null) }
     var showTapsignerMultisigConfirm by remember { mutableStateOf(false) }
+    var showAddSigner by remember { mutableStateOf(false) }
     val nfcProcessing = remember { AtomicBoolean(false) }
     val selectedDevice = uiState.deviceType
         .takeIf { it.isNotBlank() }
@@ -110,6 +113,13 @@ fun SignerVaultScreen(
         nfcReaderActive = false
         clearPendingTapsignerPin()
         if (clearPin) tapsignerPinInput = ""
+    }
+
+    LaunchedEffect(uiState.message) {
+        if (showAddSigner && uiState.message?.startsWith("Saved ") == true) {
+            stopNfcReader(clearPin = true)
+            showAddSigner = false
+        }
     }
 
     fun processTapsignerTag(tag: Tag, hostActivity: Activity, cvc: CharArray?) {
@@ -272,13 +282,29 @@ fun SignerVaultScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Signers") },
+                title = { Text(if (showAddSigner) "Add Signer" else "Signers") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = {
+                            if (showAddSigner) {
+                                stopNfcReader(clearPin = true)
+                                showAddSigner = false
+                            } else {
+                                onBack()
+                            }
+                        }
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
+        },
+        floatingActionButton = {
+            if (!showAddSigner) {
+                androidx.compose.material3.FloatingActionButton(onClick = { showAddSigner = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Signer")
+                }
+            }
         }
     ) { padding ->
         LazyColumn(
@@ -288,40 +314,71 @@ fun SignerVaultScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item {
-                AddSignerCard(
-                    uiState = uiState,
-                    selectedDevice = selectedDevice,
-                    tapsignerPinInput = tapsignerPinInput,
-                    nfcReaderActive = nfcReaderActive,
-                    nfcStatus = nfcStatus,
-                    nfcError = nfcError,
-                    onScriptTypeChanged = viewModel::setScriptType,
-                    onLabelChanged = viewModel::setLabel,
-                    onPublicKeyChanged = viewModel::setPublicKey,
-                    onFingerprintChanged = viewModel::setFingerprint,
-                    onDerivationPathChanged = viewModel::setDerivationPath,
-                    onChooseDevice = { showDevicePicker = true },
-                    onClearDevice = { viewModel.setDeviceType("") },
-                    onScanQr = { showScanner = true },
-                    onLoadFile = { signerFileLauncher.launch(arrayOf("text/*", "application/json", "application/octet-stream", "*/*")) },
-                    onPaste = {
-                        clipboardManager.getText()?.text?.takeIf { it.isNotBlank() }?.let {
-                            viewModel.importSignerText(it)
-                        }
-                    },
-                    onTapsignerPinChanged = { tapsignerPinInput = it },
-                    onReadTapsignerStatus = { startTapsignerNfcReader(null) },
-                    onImportTapsigner = {
-                        if (uiState.scriptType == SignerAccountKeyParser.SCRIPT_MULTISIG_NATIVE_SEGWIT) {
-                            showTapsignerMultisigConfirm = true
-                        } else {
-                            startTapsignerNfcReader(tapsignerPinInput.toCharArray())
-                        }
-                    },
-                    onCancelNfc = { stopNfcReader() },
-                    onSave = { viewModel.saveManualSigner() }
-                )
+            if (showAddSigner) {
+                item {
+                    AddSignerCard(
+                        uiState = uiState,
+                        selectedDevice = selectedDevice,
+                        tapsignerPinInput = tapsignerPinInput,
+                        nfcReaderActive = nfcReaderActive,
+                        nfcStatus = nfcStatus,
+                        nfcError = nfcError,
+                        onScriptTypeChanged = viewModel::setScriptType,
+                        onLabelChanged = viewModel::setLabel,
+                        onPublicKeyChanged = viewModel::setPublicKey,
+                        onFingerprintChanged = viewModel::setFingerprint,
+                        onDerivationPathChanged = viewModel::setDerivationPath,
+                        onChooseDevice = { showDevicePicker = true },
+                        onClearDevice = { viewModel.setDeviceType("") },
+                        onScanQr = { showScanner = true },
+                        onLoadFile = { signerFileLauncher.launch(arrayOf("text/*", "application/json", "application/octet-stream", "*/*")) },
+                        onPaste = {
+                            val text = clipboardManager.getText()?.text?.trim().orEmpty()
+                            if (text.isBlank()) {
+                                viewModel.setError("Clipboard is empty")
+                            } else {
+                                viewModel.importSignerText(text)
+                            }
+                        },
+                        onTapsignerPinChanged = { tapsignerPinInput = it },
+                        onReadTapsignerStatus = { startTapsignerNfcReader(null) },
+                        onImportTapsigner = {
+                            if (uiState.scriptType == SignerAccountKeyParser.SCRIPT_MULTISIG_NATIVE_SEGWIT) {
+                                showTapsignerMultisigConfirm = true
+                            } else {
+                                startTapsignerNfcReader(tapsignerPinInput.toCharArray())
+                            }
+                        },
+                        onCancelNfc = { stopNfcReader() },
+                        onSave = { viewModel.saveManualSigner() }
+                    )
+                }
+            } else {
+                item {
+                    Text("Saved Signers", fontWeight = FontWeight.Bold)
+                }
+
+                if (uiState.isLoading) {
+                    item { CircularProgressIndicator() }
+                } else if (uiState.savedSigners.isEmpty()) {
+                    item {
+                        Text(
+                            "No saved signers yet. Tap + to add one.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    items(uiState.savedSigners, key = { it.id }) { signer ->
+                        SavedSignerCard(
+                            signer = signer,
+                            isCreatingWallet = uiState.isCreatingWallet,
+                            onCreateWallet = { viewModel.createSingleSigWatchOnlyWallet(signer.id, onWalletCreated) },
+                            onUseInMultisig = onCreateMultisig,
+                            onDelete = { viewModel.deleteSigner(signer.id) }
+                        )
+                    }
+                }
             }
 
             uiState.error?.let { error ->
@@ -334,33 +391,6 @@ fun SignerVaultScreen(
                         message,
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("Saved Signers", fontWeight = FontWeight.Bold)
-            }
-
-            if (uiState.isLoading) {
-                item { CircularProgressIndicator() }
-            } else if (uiState.savedSigners.isEmpty()) {
-                item {
-                    Text(
-                        "No saved signers yet.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                items(uiState.savedSigners, key = { it.id }) { signer ->
-                    SavedSignerCard(
-                        signer = signer,
-                        isCreatingWallet = uiState.isCreatingWallet,
-                        onCreateWallet = { viewModel.createSingleSigWatchOnlyWallet(signer.id, onWalletCreated) },
-                        onUseInMultisig = onCreateMultisig,
-                        onDelete = { viewModel.deleteSigner(signer.id) }
                     )
                 }
             }
@@ -456,7 +486,7 @@ private fun AddSignerCard(
                 trailingIcon = {
                     Row {
                         IconButton(onClick = onLoadFile) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "Load file")
+                            Icon(Icons.Default.UploadFile, contentDescription = "Load file")
                         }
                         IconButton(onClick = onPaste) {
                             Icon(Icons.Default.ContentPaste, contentDescription = "Paste")

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -409,6 +410,7 @@ fun CreateMultisigScreen(
                         fileImportTargetIndex = index
                         signerFileLauncher.launch(arrayOf("*/*"))
                     },
+                    onPasteEmpty = { viewModel.setError("Clipboard is empty") },
                     tapsignerPinInputs = tapsignerPinInputs,
                     tapsignerNfcStatuses = tapsignerNfcStatuses,
                     tapsignerNfcErrors = tapsignerNfcErrors,
@@ -655,6 +657,7 @@ private fun SignersStep(
     onSaveSigner: (Int) -> Unit,
     onScanQr: (Int) -> Unit,
     onLoadFile: (Int) -> Unit,
+    onPasteEmpty: () -> Unit,
     tapsignerPinInputs: Map<Int, String>,
     tapsignerNfcStatuses: Map<Int, String>,
     tapsignerNfcErrors: Map<Int, String>,
@@ -694,8 +697,11 @@ private fun SignersStep(
                     onChooseSavedSigner = { onChooseSavedSigner(index) },
                     onSaveSigner = { onSaveSigner(index) },
                     onPaste = {
-                        clipboardManager.getText()?.text?.let { text ->
-                            onUpdateSigner(index, null, text.trim())
+                        val text = clipboardManager.getText()?.text?.trim().orEmpty()
+                        if (text.isBlank()) {
+                            onPasteEmpty()
+                        } else {
+                            onUpdateSigner(index, null, text)
                         }
                     },
                     onScanQr = { onScanQr(index) },
@@ -970,7 +976,7 @@ private fun SignerCard(
                     if (!signer.isLocalKey) Row {
                         if (canLoadFile) {
                             IconButton(onClick = onLoadFile) {
-                                Icon(Icons.Default.ContentPaste, contentDescription = "Load file")
+                                Icon(Icons.Default.UploadFile, contentDescription = "Load file")
                             }
                         }
                         IconButton(onClick = onPaste) {
