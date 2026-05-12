@@ -103,6 +103,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 
 | Version | Highlights |
 | --- | --- |
+| 0.3.19 | Added WIF/OpenDime and verified SATSCARD sweep support, TAPSIGNER import and wallet verification flows, SATSCARD funding, the Signers vault, signer-based wallet creation choices, and release ABI filtering for F-Droid. |
 | 0.3.18 | Removed Android dependency metadata from release APK signing blocks for F-Droid binary scanning, and fixed multisig hardware signer PSBT flows. |
 | 0.3.17 | Added SATSCARD NFC Tap Protocol status checks in the sweep tool while keeping CVC-authenticated unseal/sweep blocked pending dedicated support, and changed project contact email to cw@clench.net. |
 | 0.3.16 | Fixed multisig signer-key progress reporting during cosigner setup. |

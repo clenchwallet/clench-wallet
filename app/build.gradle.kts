@@ -27,11 +27,14 @@ android {
         applicationId = "net.clench.wallet"
         minSdk = 26
         targetSdk = 35
-        versionCode = 318
-        versionName = "0.3.18"
+        versionCode = 319
+        versionName = "0.3.19"
 
         manifestPlaceholders["appLabel"] = "Clench"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
     }
 
     signingConfigs {
