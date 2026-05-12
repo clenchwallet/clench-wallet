@@ -133,7 +133,7 @@ fun ClenchNavHost(navController: NavHostController) {
                     { navController.popBackStack() }
                 } else null,
                 onSettings = { navController.navigate(Routes.Settings.route) },
-                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) },
+                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.build()) },
                 onConnectHardwareWallet = { navController.navigate(Routes.ImportHardwareWallet.route) },
                 onRecoveryWizard = { navController.navigate(Routes.RecoveryWizard.route) }
             )
@@ -185,7 +185,13 @@ fun ClenchNavHost(navController: NavHostController) {
             // PassphraseConfirm route removed - passphrase wallets can only be created via Import flow
         }
 
-        composable(Routes.CreateMultisig.route) {
+        composable(
+            route = Routes.CreateMultisig.route,
+            arguments = listOf(
+                navArgument("signerId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("preset") { type = NavType.StringType; nullable = true; defaultValue = null }
+            )
+        ) {
             CreateMultisigScreen(
                 onWalletCreated = { walletId ->
                     navController.navigate(Routes.Home.build(walletId)) {
@@ -205,7 +211,7 @@ fun ClenchNavHost(navController: NavHostController) {
                 },
                 onBack = { navController.popBackStack() },
                 onSettings = { navController.navigate(Routes.Settings.route) },
-                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) },
+                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.build()) },
                 onConnectHardwareWallet = { navController.navigate(Routes.ImportHardwareWallet.route) }
             )
         }
@@ -323,7 +329,7 @@ fun ClenchNavHost(navController: NavHostController) {
                 onRestoreSeed = { navController.navigate(Routes.ImportWallet.route) },
                 onImportDescriptor = { navController.navigate(Routes.ImportWallet.route) },
                 onImportHardwareWallet = { navController.navigate(Routes.ImportHardwareWallet.route) },
-                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) },
+                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.build()) },
                 onOpenWalletList = { navController.navigate(Routes.WalletList.route) }
             )
         }
@@ -336,7 +342,14 @@ fun ClenchNavHost(navController: NavHostController) {
                         popUpTo(Routes.SignerVault.route) { inclusive = true }
                     }
                 },
-                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) }
+                onCreateMultisig = { signerId, secureVault ->
+                    navController.navigate(
+                        Routes.CreateMultisig.build(
+                            signerId = signerId,
+                            preset = if (secureVault) "secure_vault" else null
+                        )
+                    )
+                }
             )
         }
 

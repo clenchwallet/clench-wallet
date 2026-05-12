@@ -86,7 +86,15 @@ sealed class Routes(val route: String) {
     }
     object RecoveryWizard : Routes("recovery_wizard")
     object SecurityOnboarding : Routes("security_onboarding")
-    object CreateMultisig : Routes("create_multisig")
+    object CreateMultisig : Routes("create_multisig?signerId={signerId}&preset={preset}") {
+        fun build(signerId: String? = null, preset: String? = null): String {
+            val params = mutableListOf<String>()
+            if (!signerId.isNullOrBlank()) params += "signerId=${Uri.encode(signerId)}"
+            if (!preset.isNullOrBlank()) params += "preset=${Uri.encode(preset)}"
+            return if (params.isNotEmpty()) "create_multisig?${params.joinToString("&")}"
+            else "create_multisig"
+        }
+    }
     object ImportHardwareWallet : Routes("import_wallet_hw")
     object SignerVault : Routes("signer_vault")
 }

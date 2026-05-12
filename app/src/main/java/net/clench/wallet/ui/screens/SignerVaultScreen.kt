@@ -74,7 +74,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 fun SignerVaultScreen(
     onBack: () -> Unit,
     onWalletCreated: (String) -> Unit,
-    onCreateMultisig: () -> Unit,
+    onCreateMultisig: (signerId: String?, secureVault: Boolean) -> Unit,
     viewModel: SignerVaultViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -91,6 +91,7 @@ fun SignerVaultScreen(
     var pendingTapsignerPin by remember { mutableStateOf<CharArray?>(null) }
     var showTapsignerMultisigConfirm by remember { mutableStateOf(false) }
     var showAddSigner by remember { mutableStateOf(false) }
+    var signerActionTarget by remember { mutableStateOf<SavedSignerEntity?>(null) }
     val nfcProcessing = remember { AtomicBoolean(false) }
     val selectedDevice = uiState.deviceType
         .takeIf { it.isNotBlank() }
@@ -279,6 +280,43 @@ fun SignerVaultScreen(
         )
     }
 
+    signerActionTarget?.let { signer ->
+        UseSignerDialog(
+            signer = signer,
+            onDismiss = { signerActionTarget = null },
+            onCreateSingleSig = {
+                signerActionTarget = null
+                viewModel.createSingleSigWatchOnlyWallet(signer.id, onWalletCreated)
+            },
+            onCreateSecureVault = {
+                signerActionTarget = null
+                if (signer.scriptType == SignerAccountKeyParser.SCRIPT_MULTISIG_NATIVE_SEGWIT) {
+                    onCreateMultisig(signer.id, true)
+                } else {
+                    viewModel.prepareAddSigner(
+                        scriptType = SignerAccountKeyParser.SCRIPT_MULTISIG_NATIVE_SEGWIT,
+                        label = signer.label,
+                        deviceType = signer.deviceType
+                    )
+                    showAddSigner = true
+                }
+            },
+            onCreateCustomMultisig = {
+                signerActionTarget = null
+                if (signer.scriptType == SignerAccountKeyParser.SCRIPT_MULTISIG_NATIVE_SEGWIT) {
+                    onCreateMultisig(signer.id, false)
+                } else {
+                    viewModel.prepareAddSigner(
+                        scriptType = SignerAccountKeyParser.SCRIPT_MULTISIG_NATIVE_SEGWIT,
+                        label = signer.label,
+                        deviceType = signer.deviceType
+                    )
+                    showAddSigner = true
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -301,7 +339,12 @@ fun SignerVaultScreen(
         },
         floatingActionButton = {
             if (!showAddSigner) {
-                androidx.compose.material3.FloatingActionButton(onClick = { showAddSigner = true }) {
+                androidx.compose.material3.FloatingActionButton(
+                    onClick = {
+                        viewModel.prepareAddSigner()
+                        showAddSigner = true
+                    }
+                ) {
                     Icon(Icons.Default.Add, contentDescription = "Add Signer")
                 }
             }
@@ -373,8 +416,7 @@ fun SignerVaultScreen(
                         SavedSignerCard(
                             signer = signer,
                             isCreatingWallet = uiState.isCreatingWallet,
-                            onCreateWallet = { viewModel.createSingleSigWatchOnlyWallet(signer.id, onWalletCreated) },
-                            onUseInMultisig = onCreateMultisig,
+                            onUseSigner = { signerActionTarget = signer },
                             onDelete = { viewModel.deleteSigner(signer.id) }
                         )
                     }
@@ -609,11 +651,58 @@ private fun ErrorCard(error: String, onDismiss: () -> Unit) {
 }
 
 @Composable
+private fun UseSignerDialog(
+    signer: SavedSignerEntity,
+    onDismiss: () -> Unit,
+    onCreateSingleSig: () -> Unit,
+    onCreateSecureVault: () -> Unit,
+    onCreateCustomMultisig: () -> Unit
+) {
+    val isSingleSig = signer.scriptType == SignerAccountKeyParser.SCRIPT_SINGLE_SIG_NATIVE_SEGWIT
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Use ${signer.label}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Choose what kind of wallet to build with this signer.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                if (isSingleSig) {
+                    Text(
+                        "For multisig, Clench needs this signer's BIP48 account key. The next step will prepare Add Signer for ${SignerAccountKeyParser.expectedMultisigPath(signer.network == "testnet")}.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (isSingleSig) {
+                    Button(onClick = onCreateSingleSig, modifier = Modifier.fillMaxWidth()) {
+                        Text("Single-sig Watch-only")
+                    }
+                }
+                Button(onClick = onCreateSecureVault, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (isSingleSig) "Add Multisig Key for 2-of-3" else "2-of-3 Secure Vault")
+                }
+                OutlinedButton(onClick = onCreateCustomMultisig, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (isSingleSig) "Add Multisig Key for Custom" else "Custom Multisig")
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                    Text("Cancel")
+                }
+            }
+        }
+    )
+}
+
+@Composable
 private fun SavedSignerCard(
     signer: SavedSignerEntity,
     isCreatingWallet: Boolean,
-    onCreateWallet: () -> Unit,
-    onUseInMultisig: () -> Unit,
+    onUseSigner: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -652,17 +741,11 @@ private fun SavedSignerCard(
                 fontFamily = FontFamily.Monospace
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (signer.scriptType == SignerAccountKeyParser.SCRIPT_SINGLE_SIG_NATIVE_SEGWIT) {
-                    OutlinedButton(
-                        onClick = onCreateWallet,
-                        enabled = !isCreatingWallet,
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Create Wallet") }
-                } else {
-                    OutlinedButton(onClick = onUseInMultisig, modifier = Modifier.weight(1f)) {
-                        Text("Use in Multisig")
-                    }
-                }
+                OutlinedButton(
+                    onClick = onUseSigner,
+                    enabled = !isCreatingWallet,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Use Signer") }
             }
         }
     }

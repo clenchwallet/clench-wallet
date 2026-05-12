@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -28,7 +29,8 @@ class CreateMultisigViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
     private val settingsManager: SettingsManager,
     private val savedSignerDao: SavedSignerDao,
-    private val walletKeystoreMetadataDao: WalletKeystoreMetadataDao
+    private val walletKeystoreMetadataDao: WalletKeystoreMetadataDao,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     data class SignerInfo(
@@ -73,10 +75,22 @@ class CreateMultisigViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
+    private val initialSignerId = savedStateHandle.get<String>("signerId")?.takeIf { it.isNotBlank() }
+    private val initialPreset = savedStateHandle.get<String>("preset").orEmpty()
+    private var initialSignerApplied = false
+
+    companion object {
+        const val PRESET_SECURE_VAULT = "secure_vault"
+    }
 
     init {
         // Initialize signers list based on default totalSigners
-        _uiState.update { it.copy(showPhoneSignerOptions = true) }
+        _uiState.update {
+            it.copy(
+                showPhoneSignerOptions = true,
+                walletName = if (initialPreset == PRESET_SECURE_VAULT) "Secure Vault" else it.walletName
+            )
+        }
         initializeSigners()
         loadSavedSigners()
     }
@@ -114,6 +128,58 @@ class CreateMultisigViewModel @Inject constructor(
                 )
             }
             _uiState.update { it.copy(savedSignerOptions = options) }
+            applyInitialSignerIfNeeded(options)
+        }
+    }
+
+    private fun applyInitialSignerIfNeeded(options: List<SavedSignerOption>) {
+        if (initialSignerApplied) return
+        val signerId = initialSignerId ?: return
+        val option = options.find { it.id == signerId } ?: return
+        initialSignerApplied = true
+        val defaultPath = SignerAccountKeyParser.expectedMultisigPath(settingsManager.isTestnet())
+        _uiState.update { state ->
+            val total = if (initialPreset == PRESET_SECURE_VAULT) 3 else state.totalSigners
+            val threshold = if (initialPreset == PRESET_SECURE_VAULT) 2 else state.threshold.coerceAtMost(total)
+            val signers = (1..total).map { i ->
+                val label = if (initialPreset == PRESET_SECURE_VAULT) {
+                    when (i) {
+                        1 -> "Clench Phone Signer"
+                        2 -> option.label
+                        3 -> "Offline Recovery Signer"
+                        else -> "Signer $i"
+                    }
+                } else {
+                    "Signer $i"
+                }
+                SignerInfo(label = label, derivationPath = defaultPath)
+            }.toMutableList()
+            val targetIndex = if (initialPreset == PRESET_SECURE_VAULT) 1 else 0
+            signers[targetIndex] = signers[targetIndex].copy(
+                label = option.label,
+                xpub = option.xpub,
+                fingerprint = option.fingerprint.orEmpty(),
+                derivationPath = option.derivationPath,
+                deviceType = option.deviceType,
+                savedSignerId = option.id
+            )
+            state.copy(
+                threshold = threshold,
+                totalSigners = total,
+                signers = signers,
+                currentStep = 2,
+                walletName = if (initialPreset == PRESET_SECURE_VAULT && state.walletName.isBlank()) {
+                    "Secure Vault"
+                } else {
+                    state.walletName
+                },
+                warning = if (initialPreset == PRESET_SECURE_VAULT) {
+                    "Secure Vault starts as 2-of-3: add a Clench Phone Signer, keep ${option.label}, and add one offline recovery signer before funding."
+                } else {
+                    "Loaded saved signer ${option.label}"
+                },
+                error = null
+            )
         }
     }
 

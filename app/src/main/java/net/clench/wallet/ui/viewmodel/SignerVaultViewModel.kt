@@ -76,6 +76,25 @@ class SignerVaultViewModel @Inject constructor(
     fun clearError() = _uiState.update { it.copy(error = null) }
     fun setError(message: String) = _uiState.update { it.copy(error = message, message = null) }
 
+    fun prepareAddSigner(
+        scriptType: String = SignerAccountKeyParser.SCRIPT_SINGLE_SIG_NATIVE_SEGWIT,
+        label: String = "",
+        deviceType: String? = null
+    ) {
+        _uiState.update { state ->
+            state.copy(
+                label = label.take(64),
+                publicKey = "",
+                fingerprint = "",
+                derivationPath = SignerAccountKeyParser.expectedPath(scriptType, state.isTestnet),
+                scriptType = scriptType,
+                deviceType = deviceType.orEmpty().take(40),
+                error = null,
+                message = null
+            )
+        }
+    }
+
     fun setScriptType(value: String) {
         _uiState.update { state ->
             val oldDefault = SignerAccountKeyParser.expectedPath(state.scriptType, state.isTestnet)
