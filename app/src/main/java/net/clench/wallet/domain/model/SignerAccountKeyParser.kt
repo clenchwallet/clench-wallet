@@ -13,6 +13,7 @@ data class ParsedSignerAccountKey(
 )
 
 object SignerAccountKeyParser {
+    const val SCRIPT_SINGLE_SIG_NATIVE_SEGWIT = "SINGLE_SIG_NATIVE_SEGWIT"
     const val SCRIPT_MULTISIG_NATIVE_SEGWIT = "MULTISIG_NATIVE_SEGWIT"
 
     private val validPublicPrefixes = listOf(
@@ -25,16 +26,36 @@ object SignerAccountKeyParser {
         return if (isTestnet) "m/48'/1'/0'/2'" else "m/48'/0'/0'/2'"
     }
 
+    fun expectedSingleSigPath(isTestnet: Boolean): String {
+        return if (isTestnet) "m/84'/1'/0'" else "m/84'/0'/0'"
+    }
+
+    fun expectedPath(scriptType: String, isTestnet: Boolean): String {
+        return when (scriptType) {
+            SCRIPT_SINGLE_SIG_NATIVE_SEGWIT -> expectedSingleSigPath(isTestnet)
+            else -> expectedMultisigPath(isTestnet)
+        }
+    }
+
+    fun displayNameForScript(scriptType: String): String {
+        return when (scriptType) {
+            SCRIPT_SINGLE_SIG_NATIVE_SEGWIT -> "Single-sig native SegWit"
+            SCRIPT_MULTISIG_NATIVE_SEGWIT -> "Multisig native SegWit"
+            else -> scriptType
+        }
+    }
+
     fun normalizeHardwareExportForMultisig(text: String): String {
+        return normalizeHardwareExport(text, SCRIPT_MULTISIG_NATIVE_SEGWIT)
+    }
+
+    fun normalizeHardwareExport(text: String, scriptType: String): String {
         val trimmed = text.trim()
         if (!trimmed.startsWith("{")) return trimmed
 
         return runCatching {
             val root = JSONObject(trimmed)
-            val candidates = listOf(
-                "p2wsh", "bip48", "bip48_2", "p2sh_p2wsh", "p2sh-p2wsh",
-                "p2wpkh", "bip84", "native_segwit"
-            )
+            val candidates = jsonCandidatesForScript(scriptType)
             for (key in candidates) {
                 val obj = root.optJSONObject(key) ?: continue
                 val normalized = xpubWithOriginFromJsonObject(obj, root)
@@ -42,16 +63,17 @@ object SignerAccountKeyParser {
             }
             xpubWithOriginFromJsonObject(root, root) ?: trimmed
         }.getOrNull()
-            ?: xpubWithOriginFromJsonText(trimmed)
+            ?: xpubWithOriginFromJsonText(trimmed, scriptType)
             ?: trimmed
     }
 
     fun parse(
         raw: String,
         fallbackFingerprint: String? = null,
-        fallbackDerivationPath: String? = null
+        fallbackDerivationPath: String? = null,
+        scriptType: String = SCRIPT_MULTISIG_NATIVE_SEGWIT
     ): ParsedSignerAccountKey? {
-        val normalized = normalizeHardwareExportForMultisig(raw).trim()
+        val normalized = normalizeHardwareExport(raw, scriptType).trim()
         if (normalized.isBlank()) return null
 
         val originMatch = Regex("""^\[([0-9a-fA-F]{8})(?:/([^\]]+))?\](.+)$""").find(normalized)
@@ -78,13 +100,18 @@ object SignerAccountKeyParser {
         )
     }
 
-    fun validationError(key: String, isTestnet: Boolean, requireOrigin: Boolean = true): String? {
-        val normalized = normalizeHardwareExportForMultisig(key).trim()
+    fun validationError(
+        key: String,
+        isTestnet: Boolean,
+        scriptType: String = SCRIPT_MULTISIG_NATIVE_SEGWIT,
+        requireOrigin: Boolean = true
+    ): String? {
+        val normalized = normalizeHardwareExport(key, scriptType).trim()
         if (normalized.startsWith("wsh(") || normalized.startsWith("wpkh(") || normalized.startsWith("sh(")) {
             return "paste the signer public key, not a full descriptor"
         }
 
-        val parsed = parse(normalized)
+        val parsed = parse(normalized, scriptType = scriptType)
             ?: return "extended public key is required"
         val keyPart = parsed.xpub
 
@@ -94,12 +121,13 @@ object SignerAccountKeyParser {
         if (validPublicPrefixes.none { keyPart.startsWith(it) }) {
             return "unrecognized key format. Expected xpub, Zpub, tpub, or similar public extended key"
         }
+        validatePrefixForScript(keyPart, scriptType)?.let { return it }
         if (requireOrigin && (parsed.fingerprint.isNullOrBlank() || parsed.derivationPath.isNullOrBlank())) {
             return "missing key origin. Add the master fingerprint and derivation path before using this signer"
         }
 
         return validateNetwork(parsed.xpub, isTestnet)
-            ?: validateOriginPath(parsed.derivationPath, isTestnet)
+            ?: validateOriginPath(parsed.derivationPath, isTestnet, scriptType)
     }
 
     fun validateNetwork(key: String, isTestnet: Boolean): String? {
@@ -160,11 +188,8 @@ object SignerAccountKeyParser {
         } else xpub
     }
 
-    private fun xpubWithOriginFromJsonText(text: String): String? {
-        val candidates = listOf(
-            "p2wsh", "bip48", "bip48_2", "p2sh_p2wsh", "p2sh-p2wsh",
-            "p2wpkh", "bip84", "native_segwit"
-        )
+    private fun xpubWithOriginFromJsonText(text: String, scriptType: String): String? {
+        val candidates = jsonCandidatesForScript(scriptType)
         for (key in candidates) {
             val objText = jsonObjectForKey(text, key) ?: continue
             xpubWithOriginFromJsonFields(objText, text)?.let { return it }
@@ -215,11 +240,37 @@ object SignerAccountKeyParser {
         return null
     }
 
-    private fun validateOriginPath(path: String?, isTestnet: Boolean): String? {
+    private fun jsonCandidatesForScript(scriptType: String): List<String> {
+        val singleSig = listOf("p2wpkh", "bip84", "native_segwit")
+        val multisig = listOf("p2wsh", "bip48", "bip48_2", "p2sh_p2wsh", "p2sh-p2wsh")
+        return when (scriptType) {
+            SCRIPT_SINGLE_SIG_NATIVE_SEGWIT -> singleSig + multisig
+            else -> multisig + singleSig
+        }
+    }
+
+    private fun validatePrefixForScript(key: String, scriptType: String): String? {
+        val prefix = stripChildSuffix(key).take(4)
+        return when {
+            scriptType == SCRIPT_SINGLE_SIG_NATIVE_SEGWIT &&
+                prefix in listOf("Zpub", "Ypub", "Vpub", "Upub") ->
+                "multisig extended key prefix $prefix belongs in the multisig signer type"
+            scriptType == SCRIPT_MULTISIG_NATIVE_SEGWIT &&
+                prefix in listOf("zpub", "ypub", "vpub", "upub") ->
+                "single-sig extended key prefix $prefix belongs in the single-sig signer type"
+            else -> null
+        }
+    }
+
+    private fun validateOriginPath(path: String?, isTestnet: Boolean, scriptType: String): String? {
         val normalized = normalizeDerivationPath(path) ?: return null
         val parts = normalized.removePrefix("m/").split('/')
-        if (parts.isNotEmpty() && parts[0].removeHardenedSuffix() != "48") {
-            return "multisig signers should use BIP48 path ${expectedMultisigPath(isTestnet)}"
+        val expectedPurpose = if (scriptType == SCRIPT_SINGLE_SIG_NATIVE_SEGWIT) "84" else "48"
+        if (parts.isNotEmpty() && parts[0].removeHardenedSuffix() != expectedPurpose) {
+            return when (scriptType) {
+                SCRIPT_SINGLE_SIG_NATIVE_SEGWIT -> "single-sig signers should use BIP84 path ${expectedSingleSigPath(isTestnet)}"
+                else -> "multisig signers should use BIP48 path ${expectedMultisigPath(isTestnet)}"
+            }
         }
         if (parts.size >= 2) {
             val coinType = parts[1].removeHardenedSuffix()
@@ -228,7 +279,7 @@ object SignerAccountKeyParser {
                 return "origin path coin type $coinType does not match ${if (isTestnet) "testnet" else "mainnet"}"
             }
         }
-        if (parts.size >= 4 && parts[3].removeHardenedSuffix() != "2") {
+        if (scriptType == SCRIPT_MULTISIG_NATIVE_SEGWIT && parts.size >= 4 && parts[3].removeHardenedSuffix() != "2") {
             return "native SegWit multisig signers should use script path 2 at ${expectedMultisigPath(isTestnet)}"
         }
         return null

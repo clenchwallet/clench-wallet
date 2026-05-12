@@ -98,4 +98,69 @@ class SignerAccountKeyParserTest {
 
         assertEquals("[73C5DA0A/48'/0'/0'/2']Zpub6Multisig", parsed?.keyWithOrigin)
     }
+
+    @Test
+    fun `validation accepts complete mainnet native single sig account key`() {
+        val error = SignerAccountKeyParser.validationError(
+            "[73C5DA0A/84'/0'/0']xpub6Alpha",
+            isTestnet = false,
+            scriptType = SignerAccountKeyParser.SCRIPT_SINGLE_SIG_NATIVE_SEGWIT
+        )
+
+        assertNull(error)
+    }
+
+    @Test
+    fun `validation rejects multisig derivation for single sig signer`() {
+        val error = SignerAccountKeyParser.validationError(
+            "[73C5DA0A/48'/0'/0'/2']xpub6Alpha",
+            isTestnet = false,
+            scriptType = SignerAccountKeyParser.SCRIPT_SINGLE_SIG_NATIVE_SEGWIT
+        )
+
+        assertTrue(error?.contains("BIP84") == true)
+    }
+
+    @Test
+    fun `json export prefers single sig key material for single sig signer`() {
+        val parsed = SignerAccountKeyParser.parse(
+            raw = """
+            {
+              "xfp": "73c5da0a",
+              "p2wpkh": {
+                "deriv": "m/84'/0'/0'",
+                "xpub": "xpub6SingleSig"
+              },
+              "p2wsh": {
+                "deriv": "m/48'/0'/0'/2'",
+                "xpub": "Zpub6Multisig"
+              }
+            }
+            """.trimIndent(),
+            scriptType = SignerAccountKeyParser.SCRIPT_SINGLE_SIG_NATIVE_SEGWIT
+        )
+
+        assertEquals("[73C5DA0A/84'/0'/0']xpub6SingleSig", parsed?.keyWithOrigin)
+    }
+
+    @Test
+    fun `validation rejects multisig prefix for single sig signer`() {
+        val error = SignerAccountKeyParser.validationError(
+            "[73C5DA0A/84'/0'/0']Zpub6Alpha",
+            isTestnet = false,
+            scriptType = SignerAccountKeyParser.SCRIPT_SINGLE_SIG_NATIVE_SEGWIT
+        )
+
+        assertTrue(error?.contains("multisig extended key prefix") == true)
+    }
+
+    @Test
+    fun `validation rejects single sig prefix for multisig signer`() {
+        val error = SignerAccountKeyParser.validationError(
+            "[73C5DA0A/48'/0'/0'/2']zpub6Alpha",
+            isTestnet = false
+        )
+
+        assertTrue(error?.contains("single-sig extended key prefix") == true)
+    }
 }

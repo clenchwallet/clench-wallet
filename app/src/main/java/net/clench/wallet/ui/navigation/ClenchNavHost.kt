@@ -330,7 +330,13 @@ fun ClenchNavHost(navController: NavHostController) {
 
         composable(Routes.SignerVault.route) {
             SignerVaultScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onWalletCreated = { walletId ->
+                    navController.navigate(Routes.Home.build(walletId)) {
+                        popUpTo(Routes.SignerVault.route) { inclusive = true }
+                    }
+                },
+                onCreateMultisig = { navController.navigate(Routes.CreateMultisig.route) }
             )
         }
 

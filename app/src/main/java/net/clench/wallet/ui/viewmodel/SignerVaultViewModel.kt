@@ -12,7 +12,9 @@ import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.local.dao.SavedSignerDao
 import net.clench.wallet.data.local.entity.SavedSignerEntity
+import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.SignerAccountKeyParser
+import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
 import net.clench.wallet.ui.util.walletRuntimeMessage
 import javax.inject.Inject
@@ -20,16 +22,20 @@ import javax.inject.Inject
 @HiltViewModel
 class SignerVaultViewModel @Inject constructor(
     private val savedSignerDao: SavedSignerDao,
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val bitcoinRepository: BitcoinRepository
 ) : ViewModel() {
 
     data class UiState(
         val savedSigners: List<SavedSignerEntity> = emptyList(),
         val isLoading: Boolean = false,
+        val isCreatingWallet: Boolean = false,
+        val isTestnet: Boolean = false,
         val label: String = "",
         val publicKey: String = "",
         val fingerprint: String = "",
-        val derivationPath: String = SignerAccountKeyParser.expectedMultisigPath(false),
+        val derivationPath: String = SignerAccountKeyParser.expectedSingleSigPath(false),
+        val scriptType: String = SignerAccountKeyParser.SCRIPT_SINGLE_SIG_NATIVE_SEGWIT,
         val deviceType: String = "",
         val error: String? = null,
         val message: String? = null
@@ -37,7 +43,8 @@ class SignerVaultViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(
         UiState(
-            derivationPath = SignerAccountKeyParser.expectedMultisigPath(settingsManager.isTestnet())
+            isTestnet = settingsManager.isTestnet(),
+            derivationPath = SignerAccountKeyParser.expectedSingleSigPath(settingsManager.isTestnet())
         )
     )
     val uiState = _uiState.asStateFlow()
@@ -68,6 +75,42 @@ class SignerVaultViewModel @Inject constructor(
     fun setDeviceType(value: String) = _uiState.update { it.copy(deviceType = value.take(40), message = null) }
     fun clearError() = _uiState.update { it.copy(error = null) }
 
+    fun setScriptType(value: String) {
+        _uiState.update { state ->
+            val oldDefault = SignerAccountKeyParser.expectedPath(state.scriptType, state.isTestnet)
+            val newDefault = SignerAccountKeyParser.expectedPath(value, state.isTestnet)
+            state.copy(
+                scriptType = value,
+                derivationPath = if (state.derivationPath.isBlank() || state.derivationPath == oldDefault) {
+                    newDefault
+                } else {
+                    state.derivationPath
+                },
+                message = null
+            )
+        }
+    }
+
+    fun importSignerText(value: String, label: String? = null, deviceType: String? = null) {
+        _uiState.update { state ->
+            val parsed = SignerAccountKeyParser.parse(
+                raw = value,
+                fallbackFingerprint = state.fingerprint,
+                fallbackDerivationPath = state.derivationPath,
+                scriptType = state.scriptType
+            )
+            state.copy(
+                label = label ?: state.label,
+                publicKey = parsed?.keyWithOrigin ?: SignerAccountKeyParser.normalizeHardwareExport(value, state.scriptType),
+                fingerprint = parsed?.fingerprint ?: state.fingerprint,
+                derivationPath = parsed?.derivationPath ?: state.derivationPath,
+                deviceType = deviceType ?: state.deviceType,
+                message = "Loaded signer data",
+                error = null
+            )
+        }
+    }
+
     fun saveManualSigner() {
         viewModelScope.launch {
             try {
@@ -76,7 +119,8 @@ class SignerVaultViewModel @Inject constructor(
                 val parsed = SignerAccountKeyParser.parse(
                     raw = state.publicKey,
                     fallbackFingerprint = state.fingerprint,
-                    fallbackDerivationPath = state.derivationPath
+                    fallbackDerivationPath = state.derivationPath,
+                    scriptType = state.scriptType
                 ) ?: run {
                     _uiState.update { it.copy(error = "Enter a signer public account key") }
                     return@launch
@@ -89,7 +133,11 @@ class SignerVaultViewModel @Inject constructor(
                     _uiState.update { it.copy(error = "Enter the signer derivation path") }
                     return@launch
                 }
-                SignerAccountKeyParser.validationError(parsed.keyWithOrigin, isTestnet)?.let { error ->
+                SignerAccountKeyParser.validationError(
+                    key = parsed.keyWithOrigin,
+                    isTestnet = isTestnet,
+                    scriptType = state.scriptType
+                )?.let { error ->
                     _uiState.update { it.copy(error = error) }
                     return@launch
                 }
@@ -104,10 +152,10 @@ class SignerVaultViewModel @Inject constructor(
                     fingerprint = parsed.fingerprint,
                     derivationPath = parsed.derivationPath,
                     network = if (isTestnet) "testnet" else "mainnet",
-                    scriptType = SignerAccountKeyParser.SCRIPT_MULTISIG_NATIVE_SEGWIT,
+                    scriptType = state.scriptType,
                     deviceType = state.deviceType.trim().ifBlank { null },
                     source = "manual",
-                    verified = false,
+                    verified = state.deviceType == HardwareWalletType.TAPSIGNER.name,
                     createdAtEpochMs = existing?.createdAtEpochMs ?: now,
                     updatedAtEpochMs = now
                 )
@@ -117,7 +165,7 @@ class SignerVaultViewModel @Inject constructor(
                         label = "",
                         publicKey = "",
                         fingerprint = "",
-                        derivationPath = SignerAccountKeyParser.expectedMultisigPath(isTestnet),
+                        derivationPath = SignerAccountKeyParser.expectedPath(state.scriptType, isTestnet),
                         deviceType = "",
                         message = "Saved ${entity.label}",
                         error = null
@@ -127,6 +175,37 @@ class SignerVaultViewModel @Inject constructor(
             } catch (t: Throwable) {
                 if (t.shouldRethrowForUiBoundary()) throw t
                 _uiState.update { it.copy(error = t.walletRuntimeMessage("saving the signer")) }
+            }
+        }
+    }
+
+    fun createSingleSigWatchOnlyWallet(signerId: String, onCreated: (String) -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isCreatingWallet = true, error = null) }
+            try {
+                val signer = _uiState.value.savedSigners.find { it.id == signerId }
+                    ?: error("Saved signer was not found")
+                if (signer.scriptType != SignerAccountKeyParser.SCRIPT_SINGLE_SIG_NATIVE_SEGWIT) {
+                    error("Only single-sig signers can directly create a watch-only wallet")
+                }
+                val wallet = bitcoinRepository.importWatchOnly(
+                    name = signer.label.ifBlank { "Watch-only Wallet" },
+                    descriptor = signer.xpub,
+                    deviceType = signer.deviceType
+                )
+                if (!settingsManager.isOfflineMode()) {
+                    runCatching { bitcoinRepository.syncWallet(wallet.id, settingsManager.loadElectrumConfig()) }
+                }
+                _uiState.update { it.copy(isCreatingWallet = false, message = "Created wallet ${wallet.name}") }
+                onCreated(wallet.id)
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                _uiState.update {
+                    it.copy(
+                        isCreatingWallet = false,
+                        error = t.walletRuntimeMessage("creating the watch-only wallet")
+                    )
+                }
             }
         }
     }
