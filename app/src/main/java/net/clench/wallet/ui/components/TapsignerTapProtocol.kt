@@ -539,7 +539,7 @@ object TapsignerTapProtocol {
             publicKeyHex = pubkeyHex,
             address = verifiedSlot.address,
             isTestnet = verifiedSlot.isTestnet,
-            summary = "SATSCARD slot $slot unsealed"
+            summary = "SATSCARD slot ${satscardDisplaySlot(slot)} unsealed"
         )
     }
 
@@ -714,6 +714,8 @@ data class SatscardSlotState(
     val cardNonce: ByteArray?
 )
 
+internal fun satscardDisplaySlot(protocolSlot: Long): Long = protocolSlot + 1
+
 object CoinkiteTapCardNfcReader {
     fun readStatus(tag: Tag): CoinkiteTapCardStatus {
         val isoDep = IsoDep.get(tag) ?: error("Coinkite Tap Protocol cards require ISO-DEP NFC, not NDEF")
@@ -779,8 +781,9 @@ object SatscardNfcReader {
             }
             val slot = status.activeSlot
                 ?: error("SATSCARD did not report an active slot")
+            val displaySlot = satscardDisplaySlot(slot)
             if (!status.address.isNullOrBlank()) {
-                error("SATSCARD slot $slot is already set up. Read the active slot to fund its existing address.")
+                error("SATSCARD slot $displaySlot is already set up. Read the active slot to fund its existing address.")
             }
             val cardPubkey = status.cardPubkeyHex?.hexToBytes()
                 ?: error("SATSCARD status did not include card pubkey")
@@ -792,7 +795,7 @@ object SatscardNfcReader {
             )
             if (dump.slot != null && dump.slot != slot) error("SATSCARD dump response returned a different slot")
             if (dump.used == true || !dump.address.isNullOrBlank()) {
-                error("SATSCARD slot $slot is already set up. Read the active slot to fund its existing address.")
+                error("SATSCARD slot $displaySlot is already set up. Read the active slot to fund its existing address.")
             }
             latestCardNonce = dump.cardNonce ?: latestCardNonce
 
@@ -877,6 +880,7 @@ object SatscardNfcReader {
             }
             val slot = status.activeSlot
                 ?: error("SATSCARD did not report an active slot")
+            val displaySlot = satscardDisplaySlot(slot)
             val cardPubkey = status.cardPubkeyHex?.hexToBytes()
                 ?: error("SATSCARD status did not include card pubkey")
             var latestCardNonce = status.cardNonceHex?.hexToBytes()
@@ -886,8 +890,8 @@ object SatscardNfcReader {
                 isoDep.transceive(TapsignerTapProtocol.dumpCommand(slot))
             )
             if (dump.slot != null && dump.slot != slot) error("SATSCARD dump response returned a different slot")
-            if (dump.used == false) error("SATSCARD slot $slot has not been used yet")
-            if (dump.sealed == false) error("SATSCARD slot $slot is already unsealed")
+            if (dump.used == false) error("SATSCARD slot $displaySlot has not been used yet")
+            if (dump.sealed == false) error("SATSCARD slot $displaySlot is already unsealed")
             latestCardNonce = dump.cardNonce ?: error("SATSCARD dump response did not include card nonce")
 
             val readNonce = randomNonce()
@@ -977,6 +981,7 @@ object SatscardNfcReader {
     ): SatscardFundingSlotResult {
         val slot = status.activeSlot
             ?: error("SATSCARD did not report an active slot")
+        val displaySlot = satscardDisplaySlot(slot)
         val cardPubkey = status.cardPubkeyHex?.hexToBytes()
             ?: error("SATSCARD status did not include card pubkey")
         var latestCardNonce = status.cardNonceHex?.hexToBytes()
@@ -987,14 +992,14 @@ object SatscardNfcReader {
         )
         if (dump.slot != null && dump.slot != slot) error("SATSCARD dump response returned a different slot")
         if (dump.used == false && !newlySetup) {
-            error("SATSCARD active slot $slot has not been set up yet. Enter the spend code and set up the slot before funding it.")
+            error("SATSCARD active slot $displaySlot has not been set up yet. Enter the spend code and set up the slot before funding it.")
         }
-        if (dump.sealed == false) error("SATSCARD active slot $slot is already unsealed")
+        if (dump.sealed == false) error("SATSCARD active slot $displaySlot is already unsealed")
         latestCardNonce = dump.cardNonce ?: latestCardNonce
 
         val statusForAddress = status.copy(address = status.address ?: dump.address)
         if (statusForAddress.address.isNullOrBlank()) {
-            error("SATSCARD active slot $slot did not report a deposit address")
+            error("SATSCARD active slot $displaySlot did not report a deposit address")
         }
         val readNonce = randomNonce()
         val read = TapsignerTapProtocol.parseReadResponse(
@@ -1031,9 +1036,9 @@ object SatscardNfcReader {
             isTestnet = verifiedSlot.isTestnet,
             newlySetup = newlySetup,
             summary = if (newlySetup) {
-                "SATSCARD slot ${verifiedSlot.slot} is set up and ready to fund"
+                "SATSCARD slot ${satscardDisplaySlot(verifiedSlot.slot)} is set up and ready to fund"
             } else {
-                "SATSCARD slot ${verifiedSlot.slot} address verified"
+                "SATSCARD slot ${satscardDisplaySlot(verifiedSlot.slot)} address verified"
             }
         )
     }

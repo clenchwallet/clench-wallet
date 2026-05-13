@@ -300,6 +300,8 @@ Use this checklist for release candidates and for changes that touch wallet stat
 **Expected**
 - Clench uses ISO-DEP Tap Protocol status, not Coldcard NDEF
 - SATSCARD firmware/address/slot status appears when the card responds
+- User-facing SATSCARD slot labels are shown as 1 through 10, not protocol indexes 0 through 9
+- Funding/sweep screens warn that after slot 1 is unsealed, the printed QR should no longer be trusted for receiving
 - Sweep requires CVC entry and explicit confirmation that unseal is irreversible
 - Clench rejects card/wallet network mismatches before unseal
 - Clench rejects counterfeit/invalid SATSCARD certificate checks before sending the CVC-authenticated unseal command

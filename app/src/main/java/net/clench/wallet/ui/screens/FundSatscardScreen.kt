@@ -54,6 +54,7 @@ import net.clench.wallet.ui.components.NfcDispatch
 import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrCodeImage
 import net.clench.wallet.ui.components.SatscardNfcReader
+import net.clench.wallet.ui.components.satscardDisplaySlot
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.FundSatscardViewModel
 import java.util.concurrent.atomic.AtomicBoolean
@@ -193,6 +194,11 @@ fun FundSatscardScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Text(
+                        "Use the address Clench verifies from the card. If SATSCARD slot 1 has ever been unsealed, do not rely on the printed QR for receiving; read the active slot instead.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -311,7 +317,7 @@ fun FundSatscardScreen(
                         )
                         Button(
                             onClick = {
-                                val label = uiState.slot?.let { "SATSCARD slot $it" } ?: "SATSCARD"
+                                val label = uiState.slot?.let { "SATSCARD slot ${satscardDisplaySlot(it)}" } ?: "SATSCARD"
                                 onFundAddress(uiState.address, label)
                             },
                             modifier = Modifier.fillMaxWidth()

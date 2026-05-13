@@ -258,6 +258,12 @@ fun SweepScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "If you unseal SATSCARD slot 1, stop using the printed QR address for future receiving. Use Clench's verified active-slot address instead.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = satscardCvcInput,

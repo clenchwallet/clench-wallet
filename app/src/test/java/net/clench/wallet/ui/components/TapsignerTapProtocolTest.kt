@@ -250,6 +250,13 @@ class TapsignerTapProtocolTest {
         assertTrue(result.privateKey.contentEquals(privateKey))
         assertEquals(66, result.publicKeyHex?.length)
         assertEquals(address, result.address)
+        assertEquals("SATSCARD slot 3 unsealed", result.summary)
+    }
+
+    @Test
+    fun `SATSCARD display slots are one-based`() {
+        assertEquals(1L, satscardDisplaySlot(0L))
+        assertEquals(10L, satscardDisplaySlot(9L))
     }
 
     @Test
