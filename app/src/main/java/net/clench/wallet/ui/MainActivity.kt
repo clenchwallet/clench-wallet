@@ -80,21 +80,25 @@ class MainActivity : FragmentActivity() {
         // in-memory wallets mid-send-flow.
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                if (!suppressPassphraseLock) {
+                if (!suppressPassphraseLock && !isChangingConfiguration) {
                     lifecycleScope.launch {
                         try {
                             val wallets = bitcoinRepository.listWallets()
                             for (wallet in wallets) {
                                 if (wallet.hasPassphrase) {
-                                    (bitcoinRepository as? BdkBitcoinRepository)?.lockPassphraseWallet(wallet.id)
+                                    bitcoinRepository.lockPassphraseWallet(wallet.id)
                                 }
                             }
+                            // Regular hot wallets also hold private descriptors in native BDK
+                            // objects. Explicitly dispose every remaining cache entry instead of
+                            // leaving secret-bearing handles to GC while the app is backgrounded.
+                            bitcoinRepository.clearCachedWallets()
                         } catch (e: Exception) {
                             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("MainActivity", "Failed to lock passphrase wallets on stop: ${e.message}")
                         }
                     }
                 } else {
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("MainActivity", "suppressPassphraseLock=true, skipping passphrase lock on ON_STOP")
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("MainActivity", "Sensitive-wallet eviction suppressed for transient stop/configuration change")
                 }
             }
         })
@@ -106,11 +110,6 @@ class MainActivity : FragmentActivity() {
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.background)
                 ) {
-                    // Main app content always rendered underneath
-                    val navController = rememberNavController()
-                    ClenchNavHost(navController = navController)
-
-                    // Lock screen rendered ON TOP when locked
                     if (isLocked.value) {
                         val lockMode = settingsManager.getAppLockMode()
                         Box(
@@ -146,6 +145,11 @@ class MainActivity : FragmentActivity() {
                                 }
                             }
                         }
+                    } else {
+                        // Do not compose protected navigation content while locked. Disposing the
+                        // navigation tree also clears screen-local seed, WIF, PSBT, and send state.
+                        val navController = rememberNavController()
+                        ClenchNavHost(navController = navController)
                     }
                 }
             }

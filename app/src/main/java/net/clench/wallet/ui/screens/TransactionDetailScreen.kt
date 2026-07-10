@@ -22,6 +22,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import net.clench.wallet.domain.model.TransactionItem
 import net.clench.wallet.domain.model.TxDirection
+import net.clench.wallet.domain.repository.BuiltTransactionReview
 import java.text.NumberFormat
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -44,6 +45,13 @@ fun TransactionDetailScreen(
     bumpError: String? = null,
     isCancelling: Boolean = false,
     cancelError: String? = null,
+    replacementReview: BuiltTransactionReview? = null,
+    replacementActionLabel: String = "Replacement",
+    replacementRequiresHighFeeConfirmation: Boolean = false,
+    replacementHighFeeAcknowledged: Boolean = false,
+    onAcknowledgeReplacementHighFee: () -> Unit = {},
+    onBroadcastReplacement: () -> Unit = {},
+    onDiscardReplacement: () -> Unit = {},
     priorityFeeRate: Float? = null,
     onSaveLabel: ((txid: String, label: String) -> Unit)? = null
 ) {
@@ -55,6 +63,57 @@ fun TransactionDetailScreen(
     var cancelFeeRate by remember { mutableStateOf("") }
     var labelText by remember(transaction?.label) { mutableStateOf(transaction?.label ?: "") }
     var labelSaved by remember { mutableStateOf(true) }
+
+    if (replacementReview != null) {
+        AlertDialog(
+            onDismissRequest = onDiscardReplacement,
+            title = { Text("Review $replacementActionLabel") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    replacementReview.outputs.forEach { output ->
+                        Column {
+                            Text(
+                                if (output.belongsToWallet) "Wallet output" else "External output",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "${NumberFormat.getNumberInstance(Locale.US).format(output.amountSat)} sats",
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(output.address ?: "Script output ${output.index}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    HorizontalDivider()
+                    Text(
+                        "Network fee: ${NumberFormat.getNumberInstance(Locale.US).format(replacementReview.feeSat)} sats " +
+                            "(${String.format("%.2f", replacementReview.feeRateSatPerVbyte)} sat/vB)"
+                    )
+                    Text("Transaction ID: ${replacementReview.txid}", style = MaterialTheme.typography.bodySmall)
+                    if (replacementRequiresHighFeeConfirmation && !replacementHighFeeAcknowledged) {
+                        Text(
+                            "This replacement has an unusually high fee. Verify every output before continuing.",
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Bold
+                        )
+                        TextButton(onClick = onAcknowledgeReplacementHighFee) {
+                            Text("I verified the fee")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = onBroadcastReplacement,
+                    enabled = !isBumping && !isCancelling &&
+                        (!replacementRequiresHighFeeConfirmation || replacementHighFeeAcknowledged)
+                ) { Text("Broadcast reviewed replacement") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDiscardReplacement) { Text("Discard") }
+            }
+        )
+    }
 
     // Bump fee dialog
     if (showBumpFeeDialog && transaction != null) {
@@ -98,11 +157,14 @@ fun TransactionDetailScreen(
                 Button(
                     onClick = {
                         val rate = bumpFeeRate.toFloatOrNull()
-                        if (rate != null && rate >= 1f) {
+                        if (rate != null && rate.isFinite() && rate in 1f..1_000f) {
                             onBumpFee?.invoke(transaction.txid, rate)
+                            showBumpFeeDialog = false
                         }
                     },
-                    enabled = !isBumping && bumpFeeRate.toFloatOrNull()?.let { it >= 1f } == true
+                    enabled = !isBumping && bumpFeeRate.toFloatOrNull()?.let {
+                        it.isFinite() && it in 1f..1_000f
+                    } == true
                 ) {
                     if (isBumping) CircularProgressIndicator(modifier = Modifier.size(16.dp))
                     else Text("Bump Fee")
@@ -155,11 +217,14 @@ fun TransactionDetailScreen(
                 Button(
                     onClick = {
                         val rate = cancelFeeRate.toFloatOrNull()
-                        if (rate != null && rate >= 1f) {
+                        if (rate != null && rate.isFinite() && rate in 1f..1_000f) {
                             onCancelTransaction?.invoke(transaction.txid, rate)
+                            showCancelDialog = false
                         }
                     },
-                    enabled = !isCancelling && cancelFeeRate.toFloatOrNull()?.let { it >= 1f } == true
+                    enabled = !isCancelling && cancelFeeRate.toFloatOrNull()?.let {
+                        it.isFinite() && it in 1f..1_000f
+                    } == true
                 ) {
                     if (isCancelling) CircularProgressIndicator(modifier = Modifier.size(16.dp))
                     else Text("Create Replacement")

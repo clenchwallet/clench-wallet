@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.domain.repository.BuiltTransactionReview
 import javax.inject.Inject
 
 @HiltViewModel
@@ -28,7 +29,12 @@ class HardwareWalletPsbtViewModel @Inject constructor(
         val signingMessage: String? = null,
         val walletId: String = "",
         val psbtBase64: String = "",
-        val deviceType: String = ""
+        val deviceType: String = "",
+        val transactionReview: BuiltTransactionReview? = null,
+        val isReviewLoading: Boolean = false,
+        val reviewAcknowledged: Boolean = false,
+        val requiresHighFeeConfirmation: Boolean = false,
+        val highFeeAcknowledged: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -52,8 +58,33 @@ class HardwareWalletPsbtViewModel @Inject constructor(
                     signedPsbtBase64 = null,
                     readyToBroadcast = false,
                     hasCollectedSignature = false,
-                    signingMessage = null
+                    signingMessage = null,
+                    transactionReview = null,
+                    isReviewLoading = true,
+                    reviewAcknowledged = false,
+                    requiresHighFeeConfirmation = false,
+                    highFeeAcknowledged = false
                 )
+            }
+            viewModelScope.launch {
+                try {
+                    val review = bitcoinRepository.inspectPsbt(data.first, data.second)
+                    SendViewModel.feeSafetyError(review)?.let { error(it) }
+                    _uiState.update {
+                        it.copy(
+                            transactionReview = review,
+                            isReviewLoading = false,
+                            requiresHighFeeConfirmation = SendViewModel.requiresHighFeeConfirmation(review)
+                        )
+                    }
+                } catch (e: Exception) {
+                    _uiState.update {
+                        it.copy(
+                            isReviewLoading = false,
+                            error = "Could not verify the PSBT before hardware signing: ${e.message}"
+                        )
+                    }
+                }
             }
         }
         return data
@@ -65,6 +96,10 @@ class HardwareWalletPsbtViewModel @Inject constructor(
      */
     fun onSignedPsbtReceived(walletId: String, signedPsbtPayload: String) {
         val current = _uiState.value
+        if (!current.reviewAcknowledged || current.transactionReview == null) {
+            _uiState.update { it.copy(error = "Review and approve the unsigned transaction before importing signatures") }
+            return
+        }
         val currentPsbtBase64 = current.psbtBase64
         if (currentPsbtBase64.isBlank() || unsignedPsbtBase64.isBlank()) {
             _uiState.update { it.copy(error = "No PSBT is loaded") }
@@ -149,5 +184,21 @@ class HardwareWalletPsbtViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    fun acknowledgeHighFee() {
+        _uiState.update {
+            if (it.requiresHighFeeConfirmation && it.transactionReview != null) {
+                it.copy(highFeeAcknowledged = true, error = null)
+            } else it
+        }
+    }
+
+    fun acknowledgeReview() {
+        _uiState.update {
+            if (it.transactionReview != null &&
+                (!it.requiresHighFeeConfirmation || it.highFeeAcknowledged)
+            ) it.copy(reviewAcknowledged = true, error = null) else it
+        }
     }
 }

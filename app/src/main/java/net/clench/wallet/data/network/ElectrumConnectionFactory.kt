@@ -1,6 +1,5 @@
 package net.clench.wallet.data.network
 
-import android.util.Base64
 import android.util.Log
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.ElectrumConfig
@@ -98,10 +97,9 @@ class ElectrumConnectionFactory @Inject constructor(
         val pinnedCertBase64 = config.pinnedCert
         val pinnedCertDer = if (!pinnedCertBase64.isNullOrBlank()) {
             try {
-                Base64.decode(pinnedCertBase64, Base64.NO_WRAP)
+                java.util.Base64.getDecoder().decode(pinnedCertBase64)
             } catch (e: Exception) {
-                if (net.clench.wallet.BuildConfig.DEBUG) Log.w(TAG, "Invalid pinned cert base64, ignoring: ${e.message}")
-                null
+                throw ElectrumConnectionException.TlsCertPinningFailed(host, e)
             }
         } else null
 
@@ -393,11 +391,10 @@ class ElectrumConnectionFactory @Inject constructor(
 
         return try {
             val sslSocket = sslSocketFactory.createSocket(socket, host, socket.port, true) as javax.net.ssl.SSLSocket
-            if (pinnedCertDer == null) {
-                val sslParameters = sslSocket.sslParameters
-                sslParameters.endpointIdentificationAlgorithm = "HTTPS"
-                sslSocket.sslParameters = sslParameters
-            }
+            // Pinning narrows certificate trust; it does not replace hostname verification.
+            val sslParameters = sslSocket.sslParameters
+            sslParameters.endpointIdentificationAlgorithm = "HTTPS"
+            sslSocket.sslParameters = sslParameters
             sslSocket.startHandshake()
             if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "TLS handshake complete with $host (pinned=${pinnedCertDer != null})")
             sslSocket

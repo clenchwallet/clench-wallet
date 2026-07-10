@@ -17,7 +17,8 @@ Clench stores the following data **locally on your device only**:
 - **Wallet data** — addresses, transactions, labels, balances
 - **Key material** — mnemonics and private keys, encrypted with AES-256-GCM via Android Keystore
 - **Settings** — your app preferences (server configuration, display currency, etc.)
-- **Database** — all local data is stored in a SQLCipher-encrypted database
+- **Application database** — wallet records, labels, saved payees, and settings are stored in a SQLCipher-encrypted Room database
+- **BDK wallet state** — public descriptors, revealed addresses, transaction graph, and UTXO sync state are stored in separate BDK SQLite files. BDK does not persist descriptor private keys in those files, but the public wallet graph is not SQLCipher-encrypted.
 
 This data never leaves your device unless you explicitly export it (e.g., exporting transaction labels via BIP-329, or sharing a PSBT file).
 

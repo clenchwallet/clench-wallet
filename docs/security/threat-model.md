@@ -26,7 +26,7 @@ This threat model covers Clench Wallet as a Bitcoin-only, non-custodial Android 
 - Android OS and secure hardware boundary.
 - App process boundary.
 - Android Keystore and biometric prompt boundary.
-- SQLCipher encrypted database boundary.
+- SQLCipher encrypted Room database boundary and the separate plaintext BDK public-wallet-state boundary.
 - Electrum server and Tor SOCKS proxy boundary.
 - Hardware wallet QR/NFC/file-transfer boundary.
 - GitHub CI/release boundary.
@@ -47,7 +47,8 @@ This threat model covers Clench Wallet as a Bitcoin-only, non-custodial Android 
 
 | Threat | Control |
 | --- | --- |
-| Seed or descriptor disclosure | Android Keystore, SQLCipher, PIN/biometric gates, no analytics SDKs |
+| Seed or private-descriptor disclosure | Android Keystore encryption, PIN/biometric UI gates, secure-window handling, no analytics SDKs |
+| Public wallet-graph disclosure | Android app sandbox and device encryption; BDK SQLite state is explicitly treated as sensitive public metadata |
 | Passphrase wallet confusion | Explicit passphrase restore paths, locked-state privacy, no silent passphrase recovery |
 | Destructive migration data loss | Room migrations fail closed instead of destructive fallback |
 | Silent database deletion | Release builds fail closed on database verification failure |

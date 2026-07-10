@@ -12,6 +12,11 @@ dependencyLocking {
     lockAllConfigurations()
 }
 
+ksp {
+    arg("room.schemaLocation", file("schemas").absolutePath)
+    arg("room.incremental", "true")
+}
+
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) {
@@ -94,6 +99,8 @@ android {
             jniLibs.pickFirsts += "**/*.so"
         }
     }
+
+    sourceSets.getByName("androidTest").assets.srcDir(file("schemas"))
 }
 
 dependencies {
@@ -152,6 +159,9 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("io.mockk:mockk:1.14.9")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.room:room-testing:2.7.2")
 
     // CameraX for QR scanning
     implementation("androidx.camera:camera-core:1.6.0")

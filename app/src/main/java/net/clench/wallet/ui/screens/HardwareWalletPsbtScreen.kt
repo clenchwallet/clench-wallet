@@ -34,6 +34,8 @@ import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.components.encodePsbtForDevice
 import net.clench.wallet.ui.components.psbtQrFrameDelayMs
 import net.clench.wallet.ui.viewmodel.HardwareWalletPsbtViewModel
+import net.clench.wallet.security.InputLimits
+import net.clench.wallet.security.readBytesBounded
 
 private enum class ColdcardNfcMode { Idle, SendUnsigned, ReceiveSigned }
 
@@ -289,8 +291,7 @@ fun HardwareWalletPsbtScreen(
         if (uri != null) {
             try {
                 val inputStream = context.contentResolver.openInputStream(uri)
-                val bytes = inputStream?.readBytes()
-                inputStream?.close()
+                val bytes = inputStream?.use { it.readBytesBounded(InputLimits.PSBT_BYTES) }
                 if (bytes != null) {
                     val signedBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
                     viewModel.onSignedPsbtReceived(walletId, signedBase64)
@@ -416,6 +417,77 @@ fun HardwareWalletPsbtScreen(
                         Text("Checking signatures...")
                     }
                 }
+                return@Column
+            }
+
+            if (!uiState.reviewAcknowledged) {
+                if (uiState.isReviewLoading) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Verifying transaction outputs and fee…")
+                    }
+                }
+                uiState.transactionReview?.let { review ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("Review before sharing with signer", fontWeight = FontWeight.Bold)
+                            review.outputs.forEach { output ->
+                                Column {
+                                    Text(
+                                        if (output.belongsToWallet) "Change / wallet output" else "Recipient",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(output.amountSat)} sats",
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(output.address ?: "Script output ${output.index}", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            HorizontalDivider()
+                            Text(
+                                "Network fee: ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(review.feeSat)} sats " +
+                                    "(${String.format("%.2f", review.feeRateSatPerVbyte)} sat/vB, ${review.vsize} vB)"
+                            )
+                            Text("Transaction ID: ${review.txid}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    if (uiState.requiresHighFeeConfirmation && !uiState.highFeeAcknowledged) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("Unusually high fee", fontWeight = FontWeight.Bold)
+                                Text("The exact network fee exceeds 5% of the reviewed amount.")
+                                TextButton(onClick = viewModel::acknowledgeHighFee) { Text("I verified the fee") }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = viewModel::acknowledgeReview,
+                        enabled = !uiState.requiresHighFeeConfirmation || uiState.highFeeAcknowledged,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Approve PSBT for signer") }
+                }
+                uiState.error?.let { error ->
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(error, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
                 return@Column
             }
 

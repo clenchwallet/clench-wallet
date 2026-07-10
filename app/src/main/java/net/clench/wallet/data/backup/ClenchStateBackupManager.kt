@@ -1,6 +1,8 @@
 package net.clench.wallet.data.backup
 
 import android.util.Base64
+import androidx.room.withTransaction
+import net.clench.wallet.data.local.ClenchDatabase
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
@@ -11,11 +13,14 @@ import net.clench.wallet.data.local.entity.WalletEntity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import org.bitcoindevkit.Descriptor
+import org.bitcoindevkit.Network
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class ClenchStateBackupManager @Inject constructor(
+    private val database: ClenchDatabase,
     private val walletDao: WalletDao,
     private val transactionLabelDao: TransactionLabelDao,
     private val utxoMetadataDao: UtxoMetadataDao,
@@ -99,11 +104,24 @@ class ClenchStateBackupManager @Inject constructor(
     }
 
     suspend fun importStateBackupJson(json: String): ImportResult {
+        require(json.length <= MAX_BACKUP_CHARS) { "Backup file is too large." }
         val root = JSONObject(json)
         require(root.optString("format") == FORMAT) { "This is not a Clench state backup file." }
         require(root.optInt("version") == VERSION) { "Unsupported Clench backup version." }
+        require(!root.optBoolean("secretsIncluded", false)) {
+            "Backups containing wallet secrets are not accepted."
+        }
 
-        root.optJSONObject("settings")?.let { settingsManager.importBackupSettings(it) }
+        val wallets = root.optJSONArray("wallets") ?: JSONArray()
+        val labels = root.optJSONArray("transactionLabels") ?: JSONArray()
+        val utxoMetadata = root.optJSONArray("utxoMetadata") ?: JSONArray()
+        require(wallets.length() <= MAX_WALLETS) { "Backup contains too many wallets." }
+        require(labels.length() <= MAX_LABELS) { "Backup contains too many transaction labels." }
+        require(utxoMetadata.length() <= MAX_UTXO_METADATA) { "Backup contains too many UTXO records." }
+
+        validateBackupWallets(wallets)
+
+        val result = database.withTransaction {
 
         val existingWallets = walletDao.getAll()
         val knownByDescriptor = existingWallets.associateBy { descriptorKey(it.descriptor, it.network) }.toMutableMap()
@@ -114,7 +132,6 @@ class ClenchStateBackupManager @Inject constructor(
         var skippedWallets = 0
         var hotWalletsNeedingSeed = 0
 
-        val wallets = root.optJSONArray("wallets") ?: JSONArray()
         for (i in 0 until wallets.length()) {
             val item = wallets.getJSONObject(i)
             val originalId = item.optString("id").ifBlank { UUID.randomUUID().toString() }
@@ -138,7 +155,7 @@ class ClenchStateBackupManager @Inject constructor(
 
             val restoredWallet = WalletEntity(
                 id = restoredId,
-                name = item.optString("name", "Restored Wallet"),
+                name = item.optString("name", "Restored Wallet").take(MAX_NAME_CHARS),
                 descriptor = descriptor,
                 changeDescriptor = changeDescriptor,
                 isWatchOnly = true,
@@ -147,7 +164,11 @@ class ClenchStateBackupManager @Inject constructor(
                 network = network,
                 preferredHardwareWallet = item.optNullableString("preferredHardwareWallet"),
                 hasPassphrase = false,
-                identiconBytes = item.optNullableString("identiconBytes")?.let { Base64.decode(it, Base64.NO_WRAP) },
+                identiconBytes = item.optNullableString("identiconBytes")?.let {
+                    Base64.decode(it, Base64.NO_WRAP).also { bytes ->
+                        require(bytes.size <= MAX_IDENTICON_BYTES) { "Wallet identicon is too large." }
+                    }
+                },
                 masterFingerprint = item.optNullableString("masterFingerprint"),
                 derivationPath = item.optNullableString("derivationPath"),
                 importedViaDevice = item.optNullableString("importedViaDevice")
@@ -158,19 +179,18 @@ class ClenchStateBackupManager @Inject constructor(
         }
 
         var importedLabels = 0
-        val labels = root.optJSONArray("transactionLabels") ?: JSONArray()
         for (i in 0 until labels.length()) {
             val item = labels.getJSONObject(i)
             val targetWalletId = walletIdMap[item.optString("walletId")] ?: continue
             val txid = item.optString("txid")
             val label = item.optString("label")
-            if (txid.isBlank() || label.isBlank()) continue
+            if (!txid.matches(TXID_REGEX) || label.isBlank()) continue
             transactionLabelDao.upsert(
                 TransactionLabelEntity(
                     key = "$targetWalletId:$txid",
                     walletId = targetWalletId,
                     txid = txid,
-                    label = label,
+                    label = label.take(MAX_LABEL_CHARS),
                     updatedAt = item.optLong("updatedAt", System.currentTimeMillis())
                 )
             )
@@ -178,30 +198,57 @@ class ClenchStateBackupManager @Inject constructor(
         }
 
         var importedUtxoMetadata = 0
-        val utxoMetadata = root.optJSONArray("utxoMetadata") ?: JSONArray()
         for (i in 0 until utxoMetadata.length()) {
             val item = utxoMetadata.getJSONObject(i)
             val targetWalletId = walletIdMap[item.optString("walletId")] ?: continue
             val outpoint = item.optString("outpoint")
-            if (outpoint.isBlank()) continue
+            if (!outpoint.matches(OUTPOINT_REGEX)) continue
             utxoMetadataDao.upsert(
                 UtxoMetadataEntity(
                     outpoint = outpoint,
                     walletId = targetWalletId,
-                    label = item.optNullableString("label"),
+                    label = item.optNullableString("label")?.take(MAX_LABEL_CHARS),
                     isFrozen = item.optBoolean("isFrozen", false)
                 )
             )
             importedUtxoMetadata++
         }
 
-        return ImportResult(
+        ImportResult(
             importedWallets = importedWallets,
             skippedWallets = skippedWallets,
             importedLabels = importedLabels,
             importedUtxoMetadata = importedUtxoMetadata,
             hotWalletsNeedingSeed = hotWalletsNeedingSeed
         )
+        }
+
+        // Apply only non-security presentation preferences after the database transaction
+        // succeeds. Network, Electrum, Tor, offline, lock, and biometric policy require
+        // explicit changes in Settings and are never silently replaced by a backup file.
+        root.optJSONObject("settings")?.let { settingsManager.importBackupSettings(it) }
+        return result
+    }
+
+    private fun validateBackupWallets(wallets: JSONArray) {
+        for (i in 0 until wallets.length()) {
+            val item = wallets.getJSONObject(i)
+            val descriptor = item.getString("descriptor").trim()
+            val changeDescriptor = item.getString("changeDescriptor").trim()
+            require(descriptor.length <= MAX_DESCRIPTOR_CHARS && changeDescriptor.length <= MAX_DESCRIPTOR_CHARS) {
+                "Wallet descriptor is too large."
+            }
+            require(!containsPrivateKeyMaterial(descriptor) && !containsPrivateKeyMaterial(changeDescriptor)) {
+                "Backup contains a private descriptor. Clench state backups must be watch-only."
+            }
+            val networkName = item.optString("network", "mainnet")
+            require(networkName == "mainnet" || networkName == "testnet") { "Backup wallet has an invalid network." }
+            val network = if (networkName == "testnet") Network.TESTNET else Network.BITCOIN
+            runCatching { Descriptor(descriptor, network).close() }
+                .getOrElse { throw IllegalArgumentException("Backup contains an invalid receive descriptor.", it) }
+            runCatching { Descriptor(changeDescriptor, network).close() }
+                .getOrElse { throw IllegalArgumentException("Backup contains an invalid change descriptor.", it) }
+        }
     }
 
     private fun descriptorKey(descriptor: String, network: String): String {
@@ -219,5 +266,20 @@ class ClenchStateBackupManager @Inject constructor(
     companion object {
         private const val FORMAT = "clench-state-backup"
         private const val VERSION = 1
+        const val MAX_BACKUP_CHARS = 2_000_000
+        private const val MAX_WALLETS = 250
+        private const val MAX_LABELS = 25_000
+        private const val MAX_UTXO_METADATA = 25_000
+        private const val MAX_NAME_CHARS = 100
+        private const val MAX_LABEL_CHARS = 500
+        private const val MAX_DESCRIPTOR_CHARS = 20_000
+        private const val MAX_IDENTICON_BYTES = 4_096
+        private val PRIVATE_EXTENDED_KEY_REGEX = Regex("(?i)[xyzuv]prv[1-9A-HJ-NP-Za-km-z]+")
+        private val WIF_REGEX = Regex("(?:^|[^1-9A-HJ-NP-Za-km-z])[KL5c9][1-9A-HJ-NP-Za-km-z]{50,51}(?:$|[^1-9A-HJ-NP-Za-km-z])")
+        private val TXID_REGEX = Regex("(?i)^[0-9a-f]{64}$")
+        private val OUTPOINT_REGEX = Regex("(?i)^[0-9a-f]{64}:[0-9]{1,10}$")
+
+        internal fun containsPrivateKeyMaterial(descriptor: String): Boolean =
+            PRIVATE_EXTENDED_KEY_REGEX.containsMatchIn(descriptor) || WIF_REGEX.containsMatchIn(descriptor)
     }
 }

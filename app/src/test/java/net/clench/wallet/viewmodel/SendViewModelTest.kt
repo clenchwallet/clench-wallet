@@ -1,7 +1,19 @@
 package net.clench.wallet.viewmodel
 
+import io.mockk.every
+import io.mockk.mockk
+import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.local.dao.AddressBookDao
+import net.clench.wallet.data.network.TorAwareHttpClient
 import net.clench.wallet.domain.model.FeeEstimates
+import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.domain.repository.BuiltTransactionReview
+import net.clench.wallet.domain.repository.TransactionReviewOutput
+import net.clench.wallet.ui.viewmodel.PsbtStore
+import net.clench.wallet.ui.viewmodel.SendViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -10,6 +22,101 @@ import org.junit.Test
  * Tests pure data classes and validation rules without Android framework.
  */
 class SendViewModelTest {
+
+    private val recipient = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"
+
+    private fun viewModel(
+        repository: BitcoinRepository,
+        settings: SettingsManager = mockk(relaxed = true)
+    ): SendViewModel {
+        every { settings.isTestnet() } returns false
+        every { settings.isOfflineMode() } returns true
+        every { settings.isBtcPriceEnabled() } returns false
+        every { settings.isBiometricForSendEnabled() } returns false
+        return SendViewModel(
+            repository,
+            settings,
+            mockk<AddressBookDao>(relaxed = true),
+            mockk<PsbtStore>(relaxed = true),
+            mockk<TorAwareHttpClient>(relaxed = true)
+        )
+    }
+
+    @Test
+    fun `editing transaction fields invalidates signed transaction`() {
+        val viewModel = viewModel(mockk(relaxed = true))
+        val review = BuiltTransactionReview(
+            txid = "txid",
+            feeSat = 100,
+            vsize = 100,
+            feeRateSatPerVbyte = 1.0,
+            inputs = listOf("input:0"),
+            outputs = listOf(TransactionReviewOutput(0, 10_000, recipient, false))
+        )
+        val stateField = SendViewModel::class.java.getDeclaredField("_uiState").apply {
+            isAccessible = true
+        }
+        @Suppress("UNCHECKED_CAST")
+        val stateFlow = stateField.get(viewModel) as MutableStateFlow<SendViewModel.UiState>
+        stateFlow.value = SendViewModel.UiState(
+            amountSat = "10000",
+            txHex = "00",
+            transactionReview = review,
+            proposalFingerprint = "fingerprint"
+        )
+
+        viewModel.setAmount("12000")
+
+        assertNull(viewModel.uiState.value.txHex)
+        assertNull(viewModel.uiState.value.transactionReview)
+        assertNull(viewModel.uiState.value.proposalFingerprint)
+    }
+
+    @Test
+    fun `exact fee review requires acknowledgement above five percent`() {
+        val review = BuiltTransactionReview(
+            txid = "txid",
+            feeSat = 600,
+            vsize = 100,
+            feeRateSatPerVbyte = 6.0,
+            inputs = listOf("input:0"),
+            outputs = listOf(TransactionReviewOutput(0, 10_000, recipient, false))
+        )
+
+        assertTrue(SendViewModel.requiresHighFeeConfirmation(review))
+        assertNull(SendViewModel.feeSafetyError(review))
+    }
+
+    @Test
+    fun `built transaction review excludes wallet change from external amount`() {
+        val review = BuiltTransactionReview(
+            txid = "txid",
+            feeSat = 200,
+            vsize = 100,
+            feeRateSatPerVbyte = 2.0,
+            inputs = emptyList(),
+            outputs = listOf(
+                TransactionReviewOutput(0, 25_000, recipient, false),
+                TransactionReviewOutput(1, 74_800, "bc1qchange", true)
+            )
+        )
+
+        assertEquals(25_000L, review.externalAmountSat)
+    }
+
+    @Test
+    fun `wallet-only cancellation replacement still receives relative fee warning`() {
+        val review = BuiltTransactionReview(
+            txid = "txid",
+            feeSat = 600,
+            vsize = 100,
+            feeRateSatPerVbyte = 6.0,
+            inputs = listOf("input:0"),
+            outputs = listOf(TransactionReviewOutput(0, 10_000, "bc1qcancel", true))
+        )
+
+        assertTrue(SendViewModel.requiresHighFeeConfirmation(review))
+    }
 
     @Test
     fun `FeeEstimates holds correct values`() {

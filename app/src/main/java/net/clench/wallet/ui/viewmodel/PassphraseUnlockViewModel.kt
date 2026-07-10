@@ -40,7 +40,7 @@ class PassphraseUnlockViewModel @Inject constructor(
 
         override fun hashCode(): Int {
             var result = walletId.hashCode()
-            result = 31 * result + passphrase.hashCode()
+            // Avoid deriving a cached hash from a potentially low-entropy BIP39 passphrase.
             result = 31 * result + isLoading.hashCode()
             result = 31 * result + (error?.hashCode() ?: 0)
             result = 31 * result + isUnlocked.hashCode()
@@ -54,6 +54,14 @@ class PassphraseUnlockViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
     private var fingerprintJob: Job? = null
+
+    override fun onCleared() {
+        fingerprintJob?.cancel()
+        _uiState.update {
+            it.copy(passphrase = "", fingerprintBytes = null, masterFingerprintBytes = null)
+        }
+        super.onCleared()
+    }
 
     fun load(walletId: String, storedIdenticonBytes: ByteArray?) {
         fingerprintJob?.cancel()
@@ -128,7 +136,15 @@ class PassphraseUnlockViewModel @Inject constructor(
             try {
                 bitcoinRepository.unlockPassphraseWallet(state.walletId, state.passphrase)
                 
-                _uiState.update { it.copy(isLoading = false, isUnlocked = true) }
+                _uiState.update {
+                    it.copy(
+                        passphrase = "",
+                        fingerprintBytes = null,
+                        masterFingerprintBytes = null,
+                        isLoading = false,
+                        isUnlocked = true
+                    )
+                }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(

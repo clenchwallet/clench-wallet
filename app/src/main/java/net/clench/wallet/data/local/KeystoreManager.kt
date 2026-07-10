@@ -19,22 +19,15 @@ class KeystoreManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val prefs by lazy {
-        createPrefs() ?: run {
-            // Keystore corrupted (e.g. after backup restore or device migration).
-            // Delete the corrupted prefs file and retry with a fresh key.
-            // NOTE: all stored mnemonics will be lost — user must re-import wallets.
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("KeystoreManager", "Keystore corrupted — clearing encrypted prefs and retrying")
-            context.deleteSharedPreferences("clench_secure_prefs")
-            createPrefs() ?: throw IllegalStateException("Android Keystore unavailable — cannot secure wallet data")
-        }
+        createPrefs()
     }
 
-    private fun createPrefs(): android.content.SharedPreferences? {
-        return try {
+    private fun createPrefs(): android.content.SharedPreferences {
+        try {
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
-            EncryptedSharedPreferences.create(
+            return EncryptedSharedPreferences.create(
                 context,
                 "clench_secure_prefs",
                 masterKey,
@@ -42,43 +35,59 @@ class KeystoreManager @Inject constructor(
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
-            null
+            // Never delete or replace encrypted wallet material automatically. A transient
+            // Keystore error, device migration, or key invalidation must enter a recoverable
+            // failure state so the original ciphertext remains available for diagnosis or
+            // restoration from backup.
+            throw SecureStorageUnavailableException(
+                "Secure wallet storage is unavailable. Wallet secrets were preserved; restore Keystore access or recover from your seed backup.",
+                e
+            )
         }
     }
 
-    /** Store a mnemonic (space-separated words) for a wallet id. */
-    fun storeMnemonic(walletId: String, mnemonic: String) {
-        prefs.edit().putString(mnemonicKey(walletId), mnemonic).apply()
+    private fun android.content.SharedPreferences.Editor.commitOrThrow(operation: String) {
+        check(commit()) { "Secure wallet storage failed while $operation" }
+    }
+
+    /** Atomically commit all secret material created or imported for one wallet. */
+    fun storeWalletSecrets(
+        walletId: String,
+        mnemonic: String? = null,
+        secretDescriptor: String? = null,
+        secretChangeDescriptor: String? = null
+    ) {
+        require(mnemonic != null || secretDescriptor != null || secretChangeDescriptor != null)
+        val editor = prefs.edit()
+        mnemonic?.let { editor.putString(mnemonicKey(walletId), it) }
+        secretDescriptor?.let { editor.putString(secretDescriptorKey(walletId), it) }
+        secretChangeDescriptor?.let { editor.putString(secretChangeDescriptorKey(walletId), it) }
+        editor.commitOrThrow("saving wallet secret material")
+    }
+
+    /** Atomically commit a multisig wallet's local descriptor keys and phone-signer seeds. */
+    fun storeMultisigWalletSecrets(
+        walletId: String,
+        secretDescriptor: String,
+        secretChangeDescriptor: String,
+        signerMnemonicsByKeyId: Map<String, String>
+    ) {
+        val editor = prefs.edit()
+            .putString(secretDescriptorKey(walletId), secretDescriptor)
+            .putString(secretChangeDescriptorKey(walletId), secretChangeDescriptor)
+        signerMnemonicsByKeyId.forEach { (keyId, mnemonic) ->
+            editor.putString(multisigSignerMnemonicKey(walletId, keyId), mnemonic)
+        }
+        editor.commitOrThrow("saving multisig phone-signer material")
     }
 
     /** Retrieve a mnemonic. Returns null if not found. */
     fun getMnemonic(walletId: String): String? =
         prefs.getString(mnemonicKey(walletId), null)
 
-    /** @deprecated Passphrase is no longer stored. Kept for migration/cleanup only. */
-    @Deprecated("Passphrase is no longer stored — do not call from new code")
-    fun storePassphrase(walletId: String, passphrase: String) {
-        prefs.edit().putString(passphraseKey(walletId), passphrase).apply()
-    }
-
-    /** @deprecated Passphrase is no longer stored. Kept for migration/cleanup only. */
-    @Deprecated("Passphrase is no longer stored — do not call from new code")
-    fun getPassphrase(walletId: String): String? =
-        prefs.getString(passphraseKey(walletId), null)
-
-    /** Store the secret (xprv) descriptor for a wallet in encrypted storage. */
-    fun storeSecretDescriptor(walletId: String, descriptor: String) {
-        prefs.edit().putString(secretDescriptorKey(walletId), descriptor).apply()
-    }
-
     /** Retrieve the secret (xprv) descriptor. Returns null for watch-only wallets. */
     fun getSecretDescriptor(walletId: String): String? =
         prefs.getString(secretDescriptorKey(walletId), null)
-
-    /** Store the secret change descriptor for a wallet. */
-    fun storeSecretChangeDescriptor(walletId: String, descriptor: String) {
-        prefs.edit().putString(secretChangeDescriptorKey(walletId), descriptor).apply()
-    }
 
     /** Retrieve the secret change descriptor. Returns null for watch-only wallets. */
     fun getSecretChangeDescriptor(walletId: String): String? =
@@ -87,11 +96,6 @@ class KeystoreManager @Inject constructor(
     /** Check if we have a mnemonic (i.e. wallet is not watch-only). */
     fun hasMnemonic(walletId: String): Boolean =
         prefs.contains(mnemonicKey(walletId))
-
-    /** Store a generated multisig phone-signer mnemonic for a specific keystore id. */
-    fun storeMultisigSignerMnemonic(walletId: String, keyId: String, mnemonic: String) {
-        prefs.edit().putString(multisigSignerMnemonicKey(walletId, keyId), mnemonic).apply()
-    }
 
     /** Retrieve a generated multisig phone-signer mnemonic. */
     fun getMultisigSignerMnemonic(walletId: String, keyId: String): String? =
@@ -106,7 +110,7 @@ class KeystoreManager @Inject constructor(
         prefs.all.keys
             .filter { it.startsWith("passphrase_") }
             .forEach { editor.remove(it) }
-        editor.apply()
+        editor.commitOrThrow("removing legacy passphrases")
     }
 
     /** Delete all stored secrets for a wallet. Call when deleting a wallet. */
@@ -120,13 +124,14 @@ class KeystoreManager @Inject constructor(
         prefs.all.keys
             .filter { it.startsWith(signerPrefix) }
             .forEach { editor.remove(it) }
-        editor.apply()
+        editor.commitOrThrow("deleting wallet secrets")
     }
 
     /**
      * Get or create a 32-byte random key for SQLCipher database encryption.
      * The key is stored encrypted via Android Keystore AES-GCM in EncryptedSharedPreferences.
      */
+    @Synchronized
     fun getOrCreateDatabaseKey(): ByteArray {
         val existing = prefs.getString(DATABASE_KEY, null)
         if (existing != null) {
@@ -134,7 +139,9 @@ class KeystoreManager @Inject constructor(
         }
         val key = ByteArray(32)
         java.security.SecureRandom().nextBytes(key)
-        prefs.edit().putString(DATABASE_KEY, android.util.Base64.encodeToString(key, android.util.Base64.NO_WRAP)).apply()
+        prefs.edit()
+            .putString(DATABASE_KEY, android.util.Base64.encodeToString(key, android.util.Base64.NO_WRAP))
+            .commitOrThrow("saving the database encryption key")
         return key
     }
 
@@ -150,3 +157,6 @@ class KeystoreManager @Inject constructor(
         private const val DATABASE_KEY = "clench_database_encryption_key"
     }
 }
+
+class SecureStorageUnavailableException(message: String, cause: Throwable) :
+    IllegalStateException(message, cause)

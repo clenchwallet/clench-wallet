@@ -46,6 +46,8 @@ import net.clench.wallet.ui.components.WalletFingerprint
 import net.clench.wallet.ui.components.hasCameraAvailable
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.ImportWalletViewModel
+import net.clench.wallet.security.InputLimits
+import net.clench.wallet.security.readTextBounded
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,7 +94,9 @@ fun ImportWalletScreen(
     ) { uri ->
         uri?.let {
             try {
-                val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader -> reader.readText() }
+                val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader ->
+                    reader.readTextBounded(InputLimits.SECRET_TEXT_CHARS)
+                }
                 if (text.isNullOrBlank()) {
                     nfcError = "Selected file was empty"
                 } else {
@@ -902,6 +906,10 @@ fun ImportWalletScreen(
                         .fillMaxWidth()
                         .height(120.dp),
                     placeholder = { Text("word1 word2 word3 ... or xpub... or wsh(sortedmulti(...))") },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        autoCorrectEnabled = false
+                    ),
                     trailingIcon = {
                         if (hasCamera) {
                             IconButton(onClick = { showScanner = true }) {
@@ -1039,6 +1047,10 @@ fun ImportWalletScreen(
                                 },
                             singleLine = true,
                             visualTransformation = if (importPassphraseVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Password,
+                                autoCorrectEnabled = false
+                            ),
                             trailingIcon = {
                                 androidx.compose.material3.IconButton(onClick = { importPassphraseVisible = !importPassphraseVisible }) {
                                     androidx.compose.material3.Text(if (importPassphraseVisible) "Hide" else "Show", style = androidx.compose.material3.MaterialTheme.typography.labelSmall)

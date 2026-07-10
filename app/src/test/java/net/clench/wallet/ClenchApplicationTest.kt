@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import net.clench.wallet.security.CrashReportSanitizer
 
 /**
  * Tests for ClenchApplication.sanitizeCrashReport() — ensures sensitive data is stripped.
@@ -13,44 +14,14 @@ import org.junit.Test
  */
 class ClenchApplicationTest {
 
-    // Mirror the sanitization logic for testing (it's internal in ClenchApplication)
-    private fun sanitizeCrashReport(report: String): String {
-        var sanitized = report
-
-        sanitized = sanitized.replace(
-            Regex("xprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_XPRV]"
-        )
-        sanitized = sanitized.replace(
-            Regex("xpub[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_XPUB]"
-        )
-        sanitized = sanitized.replace(
-            Regex("tprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_TPRV]"
-        )
-        sanitized = sanitized.replace(
-            Regex("tpub[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_TPUB]"
-        )
-        sanitized = sanitized.replace(
-            Regex("[zvyZVY]pub[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_EXTKEY]"
-        )
-        sanitized = sanitized.replace(
-            Regex("""(?<!\S)(?:[a-z]{3,8}\s){11,23}[a-z]{3,8}(?!\S)"""),
-            "[REDACTED_MNEMONIC]"
-        )
-
-        return sanitized
-    }
+    private fun sanitizeCrashReport(report: String): String = CrashReportSanitizer.sanitize(report)
 
     @Test
     fun `strips xprv from crash report`() {
         val fakeXprv = "xprv" + "A".repeat(107) // typical xprv is ~111 chars
         val report = "Error at $fakeXprv in wallet"
         val sanitized = sanitizeCrashReport(report)
-        assertTrue(sanitized.contains("[REDACTED_XPRV]"))
+        assertTrue(sanitized.contains("[REDACTED_EXTENDED_KEY]"))
         assertFalse(sanitized.contains(fakeXprv))
     }
 
@@ -59,7 +30,7 @@ class ClenchApplicationTest {
         val fakeXpub = "xpub" + "B".repeat(107)
         val report = "Descriptor: $fakeXpub"
         val sanitized = sanitizeCrashReport(report)
-        assertTrue(sanitized.contains("[REDACTED_XPUB]"))
+        assertTrue(sanitized.contains("[REDACTED_EXTENDED_KEY]"))
         assertFalse(sanitized.contains(fakeXpub))
     }
 
@@ -68,7 +39,7 @@ class ClenchApplicationTest {
         val fakeTprv = "tprv" + "C".repeat(107)
         val report = "Key: $fakeTprv"
         val sanitized = sanitizeCrashReport(report)
-        assertTrue(sanitized.contains("[REDACTED_TPRV]"))
+        assertTrue(sanitized.contains("[REDACTED_EXTENDED_KEY]"))
         assertFalse(sanitized.contains(fakeTprv))
     }
 
@@ -77,7 +48,7 @@ class ClenchApplicationTest {
         val fakeTpub = "tpub" + "D".repeat(107)
         val report = "Key: $fakeTpub"
         val sanitized = sanitizeCrashReport(report)
-        assertTrue(sanitized.contains("[REDACTED_TPUB]"))
+        assertTrue(sanitized.contains("[REDACTED_EXTENDED_KEY]"))
         assertFalse(sanitized.contains(fakeTpub))
     }
 
@@ -86,7 +57,7 @@ class ClenchApplicationTest {
         val fakeZpub = "zpub" + "E".repeat(107)
         val report = "Import: $fakeZpub"
         val sanitized = sanitizeCrashReport(report)
-        assertTrue(sanitized.contains("[REDACTED_EXTKEY]"))
+        assertTrue(sanitized.contains("[REDACTED_EXTENDED_KEY]"))
         assertFalse(sanitized.contains(fakeZpub))
     }
 
@@ -136,9 +107,26 @@ class ClenchApplicationTest {
         val fakeXpub = "xpub" + "B".repeat(107)
         val report = "Keys: $fakeXprv and $fakeXpub"
         val sanitized = sanitizeCrashReport(report)
-        assertTrue(sanitized.contains("[REDACTED_XPRV]"))
-        assertTrue(sanitized.contains("[REDACTED_XPUB]"))
+        assertTrue(sanitized.contains("[REDACTED_EXTENDED_KEY]"))
         assertFalse(sanitized.contains(fakeXprv))
         assertFalse(sanitized.contains(fakeXpub))
+    }
+
+    @Test
+    fun `strips WIF private key from crash report`() {
+        val wif = "K" + "A".repeat(51)
+        val sanitized = sanitizeCrashReport("WIF=$wif")
+
+        assertTrue(sanitized.contains("[REDACTED_WIF]"))
+        assertFalse(sanitized.contains(wif))
+    }
+
+    @Test
+    fun `strips raw 32 byte secret from crash report`() {
+        val secret = "ab".repeat(32)
+        val sanitized = sanitizeCrashReport("privateKey=$secret")
+
+        assertTrue(sanitized.contains("[REDACTED_32_BYTE_SECRET]"))
+        assertFalse(sanitized.contains(secret))
     }
 }

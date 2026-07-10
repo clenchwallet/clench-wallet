@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.navigation
 
+import android.content.ContextWrapper
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -14,6 +15,8 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -22,13 +25,55 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import androidx.navigation.navArgument
 import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.domain.repository.BuiltTransactionReview
 import net.clench.wallet.ui.screens.*
 import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
 import net.clench.wallet.ui.viewmodel.HomeViewModel
 import net.clench.wallet.ui.viewmodel.StartupViewModel
+import net.clench.wallet.ui.viewmodel.SendViewModel
+import net.clench.wallet.ui.MainActivity
+import net.clench.wallet.ui.util.BiometricHelper
 
 @Composable
 fun ClenchNavHost(navController: NavHostController) {
+    val context = LocalContext.current
+    val fragmentActivity = remember(context) {
+        var current: android.content.Context? = context
+        while (current != null) {
+            if (current is FragmentActivity) return@remember current
+            current = (current as? ContextWrapper)?.baseContext
+        }
+        null
+    }
+
+    fun authenticateSpendAction(
+        title: String,
+        subtitle: String,
+        onSuccess: () -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        if (fragmentActivity == null || !BiometricHelper.canAuthenticate(context)) {
+            onFailure("Biometric or device-credential authentication is required but unavailable")
+            return
+        }
+        (context as? MainActivity)?.suppressPassphraseLock = true
+        BiometricHelper.authenticate(
+            activity = fragmentActivity,
+            title = title,
+            subtitle = subtitle,
+            onSuccess = {
+                (context as? MainActivity)?.suppressPassphraseLock = false
+                onSuccess()
+            },
+            onFailure = { message ->
+                (context as? MainActivity)?.suppressPassphraseLock = false
+                onFailure("Authentication failed: $message")
+            },
+            onCancel = { (context as? MainActivity)?.suppressPassphraseLock = false },
+            allowUiOnlyFallback = false
+        )
+    }
+
     val startupViewModel: StartupViewModel = hiltViewModel()
     val destination by startupViewModel.destination.collectAsState()
 
@@ -554,6 +599,10 @@ fun ClenchNavHost(navController: NavHostController) {
             var bumpError by remember { mutableStateOf<String?>(null) }
             var isCancelling by remember { mutableStateOf(false) }
             var cancelError by remember { mutableStateOf<String?>(null) }
+            var replacementTxHex by remember { mutableStateOf<String?>(null) }
+            var replacementReview by remember { mutableStateOf<BuiltTransactionReview?>(null) }
+            var replacementActionLabel by remember { mutableStateOf("Replacement") }
+            var replacementHighFeeAcknowledged by remember { mutableStateOf(false) }
             val coroutineScope = rememberCoroutineScope()
 
             TransactionDetailScreen(
@@ -567,44 +616,105 @@ fun ClenchNavHost(navController: NavHostController) {
                 bumpError = bumpError,
                 isCancelling = isCancelling,
                 cancelError = cancelError,
+                replacementReview = replacementReview,
+                replacementActionLabel = replacementActionLabel,
+                replacementRequiresHighFeeConfirmation = replacementReview?.let {
+                    SendViewModel.requiresHighFeeConfirmation(it)
+                } == true,
+                replacementHighFeeAcknowledged = replacementHighFeeAcknowledged,
+                onAcknowledgeReplacementHighFee = { replacementHighFeeAcknowledged = true },
+                onDiscardReplacement = {
+                    replacementTxHex = null
+                    replacementReview = null
+                    replacementHighFeeAcknowledged = false
+                },
+                onBroadcastReplacement = {
+                    val reviewedHex = replacementTxHex
+                    if (reviewedHex != null && replacementReview != null) {
+                        coroutineScope.launch {
+                            isBumping = replacementActionLabel.startsWith("Fee")
+                            isCancelling = !isBumping
+                            try {
+                                val repo = homeViewModel.bitcoinRepository
+                                repo.broadcastTransaction(homeViewModel.settingsManager.loadElectrumConfig(), reviewedHex)
+                                replacementTxHex = null
+                                replacementReview = null
+                                navController.popBackStack()
+                            } catch (e: Exception) {
+                                if (isBumping) bumpError = e.message ?: "Failed to broadcast fee bump"
+                                else cancelError = e.message ?: "Failed to broadcast replacement"
+                            } finally {
+                                isBumping = false
+                                isCancelling = false
+                            }
+                        }
+                    }
+                },
                 onBack = { navController.popBackStack() },
                 onSpendUtxo = { outpoints, isCpfp ->
                     navController.navigate(Routes.Send.build(walletId, outpoints.joinToString(","), cpfp = isCpfp))
                 },
                 onBumpFee = if (homeState.isWatchOnly) null else { bumpTxid, newFeeRate ->
-                    coroutineScope.launch {
-                        isBumping = true
-                        bumpError = null
-                        try {
-                            val repo = homeViewModel.bitcoinRepository
-                            val txHex = repo.bumpFee(walletId, bumpTxid, newFeeRate)
-                            val config = homeViewModel.settingsManager.loadElectrumConfig()
-                            repo.broadcastTransaction(config, txHex)
-                            // Success — go back and refresh
-                            navController.popBackStack()
-                        } catch (e: Exception) {
-                            bumpError = e.message ?: "Failed to bump fee"
-                        } finally {
-                            isBumping = false
+                    val buildReplacement: () -> Unit = {
+                        coroutineScope.launch {
+                            isBumping = true
+                            bumpError = null
+                            try {
+                                val repo = homeViewModel.bitcoinRepository
+                                val txHex = repo.bumpFee(walletId, bumpTxid, newFeeRate)
+                                val review = repo.inspectBuiltTransaction(walletId, txHex)
+                                SendViewModel.feeSafetyError(review)?.let { error(it) }
+                                replacementTxHex = txHex
+                                replacementReview = review
+                                replacementActionLabel = "Fee Bump"
+                                replacementHighFeeAcknowledged = false
+                            } catch (e: Exception) {
+                                bumpError = e.message ?: "Failed to bump fee"
+                            } finally {
+                                isBumping = false
+                            }
                         }
+                        Unit
                     }
+                    if (homeViewModel.settingsManager.isBiometricForSendEnabled()) {
+                        authenticateSpendAction(
+                            title = "Authenticate fee bump",
+                            subtitle = "Verify your identity before signing a replacement transaction",
+                            onSuccess = buildReplacement,
+                            onFailure = { bumpError = it }
+                        )
+                    } else buildReplacement()
                 },
                 onCancelTransaction = if (homeState.isWatchOnly) null else { cancelTxid, newFeeRate ->
-                    coroutineScope.launch {
-                        isCancelling = true
-                        cancelError = null
-                        try {
-                            val repo = homeViewModel.bitcoinRepository
-                            val txHex = repo.cancelTransaction(walletId, cancelTxid, newFeeRate)
-                            val config = homeViewModel.settingsManager.loadElectrumConfig()
-                            repo.broadcastTransaction(config, txHex)
-                            navController.popBackStack()
-                        } catch (e: Exception) {
-                            cancelError = e.message ?: "Failed to create replacement transaction"
-                        } finally {
-                            isCancelling = false
+                    val buildReplacement: () -> Unit = {
+                        coroutineScope.launch {
+                            isCancelling = true
+                            cancelError = null
+                            try {
+                                val repo = homeViewModel.bitcoinRepository
+                                val txHex = repo.cancelTransaction(walletId, cancelTxid, newFeeRate)
+                                val review = repo.inspectBuiltTransaction(walletId, txHex)
+                                SendViewModel.feeSafetyError(review)?.let { error(it) }
+                                replacementTxHex = txHex
+                                replacementReview = review
+                                replacementActionLabel = "Cancellation Replacement"
+                                replacementHighFeeAcknowledged = false
+                            } catch (e: Exception) {
+                                cancelError = e.message ?: "Failed to create replacement transaction"
+                            } finally {
+                                isCancelling = false
+                            }
                         }
+                        Unit
                     }
+                    if (homeViewModel.settingsManager.isBiometricForSendEnabled()) {
+                        authenticateSpendAction(
+                            title = "Authenticate cancellation",
+                            subtitle = "Verify your identity before signing a replacement transaction",
+                            onSuccess = buildReplacement,
+                            onFailure = { cancelError = it }
+                        )
+                    } else buildReplacement()
                 },
                 onSaveLabel = { labelTxid, label ->
                     coroutineScope.launch {

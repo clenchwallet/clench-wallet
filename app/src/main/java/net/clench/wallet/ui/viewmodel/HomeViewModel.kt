@@ -21,9 +21,12 @@ import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
 import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.network.TorAwareHttpClient
+import net.clench.wallet.data.repository.WalletStateRecoveryRequiredException
 import net.clench.wallet.data.util.Bip329
 import net.clench.wallet.domain.model.TransactionItem
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.security.InputLimits
+import net.clench.wallet.security.readTextBounded
 import org.json.JSONObject
 import java.io.File
 import java.text.NumberFormat
@@ -63,7 +66,9 @@ class HomeViewModel @Inject constructor(
         val isTestnet: Boolean = false,
         val mempoolUrl: String = "https://mempool.space",
         val isOfflineMode: Boolean = false,
-        val isTorEnabled: Boolean = false
+        val isTorEnabled: Boolean = false,
+        val walletStateRecoveryRequired: Boolean = false,
+        val isRecoveringWalletState: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -142,7 +147,14 @@ class HomeViewModel @Inject constructor(
                     fetchBtcPrice()
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, error = e.message) }
+                val message = e.message ?: "Wallet could not be opened"
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = message,
+                        walletStateRecoveryRequired = e is WalletStateRecoveryRequiredException
+                    )
+                }
             }
         }
 
@@ -158,6 +170,32 @@ class HomeViewModel @Inject constructor(
     }
 
     fun reload(walletId: String) = load(walletId)
+
+    fun recoverWalletState() {
+        val walletId = currentWalletId ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRecoveringWalletState = true, error = null) }
+            try {
+                bitcoinRepository.recoverWalletState(walletId, stopGap = 100u)
+                _uiState.update {
+                    it.copy(
+                        isRecoveringWalletState = false,
+                        walletStateRecoveryRequired = false,
+                        error = null
+                    )
+                }
+                load(walletId)
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isRecoveringWalletState = false,
+                        walletStateRecoveryRequired = true,
+                        error = e.message ?: "Wallet-state recovery failed"
+                    )
+                }
+            }
+        }
+    }
 
     override fun onCleared() {
         super.onCleared()
@@ -380,7 +418,9 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val jsonl = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
+                        it.readTextBounded(InputLimits.LABEL_TEXT_CHARS)
+                    }
                         ?: throw Exception("Could not read file")
                 }
                 val parsed = Bip329.importLabels(jsonl)

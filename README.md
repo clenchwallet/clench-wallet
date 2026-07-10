@@ -42,8 +42,8 @@ A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](http
 
 ### Security
 - AES-256-GCM encrypted key storage via Android Keystore
-- SQLCipher database encryption
-- Crypto-bound biometric authentication
+- SQLCipher encryption for the Room application database; BDK's separate public wallet-state files are not SQLCipher-encrypted
+- Crypto-bound biometric/device-credential approval gates for seed display and software signing
 - PIN lock with brute-force protection
 - PSBT/final transaction validation before broadcast
 - No auto-broadcast after scanning signed hardware-wallet payloads

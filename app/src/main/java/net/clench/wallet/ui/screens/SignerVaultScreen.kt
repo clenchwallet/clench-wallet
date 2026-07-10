@@ -60,6 +60,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.data.local.entity.SavedSignerEntity
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.SignerAccountKeyParser
+import net.clench.wallet.security.InputLimits
+import net.clench.wallet.security.readTextBounded
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.NfcDispatch
 import net.clench.wallet.ui.components.NfcReaderModeFlags
@@ -215,7 +217,9 @@ fun SignerVaultScreen(
     ) { uri ->
         uri?.let {
             try {
-                val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader -> reader.readText() }
+                val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader ->
+                    reader.readTextBounded(InputLimits.SECRET_TEXT_CHARS)
+                }
                 if (text.isNullOrBlank()) {
                     nfcError = "Selected signer export file was empty"
                 } else {

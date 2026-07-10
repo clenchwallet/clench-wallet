@@ -2,6 +2,7 @@ package net.clench.wallet.ui.screens
 
 import android.util.Base64
 import android.widget.Toast
+import android.content.ContextWrapper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -15,7 +16,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.fragment.app.FragmentActivity
 import net.clench.wallet.ui.util.SecureWindowEffect
+import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.viewmodel.PhoneSignerPsbtViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -26,6 +29,14 @@ fun PhoneSignerPsbtScreen(
     viewModel: PhoneSignerPsbtViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val fragmentActivity = remember(context) {
+        var current: android.content.Context? = context
+        while (current != null) {
+            if (current is FragmentActivity) return@remember current
+            current = (current as? ContextWrapper)?.baseContext
+        }
+        null
+    }
     val uiState by viewModel.uiState.collectAsState()
     val storeData = remember { viewModel.initFromStore() }
     SecureWindowEffect()
@@ -107,10 +118,91 @@ fun PhoneSignerPsbtScreen(
                 return@Column
             }
 
+            if (uiState.isReviewLoading) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Verifying transaction outputs and fee…")
+                }
+            }
+
+            uiState.transactionReview?.let { review ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Verify before signing", fontWeight = FontWeight.Bold)
+                        review.outputs.forEach { output ->
+                            Column {
+                                Text(
+                                    if (output.belongsToWallet) "Change / wallet output" else "Recipient",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    "${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(output.amountSat)} sats",
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(output.address ?: "Script output ${output.index}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        HorizontalDivider()
+                        Text(
+                            "Network fee: ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(review.feeSat)} sats " +
+                                "(${String.format("%.2f", review.feeRateSatPerVbyte)} sat/vB)"
+                        )
+                        Text("Transaction ID: ${review.txid}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
+            if (uiState.requiresHighFeeConfirmation && !uiState.highFeeAcknowledged) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Unusually high fee", fontWeight = FontWeight.Bold)
+                        Text("The exact fee exceeds 5% of the external amount. Verify it before allowing phone keys to sign.")
+                        TextButton(onClick = viewModel::acknowledgeHighFee) { Text("I verified the fee") }
+                    }
+                }
+            }
+
             if (uiState.signedPsbtBase64 == null) {
                 Button(
-                    onClick = { viewModel.signWithPhoneKeys(walletId) },
-                    enabled = !uiState.isSigning,
+                    onClick = {
+                        when {
+                            !uiState.biometricForSendEnabled -> viewModel.signWithPhoneKeys(walletId)
+                            fragmentActivity == null || !BiometricHelper.canAuthenticate(context) ->
+                                viewModel.setError("Biometric or device-credential authentication is required but unavailable")
+                            else -> {
+                                (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = true
+                                BiometricHelper.authenticate(
+                                    activity = fragmentActivity,
+                                    title = "Authenticate phone signer",
+                                    subtitle = "Verify your identity before wallet keys sign this transaction",
+                                    onSuccess = {
+                                        (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
+                                        viewModel.signWithPhoneKeys(walletId)
+                                    },
+                                    onFailure = { message ->
+                                        (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
+                                        viewModel.setError("Authentication failed: $message")
+                                    },
+                                    onCancel = {
+                                        (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
+                                    },
+                                    allowUiOnlyFallback = false
+                                )
+                            }
+                        }
+                    },
+                    enabled = !uiState.isSigning &&
+                        !uiState.isReviewLoading &&
+                        uiState.transactionReview != null &&
+                        (!uiState.requiresHighFeeConfirmation || uiState.highFeeAcknowledged),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     if (uiState.isSigning) {

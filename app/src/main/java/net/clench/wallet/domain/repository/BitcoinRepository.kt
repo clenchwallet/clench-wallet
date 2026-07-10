@@ -9,6 +9,25 @@ import org.bitcoindevkit.KeychainKind
  */
 data class Recipient(val address: String, val amountSat: Long)
 
+data class TransactionReviewOutput(
+    val index: Int,
+    val amountSat: Long,
+    val address: String?,
+    val belongsToWallet: Boolean
+)
+
+data class BuiltTransactionReview(
+    val txid: String,
+    val feeSat: Long,
+    val vsize: Long,
+    val feeRateSatPerVbyte: Double,
+    val inputs: List<String>,
+    val outputs: List<TransactionReviewOutput>
+) {
+    val externalAmountSat: Long
+        get() = outputs.filterNot { it.belongsToWallet }.sumOf { it.amountSat }
+}
+
 data class GeneratedMultisigPhoneSigner(
     val mnemonicWords: List<String>,
     val xpubWithOrigin: String,
@@ -92,6 +111,12 @@ interface BitcoinRepository {
     suspend fun syncWallet(walletId: String, config: ElectrumConfig? = null): WalletBalance
 
     /**
+     * Explicit recovery for an unreadable BDK wallet-state database. Implementations must
+     * preserve/quarantine the original files and restore them if the recovery scan fails.
+     */
+    suspend fun recoverWalletState(walletId: String, stopGap: UInt = 100u): WalletBalance
+
+    /**
      * Get the current balance without syncing.
      */
     suspend fun getBalance(walletId: String): WalletBalance
@@ -130,6 +155,12 @@ interface BitcoinRepository {
         utxoVout: UInt? = null,
         selectedOutpoints: List<String> = emptyList()
     ): String
+
+    /** Parse a built transaction against wallet state for immutable user review. */
+    suspend fun inspectBuiltTransaction(walletId: String, txHex: String): BuiltTransactionReview
+
+    /** Parse an unsigned or partially signed PSBT for mandatory signer review. */
+    suspend fun inspectPsbt(walletId: String, psbtBase64: String): BuiltTransactionReview
 
     /**
      * Broadcast a signed transaction.

@@ -15,17 +15,66 @@ import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.network.ElectrumConnectionFactory
 import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.domain.repository.BuiltTransactionReview
+import net.clench.wallet.domain.repository.TransactionReviewOutput
 import org.bitcoindevkit.Amount
 import org.bitcoindevkit.Persister
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
+import org.bitcoindevkit.DerivationPath
 import org.bitcoindevkit.FeeRate
-import org.bitcoindevkit.KeychainKind
 import org.bitcoindevkit.Mnemonic
 import org.bitcoindevkit.Network
 import org.bitcoindevkit.TxBuilder
+import org.bitcoindevkit.Transaction
 import org.bitcoindevkit.Wallet
 import javax.inject.Inject
+
+enum class SweepSeedScriptType { LEGACY, NESTED_SEGWIT, NATIVE_SEGWIT, TAPROOT }
+enum class SweepWifScriptType { LEGACY, NESTED_SEGWIT, NATIVE_SEGWIT }
+
+internal object SweepDescriptorFactory {
+    fun create(
+        key: DescriptorSecretKey,
+        network: Network,
+        type: SweepSeedScriptType,
+        account: UInt
+    ): Pair<Descriptor, Descriptor> {
+        require(account <= 100u) { "Account index must be from 0 to 100" }
+        val purpose = when (type) {
+            SweepSeedScriptType.LEGACY -> 44
+            SweepSeedScriptType.NESTED_SEGWIT -> 49
+            SweepSeedScriptType.NATIVE_SEGWIT -> 84
+            SweepSeedScriptType.TAPROOT -> 86
+        }
+        val coinType = if (network == Network.BITCOIN) 0 else 1
+        val accountPathText = "m/${purpose}'/${coinType}'/${account}'"
+        val accountPath = DerivationPath(accountPathText)
+        var accountKey: DescriptorSecretKey? = null
+        try {
+            val derivedAccountKey = key.derive(accountPath)
+            accountKey = derivedAccountKey
+            val accountKeyText = derivedAccountKey.toString().removeSuffix("/*")
+            fun descriptor(branch: Int): Descriptor {
+                // BDK's derived secret key string already carries the master fingerprint
+                // and origin path plus a wildcard. Replace that wildcard with the standard
+                // external/change branch and address wildcard.
+                val derivedKey = "$accountKeyText/$branch/*"
+                val expression = when (type) {
+                    SweepSeedScriptType.LEGACY -> "pkh($derivedKey)"
+                    SweepSeedScriptType.NESTED_SEGWIT -> "sh(wpkh($derivedKey))"
+                    SweepSeedScriptType.NATIVE_SEGWIT -> "wpkh($derivedKey)"
+                    SweepSeedScriptType.TAPROOT -> "tr($derivedKey)"
+                }
+                return Descriptor(expression, network)
+            }
+            return descriptor(0) to descriptor(1)
+        } finally {
+            try { accountKey?.destroy() } catch (_: Exception) {}
+            try { accountPath.destroy() } catch (_: Exception) {}
+        }
+    }
+}
 
 @HiltViewModel
 class SweepViewModel @Inject constructor(
@@ -35,14 +84,11 @@ class SweepViewModel @Inject constructor(
     private val electrumConnectionFactory: ElectrumConnectionFactory
 ) : ViewModel() {
 
-    private enum class WifSweepScript {
-        LegacyP2pkh,
-        NativeSegwit
-    }
-
     data class UiState(
         val walletName: String = "",
         val destinationAddress: String = "",
+        val defaultDestinationAddress: String = "",
+        val externalDestinationConfirmed: Boolean = false,
         val sourceBalanceSat: Long = 0L,
         val sourcePendingSat: Long = 0L,
         val feeEstimates: FeeEstimates? = null,
@@ -52,8 +98,17 @@ class SweepViewModel @Inject constructor(
         val isSweeping: Boolean = false,
         val error: String? = null,
         val broadcastTxid: String? = null,
+        val preparedTxHex: String? = null,
+        val transactionReview: BuiltTransactionReview? = null,
+        val requiresHighFeeConfirmation: Boolean = false,
+        val highFeeAcknowledged: Boolean = false,
+        val isBroadcasting: Boolean = false,
         val seedValidated: Boolean = false,
-        val isTestnet: Boolean = false
+        val isTestnet: Boolean = false,
+        val biometricForSendEnabled: Boolean = true,
+        val seedScriptType: SweepSeedScriptType = SweepSeedScriptType.NATIVE_SEGWIT,
+        val seedAccount: UInt = 0u,
+        val wifScriptType: SweepWifScriptType = SweepWifScriptType.LEGACY
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -72,7 +127,9 @@ class SweepViewModel @Inject constructor(
                     it.copy(
                         walletName = wallet?.name ?: "",
                         destinationAddress = address.address,
-                        isTestnet = settingsManager.isTestnet()
+                        defaultDestinationAddress = address.address,
+                        isTestnet = settingsManager.isTestnet(),
+                        biometricForSendEnabled = settingsManager.isBiometricForSendEnabled()
                     )
                 }
                 fetchFeeEstimates()
@@ -83,7 +140,20 @@ class SweepViewModel @Inject constructor(
     }
 
     fun setDestinationAddress(addr: String) {
-        _uiState.update { it.copy(destinationAddress = addr) }
+        _uiState.update {
+            it.copy(
+                destinationAddress = addr,
+                externalDestinationConfirmed = false,
+                preparedTxHex = null,
+                transactionReview = null,
+                requiresHighFeeConfirmation = false,
+                highFeeAcknowledged = false
+            )
+        }
+    }
+
+    fun confirmExternalDestination(confirmed: Boolean) {
+        _uiState.update { it.copy(externalDestinationConfirmed = confirmed) }
     }
 
     fun selectFeeTier(tier: FeeTier) {
@@ -98,12 +168,44 @@ class SweepViewModel @Inject constructor(
                     FeeTier.CUSTOM -> state.feeRate
                 }
             } else state.feeRate
-            state.copy(selectedFeeTier = tier, feeRate = feeRate)
+            state.copy(
+                selectedFeeTier = tier,
+                feeRate = feeRate,
+                preparedTxHex = null,
+                transactionReview = null,
+                requiresHighFeeConfirmation = false,
+                highFeeAcknowledged = false
+            )
         }
     }
 
     fun setFeeRate(rate: String) {
-        _uiState.update { it.copy(feeRate = rate, selectedFeeTier = FeeTier.CUSTOM) }
+        _uiState.update {
+            it.copy(
+                feeRate = rate,
+                selectedFeeTier = FeeTier.CUSTOM,
+                preparedTxHex = null,
+                transactionReview = null,
+                requiresHighFeeConfirmation = false,
+                highFeeAcknowledged = false
+            )
+        }
+    }
+
+    fun setSeedScriptType(type: SweepSeedScriptType) {
+        _uiState.update { it.copy(seedScriptType = type) }
+        clearSourceValidation()
+    }
+
+    fun setSeedAccount(account: UInt) {
+        require(account <= 100u) { "Account index must be from 0 to 100" }
+        _uiState.update { it.copy(seedAccount = account) }
+        clearSourceValidation()
+    }
+
+    fun setWifScriptType(type: SweepWifScriptType) {
+        _uiState.update { it.copy(wifScriptType = type) }
+        clearSourceValidation()
     }
 
     fun clearSourceValidation() {
@@ -113,9 +215,37 @@ class SweepViewModel @Inject constructor(
                 sourcePendingSat = 0L,
                 seedValidated = false,
                 error = null,
-                broadcastTxid = null
+                broadcastTxid = null,
+                preparedTxHex = null,
+                transactionReview = null,
+                requiresHighFeeConfirmation = false,
+                highFeeAcknowledged = false
             )
         }
+    }
+
+    fun acknowledgeHighFee() {
+        _uiState.update {
+            if (it.requiresHighFeeConfirmation && it.preparedTxHex != null) {
+                it.copy(highFeeAcknowledged = true, error = null)
+            } else it
+        }
+    }
+
+    fun discardPreparedSweep() {
+        _uiState.update {
+            it.copy(
+                preparedTxHex = null,
+                transactionReview = null,
+                requiresHighFeeConfirmation = false,
+                highFeeAcknowledged = false,
+                error = null
+            )
+        }
+    }
+
+    fun setError(message: String) {
+        _uiState.update { it.copy(error = message) }
     }
 
     private fun fetchFeeEstimates() {
@@ -155,8 +285,13 @@ class SweepViewModel @Inject constructor(
                     val passphraseStr = if (passphrase != null) String(passphrase) else ""
                     secretKey = DescriptorSecretKey(network, mnemonic, passphraseStr)
 
-                    val externalDesc = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
-                    val internalDesc = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, network)
+                    val sweepState = _uiState.value
+                    val (externalDesc, internalDesc) = SweepDescriptorFactory.create(
+                        secretKey,
+                        network,
+                        sweepState.seedScriptType,
+                        sweepState.seedAccount
+                    )
 
                     // Create temp wallet to sync and get balance — use cacheDir (C-1)
                     val tempDbPath = java.io.File.createTempFile("clench_sweep_", ".db", appContext.cacheDir).absolutePath
@@ -167,10 +302,13 @@ class SweepViewModel @Inject constructor(
                         // Sync the temp wallet
                         val config = settingsManager.loadElectrumConfig()
                         val activeConn = electrumConnectionFactory.createConnection(config)
-                        val fullScanResult = tempWallet.startFullScan().build()
-                        val update = activeConn.client.fullScan(fullScanResult, stopGap = 20uL, batchSize = 10uL, fetchPrevTxouts = false)
-                        tempWallet.applyUpdate(update)
-                        activeConn.close()
+                        try {
+                            val fullScanResult = tempWallet.startFullScan().build()
+                            val update = activeConn.client.fullScan(fullScanResult, stopGap = 20uL, batchSize = 10uL, fetchPrevTxouts = false)
+                            tempWallet.applyUpdate(update)
+                        } finally {
+                            activeConn.close()
+                        }
 
                         val balance = tempWallet.balance()
                         val confirmed = balance.confirmed.toSat().toLong()
@@ -185,7 +323,10 @@ class SweepViewModel @Inject constructor(
                             )
                         }
                     } finally {
-                        // BDK 2.x: Wallet resources released by GC/Drop
+                        try { tempWallet.close() } catch (_: Exception) {}
+                        try { tempPersister.close() } catch (_: Exception) {}
+                        try { externalDesc.close() } catch (_: Exception) {}
+                        try { internalDesc.close() } catch (_: Exception) {}
                         // C-1: Clean up temp DB and WAL/SHM/journal files
                         try { java.io.File(tempDbPath).delete() } catch (_: Exception) {}
                         try { java.io.File(tempDbPath + "-wal").delete() } catch (_: Exception) {}
@@ -215,7 +356,7 @@ class SweepViewModel @Inject constructor(
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 try {
-                    val balance = withWifWallet(wifInput, WifSweepScript.LegacyP2pkh) { tempWallet, activeConn ->
+                    val balance = withWifWallet(wifInput, _uiState.value.wifScriptType) { tempWallet, activeConn ->
                         val fullScanResult = tempWallet.startFullScan().build()
                         val update = activeConn.client.fullScan(fullScanResult, stopGap = 1uL, batchSize = 1uL, fetchPrevTxouts = false)
                         tempWallet.applyUpdate(update)
@@ -269,8 +410,12 @@ class SweepViewModel @Inject constructor(
                     val passphraseStr = if (passphrase != null) String(passphrase) else ""
                     secretKey = DescriptorSecretKey(network, mnemonic, passphraseStr)
 
-                    val externalDesc = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
-                    val internalDesc = Descriptor.newBip84(secretKey, KeychainKind.INTERNAL, network)
+                    val (externalDesc, internalDesc) = SweepDescriptorFactory.create(
+                        secretKey,
+                        network,
+                        state.seedScriptType,
+                        state.seedAccount
+                    )
 
                     val config = settingsManager.loadElectrumConfig()
                     val activeConn = electrumConnectionFactory.createConnection(config)
@@ -285,14 +430,8 @@ class SweepViewModel @Inject constructor(
                         val update = activeConn.client.fullScan(fullScanResult, stopGap = 20uL, batchSize = 10uL, fetchPrevTxouts = false)
                         tempWallet.applyUpdate(update)
 
-                        val destAddress = state.destinationAddress
-                        if (destAddress.isBlank()) {
-                            throw Exception("Destination address is empty")
-                        }
-
-                        val feeRateVal = state.feeRate.toFloatOrNull()?.toLong()?.coerceAtLeast(1L)?.toULong()
-                            ?: throw Exception("Invalid fee rate")
-                        val feeRate = FeeRate.fromSatPerVb(feeRateVal)
+                        val destAddress = validatedDestination(state, network)
+                        val feeRate = validatedFeeRate(state.feeRate)
 
                         // Build drain/sweep transaction (send max)
                         val address = org.bitcoindevkit.Address(destAddress, network)
@@ -309,19 +448,16 @@ class SweepViewModel @Inject constructor(
                             throw Exception("Transaction signing incomplete")
                         }
 
-                        // Extract and broadcast
+                        // Extract and hold for immutable review. Broadcasting happens only
+                        // after the user verifies the exact destination, amount, and fee.
                         val tx = psbt.extractTx()
-                        val txid = activeConn.client.transactionBroadcast(tx).toString()
-                        activeConn.close()
-
-                        _uiState.update {
-                            it.copy(
-                                isSweeping = false,
-                                broadcastTxid = txid
-                            )
-                        }
+                        prepareSweepTransaction(tempWallet, tx, state, destAddress)
                     } finally {
-                        // BDK 2.x: Wallet resources released by GC/Drop
+                        try { activeConn.close() } catch (_: Exception) {}
+                        try { tempWallet.close() } catch (_: Exception) {}
+                        try { tempPersister.close() } catch (_: Exception) {}
+                        try { externalDesc.close() } catch (_: Exception) {}
+                        try { internalDesc.close() } catch (_: Exception) {}
                         // C-1: Clean up temp DB and WAL/SHM/journal files
                         try { java.io.File(tempDbPath).delete() } catch (_: Exception) {}
                         try { java.io.File(tempDbPath + "-wal").delete() } catch (_: Exception) {}
@@ -352,19 +488,13 @@ class SweepViewModel @Inject constructor(
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 try {
-                    val txid = withWifWallet(wifInput, WifSweepScript.LegacyP2pkh) { tempWallet, activeConn ->
+                    withWifWallet(wifInput, state.wifScriptType) { tempWallet, activeConn ->
                         val fullScanResult = tempWallet.startFullScan().build()
                         val update = activeConn.client.fullScan(fullScanResult, stopGap = 1uL, batchSize = 1uL, fetchPrevTxouts = false)
                         tempWallet.applyUpdate(update)
 
-                        val destAddress = state.destinationAddress
-                        if (destAddress.isBlank()) {
-                            throw Exception("Destination address is empty")
-                        }
-
-                        val feeRateVal = state.feeRate.toFloatOrNull()?.toLong()?.coerceAtLeast(1L)?.toULong()
-                            ?: throw Exception("Invalid fee rate")
-                        val feeRate = FeeRate.fromSatPerVb(feeRateVal)
+                        val destAddress = validatedDestination(state, tempWallet.network())
+                        val feeRate = validatedFeeRate(state.feeRate)
 
                         val address = org.bitcoindevkit.Address(destAddress, tempWallet.network())
                         val psbt = TxBuilder()
@@ -378,14 +508,7 @@ class SweepViewModel @Inject constructor(
                             throw Exception("Transaction signing incomplete")
                         }
 
-                        activeConn.client.transactionBroadcast(psbt.extractTx()).toString()
-                    }
-
-                    _uiState.update {
-                        it.copy(
-                            isSweeping = false,
-                            broadcastTxid = txid
-                        )
+                        prepareSweepTransaction(tempWallet, psbt.extractTx(), state, destAddress)
                     }
                 } catch (e: Exception) {
                     _uiState.update { it.copy(isSweeping = false, error = e.message ?: "Sweep failed") }
@@ -411,7 +534,7 @@ class SweepViewModel @Inject constructor(
                     val network = if (sourceIsTestnet) Network.TESTNET else Network.BITCOIN
                     val wif = WifPrivateKeyParser.fromRawPrivateKey(privateKey, network, compressed = true)
                     wifChars = wif.value.toCharArray()
-                    val txid = withWifWallet(wifChars, WifSweepScript.NativeSegwit) { tempWallet, activeConn ->
+                    withWifWallet(wifChars, SweepWifScriptType.NATIVE_SEGWIT) { tempWallet, activeConn ->
                         val fullScanResult = tempWallet.startFullScan().build()
                         val update = activeConn.client.fullScan(fullScanResult, stopGap = 1uL, batchSize = 1uL, fetchPrevTxouts = false)
                         tempWallet.applyUpdate(update)
@@ -422,14 +545,9 @@ class SweepViewModel @Inject constructor(
                             throw Exception("No confirmed funds found on the unsealed SATSCARD slot")
                         }
 
-                        val destAddress = _uiState.value.destinationAddress
-                        if (destAddress.isBlank()) {
-                            throw Exception("Destination address is empty")
-                        }
-
-                        val feeRateVal = _uiState.value.feeRate.toFloatOrNull()?.toLong()?.coerceAtLeast(1L)?.toULong()
-                            ?: throw Exception("Invalid fee rate")
-                        val feeRate = FeeRate.fromSatPerVb(feeRateVal)
+                        val currentState = _uiState.value
+                        val destAddress = validatedDestination(currentState, tempWallet.network())
+                        val feeRate = validatedFeeRate(currentState.feeRate)
 
                         val address = org.bitcoindevkit.Address(destAddress, tempWallet.network())
                         val psbt = TxBuilder()
@@ -443,14 +561,7 @@ class SweepViewModel @Inject constructor(
                             throw Exception("Transaction signing incomplete")
                         }
 
-                        activeConn.client.transactionBroadcast(psbt.extractTx()).toString()
-                    }
-
-                    _uiState.update {
-                        it.copy(
-                            isSweeping = false,
-                            broadcastTxid = txid
-                        )
+                        prepareSweepTransaction(tempWallet, psbt.extractTx(), currentState, destAddress)
                     }
                 } catch (e: Exception) {
                     _uiState.update { it.copy(isSweeping = false, error = e.message ?: "SATSCARD sweep failed") }
@@ -462,9 +573,117 @@ class SweepViewModel @Inject constructor(
         }
     }
 
+    fun broadcastPreparedSweep() {
+        val state = _uiState.value
+        val txHex = state.preparedTxHex ?: run {
+            _uiState.update { it.copy(error = "Prepare and review the sweep before broadcasting") }
+            return
+        }
+        if (state.requiresHighFeeConfirmation && !state.highFeeAcknowledged) {
+            _uiState.update { it.copy(error = "Confirm the high network fee before broadcasting") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBroadcasting = true, error = null) }
+            try {
+                val txid = bitcoinRepository.broadcastTransaction(settingsManager.loadElectrumConfig(), txHex)
+                _uiState.update {
+                    it.copy(
+                        isBroadcasting = false,
+                        broadcastTxid = txid,
+                        preparedTxHex = null,
+                        transactionReview = null,
+                        requiresHighFeeConfirmation = false,
+                        highFeeAcknowledged = false
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isBroadcasting = false, error = e.message ?: "Sweep broadcast failed") }
+            }
+        }
+    }
+
+    private fun validatedDestination(state: UiState, network: Network): String {
+        val raw = state.destinationAddress.trim()
+        if (raw.isBlank()) throw IllegalArgumentException("Destination address is empty")
+        val address = org.bitcoindevkit.Address(raw, network)
+        check(address.isValidForNetwork(network)) { "Destination address is for the wrong Bitcoin network" }
+        val normalized = address.toString()
+        if (normalized != state.defaultDestinationAddress && !state.externalDestinationConfirmed) {
+            throw SecurityException(
+                "This destination is not the receive address Clench generated for the selected wallet. Confirm the external destination before preparing the sweep."
+            )
+        }
+        return normalized
+    }
+
+    private fun validatedFeeRate(raw: String): FeeRate {
+        val value = raw.toDoubleOrNull()
+        require(value != null && value.isFinite() && value in 1.0..SendViewModel.MAX_FEE_RATE_SAT_VB.toDouble()) {
+            "Enter a fee rate from 1 to ${SendViewModel.MAX_FEE_RATE_SAT_VB.toInt()} sat/vB"
+        }
+        return FeeRate.fromSatPerVb(kotlin.math.ceil(value).toLong().toULong())
+    }
+
+    private fun prepareSweepTransaction(
+        sourceWallet: Wallet,
+        tx: Transaction,
+        draft: UiState,
+        destinationAddress: String
+    ) {
+        try {
+            val outputs = tx.output()
+            check(outputs.size == 1) { "Sweep transaction contains an unexpected output" }
+            val expectedScript = org.bitcoindevkit.Address(destinationAddress, sourceWallet.network()).scriptPubkey()
+            check(outputs.single().scriptPubkey.toBytes().contentEquals(expectedScript.toBytes())) {
+                "Sweep transaction destination differs from the reviewed address"
+            }
+            val feeSat = sourceWallet.calculateFee(tx).toSat().toLong()
+            val vsize = tx.vsize().toLong()
+            val review = BuiltTransactionReview(
+                txid = tx.computeTxid().toString(),
+                feeSat = feeSat,
+                vsize = vsize,
+                feeRateSatPerVbyte = if (vsize > 0) feeSat.toDouble() / vsize else 0.0,
+                inputs = tx.input().map { "${it.previousOutput.txid}:${it.previousOutput.vout}" },
+                outputs = listOf(
+                    TransactionReviewOutput(
+                        index = 0,
+                        amountSat = outputs.single().value.toSat().toLong(),
+                        address = destinationAddress,
+                        belongsToWallet = false
+                    )
+                )
+            )
+            SendViewModel.feeSafetyError(review)?.let { error(it) }
+            val txHex = tx.serialize().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            _uiState.update { current ->
+                if (current.destinationAddress.trim() != draft.destinationAddress.trim() ||
+                    current.feeRate != draft.feeRate
+                ) {
+                    current.copy(
+                        isSweeping = false,
+                        error = "Sweep details changed while the transaction was prepared. Review the draft and try again."
+                    )
+                } else {
+                    current.copy(
+                        isSweeping = false,
+                        preparedTxHex = txHex,
+                        transactionReview = review,
+                        requiresHighFeeConfirmation = SendViewModel.requiresHighFeeConfirmation(review),
+                        highFeeAcknowledged = false,
+                        error = null
+                    )
+                }
+            }
+        } finally {
+            tx.close()
+        }
+    }
+
     private suspend fun <T> withWifWallet(
         wifInput: CharArray,
-        script: WifSweepScript,
+        script: SweepWifScriptType,
         block: (Wallet, net.clench.wallet.data.network.ActiveElectrumConnection) -> T
     ): T {
         val network = if (settingsManager.isTestnet()) Network.TESTNET else Network.BITCOIN
@@ -474,21 +693,27 @@ class SweepViewModel @Inject constructor(
         val tempDbPath = java.io.File.createTempFile("clench_wif_sweep_", ".db", appContext.cacheDir).absolutePath
         val tempPersister = Persister.newSqlite(tempDbPath)
         var activeConn: net.clench.wallet.data.network.ActiveElectrumConnection? = null
+        var tempWallet: Wallet? = null
         try {
             val descriptor = when (script) {
-                WifSweepScript.LegacyP2pkh -> "pkh(${wif.value})"
-                WifSweepScript.NativeSegwit -> "wpkh(${wif.value})"
+                SweepWifScriptType.LEGACY -> "pkh(${wif.value})"
+                SweepWifScriptType.NESTED_SEGWIT -> "sh(wpkh(${wif.value}))"
+                SweepWifScriptType.NATIVE_SEGWIT -> "wpkh(${wif.value})"
             }
             externalDesc = Descriptor(descriptor, network)
             // Single-key paper wallets/OpenDime keys do not have a change branch.
             // Use an unspendable raw descriptor to keep BDK's external/change descriptors distinct.
             internalDesc = Descriptor("raw(6a)", network)
-            val tempWallet = Wallet(externalDesc, internalDesc, network, tempPersister)
+            val wallet = Wallet(externalDesc, internalDesc, network, tempPersister)
+            tempWallet = wallet
             val config = settingsManager.loadElectrumConfig()
-            activeConn = electrumConnectionFactory.createConnection(config)
-            return block(tempWallet, activeConn)
+            val connection = electrumConnectionFactory.createConnection(config)
+            activeConn = connection
+            return block(wallet, connection)
         } finally {
             try { activeConn?.close() } catch (_: Exception) {}
+            try { tempWallet?.close() } catch (_: Exception) {}
+            try { tempPersister.close() } catch (_: Exception) {}
             try { externalDesc?.destroy() } catch (_: Exception) {}
             try { internalDesc?.destroy() } catch (_: Exception) {}
             try { java.io.File(tempDbPath).delete() } catch (_: Exception) {}
@@ -497,4 +722,5 @@ class SweepViewModel @Inject constructor(
             try { java.io.File(tempDbPath + "-journal").delete() } catch (_: Exception) {}
         }
     }
+
 }

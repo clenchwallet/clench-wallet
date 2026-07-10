@@ -17,6 +17,7 @@ class PsbtStore @Inject constructor() {
      * @throws IllegalStateException if a PSBT is already pending (race condition protection)
      */
     fun store(walletId: String, psbtBase64: String, deviceType: String) {
+        require(psbtBase64.length <= MAX_PSBT_BASE64_CHARS) { "PSBT exceeds the in-memory safety limit" }
         val current = pending
         if (current != null) {
             throw IllegalStateException(
@@ -48,5 +49,9 @@ class PsbtStore @Inject constructor() {
      */
     fun clear() {
         pending = null
+    }
+
+    companion object {
+        const val MAX_PSBT_BASE64_CHARS = 6 * 1024 * 1024
     }
 }

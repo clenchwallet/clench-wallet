@@ -1457,6 +1457,10 @@ private fun AddSeedPhraseToWalletSheet(
                     .fillMaxWidth()
                     .height(120.dp),
                 placeholder = { Text("word1 word2 word3…") },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    autoCorrectEnabled = false
+                ),
                 enabled = !isLoading
             )
 
@@ -1475,7 +1479,10 @@ private fun AddSeedPhraseToWalletSheet(
                     onValueChange = { passphraseInput = it },
                     label = { Text("Passphrase") },
                     visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        autoCorrectEnabled = false
+                    ),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     enabled = !isLoading

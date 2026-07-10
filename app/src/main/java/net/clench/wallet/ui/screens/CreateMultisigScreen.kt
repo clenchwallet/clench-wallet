@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.PhoneSigner
+import net.clench.wallet.security.InputLimits
+import net.clench.wallet.security.readTextBounded
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
@@ -214,7 +216,9 @@ fun CreateMultisigScreen(
         fileImportTargetIndex = null
         if (uri != null && index != null) {
             try {
-                val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
+                    it.readTextBounded(InputLimits.SECRET_TEXT_CHARS)
+                }
                 if (text.isNullOrBlank()) {
                     viewModel.setError("Selected signer export file was empty")
                 } else {

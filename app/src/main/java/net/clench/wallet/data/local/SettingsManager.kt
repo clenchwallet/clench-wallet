@@ -258,25 +258,11 @@ class SettingsManager @Inject constructor(
     }
 
     fun importBackupSettings(settings: JSONObject) {
-        val network = settings.optString("network", getNetwork())
-        if (network == "mainnet" || network == "testnet") setNetwork(network)
-
-        if (settings.has("useCustomMempool")) setCustomMempoolEnabled(settings.optBoolean("useCustomMempool"))
-        settings.optNullableString("mempoolUrl")?.let { setMempoolUrl(it) }
-        if (settings.has("btcPriceEnabled")) setBtcPriceEnabled(settings.optBoolean("btcPriceEnabled"))
-        if (settings.has("externalFeeLookupEnabled")) setExternalFeeLookupEnabled(settings.optBoolean("externalFeeLookupEnabled"))
+        // State backups never silently replace connectivity or security policy. Only
+        // presentation/feature preferences are restored here; sensitive settings must be
+        // reviewed and changed explicitly in the app.
         if (settings.has("phoneSignerOptionsEnabled")) setPhoneSignerOptionsEnabled(settings.optBoolean("phoneSignerOptionsEnabled"))
-        if (settings.has("biometricForSeed")) setBiometricForSeedEnabled(settings.optBoolean("biometricForSeed"))
-        if (settings.has("biometricForSend")) setBiometricForSendEnabled(settings.optBoolean("biometricForSend"))
-        settings.optNullableString("lockTimeoutKey")?.let { setLockTimeout(it) }
-        if (settings.has("offlineMode")) setOfflineMode(settings.optBoolean("offlineMode"))
-        if (settings.has("torEnabled")) setTorEnabled(settings.optBoolean("torEnabled"))
-        settings.optNullableString("torProxyHost")?.let { setTorProxyHost(it) }
-        if (settings.has("torProxyPort")) setTorProxyPort(settings.optInt("torProxyPort", getTorProxyPort()))
         settings.optNullableString("balanceUnit")?.let { setBalanceUnit(it) }
-
-        settings.optJSONObject("electrumMainnet")?.let { saveElectrumConfigForNetwork("mainnet", electrumConfigFromJson(it, "mainnet")) }
-        settings.optJSONObject("electrumTestnet")?.let { saveElectrumConfigForNetwork("testnet", electrumConfigFromJson(it, "testnet")) }
     }
 
     private fun loadElectrumConfigForNetwork(network: String): ElectrumConfig {
