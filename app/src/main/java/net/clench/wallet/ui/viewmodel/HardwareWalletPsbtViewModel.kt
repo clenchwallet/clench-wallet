@@ -26,6 +26,7 @@ class HardwareWalletPsbtViewModel @Inject constructor(
         val signedPsbtBase64: String? = null,
         val readyToBroadcast: Boolean = false,
         val hasCollectedSignature: Boolean = false,
+        val collectedSignerReturns: Int = 0,
         val signingMessage: String? = null,
         val walletId: String = "",
         val psbtBase64: String = "",
@@ -58,6 +59,7 @@ class HardwareWalletPsbtViewModel @Inject constructor(
                     signedPsbtBase64 = null,
                     readyToBroadcast = false,
                     hasCollectedSignature = false,
+                    collectedSignerReturns = 0,
                     signingMessage = null,
                     transactionReview = null,
                     isReviewLoading = true,
@@ -130,6 +132,7 @@ class HardwareWalletPsbtViewModel @Inject constructor(
                         signedPsbtBase64 = if (progress.readyToBroadcast) progress.psbtBase64 else null,
                         readyToBroadcast = progress.readyToBroadcast,
                         hasCollectedSignature = true,
+                        collectedSignerReturns = it.collectedSignerReturns + 1,
                         signingMessage = progress.message,
                         error = null
                     )

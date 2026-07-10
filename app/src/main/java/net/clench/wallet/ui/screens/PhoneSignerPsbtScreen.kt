@@ -6,6 +6,8 @@ import android.content.ContextWrapper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -19,6 +21,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.fragment.app.FragmentActivity
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.util.BiometricHelper
+import net.clench.wallet.ui.components.TransactionReviewCard
 import net.clench.wallet.ui.viewmodel.PhoneSignerPsbtViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -74,7 +77,8 @@ fun PhoneSignerPsbtScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (storeData == null && uiState.psbtBase64.isBlank()) {
@@ -127,47 +131,13 @@ fun PhoneSignerPsbtScreen(
             }
 
             uiState.transactionReview?.let { review ->
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text("Verify before signing", fontWeight = FontWeight.Bold)
-                        review.outputs.forEach { output ->
-                            Column {
-                                Text(
-                                    if (output.belongsToWallet) "Change / wallet output" else "Recipient",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    "${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(output.amountSat)} sats",
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(output.address ?: "Script output ${output.index}", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                        HorizontalDivider()
-                        Text(
-                            "Network fee: ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(review.feeSat)} sats " +
-                                "(${String.format("%.2f", review.feeRateSatPerVbyte)} sat/vB)"
-                        )
-                        Text("Transaction ID: ${review.txid}", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-
-            if (uiState.requiresHighFeeConfirmation && !uiState.highFeeAcknowledged) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Unusually high fee", fontWeight = FontWeight.Bold)
-                        Text("The exact fee exceeds 5% of the external amount. Verify it before allowing phone keys to sign.")
-                        TextButton(onClick = viewModel::acknowledgeHighFee) { Text("I verified the fee") }
-                    }
-                }
+                TransactionReviewCard(
+                    review = review,
+                    title = "Verify before phone signing",
+                    requiresHighFeeConfirmation = uiState.requiresHighFeeConfirmation,
+                    highFeeAcknowledged = uiState.highFeeAcknowledged,
+                    onAcknowledgeHighFee = viewModel::acknowledgeHighFee
+                )
             }
 
             if (uiState.signedPsbtBase64 == null) {

@@ -41,6 +41,7 @@ import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.NfcDispatch
 import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
+import net.clench.wallet.ui.components.SecureBip39WordEntry
 import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.components.WalletFingerprint
 import net.clench.wallet.ui.components.hasCameraAvailable
@@ -48,6 +49,8 @@ import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.ImportWalletViewModel
 import net.clench.wallet.security.InputLimits
 import net.clench.wallet.security.readTextBounded
+
+private enum class ImportEntryMode { SeedPhrase, PublicOrDescriptor }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,6 +70,11 @@ fun ImportWalletScreen(
 
     var showScanner by remember { mutableStateOf(false) }
     var cameraErrorMessage by remember { mutableStateOf<String?>(null) }
+    var entryMode by remember(hardwareWalletMode) {
+        mutableStateOf(if (hardwareWalletMode) ImportEntryMode.PublicOrDescriptor else ImportEntryMode.SeedPhrase)
+    }
+    var secureSeedWords by remember { mutableStateOf(emptyList<String>()) }
+    var expectedSeedWordCount by remember { mutableIntStateOf(12) }
 
     // Check camera/NFC availability once
     val hasCamera = remember { hasCameraAvailable(context) }
@@ -121,6 +129,17 @@ fun ImportWalletScreen(
     val isSeedPhrase = uiState.detectedType == ImportWalletViewModel.DetectedType.SEED_12 ||
             uiState.detectedType == ImportWalletViewModel.DetectedType.SEED_24
     SecureWindowEffect(enabled = !hardwareWalletMode)
+
+    LaunchedEffect(uiState.input, uiState.detectedType, hardwareWalletMode) {
+        if (!hardwareWalletMode && isSeedPhrase) {
+            val importedWords = uiState.input.trim().split(Regex("\\s+")).filter(String::isNotBlank)
+            if (importedWords.size == 12 || importedWords.size == 24) {
+                expectedSeedWordCount = importedWords.size
+                secureSeedWords = importedWords
+                entryMode = ImportEntryMode.SeedPhrase
+            }
+        }
+    }
 
     // Snackbar host for camera error messages
     val snackbarHostState = remember { SnackbarHostState() }
@@ -898,29 +917,80 @@ fun ImportWalletScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                OutlinedTextField(
-                    value = uiState.input,
-                    onValueChange = { viewModel.setInput(it) },
-                    label = { Text("Enter seed phrase, xpub, descriptor, or multisig config") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    placeholder = { Text("word1 word2 word3 ... or xpub... or wsh(sortedmulti(...))") },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        autoCorrectEnabled = false
-                    ),
-                    trailingIcon = {
-                        if (hasCamera) {
-                            IconButton(onClick = { showScanner = true }) {
-                                Icon(
-                                    Icons.Default.CameraAlt,
-                                    contentDescription = "Scan QR code"
-                                )
-                            }
+                if (!hardwareWalletMode) {
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        SegmentedButton(
+                            selected = entryMode == ImportEntryMode.SeedPhrase,
+                            onClick = {
+                                entryMode = ImportEntryMode.SeedPhrase
+                                viewModel.setInput(secureSeedWords.joinToString(" "))
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                        ) { Text("Seed phrase") }
+                        SegmentedButton(
+                            selected = entryMode == ImportEntryMode.PublicOrDescriptor,
+                            onClick = {
+                                entryMode = ImportEntryMode.PublicOrDescriptor
+                                secureSeedWords = emptyList()
+                                viewModel.setInput("")
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                        ) { Text("Descriptor / xpub") }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                if (!hardwareWalletMode && entryMode == ImportEntryMode.SeedPhrase) {
+                    SecureBip39WordEntry(
+                        words = secureSeedWords,
+                        expectedWordCount = expectedSeedWordCount,
+                        onWordsChange = { words ->
+                            secureSeedWords = words
+                            viewModel.setInput(
+                                if (words.size == expectedSeedWordCount) words.joinToString(" ") else ""
+                            )
+                        },
+                        onExpectedWordCountChange = { count ->
+                            expectedSeedWordCount = count
+                            secureSeedWords = secureSeedWords.take(count)
+                            viewModel.setInput(
+                                if (secureSeedWords.size == count) secureSeedWords.joinToString(" ") else ""
+                            )
+                        }
+                    )
+                    if (hasCamera) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(onClick = { showScanner = true }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Scan SeedQR instead")
                         }
                     }
-                )
+                } else {
+                    OutlinedTextField(
+                        value = uiState.input,
+                        onValueChange = { viewModel.setInput(it) },
+                        label = { Text("Enter xpub, descriptor, or multisig config") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp),
+                        placeholder = { Text("xpub... or wsh(sortedmulti(...))") },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            autoCorrectEnabled = false
+                        ),
+                        trailingIcon = {
+                            if (hasCamera) {
+                                IconButton(onClick = { showScanner = true }) {
+                                    Icon(
+                                        Icons.Default.CameraAlt,
+                                        contentDescription = "Scan QR code"
+                                    )
+                                }
+                            }
+                        }
+                    )
+                }
             }
 
             // Detection status line

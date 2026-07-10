@@ -31,6 +31,8 @@ import net.clench.wallet.domain.repository.GeneratedMultisigPhoneSigner
 import net.clench.wallet.domain.repository.MultisigPhoneSignerSecret
 import net.clench.wallet.domain.repository.PsbtSigningProgress
 import net.clench.wallet.domain.repository.TransactionReviewOutput
+import net.clench.wallet.domain.repository.WalletStateRecoveryResult
+import net.clench.wallet.domain.repository.WalletStateRecoveryPolicy
 import net.clench.wallet.security.readTextBounded
 import org.bitcoindevkit.Amount
 import org.bitcoindevkit.ChainPosition
@@ -58,6 +60,20 @@ import javax.inject.Singleton
 
 class WalletStateRecoveryRequiredException(message: String, cause: Throwable) :
     IllegalStateException(message, cause)
+
+internal object WalletStateQuarantinePolicy {
+    fun validateId(walletId: String, quarantineId: String) {
+        require(quarantineId.startsWith("${walletId.take(12)}-")) {
+            "Quarantine does not belong to this wallet"
+        }
+        require(Regex("^[A-Za-z0-9-]{1,80}$").matches(quarantineId)) {
+            "Invalid quarantine identifier"
+        }
+    }
+
+    fun matches(quarantineId: String, fileName: String): Boolean =
+        fileName.startsWith("$quarantineId-")
+}
 
 /**
  * BDK-backed implementation of BitcoinRepository.
@@ -918,9 +934,11 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
-    override suspend fun recoverWalletState(walletId: String, stopGap: UInt): WalletBalance =
+    override suspend fun recoverWalletState(walletId: String, stopGap: UInt): WalletStateRecoveryResult =
         withContext(Dispatchers.IO) {
-            require(stopGap in 20u..1_000u) { "Recovery stop gap must be from 20 to 1000" }
+            require(WalletStateRecoveryPolicy.isValidStopGap(stopGap)) {
+                "Recovery stop gap must be from ${WalletStateRecoveryPolicy.MIN_STOP_GAP} to ${WalletStateRecoveryPolicy.MAX_STOP_GAP}"
+            }
             check(!settingsManager.isOfflineMode()) { "Disable offline mode before recovering wallet state" }
 
             val walletEntity = walletDao.getById(walletId)
@@ -989,11 +1007,16 @@ class BdkBitcoinRepository @Inject constructor(
                     cacheWallet(walletId, checkNotNull(replacementEntry))
                     replacementEntry = null
                     val balance = wallet.balance()
-                    WalletBalance(
-                        confirmedSat = balance.confirmed.toSat().toLong(),
-                        trustedPendingSat = balance.trustedPending.toSat().toLong(),
-                        untrustedPendingSat = balance.untrustedPending.toSat().toLong(),
-                        immatureSat = balance.immature.toSat().toLong()
+                    WalletStateRecoveryResult(
+                        balance = WalletBalance(
+                            confirmedSat = balance.confirmed.toSat().toLong(),
+                            trustedPendingSat = balance.trustedPending.toSat().toLong(),
+                            untrustedPendingSat = balance.untrustedPending.toSat().toLong(),
+                            immatureSat = balance.immature.toSat().toLong()
+                        ),
+                        quarantineId = recoveryId,
+                        preservedFileCount = movedFiles.size,
+                        stopGap = stopGap
                     )
                 } catch (e: Exception) {
                     evictWallet(walletId)
@@ -1025,6 +1048,20 @@ class BdkBitcoinRepository @Inject constructor(
                     )
                 }
             }
+        }
+
+    override suspend fun deleteWalletStateQuarantine(walletId: String, quarantineId: String): Int =
+        withContext(Dispatchers.IO) {
+            WalletStateQuarantinePolicy.validateId(walletId, quarantineId)
+            val quarantineDir = java.io.File(context.noBackupFilesDir, "wallet-state-quarantine")
+            if (!quarantineDir.exists()) return@withContext 0
+            val matches = quarantineDir.listFiles().orEmpty().filter { file ->
+                file.isFile && WalletStateQuarantinePolicy.matches(quarantineId, file.name)
+            }
+            matches.forEach { file ->
+                check(file.delete()) { "Could not delete preserved recovery file ${file.name}" }
+            }
+            matches.size
         }
 
     override suspend fun getBalance(walletId: String): WalletBalance = withContext(Dispatchers.IO) {

@@ -33,6 +33,9 @@ import net.clench.wallet.ui.components.NfcDispatch
 import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.SatscardNfcReader
+import net.clench.wallet.ui.components.SecureBip39WordEntry
+import net.clench.wallet.ui.components.TransactionReviewCard
+import net.clench.wallet.ui.components.FeeSafetySummary
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.viewmodel.FeeTier
@@ -61,7 +64,8 @@ fun SweepScreen(
     val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
 
     // Seed phrase input state (kept local for security — never exposed to ViewModel until submit)
-    var seedInput by remember { mutableStateOf("") }
+    var seedWords by remember { mutableStateOf(emptyList<String>()) }
+    var expectedSeedWordCount by remember { mutableIntStateOf(12) }
     var passphraseInput by remember { mutableStateOf("") }
     var showPassphrase by remember { mutableStateOf(false) }
     var showPassphraseText by remember { mutableStateOf(false) }
@@ -77,6 +81,7 @@ fun SweepScreen(
     var satscardCvcInput by remember { mutableStateOf("") }
     var satscardSweepConfirmed by remember { mutableStateOf(false) }
     var pendingSatscardCvc by remember { mutableStateOf<CharArray?>(null) }
+    var wizardStep by remember { mutableStateOf(SweepWizardStep.Source) }
     val satscardNfcProcessing = remember { AtomicBoolean(false) }
     val wifFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -92,7 +97,7 @@ fun SweepScreen(
                     sourceType = SweepSourceType.WifPrivateKey
                     wifInput = text.trim()
                     wifError = null
-                    viewModel.clearSourceValidation()
+                    if (wizardStep == SweepWizardStep.Source) viewModel.clearSourceValidation()
                 }
             } catch (e: Exception) {
                 wifError = "Could not read file: ${e.message}"
@@ -198,6 +203,16 @@ fun SweepScreen(
         }
     }
 
+    LaunchedEffect(uiState.seedValidated) {
+        if (uiState.seedValidated && wizardStep == SweepWizardStep.Source) {
+            wizardStep = SweepWizardStep.Discovery
+        }
+    }
+
+    LaunchedEffect(uiState.transactionReview?.txid) {
+        if (uiState.transactionReview != null) wizardStep = SweepWizardStep.Review
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -235,7 +250,11 @@ fun SweepScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            SweepWizardHeader(current = wizardStep)
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Destination address
+            if (wizardStep == SweepWizardStep.Destination) {
             OutlinedTextField(
                 value = uiState.destinationAddress,
                 onValueChange = { viewModel.setDestinationAddress(it) },
@@ -273,6 +292,20 @@ fun SweepScreen(
                 )
             }
 
+            val destinationReady = SweepWizardPolicy.destinationReady(
+                destinationAddress = uiState.destinationAddress,
+                defaultDestinationAddress = uiState.defaultDestinationAddress,
+                externalDestinationConfirmed = uiState.externalDestinationConfirmed
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = { wizardStep = SweepWizardStep.Fee },
+                enabled = destinationReady,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Continue to fee") }
+            TextButton(onClick = { wizardStep = SweepWizardStep.Discovery }) { Text("Back to discovery") }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Security warning
@@ -289,39 +322,13 @@ fun SweepScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             uiState.transactionReview?.let { review ->
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Review signed sweep", fontWeight = FontWeight.Bold)
-                        Text(
-                            "Destination: ${review.outputs.singleOrNull()?.address ?: "Unknown script"}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            "Amount: ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(review.outputs.sumOf { it.amountSat })} sats",
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "Network fee: ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(review.feeSat)} sats " +
-                                "(${String.format("%.2f", review.feeRateSatPerVbyte)} sat/vB, ${review.vsize} vB)"
-                        )
-                        Text("Transaction ID: ${review.txid}", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-                if (uiState.requiresHighFeeConfirmation && !uiState.highFeeAcknowledged) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text("Unusually high fee", fontWeight = FontWeight.Bold)
-                            Text("The exact fee exceeds 5% of the swept amount.")
-                            TextButton(onClick = viewModel::acknowledgeHighFee) { Text("I verified the fee") }
-                        }
-                    }
-                }
+                TransactionReviewCard(
+                    review = review,
+                    title = "Review signed sweep",
+                    requiresHighFeeConfirmation = uiState.requiresHighFeeConfirmation,
+                    highFeeAcknowledged = uiState.highFeeAcknowledged,
+                    onAcknowledgeHighFee = viewModel::acknowledgeHighFee
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     onClick = viewModel::broadcastPreparedSweep,
@@ -338,13 +345,17 @@ fun SweepScreen(
                     }
                 }
                 OutlinedButton(
-                    onClick = viewModel::discardPreparedSweep,
+                    onClick = {
+                        viewModel.discardPreparedSweep()
+                        wizardStep = SweepWizardStep.Fee
+                    },
                     enabled = !uiState.isBroadcasting,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Discard prepared transaction") }
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
+            if (wizardStep == SweepWizardStep.Source) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -500,10 +511,12 @@ fun SweepScreen(
                     }
                 }
             }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Source seed phrase
+            if (wizardStep == SweepWizardStep.Source) {
             Text("Source", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -591,27 +604,27 @@ fun SweepScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            if (wizardStep == SweepWizardStep.Source || wizardStep == SweepWizardStep.Fee) {
             if (sourceType == SweepSourceType.SeedPhrase) {
-                OutlinedTextField(
-                    value = seedInput,
-                    onValueChange = {
-                        seedInput = it
+                SecureBip39WordEntry(
+                    words = seedWords,
+                    expectedWordCount = expectedSeedWordCount,
+                    onWordsChange = {
+                        seedWords = it
                         seedError = null
-                        viewModel.clearSourceValidation()
+                        if (wizardStep == SweepWizardStep.Source) viewModel.clearSourceValidation()
                     },
-                    label = { Text("Seed phrase (12 or 24 words)") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    placeholder = { Text("word1 word2 word3…") },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        autoCorrectEnabled = false
-                    ),
-                    isError = seedError != null
+                    onExpectedWordCountChange = {
+                        expectedSeedWordCount = it
+                        if (seedWords.size > it) seedWords = seedWords.take(it)
+                        seedError = null
+                        if (wizardStep == SweepWizardStep.Source) viewModel.clearSourceValidation()
+                    },
+                    title = if (uiState.seedValidated) "Re-enter source words to authorize signing" else "Enter source words securely"
                 )
                 seedError?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -625,7 +638,7 @@ fun SweepScreen(
                         checked = showPassphrase,
                         onCheckedChange = {
                             showPassphrase = it
-                            viewModel.clearSourceValidation()
+                            if (wizardStep == SweepWizardStep.Source) viewModel.clearSourceValidation()
                         }
                     )
                     Text("BIP39 passphrase (optional)")
@@ -636,7 +649,7 @@ fun SweepScreen(
                         value = passphraseInput,
                         onValueChange = {
                             passphraseInput = it
-                            viewModel.clearSourceValidation()
+                            if (wizardStep == SweepWizardStep.Source) viewModel.clearSourceValidation()
                         },
                         label = { Text("Passphrase") },
                         visualTransformation = if (showPassphraseText) VisualTransformation.None else PasswordVisualTransformation(),
@@ -656,7 +669,7 @@ fun SweepScreen(
                     onValueChange = {
                         wifInput = it
                         wifError = null
-                        viewModel.clearSourceValidation()
+                        if (wizardStep == SweepWizardStep.Source) viewModel.clearSourceValidation()
                     },
                     label = { Text("WIF private key") },
                     placeholder = { Text("Scan a paper wallet or OpenDime private-key QR") },
@@ -688,10 +701,12 @@ fun SweepScreen(
                     }
                 }
             }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Fee section
+            if (wizardStep == SweepWizardStep.Fee) {
             Text("Fee Rate", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -755,13 +770,18 @@ fun SweepScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            FeeSafetySummary(
+                feeRateText = uiState.feeRate,
+                priorityEstimate = estimates?.priority?.toDouble(),
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Validate seed button (check balance before sweeping)
-            if (!uiState.seedValidated) {
-                val words = seedInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
-                val isValidWordCount = words.size == 12 || words.size == 24
+            // Source: validate and discover the selected wallet before choosing a destination.
+            if (wizardStep == SweepWizardStep.Source && !uiState.seedValidated) {
+                val isValidWordCount = SweepWizardPolicy.seedReady(seedWords.size, expectedSeedWordCount)
                 val isWifReady = wifInput.isNotBlank()
 
                 Button(
@@ -775,10 +795,10 @@ fun SweepScreen(
                             return@Button
                         }
                         if (sourceType == SweepSourceType.SeedPhrase) {
-                            val mnemonic = seedInput.trim().toCharArray()
+                            val mnemonic = seedWords.joinToString(" ").toCharArray()
                             val passphrase = if (showPassphrase && passphraseInput.isNotBlank())
                                 passphraseInput.toCharArray() else null
-                            seedInput = ""
+                            seedWords = emptyList()
                             passphraseInput = ""
                             // Char arrays are zeroed inside ViewModel after use.
                             viewModel.validateSeedAndFetchBalance(mnemonic, passphrase)
@@ -802,8 +822,9 @@ fun SweepScreen(
                         Text("Check Balance")
                     }
                 }
-            } else {
-                // Show found balance and sweep button
+            }
+
+            if (wizardStep == SweepWizardStep.Discovery && uiState.seedValidated) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
@@ -829,67 +850,9 @@ fun SweepScreen(
 
                 if (uiState.sourceBalanceSat > 0) {
                     Button(
-                        onClick = {
-                            val prepareSweep: () -> Unit = {
-                            if (sourceType == SweepSourceType.SeedPhrase) {
-                                val words = seedInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
-                                if (words.size != 12 && words.size != 24) {
-                                    seedError = "Seed phrase was cleared — re-enter it"
-                                } else {
-                                    val mnemonic = seedInput.trim().toCharArray()
-                                    val passphrase = if (showPassphrase && passphraseInput.isNotBlank())
-                                        passphraseInput.toCharArray() else null
-                                    seedInput = ""
-                                    passphraseInput = ""
-                                    viewModel.sweep(mnemonic, passphrase)
-                                }
-                            } else {
-                                if (wifInput.isBlank()) {
-                                    wifError = "WIF private key was cleared — re-enter it"
-                                } else {
-                                    val wif = wifInput.toCharArray()
-                                    wifInput = ""
-                                    viewModel.sweepWif(wif)
-                                }
-                            }
-                            }
-                            when {
-                                !uiState.biometricForSendEnabled -> prepareSweep()
-                                fragmentActivity == null || !BiometricHelper.canAuthenticate(context) ->
-                                    viewModel.setError("Biometric or device-credential authentication is required but unavailable")
-                                else -> {
-                                    (context as? MainActivity)?.suppressPassphraseLock = true
-                                    BiometricHelper.authenticate(
-                                        activity = fragmentActivity,
-                                        title = "Authenticate sweep",
-                                        subtitle = "Verify your identity before signing the sweep transaction",
-                                        onSuccess = {
-                                            (context as? MainActivity)?.suppressPassphraseLock = false
-                                            prepareSweep()
-                                        },
-                                        onFailure = { message ->
-                                            (context as? MainActivity)?.suppressPassphraseLock = false
-                                            viewModel.setError("Authentication failed: $message")
-                                        },
-                                        onCancel = {
-                                            (context as? MainActivity)?.suppressPassphraseLock = false
-                                        },
-                                        allowUiOnlyFallback = false
-                                    )
-                                }
-                            }
-                        },
+                        onClick = { wizardStep = SweepWizardStep.Destination },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !uiState.isSweeping
-                    ) {
-                        if (uiState.isSweeping) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Sweeping…")
-                        } else {
-                            Text("Prepare sweep of ${uiState.sourceBalanceSat} sats")
-                        }
-                    }
+                    ) { Text("Continue with ${uiState.sourceBalanceSat} sats") }
                 } else {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -901,6 +864,109 @@ fun SweepScreen(
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
                     }
+                }
+                TextButton(
+                    onClick = {
+                        viewModel.clearSourceValidation()
+                        wizardStep = SweepWizardStep.Source
+                    }
+                ) { Text("Try a different source or account") }
+            }
+
+            if (wizardStep == SweepWizardStep.Fee && uiState.seedValidated) {
+                val sourceReady = when (sourceType) {
+                    SweepSourceType.SeedPhrase -> SweepWizardPolicy.seedReady(seedWords.size, expectedSeedWordCount)
+                    SweepSourceType.WifPrivateKey -> wifInput.isNotBlank()
+                }
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Signing authorization", fontWeight = FontWeight.Bold)
+                        Text(
+                            "The discovery secret was cleared from memory. Re-enter it above; Clench will verify it against the discovered source, prepare the transaction, then clear it again.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "Destination: ${uiState.destinationAddress}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            "Selected rate: ${uiState.feeRate} sat/vB",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        val prepareSweep: () -> Unit = {
+                            when (sourceType) {
+                                SweepSourceType.SeedPhrase -> {
+                                    if (!sourceReady) {
+                                        seedError = "Re-enter all $expectedSeedWordCount source words"
+                                    } else {
+                                        val mnemonic = seedWords.joinToString(" ").toCharArray()
+                                        val passphrase = if (showPassphrase && passphraseInput.isNotBlank()) {
+                                            passphraseInput.toCharArray()
+                                        } else null
+                                        seedWords = emptyList()
+                                        passphraseInput = ""
+                                        viewModel.sweep(mnemonic, passphrase)
+                                    }
+                                }
+                                SweepSourceType.WifPrivateKey -> {
+                                    if (!sourceReady) {
+                                        wifError = "Re-enter or scan the source WIF key"
+                                    } else {
+                                        val wif = wifInput.toCharArray()
+                                        wifInput = ""
+                                        viewModel.sweepWif(wif)
+                                    }
+                                }
+                            }
+                        }
+                        when {
+                            !uiState.biometricForSendEnabled -> prepareSweep()
+                            fragmentActivity == null || !BiometricHelper.canAuthenticate(context) ->
+                                viewModel.setError("Biometric or device-credential authentication is required but unavailable")
+                            else -> {
+                                (context as? MainActivity)?.suppressPassphraseLock = true
+                                BiometricHelper.authenticate(
+                                    activity = fragmentActivity,
+                                    title = "Authenticate sweep",
+                                    subtitle = "Verify your identity before signing the reviewed sweep",
+                                    onSuccess = {
+                                        (context as? MainActivity)?.suppressPassphraseLock = false
+                                        prepareSweep()
+                                    },
+                                    onFailure = { message ->
+                                        (context as? MainActivity)?.suppressPassphraseLock = false
+                                        viewModel.setError("Authentication failed: $message")
+                                    },
+                                    onCancel = {
+                                        (context as? MainActivity)?.suppressPassphraseLock = false
+                                    },
+                                    allowUiOnlyFallback = false
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = sourceReady && !uiState.isSweeping
+                ) {
+                    if (uiState.isSweeping) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Preparing…")
+                    } else {
+                        Text("Prepare transaction for review")
+                    }
+                }
+                TextButton(onClick = { wizardStep = SweepWizardStep.Destination }) {
+                    Text("Back to destination")
                 }
             }
 
@@ -917,7 +983,7 @@ fun SweepScreen(
                 wifInput = result
                 wifError = null
                 sourceType = SweepSourceType.WifPrivateKey
-                viewModel.clearSourceValidation()
+                if (wizardStep == SweepWizardStep.Source) viewModel.clearSourceValidation()
                 showScanner = false
             },
             onCancel = { showScanner = false }
@@ -928,4 +994,38 @@ fun SweepScreen(
 private enum class SweepSourceType {
     SeedPhrase,
     WifPrivateKey
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SweepWizardHeader(current: SweepWizardStep) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "Step ${current.ordinal + 1} of ${SweepWizardStep.entries.size}: ${current.label}",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            SweepWizardStep.entries.forEach { step ->
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = if (step == current) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    }
+                ) {
+                    Text(
+                        if (step.ordinal < current.ordinal) "✓ ${step.label}" else step.label,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (step == current) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+        }
+    }
 }

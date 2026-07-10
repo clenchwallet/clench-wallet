@@ -31,6 +31,7 @@ import net.clench.wallet.security.readTextBounded
 @Composable
 fun RawTransactionScreen(
     onBack: () -> Unit,
+    onConnect: () -> Unit = {},
     viewModel: RawTransactionViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -147,12 +148,12 @@ fun RawTransactionScreen(
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 Button(
-                    onClick = { viewModel.broadcast() },
+                    onClick = { if (uiState.isOfflineMode) onConnect() else viewModel.broadcast() },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = outputsReviewed && !uiState.isBroadcasting && !uiState.isOfflineMode
+                    enabled = outputsReviewed && !uiState.isBroadcasting
                 ) {
                     if (uiState.isBroadcasting) CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                    else Text(if (uiState.isOfflineMode) "Offline" else "Broadcast Transaction")
+                    else Text(if (uiState.isOfflineMode) "Connect to Broadcast" else "Broadcast Transaction")
                 }
             }
 

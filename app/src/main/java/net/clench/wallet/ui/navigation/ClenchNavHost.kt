@@ -293,6 +293,7 @@ fun ClenchNavHost(navController: NavHostController) {
                 onSignerVault = { navController.navigate(Routes.SignerVault.route) },
                 onRawTransaction = { navController.navigate(Routes.RawTransaction.build(walletId)) },
                 onRecoveryWizard = { navController.navigate(Routes.RecoveryWizard.route) },
+                onConnect = { navController.navigate(Routes.SettingsElectrum.route) },
                 onTransactionDetail = { txid ->
                     navController.navigate(Routes.TransactionDetail.build(walletId, txid))
                 }
@@ -339,7 +340,8 @@ fun ClenchNavHost(navController: NavHostController) {
             arguments = listOf(navArgument("walletId") { type = NavType.StringType })
         ) {
             RawTransactionScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onConnect = { navController.navigate(Routes.SettingsElectrum.route) }
             )
         }
 
@@ -628,6 +630,7 @@ fun ClenchNavHost(navController: NavHostController) {
                     replacementReview = null
                     replacementHighFeeAcknowledged = false
                 },
+                onConnect = { navController.navigate(Routes.SettingsElectrum.route) },
                 onBroadcastReplacement = {
                     val reviewedHex = replacementTxHex
                     if (reviewedHex != null && replacementReview != null) {

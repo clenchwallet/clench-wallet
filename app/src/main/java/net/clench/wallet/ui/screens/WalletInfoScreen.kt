@@ -42,6 +42,7 @@ import net.clench.wallet.ui.components.QrCodeImage
 import net.clench.wallet.ui.components.TapsignerAccountXpubResult
 import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.components.WalletFingerprint
+import net.clench.wallet.ui.components.SecureBip39WordEntry
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.PhoneSigner
 import net.clench.wallet.ui.util.SecureWindowEffect
@@ -1424,7 +1425,8 @@ private fun AddSeedPhraseToWalletSheet(
     onConfirm: (mnemonic: CharArray, passphrase: CharArray?) -> Unit
 ) {
     SecureWindowEffect()
-    var seedInput by remember { mutableStateOf("") }
+    var seedWords by remember { mutableStateOf(emptyList<String>()) }
+    var expectedSeedWordCount by remember { mutableIntStateOf(12) }
     var passphraseInput by remember { mutableStateOf("") }
     var showPassphrase by remember { mutableStateOf(false) }
     var seedError by remember { mutableStateOf<String?>(null) }
@@ -1449,19 +1451,16 @@ private fun AddSeedPhraseToWalletSheet(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            OutlinedTextField(
-                value = seedInput,
-                onValueChange = { seedInput = it; seedError = null },
-                label = { Text("Seed phrase (12 or 24 words)") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp),
-                placeholder = { Text("word1 word2 word3…") },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    autoCorrectEnabled = false
-                ),
-                enabled = !isLoading
+            SecureBip39WordEntry(
+                words = seedWords,
+                expectedWordCount = expectedSeedWordCount,
+                onWordsChange = { seedWords = it; seedError = null },
+                onExpectedWordCountChange = {
+                    expectedSeedWordCount = it
+                    if (seedWords.size > it) seedWords = seedWords.take(it)
+                    seedError = null
+                },
+                title = "Enter matching seed securely"
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -1497,14 +1496,13 @@ private fun AddSeedPhraseToWalletSheet(
             Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = {
-                    val words = seedInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
-                    if (words.size != 12 && words.size != 24) {
+                    if (seedWords.size != expectedSeedWordCount || expectedSeedWordCount !in setOf(12, 24)) {
                         seedError = "Enter 12 or 24 words"
                         return@Button
                     }
-                    val mnemonic = seedInput.trim().toCharArray()
+                    val mnemonic = seedWords.joinToString(" ").toCharArray()
                     val passphrase = if (showPassphrase && passphraseInput.isNotBlank()) passphraseInput.toCharArray() else null
-                    seedInput = ""
+                    seedWords = emptyList()
                     passphraseInput = ""
                     onConfirm(mnemonic, passphrase)
                 },
