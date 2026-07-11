@@ -72,6 +72,29 @@ class SweepDescriptorFactoryTest {
         }
     }
 
+    @Test
+    fun wifDescriptorsUseAValidDistinctNonSpendableChangeDescriptor() {
+        val privateKey = ByteArray(32).also { it[31] = 1 }
+        val wif = WifPrivateKeyParser.fromRawPrivateKey(
+            privateKey,
+            Network.TESTNET,
+            compressed = true
+        ).value
+
+        SweepWifScriptType.entries.forEach { type ->
+            val descriptors = SweepWifDescriptorFactory.create(wif, Network.TESTNET, type)
+            try {
+                check(descriptors.first.toString() != descriptors.second.toString())
+                check(!descriptors.second.toString().contains(wif))
+                descriptors.second.deriveAddress(0u, Network.TESTNET)
+            } finally {
+                descriptors.first.close()
+                descriptors.second.close()
+            }
+        }
+        privateKey.fill(0)
+    }
+
     private fun withRootKey(block: (DescriptorSecretKey) -> Unit) {
         val mnemonic = Mnemonic.fromString(
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"

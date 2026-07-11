@@ -76,6 +76,32 @@ internal object SweepDescriptorFactory {
     }
 }
 
+internal object SweepWifDescriptorFactory {
+    private const val NUMS_PUBLIC_KEY =
+        "0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
+
+    fun create(
+        wif: String,
+        network: Network,
+        script: SweepWifScriptType
+    ): Pair<Descriptor, Descriptor> {
+        val externalExpression = when (script) {
+            SweepWifScriptType.LEGACY -> "pkh($wif)"
+            SweepWifScriptType.NESTED_SEGWIT -> "sh(wpkh($wif))"
+            SweepWifScriptType.NATIVE_SEGWIT -> "wpkh($wif)"
+        }
+        val external = Descriptor(externalExpression, network)
+        return try {
+            // A single WIF has no change branch. BIP341's secp256k1 NUMS point has
+            // no known private key and gives BDK a distinct, valid descriptor.
+            external to Descriptor("wpkh($NUMS_PUBLIC_KEY)", network)
+        } catch (e: Exception) {
+            external.destroy()
+            throw e
+        }
+    }
+}
+
 @HiltViewModel
 class SweepViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
@@ -357,9 +383,7 @@ class SweepViewModel @Inject constructor(
             withContext(Dispatchers.IO) {
                 try {
                     val balance = withWifWallet(wifInput, _uiState.value.wifScriptType) { tempWallet, activeConn ->
-                        val fullScanResult = tempWallet.startFullScan().build()
-                        val update = activeConn.client.fullScan(fullScanResult, stopGap = 1uL, batchSize = 1uL, fetchPrevTxouts = false)
-                        tempWallet.applyUpdate(update)
+                        syncWifWallet(tempWallet, activeConn)
                         tempWallet.balance()
                     }
                     val confirmed = balance.confirmed.toSat().toLong()
@@ -489,9 +513,7 @@ class SweepViewModel @Inject constructor(
             withContext(Dispatchers.IO) {
                 try {
                     withWifWallet(wifInput, state.wifScriptType) { tempWallet, activeConn ->
-                        val fullScanResult = tempWallet.startFullScan().build()
-                        val update = activeConn.client.fullScan(fullScanResult, stopGap = 1uL, batchSize = 1uL, fetchPrevTxouts = false)
-                        tempWallet.applyUpdate(update)
+                        syncWifWallet(tempWallet, activeConn)
 
                         val destAddress = validatedDestination(state, tempWallet.network())
                         val feeRate = validatedFeeRate(state.feeRate)
@@ -535,9 +557,7 @@ class SweepViewModel @Inject constructor(
                     val wif = WifPrivateKeyParser.fromRawPrivateKey(privateKey, network, compressed = true)
                     wifChars = wif.value.toCharArray()
                     withWifWallet(wifChars, SweepWifScriptType.NATIVE_SEGWIT) { tempWallet, activeConn ->
-                        val fullScanResult = tempWallet.startFullScan().build()
-                        val update = activeConn.client.fullScan(fullScanResult, stopGap = 1uL, batchSize = 1uL, fetchPrevTxouts = false)
-                        tempWallet.applyUpdate(update)
+                        syncWifWallet(tempWallet, activeConn)
 
                         val balance = tempWallet.balance()
                         val confirmed = balance.confirmed.toSat().toLong()
@@ -695,15 +715,9 @@ class SweepViewModel @Inject constructor(
         var activeConn: net.clench.wallet.data.network.ActiveElectrumConnection? = null
         var tempWallet: Wallet? = null
         try {
-            val descriptor = when (script) {
-                SweepWifScriptType.LEGACY -> "pkh(${wif.value})"
-                SweepWifScriptType.NESTED_SEGWIT -> "sh(wpkh(${wif.value}))"
-                SweepWifScriptType.NATIVE_SEGWIT -> "wpkh(${wif.value})"
-            }
-            externalDesc = Descriptor(descriptor, network)
-            // Single-key paper wallets/OpenDime keys do not have a change branch.
-            // Use an unspendable raw descriptor to keep BDK's external/change descriptors distinct.
-            internalDesc = Descriptor("raw(6a)", network)
+            val descriptors = SweepWifDescriptorFactory.create(wif.value, network, script)
+            externalDesc = descriptors.first
+            internalDesc = descriptors.second
             val wallet = Wallet(externalDesc, internalDesc, network, tempPersister)
             tempWallet = wallet
             val config = settingsManager.loadElectrumConfig()
@@ -720,6 +734,30 @@ class SweepViewModel @Inject constructor(
             try { java.io.File(tempDbPath + "-wal").delete() } catch (_: Exception) {}
             try { java.io.File(tempDbPath + "-shm").delete() } catch (_: Exception) {}
             try { java.io.File(tempDbPath + "-journal").delete() } catch (_: Exception) {}
+        }
+    }
+
+    private fun syncWifWallet(
+        wallet: Wallet,
+        activeConn: net.clench.wallet.data.network.ActiveElectrumConnection
+    ) {
+        // A WIF controls one fixed, non-wildcard script. Reveal that script and use
+        // BDK's bounded sync request; gap-based full scans are intended for ranged
+        // descriptors rather than this one fixed script.
+        val addressInfo = wallet.revealNextAddress(org.bitcoindevkit.KeychainKind.EXTERNAL)
+        try {
+            wallet.startSyncWithRevealedSpks().use { builder ->
+                builder.build().use { request ->
+                    val update = activeConn.client.sync(
+                        request,
+                        batchSize = 1uL,
+                        fetchPrevTxouts = false
+                    )
+                    wallet.applyUpdate(update)
+                }
+            }
+        } finally {
+            addressInfo.destroy()
         }
     }
 

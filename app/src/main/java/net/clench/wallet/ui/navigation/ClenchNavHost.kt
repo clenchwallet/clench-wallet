@@ -644,8 +644,11 @@ fun ClenchNavHost(navController: NavHostController) {
                                 replacementReview = null
                                 navController.popBackStack()
                             } catch (e: Exception) {
-                                if (isBumping) bumpError = e.message ?: "Failed to broadcast fee bump"
-                                else cancelError = e.message ?: "Failed to broadcast replacement"
+                                val detail = if (net.clench.wallet.BuildConfig.DEBUG) {
+                                    "${e::class.simpleName}: ${e.message ?: "unknown error"}"
+                                } else e.message ?: "unknown error"
+                                if (isBumping) bumpError = "Failed to broadcast fee bump: $detail"
+                                else cancelError = "Failed to broadcast cancellation replacement: $detail"
                             } finally {
                                 isBumping = false
                                 isCancelling = false
@@ -672,7 +675,10 @@ fun ClenchNavHost(navController: NavHostController) {
                                 replacementActionLabel = "Fee Bump"
                                 replacementHighFeeAcknowledged = false
                             } catch (e: Exception) {
-                                bumpError = e.message ?: "Failed to bump fee"
+                                val detail = if (net.clench.wallet.BuildConfig.DEBUG) {
+                                    "${e::class.simpleName}: ${e.message ?: "unknown error"}"
+                                } else e.message ?: "unknown error"
+                                bumpError = "Failed to create fee bump: $detail"
                             } finally {
                                 isBumping = false
                             }
@@ -703,7 +709,10 @@ fun ClenchNavHost(navController: NavHostController) {
                                 replacementActionLabel = "Cancellation Replacement"
                                 replacementHighFeeAcknowledged = false
                             } catch (e: Exception) {
-                                cancelError = e.message ?: "Failed to create replacement transaction"
+                                val detail = if (net.clench.wallet.BuildConfig.DEBUG) {
+                                    "${e::class.simpleName}: ${e.message ?: "unknown error"}"
+                                } else e.message ?: "unknown error"
+                                cancelError = "Failed to create cancellation replacement: $detail"
                             } finally {
                                 isCancelling = false
                             }
