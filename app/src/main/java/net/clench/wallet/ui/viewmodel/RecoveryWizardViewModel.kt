@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.backup.ClenchStateBackupManager
+import net.clench.wallet.security.readTextBounded
 import javax.inject.Inject
 
 @HiltViewModel
@@ -35,7 +36,9 @@ class RecoveryWizardViewModel @Inject constructor(
             _uiState.update { it.copy(isImportingBackup = true, importStatus = null, importError = null) }
             try {
                 val json = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
+                        it.readTextBounded(ClenchStateBackupManager.MAX_BACKUP_CHARS)
+                    }
                         ?: throw IllegalStateException("Could not read backup file")
                 }
                 val result = withContext(Dispatchers.IO) {

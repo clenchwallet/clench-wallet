@@ -64,8 +64,8 @@ class ImportWalletViewModel @Inject constructor(
         }
         override fun hashCode(): Int {
             var result = walletName.hashCode()
-            result = 31 * result + input.hashCode()
-            result = 31 * result + passphrase.hashCode()
+            // Do not derive persistent hash values from seed/private-descriptor/passphrase text.
+            // Unequal states may intentionally collide; StateFlow equality still detects edits.
             result = 31 * result + (hardwareDeviceType?.hashCode() ?: 0)
             result = 31 * result + isLoading.hashCode()
             result = 31 * result + (error?.hashCode() ?: 0)
@@ -329,12 +329,18 @@ class ImportWalletViewModel @Inject constructor(
         val state = _uiState.value
         val words = state.input.trim().split("\\s+".toRegex())
 
+        var mnemonicObj: Mnemonic? = null
+        var secretKey: DescriptorSecretKey? = null
+        var descriptor: Descriptor? = null
         try {
-            val mnemonicObj = Mnemonic.fromString(words.joinToString(" "))
+            val parsedMnemonic = Mnemonic.fromString(words.joinToString(" "))
+            mnemonicObj = parsedMnemonic
             val network = Network.BITCOIN
-            val secretKey = DescriptorSecretKey(network, mnemonicObj, state.passphrase)
-            val descriptor = Descriptor.newBip84(secretKey, KeychainKind.EXTERNAL, network)
-            val descriptorStr = descriptor.toString()
+            val derivedSecretKey = DescriptorSecretKey(network, parsedMnemonic, state.passphrase)
+            secretKey = derivedSecretKey
+            val derivedDescriptor = Descriptor.newBip84(derivedSecretKey, KeychainKind.EXTERNAL, network)
+            descriptor = derivedDescriptor
+            val descriptorStr = derivedDescriptor.toString()
 
             val masterFp = CreateWalletViewModel.extractMasterFingerprint(descriptorStr)
             if (masterFp != null) {
@@ -348,6 +354,10 @@ class ImportWalletViewModel @Inject constructor(
             }
         } catch (_: Exception) {
             _uiState.update { it.copy(fingerprintBytes = null, masterFingerprintBytes = null) }
+        } finally {
+            try { descriptor?.close() } catch (_: Exception) {}
+            try { secretKey?.destroy() } catch (_: Exception) {}
+            try { mnemonicObj?.destroy() } catch (_: Exception) {}
         }
     }
 
@@ -361,7 +371,7 @@ class ImportWalletViewModel @Inject constructor(
                         val words = state.input.trim().split("\\s+".toRegex())
                         // Validate BIP39
                         try {
-                            Mnemonic.fromString(words.joinToString(" "))
+                            Mnemonic.fromString(words.joinToString(" ")).destroy()
                         } catch (e: Exception) {
                             _uiState.update { it.copy(isLoading = false, error = "Invalid seed phrase — check that all words are valid BIP39 words and in the correct order") }
                             return@launch
@@ -396,6 +406,15 @@ class ImportWalletViewModel @Inject constructor(
                     } catch (_: Exception) {
                         // Import succeeded. Home will surface any sync problem and allow retry.
                     }
+                }
+                _uiState.update {
+                    it.copy(
+                        input = "",
+                        passphrase = "",
+                        fingerprintBytes = null,
+                        masterFingerprintBytes = null,
+                        isLoading = false
+                    )
                 }
                 onImported(walletData.id)
             } catch (e: Exception) {

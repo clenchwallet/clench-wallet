@@ -124,6 +124,10 @@ fun PassphraseUnlockScreen(
                 singleLine = true,
                 isError = uiState.error != null,
                 visualTransformation = if (passphraseVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                    autoCorrectEnabled = false
+                ),
                 trailingIcon = {
                     IconButton(onClick = { passphraseVisible = !passphraseVisible }) {
                         Text(if (passphraseVisible) "Hide" else "Show", style = MaterialTheme.typography.labelSmall)

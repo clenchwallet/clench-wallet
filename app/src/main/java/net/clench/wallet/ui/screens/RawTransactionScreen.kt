@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.RawTransactionViewModel
+import net.clench.wallet.security.InputLimits
+import net.clench.wallet.security.readTextBounded
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,7 +39,9 @@ fun RawTransactionScreen(
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
-                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
+                    it.readTextBounded(InputLimits.RAW_TRANSACTION_CHARS)
+                }
                     ?: error("Could not read file")
             }.onSuccess { text ->
                 viewModel.setInput(text)

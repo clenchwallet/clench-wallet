@@ -5,6 +5,7 @@ import io.mockk.mockk
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.ElectrumConfig
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ElectrumConnectionFactoryTest {
@@ -78,5 +79,21 @@ class ElectrumConnectionFactoryTest {
         )
 
         assertEquals(ConnectionMode.TOR_PLAIN, resolved.mode)
+    }
+
+    @Test
+    fun `invalid certificate pin fails closed`() {
+        val failure = runCatching {
+            factory().resolveConnection(
+                ElectrumConfig(
+                    serverUrl = "electrum.example.com",
+                    port = 50002,
+                    useSsl = true,
+                    pinnedCert = "not-valid-base64!"
+                )
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is ElectrumConnectionException.TlsCertPinningFailed)
     }
 }

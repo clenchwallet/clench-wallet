@@ -19,6 +19,7 @@ import net.clench.wallet.domain.model.BitcoinAddressVerifier
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.domain.repository.BuiltTransactionReview
 import org.json.JSONObject
 import java.security.MessageDigest
 import javax.inject.Inject
@@ -59,6 +60,10 @@ class SendViewModel @Inject constructor(
         val feeRate: String = "2",
         val sendMax: Boolean = false,
         val txHex: String? = null,
+        val transactionReview: BuiltTransactionReview? = null,
+        val proposalFingerprint: String? = null,
+        val requiresHighFeeConfirmation: Boolean = false,
+        val highFeeAcknowledged: Boolean = false,
         val isLoading: Boolean = false,
         val error: String? = null,
         val availableBalanceSat: Long = 0L,
@@ -99,6 +104,18 @@ class SendViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
+
+    private inline fun updateDraft(crossinline transform: (UiState) -> UiState) {
+        _uiState.update { state ->
+            transform(state).copy(
+                txHex = null,
+                transactionReview = null,
+                proposalFingerprint = null,
+                requiresHighFeeConfirmation = false,
+                highFeeAcknowledged = false
+            )
+        }
+    }
 
     fun load(
         walletId: String,
@@ -274,7 +291,7 @@ class SendViewModel @Inject constructor(
                 val fee = _uiState.value.feeEstimates?.priority?.toInt()?.coerceAtLeast(2)?.toString()
                     ?: _uiState.value.feeRate.toIntOrNull()?.coerceAtLeast(2)?.toString()
                     ?: "10"
-                _uiState.update {
+                updateDraft {
                     it.copy(
                         selectedUtxoOutpoints = outpoints,
                         toAddress = selfAddress,
@@ -329,7 +346,11 @@ class SendViewModel @Inject constructor(
                     state.copy(
                         feeEstimates = estimates,
                         isEstimatingFees = false,
-                        feeRate = feeRate.toInt().coerceAtLeast(1).toString()
+                        feeRate = if (state.txHex == null) {
+                            feeRate.toInt().coerceAtLeast(1).toString()
+                        } else {
+                            state.feeRate
+                        }
                     )
                 }
             } catch (e: Exception) {
@@ -398,7 +419,7 @@ class SendViewModel @Inject constructor(
     }
 
     fun selectFeeTier(tier: FeeTier) {
-        _uiState.update { state ->
+        updateDraft { state ->
             val estimates = state.feeEstimates
             val feeRate = if (tier == FeeTier.CUSTOM) {
                 state.feeRate // keep current
@@ -416,11 +437,11 @@ class SendViewModel @Inject constructor(
     }
 
     fun setUtxo(txid: String?, vout: Int? = 0) {
-        _uiState.update { it.copy(utxoTxid = txid, utxoVout = vout) }
+        updateDraft { it.copy(utxoTxid = txid, utxoVout = vout) }
     }
 
     fun setSelectedUtxos(outpoints: List<String>) {
-        _uiState.update { it.copy(selectedUtxoOutpoints = outpoints) }
+        updateDraft { it.copy(selectedUtxoOutpoints = outpoints) }
     }
 
     fun setAddress(addr: String) {
@@ -432,7 +453,7 @@ class SendViewModel @Inject constructor(
         val verification = runCatching {
             if (parsed.address.isNotBlank()) BitcoinAddressVerifier.verify(parsed.address, settingsManager.isTestnet()) else null
         }.getOrNull()
-        _uiState.update {
+        updateDraft {
             it.copy(
                 toAddress = verification?.normalizedAddress ?: parsed.address,
                 addressVerification = verification,
@@ -442,14 +463,13 @@ class SendViewModel @Inject constructor(
             )
         }
         // If BIP-21 included an amount, set it
-        parsed.amountBtc?.let { btcAmount ->
-            val sats = (btcAmount * 100_000_000).toLong()
+        parsed.amountSat?.let { sats ->
             if (sats > 0) setAmount(sats.toString())
         }
     }
 
     fun setError(msg: String) = _uiState.update { it.copy(error = msg) }
-    fun setAmount(amt: String) = _uiState.update { it.copy(amountSat = amt) }
+    fun setAmount(amt: String) = updateDraft { it.copy(amountSat = amt) }
 
     fun cycleAmountUnit() {
         val state = _uiState.value
@@ -472,30 +492,36 @@ class SendViewModel @Inject constructor(
 
     fun setAmountDisplay(input: String) {
         val state = _uiState.value
-        _uiState.update { it.copy(amountDisplay = input, error = null) }
+        updateDraft { it.copy(amountDisplay = input, error = null) }
         // Convert display value to sats for internal use
         val sats = when (state.amountUnit) {
             AmountUnit.SATS -> input.toLongOrNull()
-            AmountUnit.BTC -> input.toDoubleOrNull()?.let { (it * 100_000_000).toLong() }
+            AmountUnit.BTC -> input.toBigDecimalOrNull()?.let { btc ->
+                runCatching {
+                    val normalized = btc.stripTrailingZeros()
+                    require(normalized.signum() >= 0 && normalized.scale() <= 8)
+                    normalized.movePointRight(8).longValueExact()
+                }.getOrNull()
+            }
             AmountUnit.USD -> input.toDoubleOrNull()?.let { usd ->
                 state.btcPriceUsd?.let { price -> (usd / price * 100_000_000).toLong() }
             }
         }
-        _uiState.update { it.copy(amountSat = sats?.toString() ?: input) }
+        updateDraft { it.copy(amountSat = sats?.toString() ?: input) }
     }
-    fun setFeeRate(rate: String) = _uiState.update { it.copy(feeRate = rate, selectedFeeTier = FeeTier.CUSTOM) }
+    fun setFeeRate(rate: String) = updateDraft { it.copy(feeRate = rate, selectedFeeTier = FeeTier.CUSTOM) }
     fun setSendMax(max: Boolean) {
         if (max) {
             // Show the available balance as the amount (fees will reduce it at build time)
             val balance = _uiState.value.availableBalanceSat
-            _uiState.update { it.copy(
+            updateDraft { it.copy(
                 sendMax = true,
                 amountSat = if (balance > 0) balance.toString() else "",
                 amountDisplay = if (balance > 0) balance.toString() else "",
                 amountUnit = AmountUnit.SATS
             ) }
         } else {
-            _uiState.update { it.copy(sendMax = false, amountSat = "", amountDisplay = "") }
+            updateDraft { it.copy(sendMax = false, amountSat = "", amountDisplay = "") }
         }
     }
     fun setLabel(label: String) = _uiState.update { it.copy(label = label) }
@@ -503,18 +529,18 @@ class SendViewModel @Inject constructor(
     // --- Batch recipient management ---
 
     fun addRecipient() {
-        _uiState.update { it.copy(recipients = it.recipients + RecipientEntry()) }
+        updateDraft { it.copy(recipients = it.recipients + RecipientEntry()) }
     }
 
     fun removeRecipient(index: Int) {
-        _uiState.update { state ->
+        updateDraft { state ->
             if (state.recipients.size <= 1) state
             else state.copy(recipients = state.recipients.filterIndexed { i, _ -> i != index })
         }
     }
 
     fun updateRecipientAddress(index: Int, address: String) {
-        _uiState.update { state ->
+        updateDraft { state ->
             state.copy(recipients = state.recipients.mapIndexed { i, r ->
                 if (i == index) r.copy(address = address) else r
             }, error = null)
@@ -522,7 +548,7 @@ class SendViewModel @Inject constructor(
     }
 
     fun updateRecipientAmount(index: Int, amount: String) {
-        _uiState.update { state ->
+        updateDraft { state ->
             state.copy(recipients = state.recipients.mapIndexed { i, r ->
                 if (i == index) r.copy(amountSat = amount) else r
             }, error = null)
@@ -595,10 +621,12 @@ class SendViewModel @Inject constructor(
         }
 
         val feeRate = state.feeRate.toFloatOrNull()
-        if (feeRate == null || feeRate < 1f) {
-            _uiState.update { it.copy(error = "Please enter a valid fee rate (min 1 sat/vB)") }
+        if (feeRate == null || !feeRate.isFinite() || feeRate < 1f || feeRate > MAX_FEE_RATE_SAT_VB) {
+            _uiState.update { it.copy(error = "Enter a fee rate from 1 to ${MAX_FEE_RATE_SAT_VB.toInt()} sat/vB") }
             return
         }
+
+        val draftFingerprint = proposalFingerprint(state)
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
@@ -635,7 +663,26 @@ class SendViewModel @Inject constructor(
                         selectedOutpoints = state.selectedUtxoOutpoints
                     )
                 }
-                _uiState.update { it.copy(txHex = txHex, isLoading = false) }
+                val review = bitcoinRepository.inspectBuiltTransaction(state.walletId, txHex)
+                validateReviewMatchesDraft(state, review)
+                feeSafetyError(review)?.let { error(it) }
+                _uiState.update { current ->
+                    if (proposalFingerprint(current) != draftFingerprint) {
+                        current.copy(
+                            isLoading = false,
+                            error = "Transaction details changed while it was being built. Review the updated draft and try again."
+                        )
+                    } else {
+                        current.copy(
+                            txHex = txHex,
+                            transactionReview = review,
+                            proposalFingerprint = draftFingerprint,
+                            requiresHighFeeConfirmation = requiresHighFeeConfirmation(review),
+                            highFeeAcknowledged = false,
+                            isLoading = false
+                        )
+                    }
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }
@@ -693,8 +740,8 @@ class SendViewModel @Inject constructor(
         }
 
         val feeRate = state.feeRate.toFloatOrNull()
-        if (feeRate == null || feeRate < 1f) {
-            _uiState.update { it.copy(error = "Please enter a valid fee rate (min 1 sat/vB)") }
+        if (feeRate == null || !feeRate.isFinite() || feeRate < 1f || feeRate > MAX_FEE_RATE_SAT_VB) {
+            _uiState.update { it.copy(error = "Enter a fee rate from 1 to ${MAX_FEE_RATE_SAT_VB.toInt()} sat/vB") }
             return false
         }
 
@@ -758,6 +805,14 @@ class SendViewModel @Inject constructor(
     fun broadcast(onSuccess: (walletId: String) -> Unit) {
         val state = _uiState.value
         val txHex = state.txHex ?: return
+        if (state.proposalFingerprint == null || proposalFingerprint(state) != state.proposalFingerprint) {
+            updateDraft { it.copy(error = "Transaction details changed. Build and review the transaction again before broadcasting.") }
+            return
+        }
+        if (state.requiresHighFeeConfirmation && !state.highFeeAcknowledged) {
+            _uiState.update { it.copy(error = "Confirm that you understand the unusually high fee before broadcasting") }
+            return
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
@@ -805,6 +860,18 @@ class SendViewModel @Inject constructor(
 
     fun dismissBroadcastSuccess() {
         _uiState.update { it.copy(broadcastSuccess = false, broadcastTxid = null) }
+    }
+
+    fun acknowledgeHighFee() {
+        _uiState.update { state ->
+            if (state.requiresHighFeeConfirmation && state.txHex != null) {
+                state.copy(highFeeAcknowledged = true, error = null)
+            } else state
+        }
+    }
+
+    fun discardBuiltTransaction() {
+        updateDraft { it.copy(error = null) }
     }
 
     fun getMempoolUrl(): String {
@@ -866,5 +933,80 @@ class SendViewModel @Inject constructor(
             .digest("$walletId:$address".toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
         return "$walletId:$digest"
+    }
+
+    private fun proposalFingerprint(state: UiState): String {
+        val payload = buildString {
+            append(state.walletId).append('|')
+            append(state.toAddress.trim()).append('|')
+            append(state.amountSat).append('|')
+            append(state.feeRate).append('|')
+            append(state.sendMax).append('|')
+            append(state.utxoTxid).append(':').append(state.utxoVout).append('|')
+            append(state.selectedUtxoOutpoints.sorted().joinToString(",")).append('|')
+            state.recipients.forEach {
+                append(it.address.trim()).append(':').append(it.amountSat).append(';')
+            }
+        }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(payload.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    }
+
+    private fun validateReviewMatchesDraft(state: UiState, review: BuiltTransactionReview) {
+        val intended = if (state.recipients.size > 1) {
+            state.recipients.groupBy { it.address.trim() }
+                .mapValues { (_, entries) -> entries.sumOf { it.amountSat.toLong() } }
+        } else {
+            mapOf(state.toAddress.trim() to if (state.sendMax) null else state.amountSat.toLong())
+        }
+
+        intended.forEach { (address, expectedAmount) ->
+            val actualAmount = review.outputs.filter { it.address == address }.sumOf { it.amountSat }
+            if (expectedAmount == null) {
+                check(actualAmount > 0) { "Built transaction does not pay the reviewed destination" }
+            } else {
+                check(actualAmount == expectedAmount) {
+                    "Built transaction output differs from the reviewed amount for $address"
+                }
+            }
+        }
+
+        val unexpectedExternal = review.outputs.filter { output ->
+            !output.belongsToWallet && output.address !in intended.keys
+        }
+        check(unexpectedExternal.isEmpty()) {
+            "Built transaction contains an unexpected external output"
+        }
+    }
+
+    companion object {
+        const val MAX_FEE_RATE_SAT_VB = 1_000f
+        const val MAX_ABSOLUTE_FEE_SAT = 1_000_000L
+        const val HIGH_FEE_WARNING_PERCENT = 5.0
+        const val MAX_RELATIVE_FEE_PERCENT = 50.0
+
+        fun requiresHighFeeConfirmation(review: BuiltTransactionReview): Boolean {
+            val reviewedAmount = feeComparisonAmount(review)
+            if (reviewedAmount <= 0) return false
+            return review.feeSat.toDouble() / reviewedAmount.toDouble() * 100.0 >
+                HIGH_FEE_WARNING_PERCENT
+        }
+
+        fun feeSafetyError(review: BuiltTransactionReview): String? {
+            if (review.feeSat > MAX_ABSOLUTE_FEE_SAT) {
+                return "Transaction fee is ${review.feeSat} sats, above Clench's ${MAX_ABSOLUTE_FEE_SAT}-sat safety limit"
+            }
+            val reviewedAmount = feeComparisonAmount(review)
+            if (reviewedAmount <= 0) return null
+            val percent = review.feeSat.toDouble() / reviewedAmount.toDouble() * 100.0
+            return if (percent > MAX_RELATIVE_FEE_PERCENT) {
+                "Transaction fee is ${String.format("%.1f", percent)}% of the amount, above Clench's safety limit"
+            } else null
+        }
+
+        private fun feeComparisonAmount(review: BuiltTransactionReview): Long =
+            review.externalAmountSat.takeIf { it > 0 }
+                ?: review.outputs.sumOf { it.amountSat }
     }
 }

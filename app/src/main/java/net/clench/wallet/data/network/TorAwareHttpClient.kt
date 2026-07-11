@@ -1,6 +1,7 @@
 package net.clench.wallet.data.network
 
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.security.readTextBounded
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -46,9 +47,13 @@ class TorAwareHttpClient @Inject constructor(
 
     private fun fetchWithConnection(conn: java.net.HttpURLConnection): String {
         return try {
-            conn.inputStream.bufferedReader().readText()
+            conn.inputStream.bufferedReader().use { it.readTextBounded(MAX_HTTP_RESPONSE_CHARS) }
         } finally {
             conn.disconnect()
         }
+    }
+
+    private companion object {
+        const val MAX_HTTP_RESPONSE_CHARS = 2 * 1024 * 1024
     }
 }

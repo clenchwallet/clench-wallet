@@ -20,6 +20,8 @@ import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.local.entity.WalletKeystoreMetadataEntity
 import net.clench.wallet.data.util.Bip329
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.security.InputLimits
+import net.clench.wallet.security.readTextBounded
 import net.clench.wallet.ui.util.DescriptorDisplayPolicy
 import net.clench.wallet.ui.util.copyToClipboardWithAutoClear
 import org.json.JSONObject
@@ -377,7 +379,9 @@ class WalletInfoViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val jsonl = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
+                        it.readTextBounded(InputLimits.LABEL_TEXT_CHARS)
+                    }
                         ?: throw Exception("Could not read file")
                 }
                 val parsed = Bip329.importLabels(jsonl)

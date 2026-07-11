@@ -14,7 +14,7 @@ class AddressVerificationTest {
         )
 
         assertEquals("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080", parsed.address)
-        assertEquals(0.001, parsed.amountBtc!!, 0.0)
+        assertEquals(100_000L, parsed.amountSat)
         assertEquals("Alice Savings", parsed.label)
         assertEquals("Payjoin parameters are ignored by Clench.", parsed.warning)
     }
@@ -46,5 +46,35 @@ class AddressVerificationTest {
 
         assertNotNull(failure)
         assertTrue(failure!!.message!!.contains("amount is invalid"))
+    }
+
+    @Test
+    fun `parseBip21 preserves exact satoshi amount`() {
+        val parsed = BitcoinAddressVerifier.parseBip21(
+            "bitcoin:1BoatSLRHtKNngkdXEeobR76b53LETtpyT?amount=0.00000003"
+        )
+
+        assertEquals(3L, parsed.amountSat)
+    }
+
+    @Test
+    fun `parseBip21 rejects sub-satoshi precision`() {
+        val failure = runCatching {
+            BitcoinAddressVerifier.parseBip21(
+                "bitcoin:1BoatSLRHtKNngkdXEeobR76b53LETtpyT?amount=0.000000001"
+            )
+        }.exceptionOrNull()
+
+        assertNotNull(failure)
+        assertTrue(failure!!.message!!.contains("amount is invalid"))
+    }
+
+    @Test
+    fun `parseBip21 accepts exact amounts with trailing zeroes`() {
+        val parsed = BitcoinAddressVerifier.parseBip21(
+            "bitcoin:1BoatSLRHtKNngkdXEeobR76b53LETtpyT?amount=1.000000000"
+        )
+
+        assertEquals(100_000_000L, parsed.amountSat)
     }
 }

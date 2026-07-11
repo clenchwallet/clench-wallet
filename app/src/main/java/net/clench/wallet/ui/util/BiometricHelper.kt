@@ -19,8 +19,10 @@ import javax.crypto.spec.GCMParameterSpec
  * Helper for biometric/device-credential authentication gates.
  * Uses crypto-bound biometric auth with Android Keystore for strong security.
  *
- * The biometric key requires biometric authentication before the cipher can be used,
- * meaning auth cannot be bypassed on rooted devices (unlike UI-only BiometricPrompt).
+ * The biometric key requires biometric authentication before the cipher can be used.
+ * This cryptographically verifies the prompt result, but no app can claim that a fully
+ * compromised/rooted runtime is impossible to bypass; wallet-secret use still needs strict
+ * transaction review and minimal in-memory exposure.
  */
 object BiometricHelper {
 
@@ -97,10 +99,8 @@ object BiometricHelper {
                         try {
                             val decrypted = decryptAccessToken(activity, resultCipher)
                             if (decrypted != null) {
-                                onSuccess()
-                            } else {
-                                onFailure("Biometric verification failed — could not decrypt access token")
-                            }
+                                try { onSuccess() } finally { decrypted.fill(0) }
+                            } else onFailure("Biometric verification failed — could not decrypt access token")
                         } catch (e: Exception) {
                             if (net.clench.wallet.BuildConfig.DEBUG) Log.e(TAG, "Decryption failed after auth", e)
                             onFailure("Biometric verification failed: ${e.message}")
@@ -217,10 +217,14 @@ object BiometricHelper {
         val encryptedBytes = cipher.doFinal(accessToken)
         val iv = cipher.iv
 
-        prefs.edit()
-            .putString(PREF_ACCESS_TOKEN_IV, android.util.Base64.encodeToString(iv, android.util.Base64.NO_WRAP))
-            .putString(PREF_ACCESS_TOKEN_CIPHER, android.util.Base64.encodeToString(encryptedBytes, android.util.Base64.NO_WRAP))
-            .apply()
+        try {
+            check(prefs.edit()
+                .putString(PREF_ACCESS_TOKEN_IV, android.util.Base64.encodeToString(iv, android.util.Base64.NO_WRAP))
+                .putString(PREF_ACCESS_TOKEN_CIPHER, android.util.Base64.encodeToString(encryptedBytes, android.util.Base64.NO_WRAP))
+                .commit()) { "Could not persist biometric verification material" }
+        } finally {
+            accessToken.fill(0)
+        }
     }
 
     /**

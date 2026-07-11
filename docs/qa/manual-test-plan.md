@@ -303,16 +303,32 @@ Use this checklist for release candidates and for changes that touch wallet stat
 - User-facing SATSCARD slot labels are shown as 1 through 10, not protocol indexes 0 through 9
 - Funding/sweep screens warn that after slot 1 is unsealed, the printed QR should no longer be trusted for receiving
 - Sweep requires CVC entry and explicit confirmation that unseal is irreversible
+- When send authentication is enabled, authentication succeeds before NFC unseal mode is armed
 - Clench rejects card/wallet network mismatches before unseal
 - Clench rejects counterfeit/invalid SATSCARD certificate checks before sending the CVC-authenticated unseal command
-- Clench verifies the unsealed private key matches the verified SATSCARD slot public key and payment address before broadcasting
+- Clench verifies the unsealed private key matches the verified SATSCARD slot public key and payment address before signing
 - Wrong CVC, unused slot, already-unsealed slot, tamper warning, or NFC errors are shown clearly
-- On a valid sealed active slot with confirmed funds, Clench unseals, builds a native SegWit drain transaction, signs locally from the returned key, and broadcasts to the selected destination wallet address
+- On a valid sealed active slot with confirmed funds, Clench unseals, builds and signs a native SegWit drain transaction, then shows the exact destination, amount, fee, fee rate, vsize, and txid
+- The prepared sweep never auto-broadcasts; the user must explicitly broadcast the reviewed transaction, with a second acknowledgement for unusually high fees
 - A Tapsigner in this flow is rejected with a clear "only supports SATSCARD" message
 
 ---
 
 ## I. Transaction Tooling Tests
+
+### I0. Immutable send review and stale-proposal invalidation
+**Steps**
+1. Build a small testnet send
+2. Compare every recipient, amount, change output, exact fee, fee rate, vsize, and txid on the review screen
+3. Tap Edit transaction, change the address, amount, fee rate, recipients, and selected UTXOs one at a time
+4. Verify each edit discards the previously signed transaction
+5. Try fees above 5%, above 50%, above 1,000 sat/vB, and above 1,000,000 sats
+
+**Expected**
+- Broadcast is possible only for the immutable signed proposal currently displayed
+- Every draft edit requires rebuilding and reviewing a new transaction
+- Fees above 5% require explicit acknowledgement; hard-limit violations are rejected
+- No estimated 140-vbyte fee is shown as if it were the final fee
 
 ### I1. CPFP child transaction
 **Precondition:** wallet has a spendable output from an unconfirmed transaction
@@ -340,6 +356,8 @@ Use this checklist for release candidates and for changes that touch wallet stat
 
 **Expected**
 - Clench creates a replacement transaction back to the wallet
+- The exact replacement inputs, outputs, fee, fee rate, vsize, and txid are reviewed before a separate broadcast action
+- When send authentication is enabled, authentication occurs before replacement signing
 - The app clearly states cancel is not guaranteed because the original may confirm first
 - Non-RBF, confirmed, watch-only, and offline cases do not offer a misleading cancel action
 
@@ -398,6 +416,7 @@ Use this checklist for release candidates and for changes that touch wallet stat
 
 **Expected**
 - Seed phrases, passphrases, private descriptors, PINs, and biometric secrets are not imported
+- Network, Electrum, Tor, lock, biometric, price lookup, and external fee lookup settings are not silently changed
 - Hot wallets restore as watch-only until the matching seed phrase is restored separately
 - Duplicate descriptors are skipped rather than duplicated
 - Labels, UTXO notes, and non-secret settings are restored where present
@@ -513,14 +532,17 @@ Use this checklist for release candidates and for changes that touch wallet stat
 **Steps**
 1. Review `.github/workflows/release.yml`
 2. Confirm it runs only for `v*` tags or explicit maintainer dispatch
-3. Confirm release signing secrets are required before build
-4. Confirm the tag must match `versionName`
+3. Confirm the tag is annotated and GitHub-verified, and matches `versionName`
+4. Confirm the protected `release-signing` environment gates the signing job
 
 **Expected**
 - Release artifacts are built with the release keystore
-- Tests and lint run before release artifact publication
+- Every action reference is pinned to an immutable full commit SHA
+- Tests and lint run before signing material is loaded
+- Signing material is destroyed before attestation, artifact upload, and the separate publication job
 - `SHA256SUMS`, `SHA256SUMS.txt`, and `RELEASE-MANIFEST.txt` are published with the APK
 - APK signature verification is run before release creation
+- Build provenance is attested and immutable releases prevent asset replacement
 
 ### L3. Reproducible-build helper
 **Steps**

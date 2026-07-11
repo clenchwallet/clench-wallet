@@ -2,6 +2,8 @@ package net.clench.wallet.domain.model
 
 import org.bitcoindevkit.Address
 import org.bitcoindevkit.Network
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 data class AddressVerificationResult(
     val normalizedAddress: String,
@@ -15,7 +17,7 @@ data class AddressVerificationResult(
 
 data class ParsedBitcoinUri(
     val address: String,
-    val amountBtc: Double? = null,
+    val amountSat: Long? = null,
     val label: String? = null,
     val warning: String? = null
 )
@@ -31,7 +33,7 @@ object BitcoinAddressVerifier {
         val withoutScheme = trimmed.substringAfter(":")
         val address = withoutScheme.substringBefore("?")
         val queryString = withoutScheme.substringAfter("?", "")
-        var amount: Double? = null
+        var amountSat: Long? = null
         var label: String? = null
         val warnings = mutableListOf<String>()
 
@@ -43,10 +45,7 @@ object BitcoinAddressVerifier {
                     val value = param.substringAfter("=", "")
                     when (key) {
                         "amount" -> {
-                            amount = value.toDoubleOrNull()
-                            if (amount == null || amount!! < 0.0) {
-                                error("BIP-21 amount is invalid")
-                            }
+                            amountSat = parseBip21AmountSat(value)
                         }
                         "label" -> label = decodeUriComponent(value).take(80)
                         "message", "time", "exp" -> Unit
@@ -62,7 +61,7 @@ object BitcoinAddressVerifier {
 
         return ParsedBitcoinUri(
             address = normalizeBech32Case(address),
-            amountBtc = amount,
+            amountSat = amountSat,
             label = label,
             warning = warnings.firstOrNull()
         )
@@ -119,4 +118,19 @@ object BitcoinAddressVerifier {
     private fun decodeUriComponent(value: String): String {
         return java.net.URLDecoder.decode(value, Charsets.UTF_8.name())
     }
+
+    private fun parseBip21AmountSat(value: String): Long {
+        val btc = runCatching { BigDecimal(value) }
+            .getOrElse { error("BIP-21 amount is invalid") }
+        val normalized = btc.stripTrailingZeros()
+        if (normalized.signum() < 0 || normalized.scale() > 8 || normalized > MAX_BITCOIN) {
+            error("BIP-21 amount is invalid")
+        }
+        return runCatching {
+            normalized.multiply(SATS_PER_BTC).setScale(0, RoundingMode.UNNECESSARY).longValueExact()
+        }.getOrElse { error("BIP-21 amount is invalid") }
+    }
+
+    private val SATS_PER_BTC = BigDecimal("100000000")
+    private val MAX_BITCOIN = BigDecimal("21000000")
 }

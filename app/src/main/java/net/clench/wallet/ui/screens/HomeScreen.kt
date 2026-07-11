@@ -322,6 +322,41 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
+            uiState.error?.let { err ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            "⚠️ $err",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        if (uiState.walletStateRecoveryRequired) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Recovery preserves the unreadable database in internal quarantine, rebuilds state from the saved public descriptors, and scans with a 100-address gap. Previously revealed but unused addresses cannot be rediscovered from the blockchain.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = viewModel::recoverWalletState,
+                                enabled = !uiState.isRecoveringWalletState
+                            ) {
+                                if (uiState.isRecoveringWalletState) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Recovering…")
+                                } else Text("Run extended recovery scan")
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Send / Receive buttons
             Row(
                 modifier = Modifier

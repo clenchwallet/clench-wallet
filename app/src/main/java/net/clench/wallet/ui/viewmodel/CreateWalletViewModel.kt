@@ -40,7 +40,7 @@ class CreateWalletViewModel @Inject constructor(
         override fun hashCode(): Int {
             var result = walletName.hashCode()
             result = 31 * result + wordCount
-            result = 31 * result + mnemonic.hashCode()
+            // Avoid deriving a cached hash from recovery words held for confirmation.
             result = 31 * result + isLoading.hashCode()
             result = 31 * result + (error?.hashCode() ?: 0)
             result = 31 * result + scriptType.hashCode()
@@ -84,8 +84,14 @@ class CreateWalletViewModel @Inject constructor(
         }
 
         fun computeFingerprint(masterFingerprintBytes: ByteArray, passphrase: String): ByteArray {
-            val input = masterFingerprintBytes + passphrase.toByteArray(Charsets.UTF_8)
-            return MessageDigest.getInstance("SHA-256").digest(input)
+            val passphraseBytes = passphrase.toByteArray(Charsets.UTF_8)
+            return try {
+                MessageDigest.getInstance("SHA-256").apply {
+                    update(masterFingerprintBytes)
+                }.digest(passphraseBytes)
+            } finally {
+                passphraseBytes.fill(0)
+            }
         }
     }
 
@@ -95,7 +101,11 @@ class CreateWalletViewModel @Inject constructor(
             try {
                 val wordCountEnum = if (_uiState.value.wordCount == 12) WordCount.WORDS12 else WordCount.WORDS24
                 val mnemonic = Mnemonic(wordCountEnum)
-                val mnemonicWords = mnemonic.toString().split(" ")
+                val mnemonicWords = try {
+                    mnemonic.toString().split(" ")
+                } finally {
+                    mnemonic.destroy()
+                }
 
                 pendingMnemonic = mnemonicWords
 

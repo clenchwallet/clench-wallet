@@ -1,6 +1,7 @@
 package net.clench.wallet.ui.screens
 
 import android.app.Activity
+import androidx.fragment.app.FragmentActivity
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -33,8 +34,13 @@ import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.SatscardNfcReader
 import net.clench.wallet.ui.util.SecureWindowEffect
+import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.viewmodel.FeeTier
 import net.clench.wallet.ui.viewmodel.SweepViewModel
+import net.clench.wallet.ui.viewmodel.SweepSeedScriptType
+import net.clench.wallet.ui.viewmodel.SweepWifScriptType
+import net.clench.wallet.security.InputLimits
+import net.clench.wallet.security.readTextBounded
 
 /**
  * Sweep wallet screen: allows sweeping all funds from an external seed phrase
@@ -51,6 +57,7 @@ fun SweepScreen(
     SecureWindowEffect()
     val context = LocalContext.current
     val activity = context as? Activity
+    val fragmentActivity = activity as? FragmentActivity
     val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
 
     // Seed phrase input state (kept local for security — never exposed to ViewModel until submit)
@@ -76,7 +83,9 @@ fun SweepScreen(
     ) { uri ->
         uri?.let {
             try {
-                val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader -> reader.readText() }
+                val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader ->
+                    reader.readTextBounded(InputLimits.SECRET_TEXT_CHARS)
+                }
                 if (text.isNullOrBlank()) {
                     wifError = "Selected file was empty"
                 } else {
@@ -98,11 +107,15 @@ fun SweepScreen(
         try {
             if (sweep) {
                 val cvc = pendingSatscardCvc ?: error("Enter the SATSCARD spend code before sweeping")
-                val result = SatscardNfcReader.unsealCurrentSlot(
-                    tag = tag,
-                    cvc = cvc,
-                    expectedTestnet = uiState.isTestnet
-                )
+                val result = try {
+                    SatscardNfcReader.unsealCurrentSlot(
+                        tag = tag,
+                        cvc = cvc,
+                        expectedTestnet = uiState.isTestnet
+                    )
+                } finally {
+                    cvc.fill('0')
+                }
                 hostActivity.runOnUiThread {
                     satscardStatus = "${result.summary}. Building sweep transaction..."
                     satscardError = null
@@ -226,10 +239,39 @@ fun SweepScreen(
             OutlinedTextField(
                 value = uiState.destinationAddress,
                 onValueChange = { viewModel.setDestinationAddress(it) },
-                label = { Text("Destination address (this wallet)") },
+                label = { Text("Sweep destination") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
+            if (uiState.destinationAddress.trim() != uiState.defaultDestinationAddress &&
+                uiState.destinationAddress.isNotBlank()
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("External destination", fontWeight = FontWeight.Bold)
+                        Text(
+                            "This is not the receive address generated for the selected wallet. Verify it independently before continuing.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = uiState.externalDestinationConfirmed,
+                                onCheckedChange = viewModel::confirmExternalDestination
+                            )
+                            Text("I verified this external address", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            } else if (uiState.destinationAddress.isNotBlank()) {
+                Text(
+                    "Verified destination: this wallet",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -237,7 +279,7 @@ fun SweepScreen(
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0))) {
                 Text(
                     "⚠ Source key material is used in memory only. Char buffers are zeroed " +
-                    "immediately after the sweep transaction is broadcast.",
+                    "immediately after the signed sweep transaction is prepared.",
                     modifier = Modifier.padding(10.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF5D4037)
@@ -245,6 +287,63 @@ fun SweepScreen(
             }
 
             Spacer(modifier = Modifier.height(12.dp))
+
+            uiState.transactionReview?.let { review ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Review signed sweep", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Destination: ${review.outputs.singleOrNull()?.address ?: "Unknown script"}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            "Amount: ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(review.outputs.sumOf { it.amountSat })} sats",
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Network fee: ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(review.feeSat)} sats " +
+                                "(${String.format("%.2f", review.feeRateSatPerVbyte)} sat/vB, ${review.vsize} vB)"
+                        )
+                        Text("Transaction ID: ${review.txid}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (uiState.requiresHighFeeConfirmation && !uiState.highFeeAcknowledged) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("Unusually high fee", fontWeight = FontWeight.Bold)
+                            Text("The exact fee exceeds 5% of the swept amount.")
+                            TextButton(onClick = viewModel::acknowledgeHighFee) { Text("I verified the fee") }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = viewModel::broadcastPreparedSweep,
+                    enabled = !uiState.isBroadcasting &&
+                        (!uiState.requiresHighFeeConfirmation || uiState.highFeeAcknowledged),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (uiState.isBroadcasting) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Broadcasting…")
+                    } else {
+                        Text("Broadcast reviewed sweep")
+                    }
+                }
+                OutlinedButton(
+                    onClick = viewModel::discardPreparedSweep,
+                    enabled = !uiState.isBroadcasting,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Discard prepared transaction") }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -327,12 +426,39 @@ fun SweepScreen(
                                             satscardError = "Enter the 6-digit SATSCARD spend code"
                                             return@Button
                                         }
-                                        pendingSatscardCvc?.fill('0')
-                                        pendingSatscardCvc = satscardCvcInput.toCharArray()
-                                        satscardCvcInput = ""
-                                        satscardStatus = "Ready to unseal. Hold SATSCARD against the phone."
-                                        satscardError = null
-                                        satscardSweepReaderActive = true
+                                        val armUnsealReader: () -> Unit = {
+                                            pendingSatscardCvc?.fill('0')
+                                            pendingSatscardCvc = satscardCvcInput.toCharArray()
+                                            satscardCvcInput = ""
+                                            satscardStatus = "Authenticated. Hold SATSCARD against the phone to unseal it."
+                                            satscardError = null
+                                            satscardSweepReaderActive = true
+                                        }
+                                        when {
+                                            !uiState.biometricForSendEnabled -> armUnsealReader()
+                                            fragmentActivity == null || !BiometricHelper.canAuthenticate(context) ->
+                                                viewModel.setError("Biometric or device-credential authentication is required but unavailable")
+                                            else -> {
+                                                (context as? MainActivity)?.suppressPassphraseLock = true
+                                                BiometricHelper.authenticate(
+                                                    activity = fragmentActivity,
+                                                    title = "Authenticate SATSCARD unseal",
+                                                    subtitle = "Verify your identity before permanently unsealing and signing the sweep",
+                                                    onSuccess = {
+                                                        (context as? MainActivity)?.suppressPassphraseLock = false
+                                                        armUnsealReader()
+                                                    },
+                                                    onFailure = { message ->
+                                                        (context as? MainActivity)?.suppressPassphraseLock = false
+                                                        viewModel.setError("Authentication failed: $message")
+                                                    },
+                                                    onCancel = {
+                                                        (context as? MainActivity)?.suppressPassphraseLock = false
+                                                    },
+                                                    allowUiOnlyFallback = false
+                                                )
+                                            }
+                                        }
                                     },
                                     enabled = satscardSweepConfirmed &&
                                         satscardCvcInput.length in 6..32 &&
@@ -406,6 +532,68 @@ fun SweepScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            Text("Source address type", style = MaterialTheme.typography.labelMedium)
+            Spacer(modifier = Modifier.height(4.dp))
+            if (sourceType == SweepSourceType.SeedPhrase) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        SweepSeedScriptType.LEGACY to "Legacy (BIP44)",
+                        SweepSeedScriptType.NESTED_SEGWIT to "Nested SegWit (BIP49)",
+                        SweepSeedScriptType.NATIVE_SEGWIT to "Native SegWit (BIP84)",
+                        SweepSeedScriptType.TAPROOT to "Taproot (BIP86)"
+                    ).forEach { (type, label) ->
+                        FilterChip(
+                            selected = uiState.seedScriptType == type,
+                            onClick = { viewModel.setSeedScriptType(type) },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = uiState.seedAccount.toString(),
+                    onValueChange = { raw ->
+                        raw.filter(Char::isDigit).take(3).toUIntOrNull()?.let { account ->
+                            if (account <= 100u) viewModel.setSeedAccount(account)
+                        }
+                    },
+                    label = { Text("BIP account index (0–100)") },
+                    supportingText = { Text("Most wallets use account 0. Check other accounts you previously used.") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = uiState.wifScriptType == SweepWifScriptType.LEGACY,
+                        onClick = { viewModel.setWifScriptType(SweepWifScriptType.LEGACY) },
+                        label = { Text("Legacy P2PKH") }
+                    )
+                    FilterChip(
+                        selected = uiState.wifScriptType == SweepWifScriptType.NESTED_SEGWIT,
+                        onClick = { viewModel.setWifScriptType(SweepWifScriptType.NESTED_SEGWIT) },
+                        label = { Text("Nested SegWit") }
+                    )
+                    FilterChip(
+                        selected = uiState.wifScriptType == SweepWifScriptType.NATIVE_SEGWIT,
+                        onClick = { viewModel.setWifScriptType(SweepWifScriptType.NATIVE_SEGWIT) },
+                        label = { Text("Native SegWit") }
+                    )
+                }
+            }
+
+            Text(
+                "Clench scans the selected address type and account with a 20-address gap. Check every type and account you may have used before concluding the source is empty.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             if (sourceType == SweepSourceType.SeedPhrase) {
                 OutlinedTextField(
                     value = seedInput,
@@ -419,6 +607,10 @@ fun SweepScreen(
                         .fillMaxWidth()
                         .height(120.dp),
                     placeholder = { Text("word1 word2 word3…") },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        autoCorrectEnabled = false
+                    ),
                     isError = seedError != null
                 )
                 seedError?.let {
@@ -472,6 +664,10 @@ fun SweepScreen(
                     singleLine = false,
                     minLines = 2,
                     visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        autoCorrectEnabled = false
+                    ),
                     isError = wifError != null
                 )
                 wifError?.let {
@@ -582,10 +778,14 @@ fun SweepScreen(
                             val mnemonic = seedInput.trim().toCharArray()
                             val passphrase = if (showPassphrase && passphraseInput.isNotBlank())
                                 passphraseInput.toCharArray() else null
-                            // Note: chars zeroed inside ViewModel after use
+                            seedInput = ""
+                            passphraseInput = ""
+                            // Char arrays are zeroed inside ViewModel after use.
                             viewModel.validateSeedAndFetchBalance(mnemonic, passphrase)
                         } else {
-                            viewModel.validateWifAndFetchBalance(wifInput.toCharArray())
+                            val wif = wifInput.toCharArray()
+                            wifInput = ""
+                            viewModel.validateWifAndFetchBalance(wif)
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -630,26 +830,53 @@ fun SweepScreen(
                 if (uiState.sourceBalanceSat > 0) {
                     Button(
                         onClick = {
+                            val prepareSweep: () -> Unit = {
                             if (sourceType == SweepSourceType.SeedPhrase) {
                                 val words = seedInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
                                 if (words.size != 12 && words.size != 24) {
                                     seedError = "Seed phrase was cleared — re-enter it"
-                                    return@Button
+                                } else {
+                                    val mnemonic = seedInput.trim().toCharArray()
+                                    val passphrase = if (showPassphrase && passphraseInput.isNotBlank())
+                                        passphraseInput.toCharArray() else null
+                                    seedInput = ""
+                                    passphraseInput = ""
+                                    viewModel.sweep(mnemonic, passphrase)
                                 }
-                                val mnemonic = seedInput.trim().toCharArray()
-                                val passphrase = if (showPassphrase && passphraseInput.isNotBlank())
-                                    passphraseInput.toCharArray() else null
-                                seedInput = ""
-                                passphraseInput = ""
-                                viewModel.sweep(mnemonic, passphrase)
                             } else {
                                 if (wifInput.isBlank()) {
                                     wifError = "WIF private key was cleared — re-enter it"
-                                    return@Button
+                                } else {
+                                    val wif = wifInput.toCharArray()
+                                    wifInput = ""
+                                    viewModel.sweepWif(wif)
                                 }
-                                val wif = wifInput.toCharArray()
-                                wifInput = ""
-                                viewModel.sweepWif(wif)
+                            }
+                            }
+                            when {
+                                !uiState.biometricForSendEnabled -> prepareSweep()
+                                fragmentActivity == null || !BiometricHelper.canAuthenticate(context) ->
+                                    viewModel.setError("Biometric or device-credential authentication is required but unavailable")
+                                else -> {
+                                    (context as? MainActivity)?.suppressPassphraseLock = true
+                                    BiometricHelper.authenticate(
+                                        activity = fragmentActivity,
+                                        title = "Authenticate sweep",
+                                        subtitle = "Verify your identity before signing the sweep transaction",
+                                        onSuccess = {
+                                            (context as? MainActivity)?.suppressPassphraseLock = false
+                                            prepareSweep()
+                                        },
+                                        onFailure = { message ->
+                                            (context as? MainActivity)?.suppressPassphraseLock = false
+                                            viewModel.setError("Authentication failed: $message")
+                                        },
+                                        onCancel = {
+                                            (context as? MainActivity)?.suppressPassphraseLock = false
+                                        },
+                                        allowUiOnlyFallback = false
+                                    )
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -660,7 +887,7 @@ fun SweepScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Sweeping…")
                         } else {
-                            Text("Sweep ${uiState.sourceBalanceSat} sats → This Wallet")
+                            Text("Prepare sweep of ${uiState.sourceBalanceSat} sats")
                         }
                     }
                 } else {

@@ -181,6 +181,8 @@ fun QrScanner(
     var isProcessing by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
     val mainExecutor = remember(context) { androidx.core.content.ContextCompat.getMainExecutor(context) }
+    val maxAnimatedFrames = 2_048
+    val maxDecodedChars = 6 * 1024 * 1024
 
     // BBQr accumulator for Coldcard Q animated frames
     val bbqrFrames = remember { mutableMapOf<Int, String>() }
@@ -193,6 +195,12 @@ fun QrScanner(
     var multipartTextTotalFrames by remember { mutableIntStateOf(0) }
 
     fun deliverResult(payload: String) {
+        if (payload.length > maxDecodedChars) {
+            cameraError = "QR payload exceeds Clench's import safety limit."
+            onError?.invoke(cameraError!!)
+            isProcessing = false
+            return
+        }
         isProcessing = true
         mainExecutor.execute {
             try {
@@ -327,7 +335,9 @@ fun QrScanner(
                                     // binary signing payloads; other file types such as J=Generic JSON
                                     // are textual wallet-export payloads for onboarding.
                                     val frame = BBQrEncoder.parseBBQrFrame(text)
-                                    if (frame != null) {
+                                    if (frame != null && frame.totalFrames in 1..maxAnimatedFrames &&
+                                        frame.data.length <= maxDecodedChars
+                                    ) {
                                         if (bbqrTotalFrames != frame.totalFrames ||
                                             bbqrEncoding != frame.encoding ||
                                             bbqrFileType != frame.fileType
@@ -336,6 +346,13 @@ fun QrScanner(
                                             bbqrTotalFrames = frame.totalFrames
                                             bbqrEncoding = frame.encoding
                                             bbqrFileType = frame.fileType
+                                        }
+                                        val priorLength = bbqrFrames[frame.frameIndex]?.length ?: 0
+                                        val accumulatedLength = bbqrFrames.values.sumOf { it.length } - priorLength + frame.data.length
+                                        if (accumulatedLength > maxDecodedChars) {
+                                            bbqrFrames.clear()
+                                            bbqrTotalFrames = 0
+                                            throw IllegalArgumentException("Animated QR exceeds import safety limit")
                                         }
                                         bbqrFrames[frame.frameIndex] = frame.data
                                         progress = bbqrFrames.size.toFloat() / frame.totalFrames.toFloat()
@@ -370,10 +387,19 @@ fun QrScanner(
                                     val index = multipartTextMatch.groupValues[1].toIntOrNull()
                                     val total = multipartTextMatch.groupValues[2].toIntOrNull()
                                     val data = multipartTextMatch.groupValues[3]
-                                    if (index != null && total != null && index in 1..total) {
+                                    if (index != null && total != null && total in 1..maxAnimatedFrames &&
+                                        index in 1..total && data.length <= maxDecodedChars
+                                    ) {
                                         if (multipartTextTotalFrames != total) {
                                             multipartTextFrames.clear()
                                             multipartTextTotalFrames = total
+                                        }
+                                        val priorLength = multipartTextFrames[index]?.length ?: 0
+                                        val accumulatedLength = multipartTextFrames.values.sumOf { it.length } - priorLength + data.length
+                                        if (accumulatedLength > maxDecodedChars) {
+                                            multipartTextFrames.clear()
+                                            multipartTextTotalFrames = 0
+                                            throw IllegalArgumentException("Animated QR exceeds import safety limit")
                                         }
                                         multipartTextFrames[index] = data
                                         progress = multipartTextFrames.size.toFloat() / total.toFloat()

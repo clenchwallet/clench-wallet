@@ -15,6 +15,7 @@ import java.io.PrintWriter
 import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.*
+import net.clench.wallet.security.CrashReportSanitizer
 
 @HiltAndroidApp
 class ClenchApplication : Application() {
@@ -134,77 +135,7 @@ class ClenchApplication : Application() {
      * - BIP39 mnemonic word sequences
      */
     internal fun sanitizeCrashReport(report: String): String {
-        var sanitized = report
-
-        // Redact xprv extended private keys (base58, ~111 chars)
-        sanitized = sanitized.replace(
-            Regex("xprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_XPRV]"
-        )
-
-        // Redact xpub extended public keys (base58, ~111 chars)
-        sanitized = sanitized.replace(
-            Regex("xpub[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_XPUB]"
-        )
-
-        // R7-23: Redact testnet equivalents (tprv/tpub)
-        sanitized = sanitized.replace(
-            Regex("tprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_TPRV]"
-        )
-        sanitized = sanitized.replace(
-            Regex("tpub[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_TPUB]"
-        )
-
-        // Redact zpub/vpub/ypub extended keys
-        sanitized = sanitized.replace(
-            Regex("[zvyZVY]pub[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_EXTKEY]"
-        )
-
-        // R7-11: Redact testnet private keys (zprv, yprv, vprv, uprv)
-        sanitized = sanitized.replace(
-            Regex("zprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_ZPRV]"
-        )
-        sanitized = sanitized.replace(
-            Regex("Zprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_ZPRV]"
-        )
-        sanitized = sanitized.replace(
-            Regex("yprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_YPRV]"
-        )
-        sanitized = sanitized.replace(
-            Regex("Yprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_YPRV]"
-        )
-        sanitized = sanitized.replace(
-            Regex("vprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_VPRV]"
-        )
-        sanitized = sanitized.replace(
-            Regex("Vprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_VPRV]"
-        )
-        sanitized = sanitized.replace(
-            Regex("uprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_UPRV]"
-        )
-        sanitized = sanitized.replace(
-            Regex("Uprv[1-9A-HJ-NP-Za-km-z]{100,}"),
-            "[REDACTED_UPRV]"
-        )
-
-        // Redact likely BIP39 mnemonic sequences (12-24 lowercase words, 3-8 chars each)
-        sanitized = sanitized.replace(
-            Regex("""(?<!\S)(?:[a-z]{3,8}\s){11,23}[a-z]{3,8}(?!\S)"""),
-            "[REDACTED_MNEMONIC]"
-        )
-
-        return sanitized
+        return CrashReportSanitizer.sanitize(report)
     }
 
     private fun installCrashHandler() {

@@ -549,8 +549,17 @@ class SettingsViewModel @Inject constructor(
             _uiState.update { it.copy(isBackupBusy = true, backupStatus = null) }
             try {
                 val json = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                        ?: throw IllegalStateException("Could not read backup file")
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
+                        val buffer = CharArray(ClenchStateBackupManager.MAX_BACKUP_CHARS + 1)
+                        var total = 0
+                        while (total < buffer.size) {
+                            val read = reader.read(buffer, total, buffer.size - total)
+                            if (read < 0) break
+                            total += read
+                        }
+                        require(total <= ClenchStateBackupManager.MAX_BACKUP_CHARS) { "Backup file is too large." }
+                        String(buffer, 0, total)
+                    } ?: throw IllegalStateException("Could not read backup file")
                 }
                 val result = withContext(Dispatchers.IO) { backupManager.importStateBackupJson(json) }
                 loadWallets()
