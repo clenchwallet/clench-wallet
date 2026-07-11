@@ -15,12 +15,18 @@ concurrency:
   group: release-${{ github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
+env:
+  EXPECTED_RELEASE_SIGNER_SHA256: d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca
+
 jobs:
-  build-and-sign:
+  build_and_sign:
     runs-on: ubuntu-latest
     environment: release-signing
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
+      version_code: ${{ steps.version.outputs.VERSION_CODE }}
+      source_tag: ${{ steps.version.outputs.TAG }}
+      source_commit: ${{ steps.version.outputs.COMMIT }}
     permissions:
       contents: read
       id-token: write
@@ -38,6 +44,7 @@ jobs:
           RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
           test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
           TAG_OBJECT_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')"
           VERIFIED="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$TAG_OBJECT_SHA" --jq '.verification.verified')"
@@ -94,16 +101,22 @@ jobs:
         run: |
           VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           VERSION_CODE=$(grep 'versionCode' app/build.gradle.kts | awk '{print $3}')
+          COMMIT=$(git rev-parse HEAD)
           test "$RELEASE_TAG" = "v$VERSION"
-          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-          echo "TAG=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          {
+            echo "VERSION=$VERSION"
+            echo "VERSION_CODE=$VERSION_CODE"
+            echo "TAG=$RELEASE_TAG"
+            echo "COMMIT=$COMMIT"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Prepare and verify release artifacts
         run: |
           mkdir -p build/release-artifacts
           cp app/build/outputs/apk/release/app-release.apk \
             build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk
+          cp docs/release/v${{ steps.version.outputs.VERSION }}.md \
+            build/release-artifacts/RELEASE-NOTES.md
           (
             cd build/release-artifacts
             sha256sum clench-${{ steps.version.outputs.VERSION }}-release.apk > SHA256SUMS
@@ -146,8 +159,63 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  verify_release:
+    needs: build_and_sign
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - name: Check out the verified release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.build_and_sign.outputs.source_tag }}
+          fetch-depth: 1
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Download signed release bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-release-${{ needs.build_and_sign.outputs.version }}
+          path: release-artifacts
+
+      - name: Verify checksums, package, version, and signer continuity
+        env:
+          VERSION: ${{ needs.build_and_sign.outputs.version }}
+          VERSION_CODE: ${{ needs.build_and_sign.outputs.version_code }}
+          RELEASE_TAG: ${{ needs.build_and_sign.outputs.source_tag }}
+          SOURCE_COMMIT: ${{ needs.build_and_sign.outputs.source_commit }}
+        run: scripts/release/verify-release-bundle.sh release-artifacts
+
+      - name: Verify build-provenance attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build_and_sign.outputs.version }}
+          RELEASE_TAG: ${{ needs.build_and_sign.outputs.source_tag }}
+          SOURCE_COMMIT: ${{ needs.build_and_sign.outputs.source_commit }}
+        run: |
+          gh attestation verify "release-artifacts/clench-$VERSION-release.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-digest "$SOURCE_COMMIT" \
+            --source-ref "refs/tags/$RELEASE_TAG" \
+            --deny-self-hosted-runners
+
+      - name: Upload independently verified release bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-release-${{ needs.build_and_sign.outputs.version }}
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
-    needs: build-and-sign
+    needs: [build_and_sign, verify_release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -155,7 +223,7 @@ jobs:
       - name: Download verified release bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: signed-release-${{ needs.build-and-sign.outputs.version }}
+          name: verified-release-${{ needs.build_and_sign.outputs.version }}
           path: release-artifacts
 
       - name: Publish GitHub release without signing credentials
@@ -164,8 +232,12 @@ jobs:
           RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           VERSION="${RELEASE_TAG#v}"
-          gh release create "$RELEASE_TAG" release-artifacts/* \
+          gh release create "$RELEASE_TAG" \
+            "release-artifacts/clench-$VERSION-release.apk" \
+            release-artifacts/SHA256SUMS \
+            release-artifacts/SHA256SUMS.txt \
+            release-artifacts/RELEASE-MANIFEST.txt \
             --verify-tag \
             --latest \
             --title "Clench Wallet $VERSION" \
-            --notes "Signed release build for Clench Wallet $VERSION. Verify SHA256SUMS, the APK signer certificate, and the GitHub build-provenance attestation before installing."
+            --notes-file release-artifacts/RELEASE-NOTES.md

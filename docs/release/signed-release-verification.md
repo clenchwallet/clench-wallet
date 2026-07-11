@@ -11,7 +11,7 @@ git checkout vX.Y.Z
 git rev-parse HEAD
 ```
 
-If tag signing is not available for a release, compare the commit hash against the release notes and an out-of-band announcement from the maintainer.
+The release tag must be annotated, cryptographically signed, and shown as verified by GitHub. Do not install a release built from a lightweight or unsigned tag.
 
 ## 2. Verify Artifact Checksums
 
@@ -20,6 +20,7 @@ Download these files from the GitHub Release:
 - `clench-X.Y.Z-release.apk`
 - `SHA256SUMS`
 - `SHA256SUMS.txt`
+- `RELEASE-MANIFEST.txt`
 
 Then run:
 
@@ -39,12 +40,11 @@ apksigner verify --verbose --print-certs clench-X.Y.Z-release.apk
 
 Expected:
 
-- `Verified using v1 scheme`: may be present.
 - `Verified using v2 scheme`: true.
-- `Verified using v3 scheme`: true where supported by the build tools.
-- The signer certificate SHA-256 digest matches the digest published for the trusted Clench release key.
+- `Number of signers`: 1.
+- Signer certificate SHA-256: `d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca`.
 
-The first trusted signer digest must be learned out of band. After that, every upgrade must keep the same signer unless a key-rotation notice is published and independently verified.
+This digest is the established v0.3.19 signer baseline. Every upgrade must keep the same signer unless a key-rotation notice is published and independently verified.
 
 ## 4. Verify Package And Version
 
@@ -58,7 +58,33 @@ Expected:
 - Version name: `X.Y.Z`
 - Version code: matches `app/build.gradle.kts`
 
-## 5. Rebuild From Source
+## 5. Verify Build Provenance
+
+With GitHub CLI authenticated, verify that the APK was attested by the release workflow at the expected signed tag and commit:
+
+```bash
+gh attestation verify clench-X.Y.Z-release.apk \
+  --repo clenchwallet/clench-wallet \
+  --signer-workflow clenchwallet/clench-wallet/.github/workflows/release.yml \
+  --source-digest EXPECTED_COMMIT_SHA \
+  --source-ref refs/tags/vX.Y.Z \
+  --deny-self-hosted-runners
+```
+
+## 6. Run The Project Verifier
+
+From the signed source checkout, place the four release assets plus `RELEASE-NOTES.md` in `release-artifacts/`, then run:
+
+```bash
+VERSION=X.Y.Z \
+VERSION_CODE=EXPECTED_CODE \
+RELEASE_TAG=vX.Y.Z \
+SOURCE_COMMIT=EXPECTED_COMMIT_SHA \
+EXPECTED_RELEASE_SIGNER_SHA256=d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca \
+scripts/release/verify-release-bundle.sh release-artifacts
+```
+
+## 7. Rebuild From Source
 
 Follow [reproducible-builds.md](reproducible-builds.md), then compare:
 
