@@ -20,6 +20,7 @@ Release documentation:
 
 - [Reproducible builds](reproducible-builds.md)
 - [Signed-release verification](signed-release-verification.md)
+- [Release tag signing](tag-signing.md)
 
 Security review documentation:
 
