@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import net.clench.wallet.domain.model.TransactionItem
 import net.clench.wallet.domain.model.TxDirection
 import net.clench.wallet.domain.repository.BuiltTransactionReview
+import net.clench.wallet.ui.components.TransactionReviewCard
 import java.text.NumberFormat
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -52,6 +53,7 @@ fun TransactionDetailScreen(
     onAcknowledgeReplacementHighFee: () -> Unit = {},
     onBroadcastReplacement: () -> Unit = {},
     onDiscardReplacement: () -> Unit = {},
+    onConnect: () -> Unit = {},
     priorityFeeRate: Float? = null,
     onSaveLabel: ((txid: String, label: String) -> Unit)? = null
 ) {
@@ -69,38 +71,14 @@ fun TransactionDetailScreen(
             onDismissRequest = onDiscardReplacement,
             title = { Text("Review $replacementActionLabel") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    replacementReview.outputs.forEach { output ->
-                        Column {
-                            Text(
-                                if (output.belongsToWallet) "Wallet output" else "External output",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                "${NumberFormat.getNumberInstance(Locale.US).format(output.amountSat)} sats",
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(output.address ?: "Script output ${output.index}", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    HorizontalDivider()
-                    Text(
-                        "Network fee: ${NumberFormat.getNumberInstance(Locale.US).format(replacementReview.feeSat)} sats " +
-                            "(${String.format("%.2f", replacementReview.feeRateSatPerVbyte)} sat/vB)"
-                    )
-                    Text("Transaction ID: ${replacementReview.txid}", style = MaterialTheme.typography.bodySmall)
-                    if (replacementRequiresHighFeeConfirmation && !replacementHighFeeAcknowledged) {
-                        Text(
-                            "This replacement has an unusually high fee. Verify every output before continuing.",
-                            color = MaterialTheme.colorScheme.error,
-                            fontWeight = FontWeight.Bold
-                        )
-                        TextButton(onClick = onAcknowledgeReplacementHighFee) {
-                            Text("I verified the fee")
-                        }
-                    }
-                }
+                TransactionReviewCard(
+                    review = replacementReview,
+                    title = "$replacementActionLabel transaction",
+                    requiresHighFeeConfirmation = replacementRequiresHighFeeConfirmation,
+                    highFeeAcknowledged = replacementHighFeeAcknowledged,
+                    onAcknowledgeHighFee = onAcknowledgeReplacementHighFee,
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                )
             },
             confirmButton = {
                 Button(
@@ -457,13 +435,14 @@ fun TransactionDetailScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = {
-                            bumpFeeRate = priorityFeeRate?.toInt()?.coerceAtLeast(2)?.toString() ?: "10"
-                            showBumpFeeDialog = true
+                            if (isOfflineMode) onConnect() else {
+                                bumpFeeRate = priorityFeeRate?.toInt()?.coerceAtLeast(2)?.toString() ?: "10"
+                                showBumpFeeDialog = true
+                            }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isOfflineMode
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Bump Fee (RBF)")
+                        Text(if (isOfflineMode) "Connect to Bump Fee" else "Bump Fee (RBF)")
                     }
                 }
 
@@ -472,13 +451,14 @@ fun TransactionDetailScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = {
-                            cancelFeeRate = priorityFeeRate?.toInt()?.coerceAtLeast(2)?.toString() ?: "10"
-                            showCancelDialog = true
+                            if (isOfflineMode) onConnect() else {
+                                cancelFeeRate = priorityFeeRate?.toInt()?.coerceAtLeast(2)?.toString() ?: "10"
+                                showCancelDialog = true
+                            }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isOfflineMode
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Cancel Transaction (RBF)")
+                        Text(if (isOfflineMode) "Connect to Cancel Transaction" else "Cancel Transaction (RBF)")
                     }
                 }
 
@@ -487,12 +467,14 @@ fun TransactionDetailScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     val isCpfp = transaction.confirmations == 0
                     OutlinedButton(
-                        onClick = { onSpendUtxo(spendableOutpoints, isCpfp) },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isOfflineMode
+                        onClick = {
+                            if (isOfflineMode) onConnect() else onSpendUtxo(spendableOutpoints, isCpfp)
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             when {
+                                isOfflineMode -> "Connect to Spend This Output"
                                 isCpfp && isWatchOnly -> "Create CPFP PSBT"
                                 isCpfp -> "Create CPFP Child Transaction"
                                 isWatchOnly -> "Spend Exact UTXO (PSBT)"

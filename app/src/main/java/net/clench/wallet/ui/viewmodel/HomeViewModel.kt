@@ -25,6 +25,7 @@ import net.clench.wallet.data.repository.WalletStateRecoveryRequiredException
 import net.clench.wallet.data.util.Bip329
 import net.clench.wallet.domain.model.TransactionItem
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.domain.repository.WalletStateRecoveryPolicy
 import net.clench.wallet.security.InputLimits
 import net.clench.wallet.security.readTextBounded
 import org.json.JSONObject
@@ -68,7 +69,13 @@ class HomeViewModel @Inject constructor(
         val isOfflineMode: Boolean = false,
         val isTorEnabled: Boolean = false,
         val walletStateRecoveryRequired: Boolean = false,
-        val isRecoveringWalletState: Boolean = false
+        val isRecoveringWalletState: Boolean = false,
+        val recoveryStopGap: Int = 100,
+        val recoveryStatus: String? = null,
+        val recoveryQuarantineId: String? = null,
+        val recoveryPreservedFileCount: Int = 0,
+        val recoveryVerificationConfirmed: Boolean = false,
+        val isDeletingRecoveryQuarantine: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -171,17 +178,36 @@ class HomeViewModel @Inject constructor(
 
     fun reload(walletId: String) = load(walletId)
 
+    fun setRecoveryStopGap(stopGap: Int) {
+        _uiState.update { it.copy(recoveryStopGap = WalletStateRecoveryPolicy.normalizeStopGap(stopGap)) }
+    }
+
     fun recoverWalletState() {
         val walletId = currentWalletId ?: return
+        val stopGap = _uiState.value.recoveryStopGap.toUInt()
         viewModelScope.launch {
-            _uiState.update { it.copy(isRecoveringWalletState = true, error = null) }
+            _uiState.update {
+                it.copy(
+                    isRecoveringWalletState = true,
+                    error = null,
+                    recoveryStatus = "Preserving the original wallet state before scanning…",
+                    recoveryQuarantineId = null,
+                    recoveryPreservedFileCount = 0,
+                    recoveryVerificationConfirmed = false
+                )
+            }
             try {
-                bitcoinRepository.recoverWalletState(walletId, stopGap = 100u)
+                _uiState.update { it.copy(recoveryStatus = "Scanning receive and change chains with a $stopGap-address gap…") }
+                val result = bitcoinRepository.recoverWalletState(walletId, stopGap = stopGap)
                 _uiState.update {
                     it.copy(
                         isRecoveringWalletState = false,
                         walletStateRecoveryRequired = false,
-                        error = null
+                        error = null,
+                        recoveryStatus = "Recovery scan completed with ${NumberFormat.getNumberInstance(Locale.US).format(result.balance.totalSat)} total sats. Verify the first receive address, balance, and history before deleting the preserved state.",
+                        recoveryQuarantineId = result.quarantineId,
+                        recoveryPreservedFileCount = result.preservedFileCount,
+                        recoveryVerificationConfirmed = false
                     )
                 }
                 load(walletId)
@@ -190,7 +216,40 @@ class HomeViewModel @Inject constructor(
                     it.copy(
                         isRecoveringWalletState = false,
                         walletStateRecoveryRequired = true,
-                        error = e.message ?: "Wallet-state recovery failed"
+                        error = e.message ?: "Wallet-state recovery failed",
+                        recoveryStatus = "Recovery failed. Clench restored the original wallet state; preserved files were not deleted."
+                    )
+                }
+            }
+        }
+    }
+
+    fun confirmRecoveryVerification(confirmed: Boolean) {
+        _uiState.update { it.copy(recoveryVerificationConfirmed = confirmed) }
+    }
+
+    fun deleteVerifiedRecoveryQuarantine() {
+        val walletId = currentWalletId ?: return
+        val quarantineId = _uiState.value.recoveryQuarantineId ?: return
+        if (!_uiState.value.recoveryVerificationConfirmed) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isDeletingRecoveryQuarantine = true, error = null) }
+            try {
+                val deleted = bitcoinRepository.deleteWalletStateQuarantine(walletId, quarantineId)
+                _uiState.update {
+                    it.copy(
+                        isDeletingRecoveryQuarantine = false,
+                        recoveryStatus = "Deleted $deleted preserved recovery file${if (deleted == 1) "" else "s"} after verification.",
+                        recoveryQuarantineId = null,
+                        recoveryPreservedFileCount = 0,
+                        recoveryVerificationConfirmed = false
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isDeletingRecoveryQuarantine = false,
+                        error = e.message ?: "Could not delete preserved recovery state"
                     )
                 }
             }

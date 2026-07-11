@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Settings
@@ -25,6 +27,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import net.clench.wallet.domain.model.TxDirection
 import net.clench.wallet.ui.viewmodel.BalanceUnit
 import net.clench.wallet.ui.viewmodel.HomeViewModel
+import net.clench.wallet.domain.repository.WalletStateRecoveryPolicy
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -43,18 +46,55 @@ fun HomeScreen(
     onSignerVault: () -> Unit = {},
     onRawTransaction: () -> Unit = {},
     onRecoveryWizard: () -> Unit = {},
+    onConnect: () -> Unit = {},
     onTransactionDetail: (txid: String) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showMenu by remember { mutableStateOf(false) }
     var showAdvancedTools by remember { mutableStateOf(false) }
+    var showRecoveryDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
+    LaunchedEffect(uiState.walletStateRecoveryRequired) {
+        if (uiState.walletStateRecoveryRequired) showRecoveryDialog = true
+    }
     LifecycleResumeEffect(walletId) {
         viewModel.refreshUsdPriceIfVisible()
         onPauseOrDispose { }
+    }
+
+    if (showRecoveryDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!uiState.isRecoveringWalletState) showRecoveryDialog = false },
+            title = { Text("Wallet-State Recovery") },
+            text = {
+                WalletStateRecoveryCard(
+                    recoveryRequired = uiState.walletStateRecoveryRequired,
+                    isRecovering = uiState.isRecoveringWalletState,
+                    stopGap = uiState.recoveryStopGap,
+                    status = uiState.recoveryStatus,
+                    quarantineFileCount = uiState.recoveryPreservedFileCount,
+                    hasQuarantine = uiState.recoveryQuarantineId != null,
+                    verificationConfirmed = uiState.recoveryVerificationConfirmed,
+                    isDeleting = uiState.isDeletingRecoveryQuarantine,
+                    isOfflineMode = uiState.isOfflineMode,
+                    onStopGapChange = viewModel::setRecoveryStopGap,
+                    onRecover = viewModel::recoverWalletState,
+                    onConnect = onConnect,
+                    onVerificationChange = viewModel::confirmRecoveryVerification,
+                    onDeleteQuarantine = viewModel::deleteVerifiedRecoveryQuarantine,
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showRecoveryDialog = false },
+                    enabled = !uiState.isRecoveringWalletState && !uiState.isDeletingRecoveryQuarantine
+                ) { Text("Done") }
+            }
+        )
     }
 
     if (showAdvancedTools) {
@@ -199,19 +239,20 @@ fun HomeScreen(
 
             // Offline mode banner
             if (uiState.isOfflineMode) {
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color(0xFFFFC107))
-                        .padding(8.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "📡 Offline — balance may be outdated",
+                        "📡 Offline — balance may be outdated and network actions are unavailable.",
                         color = Color.Black,
                         fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Center
+                        modifier = Modifier.weight(1f)
                     )
+                    Button(onClick = onConnect) { Text("Connect") }
                 }
             }
 
@@ -333,25 +374,29 @@ fun HomeScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
-                        if (uiState.walletStateRecoveryRequired) {
-                            Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (uiState.walletStateRecoveryRequired || uiState.recoveryStatus != null || uiState.recoveryQuarantineId != null) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Wallet recovery requires attention", fontWeight = FontWeight.Bold)
                             Text(
-                                "Recovery preserves the unreadable database in internal quarantine, rebuilds state from the saved public descriptors, and scans with a 100-address gap. Previously revealed but unused addresses cannot be rediscovered from the blockchain.",
+                                uiState.recoveryStatus ?: "The original state is preserved; choose a recovery scan depth.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer
+                                maxLines = 2
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = viewModel::recoverWalletState,
-                                enabled = !uiState.isRecoveringWalletState
-                            ) {
-                                if (uiState.isRecoveringWalletState) {
-                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Recovering…")
-                                } else Text("Run extended recovery scan")
-                            }
                         }
+                        TextButton(onClick = { showRecoveryDialog = true }) { Text("Open") }
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -366,15 +411,14 @@ fun HomeScreen(
             ) {
                 if (!uiState.isWatchOnly) {
                     Button(
-                        onClick = onSend,
-                        modifier = Modifier.weight(1f),
-                        enabled = !uiState.isOfflineMode
-                    ) { Text(if (uiState.isOfflineMode) "Offline" else "Send") }
+                        onClick = { if (uiState.isOfflineMode) onConnect() else onSend() },
+                        modifier = Modifier.weight(1f)
+                    ) { Text(if (uiState.isOfflineMode) "Connect to Send" else "Send") }
                 } else {
                     Button(
-                        onClick = onSend,
+                        onClick = { if (uiState.isOfflineMode) onConnect() else onSend() },
                         modifier = Modifier.weight(1f)
-                    ) { Text("Send") }
+                    ) { Text(if (uiState.isOfflineMode) "Connect to Create PSBT" else "Send") }
                 }
 
                 Button(
@@ -471,5 +515,97 @@ fun HomeScreen(
             }
         }
         } // end PullToRefreshBox
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WalletStateRecoveryCard(
+    recoveryRequired: Boolean,
+    isRecovering: Boolean,
+    stopGap: Int,
+    status: String?,
+    quarantineFileCount: Int,
+    hasQuarantine: Boolean,
+    verificationConfirmed: Boolean,
+    isDeleting: Boolean,
+    isOfflineMode: Boolean,
+    onStopGapChange: (Int) -> Unit,
+    onRecover: () -> Unit,
+    onConnect: () -> Unit,
+    onVerificationChange: (Boolean) -> Unit,
+    onDeleteQuarantine: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("Guided Wallet-State Recovery", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Clench preserves the unreadable database in app-private quarantine before rebuilding from the saved public descriptors. Previously revealed but unused addresses cannot be rediscovered from the blockchain.",
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            if (recoveryRequired && !isRecovering) {
+                Text("Choose scan depth", fontWeight = FontWeight.SemiBold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    WalletStateRecoveryPolicy.recommendedStopGaps.forEach { gap ->
+                        FilterChip(
+                            selected = stopGap == gap,
+                            onClick = { onStopGapChange(gap) },
+                            label = { Text("$gap") }
+                        )
+                    }
+                }
+                Text(
+                    "Larger gaps discover farther-used addresses but take longer and disclose more derived addresses to the configured Electrum server.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Button(
+                    onClick = { if (isOfflineMode) onConnect() else onRecover() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isOfflineMode) "Connect before recovery" else "Preserve state and scan with gap $stopGap")
+                }
+            }
+
+            if (isRecovering) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(status ?: "Recovering wallet state…", style = MaterialTheme.typography.bodySmall)
+                }
+            } else if (status != null) {
+                Text(status, style = MaterialTheme.typography.bodySmall)
+            }
+
+            if (hasQuarantine) {
+                Text(
+                    "$quarantineFileCount pre-recovery file${if (quarantineFileCount == 1) " is" else "s are"} still preserved.",
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(verticalAlignment = Alignment.Top) {
+                    Checkbox(checked = verificationConfirmed, onCheckedChange = onVerificationChange)
+                    Text(
+                        "I verified the network, first receive address, balance, and transaction history against my backup or previous wallet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
+                OutlinedButton(
+                    onClick = onDeleteQuarantine,
+                    enabled = verificationConfirmed && !isDeleting,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (isDeleting) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    else Text("Delete verified preserved state")
+                }
+            }
+        }
     }
 }

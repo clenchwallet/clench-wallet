@@ -30,6 +30,8 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
+import net.clench.wallet.ui.components.TransactionReviewCard
+import net.clench.wallet.ui.components.FeeSafetySummary
 import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.viewmodel.AmountUnit
 import net.clench.wallet.ui.viewmodel.FeeTier
@@ -647,6 +649,12 @@ fun SendScreen(
                 )
             }
 
+            FeeSafetySummary(
+                feeRateText = uiState.feeRate,
+                priorityEstimate = estimates?.priority?.toDouble(),
+                modifier = Modifier.padding(top = 8.dp)
+            )
+
             uiState.feeEstimateError?.let { error ->
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -736,58 +744,14 @@ fun SendScreen(
                 ) { Text("Done") }
             } else if (uiState.txHex != null) {
                 val review = uiState.transactionReview
-                Text("Review the signed transaction", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(8.dp))
                 if (review != null) {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            review.outputs.forEach { output ->
-                                Column {
-                                    Text(
-                                        if (output.belongsToWallet) "Change / wallet output" else "Recipient",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        "${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(output.amountSat)} sats",
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        output.address ?: "Script: output ${output.index}",
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                            }
-                            HorizontalDivider()
-                            Text(
-                                "Network fee: ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(review.feeSat)} sats " +
-                                    "(${String.format("%.2f", review.feeRateSatPerVbyte)} sat/vB, ${review.vsize} vB)"
-                            )
-                            Text(
-                                "Transaction ID: ${review.txid}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-                if (uiState.requiresHighFeeConfirmation && !uiState.highFeeAcknowledged) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text("Unusually high fee", fontWeight = FontWeight.Bold)
-                            Text("The exact network fee exceeds 5% of the external amount. Verify every output and the fee before continuing.")
-                            TextButton(onClick = viewModel::acknowledgeHighFee) {
-                                Text("I verified the fee")
-                            }
-                        }
-                    }
+                    TransactionReviewCard(
+                        review = review,
+                        title = "Review signed transaction",
+                        requiresHighFeeConfirmation = uiState.requiresHighFeeConfirmation,
+                        highFeeAcknowledged = uiState.highFeeAcknowledged,
+                        onAcknowledgeHighFee = viewModel::acknowledgeHighFee
+                    )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(

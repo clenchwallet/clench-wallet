@@ -31,6 +31,9 @@ import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.TapsignerNfcReader
+import net.clench.wallet.ui.components.TransactionReviewCard
+import net.clench.wallet.ui.components.SignerProgressPresentation
+import net.clench.wallet.ui.components.SignerProgressStepper
 import net.clench.wallet.ui.components.encodePsbtForDevice
 import net.clench.wallet.ui.components.psbtQrFrameDelayMs
 import net.clench.wallet.ui.viewmodel.HardwareWalletPsbtViewModel
@@ -420,6 +423,22 @@ fun HardwareWalletPsbtScreen(
                 return@Column
             }
 
+            SignerProgressStepper(
+                signerName = deviceType.displayName,
+                connectionLabel = deviceType.connectionMethod,
+                signatureStatus = SignerProgressPresentation.signatureStatus(
+                    uiState.collectedSignerReturns,
+                    uiState.readyToBroadcast
+                ),
+                steps = SignerProgressPresentation.steps(
+                    reviewAcknowledged = uiState.reviewAcknowledged,
+                    hasCollectedSignature = uiState.hasCollectedSignature,
+                    readyToBroadcast = uiState.readyToBroadcast,
+                    transferDetail = SignerProgressPresentation.transferDetail(deviceType)
+                )
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
             if (!uiState.reviewAcknowledged) {
                 if (uiState.isReviewLoading) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -429,47 +448,13 @@ fun HardwareWalletPsbtScreen(
                     }
                 }
                 uiState.transactionReview?.let { review ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text("Review before sharing with signer", fontWeight = FontWeight.Bold)
-                            review.outputs.forEach { output ->
-                                Column {
-                                    Text(
-                                        if (output.belongsToWallet) "Change / wallet output" else "Recipient",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        "${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(output.amountSat)} sats",
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(output.address ?: "Script output ${output.index}", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                            HorizontalDivider()
-                            Text(
-                                "Network fee: ${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(review.feeSat)} sats " +
-                                    "(${String.format("%.2f", review.feeRateSatPerVbyte)} sat/vB, ${review.vsize} vB)"
-                            )
-                            Text("Transaction ID: ${review.txid}", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    if (uiState.requiresHighFeeConfirmation && !uiState.highFeeAcknowledged) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text("Unusually high fee", fontWeight = FontWeight.Bold)
-                                Text("The exact network fee exceeds 5% of the reviewed amount.")
-                                TextButton(onClick = viewModel::acknowledgeHighFee) { Text("I verified the fee") }
-                            }
-                        }
-                    }
+                    TransactionReviewCard(
+                        review = review,
+                        title = "Review before sharing with signer",
+                        requiresHighFeeConfirmation = uiState.requiresHighFeeConfirmation,
+                        highFeeAcknowledged = uiState.highFeeAcknowledged,
+                        onAcknowledgeHighFee = viewModel::acknowledgeHighFee
+                    )
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
                         onClick = viewModel::acknowledgeReview,

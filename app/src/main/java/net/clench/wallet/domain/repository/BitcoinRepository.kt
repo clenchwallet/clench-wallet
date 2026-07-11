@@ -47,6 +47,22 @@ data class PsbtSigningProgress(
     val message: String
 )
 
+data class WalletStateRecoveryResult(
+    val balance: WalletBalance,
+    val quarantineId: String,
+    val preservedFileCount: Int,
+    val stopGap: UInt
+)
+
+object WalletStateRecoveryPolicy {
+    const val MIN_STOP_GAP = 20
+    const val MAX_STOP_GAP = 1_000
+    val recommendedStopGaps = listOf(20, 100, 250, 500, 1_000)
+
+    fun normalizeStopGap(value: Int): Int = value.coerceIn(MIN_STOP_GAP, MAX_STOP_GAP)
+    fun isValidStopGap(value: UInt): Boolean = value in MIN_STOP_GAP.toUInt()..MAX_STOP_GAP.toUInt()
+}
+
 /**
  * Core Bitcoin wallet operations.
  * Implemented by BdkBitcoinRepository (BDK-backed).
@@ -114,7 +130,10 @@ interface BitcoinRepository {
      * Explicit recovery for an unreadable BDK wallet-state database. Implementations must
      * preserve/quarantine the original files and restore them if the recovery scan fails.
      */
-    suspend fun recoverWalletState(walletId: String, stopGap: UInt = 100u): WalletBalance
+    suspend fun recoverWalletState(walletId: String, stopGap: UInt = 100u): WalletStateRecoveryResult
+
+    /** Permanently remove a successful recovery's preserved pre-recovery state after user verification. */
+    suspend fun deleteWalletStateQuarantine(walletId: String, quarantineId: String): Int
 
     /**
      * Get the current balance without syncing.
