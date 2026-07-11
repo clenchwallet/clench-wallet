@@ -9,7 +9,7 @@ Use the versions pinned in the repository:
 - JDK: 21
 - Android Gradle Plugin: from `gradle/libs.versions.toml`
 - Gradle wrapper: `gradle/wrapper/gradle-wrapper.properties`
-- Dependencies: `app/gradle.lockfile`, `settings-gradle.lockfile`, and `gradle/verification-metadata.xml`
+- Dependencies: `app/gradle.lockfile` and `gradle/verification-metadata.xml`
 - Android SDK: compile SDK 36
 
 The release process should use a clean checkout of a signed or otherwise trusted release tag.
@@ -24,7 +24,6 @@ Required files:
 - `gradle/libs.versions.toml`
 - `gradle/verification-metadata.xml`
 - `app/gradle.lockfile`
-- `settings-gradle.lockfile`
 - `app/build.gradle.kts`
 - `keystore.properties`
 - Release keystore referenced by `keystore.properties`
