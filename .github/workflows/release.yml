@@ -233,6 +233,7 @@ jobs:
         run: |
           VERSION="${RELEASE_TAG#v}"
           gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
             "release-artifacts/clench-$VERSION-release.apk" \
             release-artifacts/SHA256SUMS \
             release-artifacts/SHA256SUMS.txt \
