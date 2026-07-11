@@ -1677,46 +1677,64 @@ class BdkBitcoinRepository @Inject constructor(
         val originalTx = txDetails.tx
 
         try {
-        require(txDetails.chainPosition is ChainPosition.Unconfirmed) {
-            "Only unconfirmed transactions can be replaced."
-        }
-        require(originalTx.isExplicitlyRbf()) {
-            "This transaction does not signal RBF, so Clench cannot attempt a replacement cancel."
-        }
-        val sentAndReceived = wallet.sentAndReceived(originalTx)
-        val sent = sentAndReceived.sent.toSat()
-        val received = sentAndReceived.received.toSat()
-        require(sent > received) {
-            "Only outgoing transactions can be canceled with a replacement."
-        }
+            val unconfirmedPosition = txDetails.chainPosition as? ChainPosition.Unconfirmed
+            require(unconfirmedPosition != null) {
+                "Only unconfirmed transactions can be replaced."
+            }
+            require(originalTx.isExplicitlyRbf()) {
+                "This transaction does not signal RBF, so Clench cannot attempt a replacement cancel."
+            }
+            val sentAndReceived = wallet.sentAndReceived(originalTx)
+            val sent = sentAndReceived.sent.toSat()
+            val received = sentAndReceived.received.toSat()
+            require(sent > received) {
+                "Only outgoing transactions can be canceled with a replacement."
+            }
 
-        val feeRate = validatedFeeRate(newFeeRate)
-        val inputs = originalTx.input().map { it.previousOutput }
-        require(inputs.isNotEmpty()) { "Original transaction has no spendable inputs to replace." }
+            val feeRate = validatedFeeRate(newFeeRate)
+            val inputs = originalTx.input().map { it.previousOutput }
+            require(inputs.isNotEmpty()) { "Original transaction has no spendable inputs to replace." }
 
-        // Mark the local unconfirmed transaction as canceled so BDK will allow
-        // its inputs to be selected for the replacement transaction.
-        wallet.cancelTx(originalTx)
-
-        val selfAddress = wallet.nextUnusedAddress(KeychainKind.EXTERNAL)
-        var builder = TxBuilder()
-            .drainTo(selfAddress.address.scriptPubkey())
-            .feeRate(feeRate)
-
-        inputs.forEach { outpoint ->
-            builder = builder.addUtxo(outpoint)
-        }
-        builder = builder.manuallySelectedOnly()
-
-        val psbt = builder.finish(wallet)
-        try {
-            wallet.sign(psbt)
-            wallet.persist(entry.persister)
-            serializeFinalTransaction(psbt)
-        } catch (e: Exception) {
-            runCatching { psbt.close() }
-            throw e
-        }
+            // Temporarily evict the original from BDK's local graph. This makes its
+            // wallet-owned inputs selectable through addUtxo(), which preserves the
+            // descriptor/key-origin metadata BDK needs to produce a valid signature.
+            // Always restore the original after signing; the network, not a local build,
+            // decides which conflicting transaction wins.
+            val txidValue = org.bitcoindevkit.Txid.fromString(txid)
+            val nowEpochSeconds = (System.currentTimeMillis() / 1_000L).toULong()
+            val originalLastSeen = unconfirmedPosition.timestamp ?: nowEpochSeconds
+            val evictedAt = ReplacementTransactionPolicy.evictionTimestamp(
+                unconfirmedPosition.timestamp,
+                nowEpochSeconds
+            )
+            val psbt = ReplacementTransactionPolicy.withTemporaryEviction(
+                evict = {
+                    wallet.applyEvictedTxs(listOf(org.bitcoindevkit.EvictedTx(txidValue, evictedAt)))
+                },
+                restore = {
+                    wallet.applyUnconfirmedTxs(
+                        listOf(org.bitcoindevkit.UnconfirmedTx(originalTx, originalLastSeen))
+                    )
+                },
+                build = {
+                    val selfAddress = wallet.nextUnusedAddress(KeychainKind.EXTERNAL)
+                    var builder = TxBuilder()
+                        .drainTo(selfAddress.address.scriptPubkey())
+                        .feeRate(feeRate)
+                    inputs.forEach { outpoint ->
+                        builder = builder.addUtxo(outpoint)
+                    }
+                    builder.manuallySelectedOnly().finish(wallet)
+                }
+            )
+            try {
+                wallet.sign(psbt)
+                wallet.persist(entry.persister)
+                serializeFinalTransaction(psbt)
+            } catch (e: Exception) {
+                runCatching { psbt.close() }
+                throw e
+            }
         } finally {
             originalTx.close()
         }

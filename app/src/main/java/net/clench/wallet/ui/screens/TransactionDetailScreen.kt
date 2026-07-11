@@ -71,14 +71,23 @@ fun TransactionDetailScreen(
             onDismissRequest = onDiscardReplacement,
             title = { Text("Review $replacementActionLabel") },
             text = {
-                TransactionReviewCard(
-                    review = replacementReview,
-                    title = "$replacementActionLabel transaction",
-                    requiresHighFeeConfirmation = replacementRequiresHighFeeConfirmation,
-                    highFeeAcknowledged = replacementHighFeeAcknowledged,
-                    onAcknowledgeHighFee = onAcknowledgeReplacementHighFee,
-                    modifier = Modifier.verticalScroll(rememberScrollState())
-                )
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    TransactionReviewCard(
+                        review = replacementReview,
+                        title = "$replacementActionLabel transaction",
+                        requiresHighFeeConfirmation = replacementRequiresHighFeeConfirmation,
+                        highFeeAcknowledged = replacementHighFeeAcknowledged,
+                        onAcknowledgeHighFee = onAcknowledgeReplacementHighFee
+                    )
+                    bumpError?.let { err ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    cancelError?.let { err ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             },
             confirmButton = {
                 Button(
@@ -491,6 +500,15 @@ fun TransactionDetailScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+
+                bumpError?.let { err ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                cancelError?.let { err ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
