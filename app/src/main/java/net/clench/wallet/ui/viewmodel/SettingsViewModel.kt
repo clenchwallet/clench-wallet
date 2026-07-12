@@ -425,6 +425,13 @@ class SettingsViewModel @Inject constructor(
     }
 
     // --- Security settings ---
+    fun disableAuthenticationGatesWhenUnavailable(canAuthenticate: Boolean) {
+        if (!canAuthenticate) {
+            setBiometricForSeed(false)
+            setBiometricForSend(false)
+        }
+    }
+
     fun setBiometricForSeed(enabled: Boolean) {
         settingsManager.setBiometricForSeedEnabled(enabled)
         _uiState.update { it.copy(biometricForSeed = enabled) }

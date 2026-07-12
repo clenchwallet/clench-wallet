@@ -146,7 +146,10 @@ fun PhoneSignerPsbtScreen(
                         when {
                             !uiState.biometricForSendEnabled -> viewModel.signWithPhoneKeys(walletId)
                             fragmentActivity == null || !BiometricHelper.canAuthenticate(context) ->
-                                viewModel.setError("Biometric or device-credential authentication is required but unavailable")
+                                viewModel.setError(
+                                    "OS authentication is unavailable. Configure a device PIN or biometric, " +
+                                        "or turn off ‘Require authentication to send’ in Settings → Security."
+                                )
                             else -> {
                                 (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = true
                                 BiometricHelper.authenticate(

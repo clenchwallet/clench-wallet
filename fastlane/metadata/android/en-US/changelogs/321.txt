@@ -1,0 +1,1 @@
+Fixes Clench phone-signer multisig wallet creation and unavailable-authentication signing dead ends. Multisig PSBT reviews now show an estimated final signed size and fee rate. Improves Bitcoin wallet search metadata for F-Droid.

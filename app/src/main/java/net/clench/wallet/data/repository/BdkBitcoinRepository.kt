@@ -75,6 +75,63 @@ internal object WalletStateQuarantinePolicy {
         fileName.startsWith("$quarantineId-")
 }
 
+internal object MultisigAccountKeyPolicy {
+    fun normalizeGeneratedAccountKey(rawKey: String): String = rawKey.trim()
+        .removeSuffix("/0/*")
+        .removeSuffix("/1/*")
+        .removeSuffix("/**")
+        .removeSuffix("/*")
+}
+
+internal data class MultisigPsbtInputSize(
+    val witnessScript: ByteArray,
+    val partialSignatureSizes: List<Int>
+)
+
+internal object MultisigPsbtVsizeEstimator {
+    private const val MAX_ECDSA_SIGNATURE_WITH_SIGHASH_BYTES = 73
+
+    fun estimateFinalVsize(unsignedWeight: Long, inputs: List<MultisigPsbtInputSize>): Long? {
+        val witnessSizes = inputs.map(::estimateSortedMultiWitnessSize)
+        if (witnessSizes.any { it == null }) return null
+
+        val finalWeight = unsignedWeight + 2L + witnessSizes.sumOf { it!! }
+        return (finalWeight + 3L) / 4L
+    }
+
+    private fun estimateSortedMultiWitnessSize(input: MultisigPsbtInputSize): Long? {
+        val requiredSignatures = requiredSignatureCount(input.witnessScript) ?: return null
+        val signatureSizes = input.partialSignatureSizes.take(requiredSignatures) +
+            List((requiredSignatures - input.partialSignatureSizes.size).coerceAtLeast(0)) {
+                MAX_ECDSA_SIGNATURE_WITH_SIGHASH_BYTES
+            }
+        val itemSizes = buildList {
+            add(0) // CHECKMULTISIG's historical dummy stack item.
+            addAll(signatureSizes)
+            add(input.witnessScript.size)
+        }
+        return serializedWitnessSize(itemSizes)
+    }
+
+    private fun requiredSignatureCount(script: ByteArray): Int? {
+        if (script.size < 3 || script.last().toInt() and 0xff != 0xae) return null
+        val opcode = script.first().toInt() and 0xff
+        return if (opcode in 0x51..0x60) opcode - 0x50 else null
+    }
+
+    private fun serializedWitnessSize(itemSizes: List<Int>): Long =
+        compactSizeLength(itemSizes.size.toLong()) + itemSizes.sumOf { itemSize ->
+            compactSizeLength(itemSize.toLong()) + itemSize.toLong()
+        }
+
+    private fun compactSizeLength(value: Long): Long = when {
+        value < 0xfd -> 1L
+        value <= 0xffff -> 3L
+        value <= 0xffff_ffffL -> 5L
+        else -> 9L
+    }
+}
+
 /**
  * BDK-backed implementation of BitcoinRepository.
  *
@@ -1283,7 +1340,27 @@ class BdkBitcoinRepository @Inject constructor(
         try {
             val tx = psbt.extractTx()
             try {
-                inspectTransaction(walletId, tx, psbt.fee().toLong())
+                val psbtInputs = psbt.input()
+                val multisigInputs = psbtInputs.mapNotNull { input ->
+                    val witnessScript = input.witnessScript?.toBytes() ?: return@mapNotNull null
+                    MultisigPsbtInputSize(
+                        witnessScript = witnessScript,
+                        partialSignatureSizes = input.partialSigs.values.map(ByteArray::size)
+                    )
+                }
+                val estimatedFinalVsize = if (
+                    multisigInputs.size == tx.input().size &&
+                    psbtInputs.all { it.finalScriptWitness.isNullOrEmpty() }
+                ) {
+                    MultisigPsbtVsizeEstimator.estimateFinalVsize(tx.weight().toLong(), multisigInputs)
+                } else null
+                inspectTransaction(
+                    walletId = walletId,
+                    tx = tx,
+                    knownFeeSat = psbt.fee().toLong(),
+                    vsizeOverride = estimatedFinalVsize,
+                    vsizeIsEstimate = estimatedFinalVsize != null
+                )
             } finally {
                 tx.close()
             }
@@ -1295,16 +1372,19 @@ class BdkBitcoinRepository @Inject constructor(
     private suspend fun inspectTransaction(
         walletId: String,
         tx: Transaction,
-        knownFeeSat: Long? = null
+        knownFeeSat: Long? = null,
+        vsizeOverride: Long? = null,
+        vsizeIsEstimate: Boolean = false
     ): BuiltTransactionReview {
         val wallet = loadWallet(walletId).wallet
         val feeSat = knownFeeSat ?: wallet.calculateFee(tx).toSat().toLong()
-        val vsize = tx.vsize().toLong()
+        val vsize = vsizeOverride ?: tx.vsize().toLong()
         return BuiltTransactionReview(
             txid = tx.computeTxid().toString(),
             feeSat = feeSat,
             vsize = vsize,
             feeRateSatPerVbyte = if (vsize > 0) feeSat.toDouble() / vsize else 0.0,
+            vsizeIsEstimate = vsizeIsEstimate,
             inputs = tx.input().map { "${it.previousOutput.txid}:${it.previousOutput.vout}" },
             outputs = tx.output().mapIndexed { index, output ->
                 TransactionReviewOutput(
@@ -3326,10 +3406,7 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     private fun originWrapAccountKey(rawKey: String, fingerprint: String, derivationPath: String): String {
-        val key = rawKey.trim()
-            .removeSuffix("/0/*")
-            .removeSuffix("/1/*")
-            .removeSuffix("/**")
+        val key = MultisigAccountKeyPolicy.normalizeGeneratedAccountKey(rawKey)
         if (key.startsWith("[")) return key
         return "[${fingerprint.uppercase(Locale.US)}/${derivationPath.removePrefix("m/")}]$key"
     }

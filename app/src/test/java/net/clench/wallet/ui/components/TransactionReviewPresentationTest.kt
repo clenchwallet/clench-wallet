@@ -45,6 +45,17 @@ class TransactionReviewPresentationTest {
         assertEquals(source, grouped.replace(" ", ""))
     }
 
+    @Test
+    fun `estimated final vsize is identified in fee summary`() {
+        val review = review(181, emptyList()).copy(
+            vsize = 181,
+            feeRateSatPerVbyte = 1.0,
+            vsizeIsEstimate = true
+        )
+
+        assertTrue(TransactionReviewPresentation.feeSummary(review).contains("estimated final: 1.00 sat/vB, 181 vB"))
+    }
+
     private fun review(feeSat: Long, outputs: List<TransactionReviewOutput>) = BuiltTransactionReview(
         txid = "00".repeat(32),
         feeSat = feeSat,

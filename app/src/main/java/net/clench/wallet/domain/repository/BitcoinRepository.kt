@@ -22,7 +22,8 @@ data class BuiltTransactionReview(
     val vsize: Long,
     val feeRateSatPerVbyte: Double,
     val inputs: List<String>,
-    val outputs: List<TransactionReviewOutput>
+    val outputs: List<TransactionReviewOutput>,
+    val vsizeIsEstimate: Boolean = false
 ) {
     val externalAmountSat: Long
         get() = outputs.filterNot { it.belongsToWallet }.sumOf { it.amountSat }
