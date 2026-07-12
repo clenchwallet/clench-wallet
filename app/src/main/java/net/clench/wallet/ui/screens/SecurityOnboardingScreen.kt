@@ -133,10 +133,28 @@ fun SecurityOnboardingScreen(
                 }
             }
 
+            if (!canBiometric) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                ) {
+                    Text(
+                        "OS authentication is unavailable. Continue will turn off seed-view and " +
+                            "transaction-signing authentication gates so the wallet remains usable. " +
+                            "After configuring a device PIN or biometric, re-enable them in Settings → Security.",
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.weight(1f))
 
             Button(
-                onClick = onComplete,
+                onClick = {
+                    viewModel.disableAuthenticationGatesWhenUnavailable(canBiometric)
+                    onComplete()
+                },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Continue")

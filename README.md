@@ -103,6 +103,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 
 | Version | Highlights |
 | --- | --- |
+| 0.3.21 | Fixed Clench phone-signer multisig creation, prevented unavailable OS authentication from blocking signing, showed estimated final multisig PSBT size and fee rate, and improved F-Droid “Bitcoin wallet” discovery metadata. |
 | 0.3.20 | Hardened encrypted wallet-state recovery, transaction approval, fee controls, PSBT validation, TLS pinning, release signing, and dependency verification; added secure BIP39 entry, guided sweep/recovery flows, unified transaction review, and clearer hardware-signer progress. |
 | 0.3.19 | Added WIF/OpenDime and verified SATSCARD sweep support, TAPSIGNER import and wallet verification flows, SATSCARD funding, the Signers vault, signer-based wallet creation choices, and release ABI filtering for F-Droid. |
 | 0.3.18 | Removed Android dependency metadata from release APK signing blocks for F-Droid binary scanning, and fixed multisig hardware signer PSBT flows. |

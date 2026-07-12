@@ -1,4 +1,4 @@
-Clench is a Bitcoin-only, non-custodial wallet for Android. It uses Bitcoin Dev Kit and stores wallet data locally on the device.
+Clench is a Bitcoin-only, non-custodial Bitcoin wallet for Android. It uses Bitcoin Dev Kit and stores wallet data locally on the device.
 
 Wallet features:
 - Create single-sig and multisig wallets.

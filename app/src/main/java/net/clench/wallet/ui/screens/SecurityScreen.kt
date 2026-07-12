@@ -330,10 +330,22 @@ fun SecurityScreen(
             Text("These apply regardless of app lock setting.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!canBiometric) {
+                Text(
+                    "Configure an OS device PIN or biometric before enabling these gates. " +
+                        "Any gate already enabled can still be turned off.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
             Spacer(modifier = Modifier.height(8.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = uiState.biometricForSeed, onCheckedChange = { viewModel.setBiometricForSeed(it) })
+                Switch(
+                    checked = uiState.biometricForSeed,
+                    onCheckedChange = { viewModel.setBiometricForSeed(it) },
+                    enabled = canBiometric || uiState.biometricForSeed
+                )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text("Require authentication to view seed phrase")
@@ -344,7 +356,11 @@ fun SecurityScreen(
             }
             Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = uiState.biometricForSend, onCheckedChange = { viewModel.setBiometricForSend(it) })
+                Switch(
+                    checked = uiState.biometricForSend,
+                    onCheckedChange = { viewModel.setBiometricForSend(it) },
+                    enabled = canBiometric || uiState.biometricForSend
+                )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text("Require authentication to send")

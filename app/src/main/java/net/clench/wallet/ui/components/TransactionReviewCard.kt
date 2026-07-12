@@ -41,8 +41,9 @@ internal object TransactionReviewPresentation {
 
     fun feeSummary(review: BuiltTransactionReview): String {
         val percentage = feePercentage(review)?.let { ", ${String.format(Locale.US, "%.2f", it)}% of sent amount" }.orEmpty()
+        val estimatePrefix = if (review.vsizeIsEstimate) "estimated final: " else ""
         return "${sats(review.feeSat)} sats " +
-            "(${String.format(Locale.US, "%.2f", review.feeRateSatPerVbyte)} sat/vB, ${review.vsize} vB$percentage)"
+            "($estimatePrefix${String.format(Locale.US, "%.2f", review.feeRateSatPerVbyte)} sat/vB, ${review.vsize} vB$percentage)"
     }
 
     fun grouped(value: String, groupSize: Int = 4): String =
