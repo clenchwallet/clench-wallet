@@ -2,6 +2,8 @@
 
 A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](https://bitcoindevkit.org/) (Bitcoin Dev Kit) 2.3.1.
 
+The static source for [clench.net](https://clench.net/) is in [`website/`](website/).
+
 ## Features
 
 ### Core
