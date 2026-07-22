@@ -4,9 +4,9 @@ kotlin = "2.3.21"
 coreKtx = "1.18.0"
 lifecycleRuntimeKtx = "2.10.0"
 activityCompose = "1.13.0"
-composeBom = "2026.04.01"
+composeBom = "2026.06.01"
 composeNavigation = "2.9.8"
-hilt = "2.59.2"
+hilt = "2.60.1"
 hiltNavigationCompose = "1.3.0"
 room = "2.7.2"
 securityCrypto = "1.1.0"
@@ -51,4 +51,4 @@ material-icons-extended = { group = "androidx.compose.material", name = "materia
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
-ksp = { id = "com.google.devtools.ksp", version = "2.3.7" }
+ksp = { id = "com.google.devtools.ksp", version = "2.3.10" }
