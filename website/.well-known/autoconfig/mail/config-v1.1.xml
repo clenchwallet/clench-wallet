@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<clientConfig version="1.1">
+    <emailProvider id="clench.net">
+        <domain>clench.net</domain>
+        <displayName>cw</displayName>
+        <displayShortName>cw</displayShortName>
+
+        <incomingServer type="imap">
+            <hostname>gvam1028.siteground.biz</hostname>
+            <port>993</port>
+            <socketType>SSL</socketType>
+            <authentication>password-cleartext</authentication>
+            <username>%EMAILADDRESS%</username>
+        </incomingServer>
+
+        <outgoingServer type="smtp">
+            <hostname>gvam1028.siteground.biz</hostname>
+            <port>465</port>
+            <socketType>SSL</socketType>
+            <authentication>password-cleartext</authentication>
+            <username>%EMAILADDRESS%</username>
+        </outgoingServer>
+    </emailProvider>
+</clientConfig>
