@@ -10,6 +10,10 @@ import re
 from pathlib import Path
 
 
+COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
+REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -35,8 +39,12 @@ def wrapper_metadata(properties: Path) -> tuple[str, str]:
             values[key] = value.replace("\\:", ":")
     distribution = values.get("distributionUrl")
     checksum = values.get("distributionSha256Sum")
-    if not distribution or not re.fullmatch(r"[0-9a-f]{64}", checksum or ""):
-        raise SystemExit("Gradle wrapper distribution or checksum is not pinned")
+    if not (distribution or "").startswith(
+        "https://services.gradle.org/distributions/"
+    ):
+        raise SystemExit("Gradle wrapper distribution is not official")
+    if not re.fullmatch(r"[0-9a-f]{64}", checksum or ""):
+        raise SystemExit("Gradle wrapper distribution SHA-256 is not pinned")
     return distribution, checksum
 
 
@@ -53,6 +61,12 @@ def main() -> None:
     apk = Path(args.apk)
     sbom = Path(args.sbom)
     output = Path(args.output)
+    if not COMMIT_PATTERN.fullmatch(args.commit):
+        raise SystemExit("Release commit must be a full lowercase Git SHA-1")
+    if not REPOSITORY_PATTERN.fullmatch(args.repository):
+        raise SystemExit("Repository must be an owner/name identifier")
+    if not apk.is_file() or not sbom.is_file():
+        raise SystemExit("Provenance subject APK or SBOM is missing")
     version, version_code = version_metadata(Path("app/build.gradle.kts"))
     gradle_distribution, gradle_distribution_sha256 = wrapper_metadata(
         Path("gradle/wrapper/gradle-wrapper.properties")

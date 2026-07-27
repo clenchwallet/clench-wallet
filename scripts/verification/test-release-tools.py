@@ -212,6 +212,21 @@ def test_sbom_and_provenance(temp: Path) -> None:
         provenance,
         *common,
     )
+    for label, flag, value in (
+        ("repository-url", "--repository", "https://github.com/clenchwallet/clench-wallet"),
+        ("short-commit", "--commit", commit[:12]),
+        ("missing-subject", "--apk", temp / "missing.apk"),
+    ):
+        hostile_common = list(common)
+        hostile_common[hostile_common.index(flag) + 1] = value
+        run(
+            *PYTHON,
+            "scripts/release/generate-provenance.py",
+            *hostile_common,
+            "--output",
+            temp / f"provenance-{label}.jsonl",
+            should_pass=False,
+        )
     truncated_provenance = json.loads(provenance.read_text(encoding="utf-8"))
     truncated_provenance["predicate"]["buildDefinition"]["resolvedDependencies"].pop()
     truncated_provenance_path = temp / "provenance-truncated.jsonl"
