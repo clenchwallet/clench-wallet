@@ -10,6 +10,7 @@ import net.clench.wallet.data.local.dao.WalletDao
 import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.local.entity.UtxoMetadataEntity
 import net.clench.wallet.data.local.entity.WalletEntity
+import net.clench.wallet.data.repository.MultisigDescriptorSafety
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -241,6 +242,8 @@ class ClenchStateBackupManager @Inject constructor(
             require(!containsPrivateKeyMaterial(descriptor) && !containsPrivateKeyMaterial(changeDescriptor)) {
                 "Backup contains a private descriptor. Clench state backups must be watch-only."
             }
+            MultisigDescriptorSafety.validate(descriptor)
+            MultisigDescriptorSafety.validate(changeDescriptor)
             val networkName = item.optString("network", "mainnet")
             require(networkName == "mainnet" || networkName == "testnet") { "Backup wallet has an invalid network." }
             val network = if (networkName == "testnet") Network.TESTNET else Network.BITCOIN

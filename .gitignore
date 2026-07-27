@@ -10,9 +10,13 @@
 local.properties
 **/*.keystore
 **/*.jks
+**/*.p12
+**/*.pfx
 # Never commit signing keys or secrets
 keystore.properties
 app/build/
 build/
 clench/screen.png
 .kotlin/
+__pycache__/
+*.py[cod]

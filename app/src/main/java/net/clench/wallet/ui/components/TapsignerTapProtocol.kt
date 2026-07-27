@@ -12,6 +12,7 @@ import co.nstant.`in`.cbor.model.Map
 import co.nstant.`in`.cbor.model.Number
 import co.nstant.`in`.cbor.model.SimpleValue
 import co.nstant.`in`.cbor.model.UnicodeString
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
 import java.security.MessageDigest
@@ -190,6 +191,11 @@ data class TapsignerBackupResult(
 
 object TapsignerTapProtocol {
     private const val HARDENED_FLAG = 0x80000000L
+    internal const val MAX_RESPONSE_BYTES = 32 * 1024
+    private const val MAX_CERT_CHAIN_ITEMS = 8
+    private const val MAX_ERROR_CHARS = 512
+    private const val MAX_CBOR_DEPTH = 16
+    private const val MAX_CBOR_CONTAINER_ITEMS = 1_024
 
     private val appletId = byteArrayOf(
         0xF0.toByte(),
@@ -225,16 +231,19 @@ object TapsignerTapProtocol {
         data = cborMap("cmd" to "status")
     )
 
-    fun readCommand(nonce: ByteArray): ByteArray = apdu(
-        cla = 0x00,
-        ins = 0xCB,
-        p1 = 0x00,
-        p2 = 0x00,
-        data = cborMap(
-            "cmd" to "read",
-            "nonce" to nonce
+    fun readCommand(nonce: ByteArray): ByteArray {
+        require(nonce.size == 16) { "SATSCARD read nonce must be 16 bytes" }
+        return apdu(
+            cla = 0x00,
+            ins = 0xCB,
+            p1 = 0x00,
+            p2 = 0x00,
+            data = cborMap(
+                "cmd" to "read",
+                "nonce" to nonce
+            )
         )
-    )
+    }
 
     fun certsCommand(): ByteArray = apdu(
         cla = 0x00,
@@ -244,16 +253,19 @@ object TapsignerTapProtocol {
         data = cborMap("cmd" to "certs")
     )
 
-    fun checkCommand(nonce: ByteArray): ByteArray = apdu(
-        cla = 0x00,
-        ins = 0xCB,
-        p1 = 0x00,
-        p2 = 0x00,
-        data = cborMap(
-            "cmd" to "check",
-            "nonce" to nonce
+    fun checkCommand(nonce: ByteArray): ByteArray {
+        require(nonce.size == 16) { "Coinkite check nonce must be 16 bytes" }
+        return apdu(
+            cla = 0x00,
+            ins = 0xCB,
+            p1 = 0x00,
+            p2 = 0x00,
+            data = cborMap(
+                "cmd" to "check",
+                "nonce" to nonce
+            )
         )
-    )
+    }
 
     fun waitCommand(): ByteArray = apdu(
         cla = 0x00,
@@ -263,16 +275,19 @@ object TapsignerTapProtocol {
         data = cborMap("cmd" to "wait")
     )
 
-    fun dumpCommand(slot: Long): ByteArray = apdu(
-        cla = 0x00,
-        ins = 0xCB,
-        p1 = 0x00,
-        p2 = 0x00,
-        data = cborMap(
-            "cmd" to "dump",
-            "slot" to slot
+    fun dumpCommand(slot: Long): ByteArray {
+        require(slot in 0..9) { "SATSCARD dump slot must be between 0 and 9" }
+        return apdu(
+            cla = 0x00,
+            ins = 0xCB,
+            p1 = 0x00,
+            p2 = 0x00,
+            data = cborMap(
+                "cmd" to "dump",
+                "slot" to slot
+            )
         )
-    )
+    }
 
     fun authenticatedUnsealCommand(
         slot: Long,
@@ -340,7 +355,7 @@ object TapsignerTapProtocol {
         cvc: CharArray,
         chainCode: ByteArray
     ): ByteArray {
-        require(slot >= 0L) { "SATSCARD slot must be non-negative" }
+        require(slot in 0..9) { "SATSCARD slot must be between 0 and 9" }
         require(chainCode.size == 32) { "SATSCARD chain code must be 32 bytes" }
         return authenticatedNewSlotCommand(
             slot = slot,
@@ -382,7 +397,9 @@ object TapsignerTapProtocol {
         cvc: CharArray
     ): ByteArray {
         require(path.size <= 8) { "TAPSIGNER derivation path is too deep" }
-        require(path.all { it and HARDENED_FLAG != 0L }) { "TAPSIGNER derive supports hardened path components only" }
+        require(path.all { it in HARDENED_FLAG..0xffff_ffffL }) {
+            "TAPSIGNER derive supports 32-bit hardened path components only"
+        }
         require(nonce.size == 16) { "TAPSIGNER derive nonce must be 16 bytes" }
         val auth = authenticatedCommand("derive", cardPubkey, cardNonce, cvc)
         return apdu(
@@ -422,22 +439,69 @@ object TapsignerTapProtocol {
     fun parseStatusResponse(response: ByteArray): CoinkiteTapCardStatus {
         val body = responseBodyOrThrow(response)
         if (body.isEmpty()) error("Coinkite Tap card returned success without a CBOR status body")
-        val dataItem = CborDecoder.decode(body).firstOrNull() as? Map
-            ?: error("Coinkite Tap card response was not a CBOR map")
+        val dataItem = decodeSingleResponseMap(body)
         dataItem.string("error")?.let { errorText ->
+            if (errorText.length > MAX_ERROR_CHARS) {
+                error("Coinkite Tap card returned an excessive error message")
+            }
             throw CoinkiteTapCardException(dataItem.long("code"), errorText)
         }
+        val path = dataItem.longArray("path")
+        val slots = dataItem.longArray("slots")
+        val cardPubkey = dataItem.bytes("pubkey")
+        val cardNonce = dataItem.bytes("card_nonce")
+        val version = dataItem.string("ver")
+        val address = dataItem.string("addr")
+        val birthHeight = dataItem.long("birth")
+        val numberOfBackups = dataItem.long("num_backups")
+        val authDelaySeconds = dataItem.long("auth_delay")
+        val isTapsigner = dataItem.boolean("tapsigner") == true
+        if (path != null && (path.size > 8 || path.any { it !in 0..0xffff_ffffL })) {
+            error("Coinkite Tap card returned an invalid derivation path")
+        }
+        if (slots != null && (
+                slots.size != 2 ||
+                    slots[0] !in 0..9 ||
+                    slots[1] !in 1..10 ||
+                    slots[0] >= slots[1]
+                )
+        ) {
+            error("Coinkite Tap card returned invalid slot metadata")
+        }
+        if (cardPubkey != null && cardPubkey.size != 33) error("Coinkite Tap card returned an invalid public key length")
+        if (cardNonce != null && cardNonce.size != 16) error("Coinkite Tap card returned an invalid card nonce length")
+        if (version != null && version.length > 64) error("Coinkite Tap card returned an excessive version string")
+        if (address != null && address.length > 128) error("Coinkite Tap card returned an excessive address string")
+        if (birthHeight != null && birthHeight !in 0..10_000_000) {
+            error("Coinkite Tap card returned an invalid birth height")
+        }
+        if (numberOfBackups != null && numberOfBackups !in 0..32) {
+            error("Coinkite Tap card returned an invalid backup count")
+        }
+        if (authDelaySeconds != null && authDelaySeconds !in 0..86_400) {
+            error("Coinkite Tap card returned an invalid authentication delay")
+        }
+        val reportsSatscard = address != null || slots != null
+        if (isTapsigner && reportsSatscard) {
+            error("Coinkite Tap card returned conflicting TAPSIGNER/SATSCARD status")
+        }
+        if (!isTapsigner && reportsSatscard && (path != null || numberOfBackups != null)) {
+            error("Coinkite Tap card returned conflicting SATSCARD/TAPSIGNER metadata")
+        }
+        if ((isTapsigner || reportsSatscard) && (cardPubkey == null || cardNonce == null)) {
+            error("Coinkite Tap card status omitted its identity key or nonce")
+        }
         return CoinkiteTapCardStatus(
-            isTapsigner = dataItem.boolean("tapsigner") == true,
-            version = dataItem.string("ver"),
-            birthHeight = dataItem.long("birth"),
-            derivationPath = dataItem.longArray("path"),
-            numberOfBackups = dataItem.long("num_backups"),
-            authDelaySeconds = dataItem.long("auth_delay"),
-            cardPubkeyHex = dataItem.bytes("pubkey")?.toHex(),
-            cardNonceHex = dataItem.bytes("card_nonce")?.toHex(),
-            address = dataItem.string("addr"),
-            slots = dataItem.longArray("slots"),
+            isTapsigner = isTapsigner,
+            version = version,
+            birthHeight = birthHeight,
+            derivationPath = path,
+            numberOfBackups = numberOfBackups,
+            authDelaySeconds = authDelaySeconds,
+            cardPubkeyHex = cardPubkey?.toHex(),
+            cardNonceHex = cardNonce?.toHex(),
+            address = address,
+            slots = slots,
             isTestnet = dataItem.boolean("testnet"),
             isTampered = dataItem.boolean("tampered")
         )
@@ -457,6 +521,9 @@ object TapsignerTapProtocol {
     fun parseCertsResponse(response: ByteArray): CoinkiteCertsResult {
         val dataItem = responseMapOrThrow(response)
         val certChain = dataItem.bytesArray("cert_chain") ?: error("Coinkite certs response did not include cert_chain")
+        if (certChain.isEmpty() || certChain.size > MAX_CERT_CHAIN_ITEMS) {
+            error("Coinkite cert chain contained an invalid number of entries")
+        }
         if (certChain.any { it.size != 65 }) error("Coinkite cert chain contained an invalid signature")
         return CoinkiteCertsResult(certChain)
     }
@@ -473,7 +540,11 @@ object TapsignerTapProtocol {
     fun parseWaitResponse(response: ByteArray): CoinkiteWaitResult {
         val dataItem = responseMapOrThrow(response)
         if (dataItem.boolean("success") != true) error("Coinkite Tap card wait command did not succeed")
-        return CoinkiteWaitResult(authDelaySeconds = dataItem.long("auth_delay"))
+        val delay = dataItem.long("auth_delay")
+        if (delay != null && delay !in 0..86_400) {
+            error("Coinkite Tap card wait response contained an invalid authentication delay")
+        }
+        return CoinkiteWaitResult(authDelaySeconds = delay)
     }
 
     fun parseTapsignerXpubResponse(response: ByteArray): TapsignerXpubResponse {
@@ -489,6 +560,7 @@ object TapsignerTapProtocol {
         val dataItem = responseMapOrThrow(response)
         val slot = dataItem.long("slot") ?: error("TAPSIGNER initialize response did not include slot")
         val cardNonce = dataItem.bytes("card_nonce") ?: error("TAPSIGNER initialize response did not include card nonce")
+        if (slot !in 0..9) error("TAPSIGNER initialize response contained an invalid slot")
         if (cardNonce.size != 16) error("TAPSIGNER initialize response had an invalid card nonce length")
         return TapsignerNewResult(slot, cardNonce)
     }
@@ -545,13 +617,21 @@ object TapsignerTapProtocol {
 
     fun parseDumpResponse(response: ByteArray): SatscardSlotState {
         val dataItem = responseMapOrThrow(response)
+        val slot = dataItem.long("slot")
+        val address = dataItem.string("addr")
+        val pubkey = dataItem.bytes("pubkey")
+        val cardNonce = dataItem.bytes("card_nonce")
+        if (slot != null && slot !in 0..9) error("SATSCARD dump response contained an invalid slot")
+        if (address != null && address.length > 128) error("SATSCARD dump response contained an excessive address")
+        if (pubkey != null && pubkey.size != 33) error("SATSCARD dump response contained an invalid public key")
+        if (cardNonce != null && cardNonce.size != 16) error("SATSCARD dump response contained an invalid card nonce")
         return SatscardSlotState(
-            slot = dataItem.long("slot"),
+            slot = slot,
             used = dataItem.boolean("used"),
             sealed = dataItem.boolean("sealed"),
-            address = dataItem.string("addr"),
-            pubkey = dataItem.bytes("pubkey"),
-            cardNonce = dataItem.bytes("card_nonce")
+            address = address,
+            pubkey = pubkey,
+            cardNonce = cardNonce
         )
     }
 
@@ -567,6 +647,7 @@ object TapsignerTapProtocol {
 
     private fun responseBodyOrThrow(response: ByteArray): ByteArray {
         if (response.size < 2) error("Coinkite Tap card NFC response was too short")
+        if (response.size > MAX_RESPONSE_BYTES) error("Coinkite Tap card NFC response exceeded the safety limit")
         if (!isSuccessResponse(response)) {
             val sw = response.takeLast(2).joinToString("") { "%02X".format(it) }
             error("Coinkite Tap card NFC command failed with status word 0x$sw")
@@ -577,12 +658,147 @@ object TapsignerTapProtocol {
     private fun responseMapOrThrow(response: ByteArray): Map {
         val body = responseBodyOrThrow(response)
         if (body.isEmpty()) error("Coinkite Tap card returned success without a CBOR body")
-        val dataItem = CborDecoder.decode(body).firstOrNull() as? Map
-            ?: error("Coinkite Tap card response was not a CBOR map")
+        val dataItem = decodeSingleResponseMap(body)
         dataItem.string("error")?.let { errorText ->
+            if (errorText.length > MAX_ERROR_CHARS) {
+                error("Coinkite Tap card returned an excessive error message")
+            }
             throw CoinkiteTapCardException(dataItem.long("code"), errorText)
         }
         return dataItem
+    }
+
+    private fun decodeSingleResponseMap(body: ByteArray): Map {
+        try {
+            validateCborEnvelope(body)
+        } catch (failure: IllegalArgumentException) {
+            throw IllegalStateException(
+                failure.message ?: "Coinkite Tap card CBOR response is malformed",
+                failure
+            )
+        }
+        val decoder = CborDecoder(ByteArrayInputStream(body)).apply {
+            setRejectDuplicateKeys(true)
+            setMaxPreallocationSize(1_024)
+        }
+        val items = decoder.decode()
+        if (items.size != 1) error("Coinkite Tap card response contained multiple CBOR values")
+        return items.single() as? Map
+            ?: error("Coinkite Tap card response was not a CBOR map")
+    }
+
+    /**
+     * Performs a non-allocating, depth-bounded CBOR framing pass before the
+     * library decoder. Tap-card responses use definite-length canonical CBOR;
+     * rejecting indefinite containers and excessive nesting prevents a small
+     * NFC response from becoming a recursive decoder stack attack.
+     */
+    private fun validateCborEnvelope(body: ByteArray) {
+        val cursor = CborEnvelopeCursor(body)
+        cursor.readItem(depth = 0)
+        require(cursor.atEnd()) { "Coinkite Tap card response contains trailing CBOR data" }
+    }
+
+    private class CborEnvelopeCursor(
+        private val bytes: ByteArray
+    ) {
+        private var offset = 0
+        private var items = 0
+
+        fun atEnd(): Boolean = offset == bytes.size
+
+        fun readItem(depth: Int) {
+            require(depth <= MAX_CBOR_DEPTH) {
+                "Coinkite Tap card CBOR nesting exceeds the safety limit"
+            }
+            require(++items <= MAX_CBOR_CONTAINER_ITEMS) {
+                "Coinkite Tap card CBOR contains too many values"
+            }
+            val initial = readByte()
+            val major = initial ushr 5
+            val additional = initial and 0x1f
+            require(additional != 31) {
+                "Coinkite Tap card CBOR uses an indefinite-length value"
+            }
+            when (major) {
+                0, 1 -> readArgument(additional)
+                2, 3 -> {
+                    val length = readArgument(additional)
+                    require(length <= (bytes.size - offset).toULong()) {
+                        "Coinkite Tap card CBOR string is truncated"
+                    }
+                    offset += length.toInt()
+                }
+                4 -> {
+                    val count = containerCount(readArgument(additional))
+                    repeat(count) { readItem(depth + 1) }
+                }
+                5 -> {
+                    val count = containerCount(readArgument(additional))
+                    require(count <= MAX_CBOR_CONTAINER_ITEMS / 2) {
+                        "Coinkite Tap card CBOR map contains too many entries"
+                    }
+                    repeat(count * 2) { readItem(depth + 1) }
+                }
+                6 -> error("Coinkite Tap card CBOR tags are not permitted")
+                7 -> readSimple(additional)
+                else -> error("Coinkite Tap card CBOR major type is invalid")
+            }
+        }
+
+        private fun readArgument(additional: Int): ULong = when (additional) {
+            in 0..23 -> additional.toULong()
+            24 -> readUnsigned(1).also {
+                require(it >= 24uL) { "Coinkite Tap card CBOR integer is non-canonical" }
+            }
+            25 -> readUnsigned(2).also {
+                require(it > 0xffuL) { "Coinkite Tap card CBOR integer is non-canonical" }
+            }
+            26 -> readUnsigned(4).also {
+                require(it > 0xffffuL) { "Coinkite Tap card CBOR integer is non-canonical" }
+            }
+            27 -> readUnsigned(8).also {
+                require(it > 0xffff_ffffuL) { "Coinkite Tap card CBOR integer is non-canonical" }
+            }
+            else -> error("Coinkite Tap card CBOR uses a reserved additional value")
+        }
+
+        private fun readSimple(additional: Int) {
+            when (additional) {
+                in 0..23 -> Unit
+                24 -> {
+                    val value = readUnsigned(1)
+                    require(value >= 32uL) { "Coinkite Tap card CBOR simple value is non-canonical" }
+                }
+                25 -> readUnsigned(2)
+                26 -> readUnsigned(4)
+                27 -> readUnsigned(8)
+                else -> error("Coinkite Tap card CBOR simple value is invalid")
+            }
+        }
+
+        private fun containerCount(value: ULong): Int {
+            require(value <= MAX_CBOR_CONTAINER_ITEMS.toULong()) {
+                "Coinkite Tap card CBOR container exceeds the safety limit"
+            }
+            return value.toInt()
+        }
+
+        private fun readUnsigned(byteCount: Int): ULong {
+            require(offset <= bytes.size - byteCount) {
+                "Coinkite Tap card CBOR value is truncated"
+            }
+            var value = 0uL
+            repeat(byteCount) {
+                value = (value shl 8) or readByte().toULong()
+            }
+            return value
+        }
+
+        private fun readByte(): Int {
+            require(offset < bytes.size) { "Coinkite Tap card CBOR value is truncated" }
+            return bytes[offset++].toInt() and 0xff
+        }
     }
 
     private fun cborMap(vararg entries: Pair<String, Any>): ByteArray {
@@ -626,28 +842,59 @@ object TapsignerTapProtocol {
 
     private fun Map.value(key: String): DataItem? = get(UnicodeString(key))
 
-    private fun Map.string(key: String): String? = (value(key) as? UnicodeString)?.string
+    private fun Map.string(key: String): String? {
+        val item = value(key) ?: return null
+        return (item as? UnicodeString)?.string
+            ?: error("Coinkite Tap card field $key was not text")
+    }
 
     private fun Map.boolean(key: String): Boolean? {
-        return when (value(key)) {
+        val item = value(key) ?: return null
+        return when (item) {
             SimpleValue.TRUE -> true
             SimpleValue.FALSE -> false
-            else -> null
+            else -> error("Coinkite Tap card field $key was not a boolean")
         }
     }
 
-    private fun Map.long(key: String): Long? = (value(key) as? Number)?.value?.toLong()
-
-    private fun Map.longArray(key: String): List<Long>? {
-        val array = value(key) as? Array ?: return null
-        return array.dataItems.mapNotNull { (it as? Number)?.value?.toLong() }
+    private fun Map.long(key: String): Long? {
+        val item = value(key) ?: return null
+        val value = (item as? Number)?.value
+            ?: error("Coinkite Tap card field $key was not an integer")
+        require(value >= BigInteger.valueOf(Long.MIN_VALUE) && value <= BigInteger.valueOf(Long.MAX_VALUE)) {
+            "Coinkite Tap card field $key exceeded the supported integer range"
+        }
+        return value.toLong()
     }
 
-    private fun Map.bytes(key: String): ByteArray? = (value(key) as? ByteString)?.bytes
+    private fun Map.longArray(key: String): List<Long>? {
+        val item = value(key) ?: return null
+        val array = item as? Array
+            ?: error("Coinkite Tap card field $key was not an array")
+        return array.dataItems.map { entry ->
+            val value = (entry as? Number)?.value
+                ?: error("Coinkite Tap card field $key contained a non-integer")
+            require(value >= BigInteger.valueOf(Long.MIN_VALUE) && value <= BigInteger.valueOf(Long.MAX_VALUE)) {
+                "Coinkite Tap card field $key exceeded the supported integer range"
+            }
+            value.toLong()
+        }
+    }
+
+    private fun Map.bytes(key: String): ByteArray? {
+        val item = value(key) ?: return null
+        return (item as? ByteString)?.bytes
+            ?: error("Coinkite Tap card field $key was not binary data")
+    }
 
     private fun Map.bytesArray(key: String): List<ByteArray>? {
-        val array = value(key) as? Array ?: return null
-        return array.dataItems.mapNotNull { (it as? ByteString)?.bytes }
+        val item = value(key) ?: return null
+        val array = item as? Array
+            ?: error("Coinkite Tap card field $key was not an array")
+        return array.dataItems.map { entry ->
+            (entry as? ByteString)?.bytes
+                ?: error("Coinkite Tap card field $key contained non-binary data")
+        }
     }
 
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }

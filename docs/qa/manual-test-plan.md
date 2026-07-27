@@ -1,5 +1,11 @@
 # Clench Wallet Manual Test Plan
 
+For the v0.3.22 candidate, record device-specific results in
+[`physical-hardware-gates-v0.3.22.md`](physical-hardware-gates-v0.3.22.md)
+and the ship decision in
+[`v0.3.22-release-gate.md`](v0.3.22-release-gate.md). Automated simulator
+results must not be recorded as physical-device passes.
+
 ## Goal
 Validate security-sensitive release behavior around migrations, passphrase import, recovery posture, logging, signing, broadcast, and network privacy without weakening the intended wallet model.
 

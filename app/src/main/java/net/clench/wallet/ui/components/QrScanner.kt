@@ -185,10 +185,11 @@ fun QrScanner(
     val maxDecodedChars = 6 * 1024 * 1024
 
     // BBQr accumulator for Coldcard Q animated frames
-    val bbqrFrames = remember { mutableMapOf<Int, String>() }
+    val bbqrAccumulator = remember {
+        BBQrSessionAccumulator(BBQrEncoder.MAX_FRAMES, maxDecodedChars)
+    }
+    var bbqrCollectedFrames by remember { mutableIntStateOf(0) }
     var bbqrTotalFrames by remember { mutableIntStateOf(0) }
-    var bbqrEncoding by remember { mutableStateOf(' ') }
-    var bbqrFileType by remember { mutableStateOf(' ') }
 
     // Generic p1ofN animated-text accumulator used by SeedSigner/Specter-style exports
     val multipartTextFrames = remember { mutableMapOf<Int, String>() }
@@ -334,54 +335,28 @@ fun QrScanner(
                                     // payloads and wallet exports. P=PSBT and T=final transaction are
                                     // binary signing payloads; other file types such as J=Generic JSON
                                     // are textual wallet-export payloads for onboarding.
-                                    val frame = BBQrEncoder.parseBBQrFrame(text)
-                                    if (frame != null && frame.totalFrames in 1..maxAnimatedFrames &&
-                                        frame.data.length <= maxDecodedChars
-                                    ) {
-                                        if (bbqrTotalFrames != frame.totalFrames ||
-                                            bbqrEncoding != frame.encoding ||
-                                            bbqrFileType != frame.fileType
-                                        ) {
-                                            bbqrFrames.clear()
-                                            bbqrTotalFrames = frame.totalFrames
-                                            bbqrEncoding = frame.encoding
-                                            bbqrFileType = frame.fileType
+                                    try {
+                                        val frameProgress = bbqrAccumulator.receive(text)
+                                        bbqrCollectedFrames = frameProgress.collectedFrames
+                                        bbqrTotalFrames = frameProgress.totalFrames
+                                        progress = frameProgress.collectedFrames.toFloat() /
+                                            frameProgress.totalFrames.toFloat()
+                                        frameProgress.decodedPayload?.let { rawBytes ->
+                                            isProcessing = true
+                                            deliverResult(
+                                                HardwareWalletQrPayloadDecoder.decodeBbqrPayload(
+                                                    frameProgress.fileType,
+                                                    rawBytes
+                                                )
+                                            )
                                         }
-                                        val priorLength = bbqrFrames[frame.frameIndex]?.length ?: 0
-                                        val accumulatedLength = bbqrFrames.values.sumOf { it.length } - priorLength + frame.data.length
-                                        if (accumulatedLength > maxDecodedChars) {
-                                            bbqrFrames.clear()
-                                            bbqrTotalFrames = 0
-                                            throw IllegalArgumentException("Animated QR exceeds import safety limit")
-                                        }
-                                        bbqrFrames[frame.frameIndex] = frame.data
-                                        progress = bbqrFrames.size.toFloat() / frame.totalFrames.toFloat()
-
-                                        if (bbqrFrames.size == frame.totalFrames) {
-                                            val zeroBasedIndexes = 0 until frame.totalFrames
-                                            val oneBasedIndexes = 1..frame.totalFrames
-                                            val orderedChunks = when {
-                                                zeroBasedIndexes.all { bbqrFrames.containsKey(it) } -> zeroBasedIndexes.map { i -> bbqrFrames[i].orEmpty() }
-                                                oneBasedIndexes.all { bbqrFrames.containsKey(it) } -> oneBasedIndexes.map { i -> bbqrFrames[i].orEmpty() }
-                                                else -> null
-                                            }
-
-                                            if (orderedChunks != null) {
-                                                isProcessing = true
-                                                try {
-                                                    val rawBytes = BBQrEncoder.reassemble(orderedChunks, bbqrEncoding)
-                                                    deliverResult(HardwareWalletQrPayloadDecoder.decodeBbqrPayload(bbqrFileType, rawBytes))
-                                                } catch (t: Throwable) {
-                                                    if (t.shouldRethrowForUiBoundary()) throw t
-                                                    // Reset on decode error and keep scanning
-                                                    bbqrFrames.clear()
-                                                    bbqrTotalFrames = 0
-                                                    bbqrEncoding = ' '
-                                                    bbqrFileType = ' '
-                                                    isProcessing = false
-                                                }
-                                            }
-                                        }
+                                    } catch (t: Throwable) {
+                                        if (t.shouldRethrowForUiBoundary()) throw t
+                                        // Reset on malformed, mixed, or conflicting streams.
+                                        bbqrAccumulator.reset()
+                                        bbqrCollectedFrames = 0
+                                        bbqrTotalFrames = 0
+                                        isProcessing = false
                                     }
                                 } else if (multipartTextMatch != null) {
                                     val index = multipartTextMatch.groupValues[1].toIntOrNull()
@@ -469,7 +444,7 @@ fun QrScanner(
             )
             Text(
                 "Scanning animated QR: ${(progress * 100).toInt()}%${when {
-                    bbqrTotalFrames > 0 -> " (${bbqrFrames.size}/$bbqrTotalFrames)"
+                    bbqrTotalFrames > 0 -> " ($bbqrCollectedFrames/$bbqrTotalFrames)"
                     multipartTextTotalFrames > 0 -> " (${multipartTextFrames.size}/$multipartTextTotalFrames)"
                     else -> ""
                 }}",

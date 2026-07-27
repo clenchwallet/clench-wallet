@@ -26,7 +26,21 @@ data class BuiltTransactionReview(
     val vsizeIsEstimate: Boolean = false
 ) {
     val externalAmountSat: Long
-        get() = outputs.filterNot { it.belongsToWallet }.sumOf { it.amountSat }
+        get() = saturatingAmountSum(outputs.filterNot { it.belongsToWallet })
+
+    val totalOutputAmountSat: Long
+        get() = saturatingAmountSum(outputs)
+
+    private fun saturatingAmountSum(selected: List<TransactionReviewOutput>): Long {
+        var total = 0L
+        for (output in selected) {
+            if (output.amountSat < 0L || total > Long.MAX_VALUE - output.amountSat) {
+                return Long.MAX_VALUE
+            }
+            total += output.amountSat
+        }
+        return total
+    }
 }
 
 data class GeneratedMultisigPhoneSigner(

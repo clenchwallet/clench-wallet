@@ -33,6 +33,7 @@ import net.clench.wallet.domain.repository.PsbtSigningProgress
 import net.clench.wallet.domain.repository.TransactionReviewOutput
 import net.clench.wallet.domain.repository.WalletStateRecoveryResult
 import net.clench.wallet.domain.repository.WalletStateRecoveryPolicy
+import net.clench.wallet.security.PsbtSafety
 import net.clench.wallet.security.readTextBounded
 import org.bitcoindevkit.Amount
 import org.bitcoindevkit.ChainPosition
@@ -1015,26 +1016,20 @@ class BdkBitcoinRepository @Inject constructor(
                     java.io.File(dbFile.path + "-journal")
                 )
                 val quarantineDir = java.io.File(context.noBackupFilesDir, "wallet-state-quarantine")
-                check(quarantineDir.exists() || quarantineDir.mkdirs()) {
-                    "Could not create the wallet-state quarantine directory"
-                }
                 val recoveryId = "${walletId.take(12)}-${System.currentTimeMillis()}"
-                val movedFiles = mutableListOf<Pair<java.io.File, java.io.File>>()
-                var replacementStateStarted = false
+                val stateTransaction = WalletStateQuarantineTransaction(
+                    originalFiles = originalFiles,
+                    quarantineDir = quarantineDir,
+                    recoveryId = recoveryId
+                )
                 var replacementEntry: WalletEntry? = null
 
                 try {
-                    originalFiles.filter { it.exists() }.forEachIndexed { index, original ->
-                        val quarantined = java.io.File(quarantineDir, "$recoveryId-$index-${original.name}")
-                        check(original.renameTo(quarantined)) {
-                            "Could not quarantine ${original.name}; wallet state was left unchanged"
-                        }
-                        movedFiles += original to quarantined
-                    }
+                    stateTransaction.quarantineOriginals()
 
                     val externalDescriptor = Descriptor(walletEntity.descriptor, network)
                     val changeDescriptor = Descriptor(walletEntity.changeDescriptor, network)
-                    replacementStateStarted = true
+                    stateTransaction.markReplacementStateStarted()
                     val persister = Persister.newSqlite(dbFile.absolutePath)
                     val wallet = try {
                         Wallet(externalDescriptor, changeDescriptor, network, persister)
@@ -1072,33 +1067,14 @@ class BdkBitcoinRepository @Inject constructor(
                             immatureSat = balance.immature.toSat().toLong()
                         ),
                         quarantineId = recoveryId,
-                        preservedFileCount = movedFiles.size,
+                        preservedFileCount = stateTransaction.preservedFileCount,
                         stopGap = stopGap
                     )
                 } catch (e: Exception) {
                     evictWallet(walletId)
                     replacementEntry?.let(::closeWalletEntry)
                     replacementEntry = null
-                    if (replacementStateStarted) {
-                        // At this point every pre-existing file has already been moved to
-                        // quarantine, so paths in originalFiles can only be replacement state.
-                        originalFiles.forEach { generated ->
-                            if (generated.exists() && !generated.delete()) {
-                                throw IllegalStateException(
-                                    "Recovery failed and Clench could not remove the incomplete replacement ${generated.name}. The original wallet state remains in internal quarantine.",
-                                    e
-                                )
-                            }
-                        }
-                    }
-                    movedFiles.asReversed().forEach { (original, quarantined) ->
-                        if (quarantined.exists() && !quarantined.renameTo(original)) {
-                            throw IllegalStateException(
-                                "Recovery failed and Clench could not restore ${original.name}. The preserved copy remains in internal quarantine.",
-                                e
-                            )
-                        }
-                    }
+                    stateTransaction.rollback(e)
                     throw IllegalStateException(
                         "Extended wallet-state recovery scan failed. The original database was restored and no wallet state was deleted.",
                         e
@@ -1336,6 +1312,7 @@ class BdkBitcoinRepository @Inject constructor(
         walletId: String,
         psbtBase64: String
     ): BuiltTransactionReview = withContext(Dispatchers.IO) {
+        PsbtSafety.inspectBase64(psbtBase64)
         val psbt = Psbt(psbtBase64)
         try {
             val tx = psbt.extractTx()
@@ -2256,7 +2233,9 @@ class BdkBitcoinRepository @Inject constructor(
             }
         }
 
-        val currentPsbt = Psbt(currentPsbtBase64.ifBlank { unsignedPsbtBase64 })
+        val currentPsbtPayload = currentPsbtBase64.ifBlank { unsignedPsbtBase64 }
+        PsbtSafety.inspectBase64(currentPsbtPayload)
+        val currentPsbt = Psbt(currentPsbtPayload)
         var mergedPsbt: Psbt? = null
         var finalizedPsbt: Psbt? = null
         try {
@@ -2323,6 +2302,7 @@ class BdkBitcoinRepository @Inject constructor(
     private fun parseSignedPsbtPayload(payload: String): Psbt? {
         for (candidate in psbtBase64Candidates(payload)) {
             try {
+                PsbtSafety.inspectBase64(candidate)
                 return Psbt(candidate)
             } catch (_: Exception) {
                 // Try the next representation. Coldcard/Keystone/Passport file
@@ -2360,6 +2340,7 @@ class BdkBitcoinRepository @Inject constructor(
      * or transport from substituting recipient addresses, amounts, or inputs.
      */
     private fun validateTransactionMatchesUnsignedPsbt(unsignedBase64: String, signedTx: Transaction) {
+        PsbtSafety.inspectBase64(unsignedBase64)
         val unsigned = Psbt(unsignedBase64)
         var unsignedTx: Transaction? = null
         try {
@@ -2382,6 +2363,7 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     private fun validatePsbtMatchesUnsignedPsbt(unsignedBase64: String, candidate: Psbt) {
+        PsbtSafety.inspectBase64(unsignedBase64)
         val unsigned = Psbt(unsignedBase64)
         var expectedTx: Transaction? = null
         var actualTx: Transaction? = null
@@ -2650,6 +2632,7 @@ class BdkBitcoinRepository @Inject constructor(
                 // Ranged extended-key descriptors need an explicit receive branch.
                 converted.trimEnd(')') + "/0/*)"
             } else converted
+            MultisigDescriptorSafety.validate(external)
             val change = external.replace("/0/*", "/1/*")
             // Extract origin info from full descriptor
             val originRegexInner = Regex("""\[([0-9a-fA-F]{8})/([^\]]+)\]""")
@@ -3037,6 +3020,8 @@ class BdkBitcoinRepository @Inject constructor(
 
         val externalDescriptorStr = "wsh(sortedmulti($threshold,$externalKeys))"
         val changeDescriptorStr = "wsh(sortedmulti($threshold,$changeKeys))"
+        MultisigDescriptorSafety.validate(externalDescriptorStr)
+        MultisigDescriptorSafety.validate(changeDescriptorStr)
         val signingExternalDescriptorStr = if (normalizedLocalSecretKeys.isNotEmpty()) {
             val keys = normalizedSignerKeys.mapIndexed { index, publicKey ->
                 normalizedLocalSecretKeys[index] ?: publicKey
@@ -3213,6 +3198,7 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun signMultisigPsbtWithPhoneKeys(walletId: String, psbtBase64: String): String = withContext(Dispatchers.IO) {
+        PsbtSafety.inspectBase64(psbtBase64)
         val walletEntity = walletDao.getById(walletId)
             ?: throw IllegalArgumentException("Wallet not found: $walletId")
         require(walletEntity.isMultisig) { "Phone signer PSBT signing is only available for multisig wallets" }
@@ -3417,7 +3403,7 @@ class BdkBitcoinRepository @Inject constructor(
             val closeBracket = trimmed.indexOf(']')
             if (closeBracket >= 0) trimmed.substring(closeBracket + 1) else trimmed
         } else trimmed
-        return key.removeSuffix("/0/*").removeSuffix("/1/*").lowercase()
+        return key.removeSuffix("/0/*").removeSuffix("/1/*")
     }
 
     // ========== Passphrase Wallet Methods ==========

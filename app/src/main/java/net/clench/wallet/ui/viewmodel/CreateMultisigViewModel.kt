@@ -467,7 +467,6 @@ class CreateMultisigViewModel @Inject constructor(
         return key
             .removeSuffix("/0/*")
             .removeSuffix("/1/*")
-            .lowercase()
     }
 
     /**
