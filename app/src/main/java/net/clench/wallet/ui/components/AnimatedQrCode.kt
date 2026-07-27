@@ -21,6 +21,7 @@ import com.sparrowwallet.hummingbird.UREncoder
 import com.sparrowwallet.hummingbird.registry.CryptoPSBT
 import kotlinx.coroutines.delay
 import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.security.PsbtSafety
 
 private const val SEEDSIGNER_PSBT_UR_FRAGMENT_LEN = 120
 private const val PASSPORT_PSBT_UR_FRAGMENT_LEN = 240
@@ -35,6 +36,7 @@ fun psbtToUrFrames(
     maxFragmentLen: Int = 500,
     allowSingleFrame: Boolean = true
 ): List<String> {
+    PsbtSafety.inspectBase64(psbtBase64)
     val psbtBytes = Base64.decode(psbtBase64, Base64.DEFAULT)
     return psbtBytesToUrFrames(psbtBytes, maxFragmentLen, allowSingleFrame)
 }
@@ -69,6 +71,7 @@ internal fun psbtBytesToUrFrames(
  * - All others: BC-UR (ur:crypto-psbt)
  */
 fun encodePsbtForDevice(psbtBase64: String, deviceType: HardwareWalletType): List<String> {
+    PsbtSafety.inspectBase64(psbtBase64)
     return when {
         deviceType == HardwareWalletType.COLDCARD_Q -> {
             val psbtBytes = Base64.decode(psbtBase64, Base64.DEFAULT)

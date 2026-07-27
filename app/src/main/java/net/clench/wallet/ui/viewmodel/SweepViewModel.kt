@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.network.BoundedBlockingCall
 import net.clench.wallet.data.network.ElectrumConnectionFactory
+import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.domain.repository.BuiltTransactionReview
@@ -327,13 +329,10 @@ class SweepViewModel @Inject constructor(
                     try {
                         // Sync the temp wallet
                         val config = settingsManager.loadElectrumConfig()
-                        val activeConn = electrumConnectionFactory.createConnection(config)
-                        try {
+                        withBoundedElectrum(config, "Electrum seed-sweep balance scan") { activeConn ->
                             val fullScanResult = tempWallet.startFullScan().build()
                             val update = activeConn.client.fullScan(fullScanResult, stopGap = 20uL, batchSize = 10uL, fetchPrevTxouts = false)
                             tempWallet.applyUpdate(update)
-                        } finally {
-                            activeConn.close()
                         }
 
                         val balance = tempWallet.balance()
@@ -442,7 +441,6 @@ class SweepViewModel @Inject constructor(
                     )
 
                     val config = settingsManager.loadElectrumConfig()
-                    val activeConn = electrumConnectionFactory.createConnection(config)
 
                     val tempDbPath = java.io.File.createTempFile("clench_sweep2_", ".db", appContext.cacheDir).absolutePath
                     val tempPersister = Persister.newSqlite(tempDbPath)
@@ -450,9 +448,11 @@ class SweepViewModel @Inject constructor(
 
                     try {
                         // Re-sync to get latest UTXOs
-                        val fullScanResult = tempWallet.startFullScan().build()
-                        val update = activeConn.client.fullScan(fullScanResult, stopGap = 20uL, batchSize = 10uL, fetchPrevTxouts = false)
-                        tempWallet.applyUpdate(update)
+                        withBoundedElectrum(config, "Electrum seed-sweep rescan") { activeConn ->
+                            val fullScanResult = tempWallet.startFullScan().build()
+                            val update = activeConn.client.fullScan(fullScanResult, stopGap = 20uL, batchSize = 10uL, fetchPrevTxouts = false)
+                            tempWallet.applyUpdate(update)
+                        }
 
                         val destAddress = validatedDestination(state, network)
                         val feeRate = validatedFeeRate(state.feeRate)
@@ -477,7 +477,6 @@ class SweepViewModel @Inject constructor(
                         val tx = psbt.extractTx()
                         prepareSweepTransaction(tempWallet, tx, state, destAddress)
                     } finally {
-                        try { activeConn.close() } catch (_: Exception) {}
                         try { tempWallet.close() } catch (_: Exception) {}
                         try { tempPersister.close() } catch (_: Exception) {}
                         try { externalDesc.close() } catch (_: Exception) {}
@@ -712,7 +711,6 @@ class SweepViewModel @Inject constructor(
         var internalDesc: Descriptor? = null
         val tempDbPath = java.io.File.createTempFile("clench_wif_sweep_", ".db", appContext.cacheDir).absolutePath
         val tempPersister = Persister.newSqlite(tempDbPath)
-        var activeConn: net.clench.wallet.data.network.ActiveElectrumConnection? = null
         var tempWallet: Wallet? = null
         try {
             val descriptors = SweepWifDescriptorFactory.create(wif.value, network, script)
@@ -721,11 +719,10 @@ class SweepViewModel @Inject constructor(
             val wallet = Wallet(externalDesc, internalDesc, network, tempPersister)
             tempWallet = wallet
             val config = settingsManager.loadElectrumConfig()
-            val connection = electrumConnectionFactory.createConnection(config)
-            activeConn = connection
-            return block(wallet, connection)
+            return withBoundedElectrum(config, "Electrum WIF-sweep operation") { connection ->
+                block(wallet, connection)
+            }
         } finally {
-            try { activeConn?.close() } catch (_: Exception) {}
             try { tempWallet?.close() } catch (_: Exception) {}
             try { tempPersister.close() } catch (_: Exception) {}
             try { externalDesc?.destroy() } catch (_: Exception) {}
@@ -734,6 +731,44 @@ class SweepViewModel @Inject constructor(
             try { java.io.File(tempDbPath + "-wal").delete() } catch (_: Exception) {}
             try { java.io.File(tempDbPath + "-shm").delete() } catch (_: Exception) {}
             try { java.io.File(tempDbPath + "-journal").delete() } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Execute sweep networking behind a hard deadline. Coroutine cancellation
+     * cannot pre-empt BDK's blocking native Electrum calls, so the connection and
+     * operation both run on a disposable executor whose transport is closed
+     * before a timed-out Future is cancelled.
+     */
+    private fun <T> withBoundedElectrum(
+        config: ElectrumConfig,
+        operation: String,
+        block: (net.clench.wallet.data.network.ActiveElectrumConnection) -> T
+    ): T {
+        val timeoutMs = if (config.isCustom) 60_000L else 30_000L
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        var activeConnection: net.clench.wallet.data.network.ActiveElectrumConnection? = null
+        try {
+            activeConnection = BoundedBlockingCall.awaitResource(
+                executor = executor,
+                timeoutMs = timeoutMs,
+                operation = "$operation connection",
+                create = { electrumConnectionFactory.createConnection(config) },
+                close = { it.close() }
+            )
+            val connection = activeConnection
+            val operationFuture = executor.submit(java.util.concurrent.Callable {
+                block(connection)
+            })
+            return BoundedBlockingCall.await(
+                future = operationFuture,
+                timeoutMs = timeoutMs,
+                operation = operation,
+                onTimeout = { connection.close() }
+            )
+        } finally {
+            runCatching { activeConnection?.close() }
+            executor.shutdownNow()
         }
     }
 

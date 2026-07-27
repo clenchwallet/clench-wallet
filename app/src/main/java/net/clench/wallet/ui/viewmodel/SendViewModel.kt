@@ -985,8 +985,10 @@ class SendViewModel @Inject constructor(
         const val MAX_ABSOLUTE_FEE_SAT = 1_000_000L
         const val HIGH_FEE_WARNING_PERCENT = 5.0
         const val MAX_RELATIVE_FEE_PERCENT = 50.0
+        private const val MAX_BITCOIN_SUPPLY_SAT = 2_100_000_000_000_000L
 
         fun requiresHighFeeConfirmation(review: BuiltTransactionReview): Boolean {
+            if (review.feeSat < 0 || review.outputs.any { it.amountSat < 0 }) return false
             val reviewedAmount = feeComparisonAmount(review)
             if (reviewedAmount <= 0) return false
             return review.feeSat.toDouble() / reviewedAmount.toDouble() * 100.0 >
@@ -994,6 +996,13 @@ class SendViewModel @Inject constructor(
         }
 
         fun feeSafetyError(review: BuiltTransactionReview): String? {
+            if (review.feeSat < 0 || review.vsize <= 0 || !review.feeRateSatPerVbyte.isFinite() ||
+                review.feeRateSatPerVbyte < 0 ||
+                review.outputs.any { it.amountSat !in 0..MAX_BITCOIN_SUPPLY_SAT } ||
+                review.totalOutputAmountSat > MAX_BITCOIN_SUPPLY_SAT
+            ) {
+                return "Transaction contains invalid fee or amount metadata"
+            }
             if (review.feeSat > MAX_ABSOLUTE_FEE_SAT) {
                 return "Transaction fee is ${review.feeSat} sats, above Clench's ${MAX_ABSOLUTE_FEE_SAT}-sat safety limit"
             }
@@ -1007,6 +1016,6 @@ class SendViewModel @Inject constructor(
 
         private fun feeComparisonAmount(review: BuiltTransactionReview): Long =
             review.externalAmountSat.takeIf { it > 0 }
-                ?: review.outputs.sumOf { it.amountSat }
+                ?: review.totalOutputAmountSat
     }
 }

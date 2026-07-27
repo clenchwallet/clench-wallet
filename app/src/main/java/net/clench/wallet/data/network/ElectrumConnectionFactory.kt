@@ -83,6 +83,7 @@ class ElectrumConnectionFactory @Inject constructor(
     companion object {
         private const val TAG = "ElectrumConnFactory"
         private const val SOCKS5_CONNECT_TIMEOUT_MS = 15_000
+        private const val SOCKET_NEGOTIATION_TIMEOUT_MS = 15_000
         private const val RELAY_BUFFER_SIZE = 8192
     }
 
@@ -274,6 +275,9 @@ class ElectrumConnectionFactory @Inject constructor(
                 it.connect(InetSocketAddress(resolved.host, resolved.port), SOCKS5_CONNECT_TIMEOUT_MS)
             }
         }
+        // Bound SOCKS5 negotiation and TLS handshake reads. Callers may replace
+        // this with a protocol-specific timeout after the socket is established.
+        socket.soTimeout = SOCKET_NEGOTIATION_TIMEOUT_MS
 
         // Wrap in TLS if needed
         return if (resolved.mode == ConnectionMode.TLS_PINNED || resolved.mode == ConnectionMode.TOR_TLS) {
@@ -291,6 +295,7 @@ class ElectrumConnectionFactory @Inject constructor(
         val sock = Socket()
         try {
             sock.connect(InetSocketAddress(socksHost, socksPort), SOCKS5_CONNECT_TIMEOUT_MS)
+            sock.soTimeout = SOCKET_NEGOTIATION_TIMEOUT_MS
         } catch (e: Exception) {
             throw ElectrumConnectionException.TorProxyUnavailable(socksHost, socksPort, e)
         }

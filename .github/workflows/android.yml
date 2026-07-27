@@ -8,12 +8,15 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate Gradle wrapper JAR
+        uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
 
       - name: Set up JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
@@ -25,10 +28,35 @@ jobs:
         uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
 
       - name: Build, test, and lint
+        env:
+          CLENCH_FUZZ_CASES: 1024
         run: ./gradlew --no-daemon --dependency-verification=strict assembleDebug testDebugUnitTest lint
+
+      - name: Run extended hostile protocol fuzz lane
+        run: scripts/verification/run-hostile-fuzz.sh 5000
 
       - name: Require committed Room schemas
         run: git diff --exit-code -- app/schemas
+
+      - name: Verify release controls and deterministic dependency evidence
+        env:
+          CLENCH_REQUIRE_NO_LOCAL_SIGNING_MATERIAL: 1
+        run: |
+          scripts/release/verify-release-controls.py
+          python3 -B scripts/verification/test-release-tools.py
+          mkdir -p build/verification
+          scripts/release/generate-sbom.py \
+            --commit "$GITHUB_SHA" \
+            --output build/verification/sbom-first.cdx.json
+          scripts/release/generate-sbom.py \
+            --commit "$GITHUB_SHA" \
+            --output build/verification/sbom-second.cdx.json
+          cmp build/verification/sbom-first.cdx.json build/verification/sbom-second.cdx.json
+          VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          scripts/release/validate-sbom.py \
+            build/verification/sbom-first.cdx.json \
+            --version "$VERSION" \
+            --commit "$GITHUB_SHA"
 
       - name: Get version name
         id: version

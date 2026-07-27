@@ -2,6 +2,7 @@ package net.clench.wallet.ui.viewmodel
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import net.clench.wallet.security.PsbtSafety
 
 /**
  * In-memory store for PSBT data between screens.
@@ -16,8 +17,10 @@ class PsbtStore @Inject constructor() {
      * Store a PSBT for hardware wallet signing.
      * @throws IllegalStateException if a PSBT is already pending (race condition protection)
      */
+    @Synchronized
     fun store(walletId: String, psbtBase64: String, deviceType: String) {
         require(psbtBase64.length <= MAX_PSBT_BASE64_CHARS) { "PSBT exceeds the in-memory safety limit" }
+        PsbtSafety.inspectBase64(psbtBase64)
         val current = pending
         if (current != null) {
             throw IllegalStateException(
@@ -32,6 +35,7 @@ class PsbtStore @Inject constructor() {
      * Consume the stored PSBT data (returns and clears).
      * @return Triple of (walletId, psbtBase64, deviceType) or null if nothing stored
      */
+    @Synchronized
     fun consume(): Triple<String, String, String>? {
         val result = pending
         pending = null
@@ -42,11 +46,13 @@ class PsbtStore @Inject constructor() {
      * Peek at the stored PSBT base64 without consuming.
      * Used by the screen to access the original unsigned PSBT for validation.
      */
+    @Synchronized
     fun peekPsbtBase64(): String? = pending?.second
 
     /**
      * Force-clear any pending PSBT. Use when the user explicitly cancels the signing flow.
      */
+    @Synchronized
     fun clear() {
         pending = null
     }

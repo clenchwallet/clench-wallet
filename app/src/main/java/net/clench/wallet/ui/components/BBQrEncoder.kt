@@ -1,6 +1,6 @@
 package net.clench.wallet.ui.components
 
-import java.util.zip.Deflater
+import net.clench.wallet.security.InputLimits
 import java.util.zip.Inflater
 
 /**
@@ -23,6 +23,8 @@ object BBQrEncoder {
     private const val ENCODING_ZLIB_BASE32 = 'Z'
     private const val ENCODING_HEX = 'H'
     private const val HEADER_LEN = 8 // "B$" + encoding + fileType + 2-char total(base36) + 2-char index(base36)
+    internal const val MAX_FRAMES = 1295
+    internal const val MAX_DECODED_BYTES = 6 * 1024 * 1024
 
     // Base36 digits for total/index fields
     private const val BASE36_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -45,20 +47,18 @@ object BBQrEncoder {
      *
      * @param psbtBytes Raw PSBT bytes
      * @param maxChunkChars Max data chars per frame (excluding 8-char header). Default 800.
-     * @param useCompression Only true for callers that can guarantee BBQr-compatible wbits=10 output.
      */
     fun encodePsbt(
         psbtBytes: ByteArray,
-        maxChunkChars: Int = 800,
-        useCompression: Boolean = false
+        maxChunkChars: Int = 800
     ): List<String> {
+        require(psbtBytes.isNotEmpty()) { "PSBT is empty" }
+        require(psbtBytes.size <= InputLimits.PSBT_BYTES) {
+            "PSBT exceeds the BBQr binary safety limit"
+        }
         val rawBase32Data = base32Encode(psbtBytes)
-        val compressed = if (useCompression) zlibCompress(psbtBytes) else ByteArray(0)
-        val compressedBase32Data = if (useCompression) base32Encode(compressed) else ""
-
-        val useZlib = useCompression && compressed.size < psbtBytes.size
-        val encoding = if (useZlib) ENCODING_ZLIB_BASE32 else '2'
-        val encodedData = if (useZlib) compressedBase32Data else rawBase32Data
+        val encoding = '2'
+        val encodedData = rawBase32Data
         // BBQr header format: B$ + encoding + filetype + total(base36,2) + index(base36,2)
 
         // Single-frame optimization: if it all fits in one QR (≤2500 chars total)
@@ -77,8 +77,8 @@ object BBQrEncoder {
         val rawFrames = (encodedData.length + chunkCapacity - 1) / chunkCapacity
 
         // Fix 3: Replace silent coerceIn with a descriptive error if frames exceed max base36 (ZZ = 1295)
-        require(rawFrames <= 1295) {
-            "PSBT too large for BBQr: requires $rawFrames frames (max 1295). " +
+        require(rawFrames <= MAX_FRAMES) {
+            "PSBT too large for BBQr: requires $rawFrames frames (max $MAX_FRAMES). " +
             "Try reducing the number of inputs or use SD card transfer for Coldcard Mk4."
         }
         val totalFrames = rawFrames
@@ -129,6 +129,17 @@ object BBQrEncoder {
         val totalFrames = fromBase36(frame.substring(4, 6)) ?: return null
         val frameIndex = fromBase36(frame.substring(6, 8)) ?: return null
         val data = frame.substring(8)
+        if (encoding !in setOf(ENCODING_ZLIB_BASE32, ENCODING_HEX, '2')) return null
+        if (fileType !in 'A'..'Z') return null
+        if (totalFrames !in 1..MAX_FRAMES || frameIndex !in 0 until totalFrames) return null
+        if (data.isEmpty()) return null
+        if (encoding == ENCODING_HEX && data.any { it.digitToIntOrNull(16) == null }) return null
+        if (encoding != ENCODING_HEX && data.any { it.code >= BASE32_DECODE.size || BASE32_DECODE[it.code] < 0 }) return null
+        if (encoding == ENCODING_HEX && data.length % 2 != 0) return null
+        if (frameIndex < totalFrames - 1) {
+            val splitMod = if (encoding == ENCODING_HEX) 2 else 8
+            if (data.length % splitMod != 0) return null
+        }
 
         return BBQrFrame(fileType, encoding, totalFrames, frameIndex, data)
     }
@@ -142,18 +153,34 @@ object BBQrEncoder {
      * @return Decoded raw bytes
      */
     fun reassemble(orderedChunks: List<String>, encoding: Char): ByteArray {
+        require(orderedChunks.isNotEmpty()) { "BBQr payload has no frames" }
+        require(orderedChunks.size <= MAX_FRAMES) { "BBQr payload contains too many frames" }
+        var encodedLength = 0
+        orderedChunks.forEachIndexed { index, chunk ->
+            require(chunk.isNotEmpty()) { "BBQr frame $index is empty" }
+            require(encodedLength <= MAX_DECODED_BYTES * 2 - chunk.length) {
+                "BBQr payload exceeds the encoded safety limit"
+            }
+            encodedLength += chunk.length
+        }
         val combined = orderedChunks.joinToString("")
         return when (encoding) {
             ENCODING_ZLIB_BASE32 -> {
                 val compressed = base32Decode(combined)
-                zlibDecompress(compressed)
+                require(base32Encode(compressed) == combined) { "BBQr Base32 data is non-canonical" }
+                zlibDecompress(compressed, MAX_DECODED_BYTES)
             }
             ENCODING_HEX -> {
-                hexDecode(combined)
+                hexDecode(combined).also {
+                    require(it.size <= MAX_DECODED_BYTES) { "BBQr payload exceeds the decoded safety limit" }
+                }
             }
             '2' -> {
                 // Base32, uncompressed
-                base32Decode(combined)
+                base32Decode(combined).also {
+                    require(base32Encode(it) == combined) { "BBQr Base32 data is non-canonical" }
+                    require(it.size <= MAX_DECODED_BYTES) { "BBQr payload exceeds the decoded safety limit" }
+                }
             }
             else -> throw IllegalArgumentException("Unknown BBQr encoding: $encoding")
         }
@@ -205,6 +232,7 @@ object BBQrEncoder {
     }
 
     private fun hexDecode(hex: String): ByteArray {
+        require(hex.length % 2 == 0) { "BBQr hex payload must contain complete bytes" }
         val len = hex.length / 2
         val result = ByteArray(len)
         for (i in 0 until len) {
@@ -213,34 +241,30 @@ object BBQrEncoder {
         return result
     }
 
-    private fun zlibCompress(data: ByteArray): ByteArray {
+    private fun zlibDecompress(data: ByteArray, maxOutputBytes: Int): ByteArray {
         // BBQr uses raw DEFLATE (Python zlib wbits=-10), not a zlib-wrapped stream.
-        val deflater = Deflater(Deflater.DEFAULT_COMPRESSION, true)
-        try {
-            deflater.setInput(data)
-            deflater.finish()
-            val buffer = ByteArray(data.size + 256)
-            val compressedSize = deflater.deflate(buffer)
-            return buffer.copyOf(compressedSize)
-        } finally {
-            deflater.end()
-        }
-    }
-
-    private fun zlibDecompress(data: ByteArray): ByteArray {
-        // BBQr uses raw DEFLATE (Python zlib wbits=-10), not a zlib-wrapped stream.
+        require(data.isNotEmpty()) { "BBQr compressed payload is empty" }
         val inflater = Inflater(true)
         try {
             inflater.setInput(data)
-            val output = ByteArray(data.size * 4) // initial estimate
+            val output = ByteArray(minOf(maxOf(data.size * 4, 1_024), maxOutputBytes))
             var totalRead = 0
             var buf = output
             while (!inflater.finished()) {
                 val count = inflater.inflate(buf, totalRead, buf.size - totalRead)
-                if (count == 0 && inflater.needsInput()) break
+                if (count == 0) {
+                    if (inflater.needsDictionary()) throw IllegalArgumentException("BBQr compressed payload requires a dictionary")
+                    if (inflater.needsInput()) throw IllegalArgumentException("BBQr compressed payload is truncated")
+                    if (totalRead == buf.size) {
+                        require(buf.size < maxOutputBytes) { "BBQr payload exceeds the decoded safety limit" }
+                    } else {
+                        throw IllegalArgumentException("BBQr compressed payload made no progress")
+                    }
+                }
                 totalRead += count
                 if (totalRead == buf.size && !inflater.finished()) {
-                    buf = buf.copyOf(buf.size * 2)
+                    require(buf.size < maxOutputBytes) { "BBQr payload exceeds the decoded safety limit" }
+                    buf = buf.copyOf(minOf(buf.size * 2, maxOutputBytes))
                 }
             }
             return buf.copyOf(totalRead)
@@ -256,4 +280,70 @@ object BBQrEncoder {
         val frameIndex: Int,
         val data: String
     )
+}
+
+/**
+ * Strict accumulator for a single BBQr stream. It rejects mixed sessions and
+ * conflicting duplicate frames instead of silently replacing collected data.
+ */
+internal class BBQrSessionAccumulator(
+    private val maxFrames: Int = BBQrEncoder.MAX_FRAMES,
+    private val maxEncodedChars: Int = BBQrEncoder.MAX_DECODED_BYTES * 2
+) {
+    data class Progress(
+        val collectedFrames: Int,
+        val totalFrames: Int,
+        val fileType: Char,
+        val decodedPayload: ByteArray? = null
+    )
+
+    private val chunks = mutableMapOf<Int, String>()
+    private var totalFrames = 0
+    private var encoding = '\u0000'
+    private var fileType = '\u0000'
+    private var encodedChars = 0
+
+    fun receive(frameText: String): Progress {
+        val frame = requireNotNull(BBQrEncoder.parseBBQrFrame(frameText)) { "Invalid BBQr frame" }
+        require(frame.totalFrames <= maxFrames) { "BBQr stream contains too many frames" }
+
+        if (totalFrames == 0) {
+            totalFrames = frame.totalFrames
+            encoding = frame.encoding
+            fileType = frame.fileType
+        } else {
+            require(
+                totalFrames == frame.totalFrames &&
+                    encoding == frame.encoding &&
+                    fileType == frame.fileType
+            ) { "BBQr frame belongs to a different stream" }
+        }
+
+        val prior = chunks[frame.frameIndex]
+        require(prior == null || prior == frame.data) { "BBQr frame conflicts with an earlier frame" }
+        if (prior == null) {
+            require(encodedChars <= maxEncodedChars - frame.data.length) {
+                "BBQr stream exceeds the encoded safety limit"
+            }
+            chunks[frame.frameIndex] = frame.data
+            encodedChars += frame.data.length
+        }
+
+        val payload = if (chunks.size == totalFrames) {
+            val ordered = (0 until totalFrames).map { index ->
+                requireNotNull(chunks[index]) { "BBQr stream is missing frame $index" }
+            }
+            BBQrEncoder.reassemble(ordered, encoding)
+        } else null
+
+        return Progress(chunks.size, totalFrames, fileType, payload)
+    }
+
+    fun reset() {
+        chunks.clear()
+        totalFrames = 0
+        encoding = '\u0000'
+        fileType = '\u0000'
+        encodedChars = 0
+    }
 }

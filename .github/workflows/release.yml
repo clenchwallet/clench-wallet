@@ -20,7 +20,7 @@ env:
 
 jobs:
   build_and_sign:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: release-signing
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
@@ -39,12 +39,19 @@ jobs:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
           fetch-depth: 0
 
+      - name: Validate Gradle wrapper JAR
+        uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+
       - name: Require an annotated, cryptographically signed tag
         env:
           RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+          if test "$EVENT_NAME" = push; then
+            test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+          fi
+          test "$(git describe --tags --exact-match HEAD)" = "$RELEASE_TAG"
           test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
           TAG_OBJECT_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')"
           VERIFIED="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$TAG_OBJECT_SHA" --jq '.verification.verified')"
@@ -60,7 +67,23 @@ jobs:
         uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
 
       - name: Test and lint before loading signing material
+        env:
+          CLENCH_FUZZ_CASES: 1024
         run: ./gradlew --no-daemon --dependency-verification=strict clean testDebugUnitTest lint
+
+      - name: Verify release controls and generate deterministic SBOM
+        run: |
+          scripts/release/verify-release-controls.py
+          python3 -B scripts/verification/test-release-tools.py
+          VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          mkdir -p build/release-artifacts
+          scripts/release/generate-sbom.py \
+            --commit "$(git rev-parse HEAD)" \
+            --output "build/release-artifacts/clench-$VERSION-sbom.cdx.json"
+          scripts/release/validate-sbom.py \
+            "build/release-artifacts/clench-$VERSION-sbom.cdx.json" \
+            --version "$VERSION" \
+            --commit "$(git rev-parse HEAD)"
 
       - name: Require release signing secrets
         env:
@@ -94,6 +117,15 @@ jobs:
       - name: Build signed release
         run: ./gradlew --no-daemon --dependency-verification=strict assembleRelease
 
+      - name: Destroy signing material
+        if: always()
+        run: |
+          if command -v shred >/dev/null 2>&1; then
+            shred -u keystore.properties "$RUNNER_TEMP/clench-release/release.keystore" 2>/dev/null || true
+          fi
+          rm -f keystore.properties "$RUNNER_TEMP/clench-release/release.keystore"
+          rmdir "$RUNNER_TEMP/clench-release" 2>/dev/null || true
+
       - name: Get and verify version metadata
         id: version
         env:
@@ -117,9 +149,21 @@ jobs:
             build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk
           cp docs/release/v${{ steps.version.outputs.VERSION }}.md \
             build/release-artifacts/RELEASE-NOTES.md
+          scripts/release/generate-provenance.py \
+            --apk build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk \
+            --sbom build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-sbom.cdx.json \
+            --tag ${{ steps.version.outputs.TAG }} \
+            --commit ${{ steps.version.outputs.COMMIT }} \
+            --repository "$GITHUB_REPOSITORY" \
+            --output build/release-artifacts/PROVENANCE.intoto.jsonl
           (
             cd build/release-artifacts
-            sha256sum clench-${{ steps.version.outputs.VERSION }}-release.apk > SHA256SUMS
+            sha256sum \
+              clench-${{ steps.version.outputs.VERSION }}-release.apk \
+              clench-${{ steps.version.outputs.VERSION }}-sbom.cdx.json \
+              PROVENANCE.intoto.jsonl \
+              RELEASE-NOTES.md \
+              > SHA256SUMS
             cp SHA256SUMS SHA256SUMS.txt
           )
           {
@@ -129,6 +173,8 @@ jobs:
             echo "commit=$(git rev-parse HEAD)"
             echo "gradleDistributionUrl=$(grep '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties | cut -d= -f2-)"
             echo "dependencyVerificationSha256=$(sha256sum gradle/verification-metadata.xml | awk '{print $1}')"
+            echo "sbomSha256=$(sha256sum build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-sbom.cdx.json | awk '{print $1}')"
+            echo "provenanceSha256=$(sha256sum build/release-artifacts/PROVENANCE.intoto.jsonl | awk '{print $1}')"
             echo "apkSignerCertsFollow"
           } > build/release-artifacts/RELEASE-MANIFEST.txt
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
@@ -137,19 +183,16 @@ jobs:
             build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk \
             | tee -a build/release-artifacts/RELEASE-MANIFEST.txt
 
-      - name: Destroy signing material
-        if: always()
-        run: |
-          if command -v shred >/dev/null 2>&1; then
-            shred -u keystore.properties "$RUNNER_TEMP/clench-release/release.keystore" 2>/dev/null || true
-          fi
-          rm -f keystore.properties "$RUNNER_TEMP/clench-release/release.keystore"
-          rmdir "$RUNNER_TEMP/clench-release" 2>/dev/null || true
-
       - name: Attest signed APK provenance
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk
+
+      - name: Attest signed APK SBOM
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        with:
+          subject-path: build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk
+          sbom-path: build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-sbom.cdx.json
 
       - name: Upload verified release bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -161,7 +204,7 @@ jobs:
 
   verify_release:
     needs: build_and_sign
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       attestations: read
@@ -172,17 +215,28 @@ jobs:
           ref: ${{ needs.build_and_sign.outputs.source_tag }}
           fetch-depth: 1
 
+      - name: Validate Gradle wrapper JAR
+        uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+
       - name: Set up JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           java-version: '21'
           distribution: 'temurin'
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+
+      - name: Require a clean checkout with no signing material
+        env:
+          CLENCH_REQUIRE_NO_LOCAL_SIGNING_MATERIAL: 1
+        run: scripts/release/verify-release-controls.py
+
       - name: Download signed release bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: signed-release-${{ needs.build_and_sign.outputs.version }}
-          path: release-artifacts
+          path: ${{ runner.temp }}/release-artifacts
 
       - name: Verify checksums, package, version, and signer continuity
         env:
@@ -190,7 +244,7 @@ jobs:
           VERSION_CODE: ${{ needs.build_and_sign.outputs.version_code }}
           RELEASE_TAG: ${{ needs.build_and_sign.outputs.source_tag }}
           SOURCE_COMMIT: ${{ needs.build_and_sign.outputs.source_commit }}
-        run: scripts/release/verify-release-bundle.sh release-artifacts
+        run: scripts/release/verify-release-bundle.sh "$RUNNER_TEMP/release-artifacts"
 
       - name: Verify build-provenance attestation
         env:
@@ -199,24 +253,77 @@ jobs:
           RELEASE_TAG: ${{ needs.build_and_sign.outputs.source_tag }}
           SOURCE_COMMIT: ${{ needs.build_and_sign.outputs.source_commit }}
         run: |
-          gh attestation verify "release-artifacts/clench-$VERSION-release.apk" \
+          gh attestation verify "$RUNNER_TEMP/release-artifacts/clench-$VERSION-release.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
             --source-digest "$SOURCE_COMMIT" \
             --source-ref "refs/tags/$RELEASE_TAG" \
             --deny-self-hosted-runners
 
+      - name: Verify SBOM attestation and exact published predicate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build_and_sign.outputs.version }}
+          RELEASE_TAG: ${{ needs.build_and_sign.outputs.source_tag }}
+          SOURCE_COMMIT: ${{ needs.build_and_sign.outputs.source_commit }}
+        run: |
+          gh attestation verify "$RUNNER_TEMP/release-artifacts/clench-$VERSION-release.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --predicate-type https://cyclonedx.org/bom \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-digest "$SOURCE_COMMIT" \
+            --source-ref "refs/tags/$RELEASE_TAG" \
+            --deny-self-hosted-runners \
+            --format json \
+            > "$RUNNER_TEMP/clench-sbom-attestation.json"
+          scripts/release/verify-sbom-attestation.py \
+            "$RUNNER_TEMP/clench-sbom-attestation.json" \
+            "$RUNNER_TEMP/release-artifacts/clench-$VERSION-sbom.cdx.json"
+
+      - name: Independently rebuild and compare the unsigned APK payload
+        env:
+          VERSION: ${{ needs.build_and_sign.outputs.version }}
+          VERSION_CODE: ${{ needs.build_and_sign.outputs.version_code }}
+        run: |
+          scripts/release/rebuild-unsigned.sh \
+            "$RUNNER_TEMP/clench-$VERSION-independent-unsigned.apk"
+          scripts/release/verify-independent-apk.sh \
+            "$RUNNER_TEMP/release-artifacts" \
+            "$RUNNER_TEMP/clench-$VERSION-independent-unsigned.apk" \
+            "$RUNNER_TEMP/release-artifacts/INDEPENDENT-APK-VERIFICATION.json"
+
+      - name: Finalize and reverify the public evidence bundle
+        env:
+          VERSION: ${{ needs.build_and_sign.outputs.version }}
+          VERSION_CODE: ${{ needs.build_and_sign.outputs.version_code }}
+          RELEASE_TAG: ${{ needs.build_and_sign.outputs.source_tag }}
+          SOURCE_COMMIT: ${{ needs.build_and_sign.outputs.source_commit }}
+        run: |
+          (
+            cd "$RUNNER_TEMP/release-artifacts"
+            sha256sum \
+              "clench-$VERSION-release.apk" \
+              "clench-$VERSION-sbom.cdx.json" \
+              PROVENANCE.intoto.jsonl \
+              RELEASE-NOTES.md \
+              RELEASE-MANIFEST.txt \
+              INDEPENDENT-APK-VERIFICATION.json \
+              > SHA256SUMS
+            cp SHA256SUMS SHA256SUMS.txt
+          )
+          scripts/release/verify-release-bundle.sh "$RUNNER_TEMP/release-artifacts"
+
       - name: Upload independently verified release bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: verified-release-${{ needs.build_and_sign.outputs.version }}
-          path: release-artifacts/
+          path: ${{ runner.temp }}/release-artifacts/
           if-no-files-found: error
           retention-days: 7
 
   publish:
     needs: [build_and_sign, verify_release]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -238,6 +345,10 @@ jobs:
             release-artifacts/SHA256SUMS \
             release-artifacts/SHA256SUMS.txt \
             release-artifacts/RELEASE-MANIFEST.txt \
+            "release-artifacts/clench-$VERSION-sbom.cdx.json" \
+            release-artifacts/PROVENANCE.intoto.jsonl \
+            release-artifacts/INDEPENDENT-APK-VERIFICATION.json \
+            release-artifacts/RELEASE-NOTES.md \
             --verify-tag \
             --latest \
             --title "Clench Wallet $VERSION" \

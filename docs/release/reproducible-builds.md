@@ -1,93 +1,112 @@
 # Reproducible Builds
 
-This document describes the expected release rebuild process for Clench Wallet.
+Clench uses two independent release builds:
 
-## Build Environment
+1. The protected `build_and_sign` job tests the source, generates the SBOM, temporarily loads the production key, and creates the signed APK.
+2. A separate `verify_release` runner checks out the same signed tag with no signing material, strictly rebuilds the unsigned APK, and compares every ZIP payload entry with the signed APK.
 
-Use the versions pinned in the repository:
+Only the APK signing block and actual v1 `META-INF/MANIFEST.MF` plus
+certificate/signature records may differ. Resources, DEX, native libraries,
+manifest, relative payload order, timestamps, ZIP attributes, local headers,
+compressed bytes, archive comment, and every other entry must match exactly.
 
-- JDK: 21
-- Android Gradle Plugin: from `gradle/libs.versions.toml`
-- Gradle wrapper: `gradle/wrapper/gradle-wrapper.properties`
-- Dependencies: `app/gradle.lockfile` and `gradle/verification-metadata.xml`
-- Android SDK: compile SDK 36
+## Pinned inputs
 
-The release process should use a clean checkout of a signed or otherwise trusted release tag.
+- Runner image: Ubuntu 24.04.
+- JDK: Temurin 21.
+- Android SDK: compile SDK 36.
+- Android Gradle Plugin and plugins: `gradle/libs.versions.toml`.
+- Gradle distribution and SHA-256: `gradle/wrapper/gradle-wrapper.properties`.
+- Gradle wrapper JAR: GitHub-hosted wrapper validation in every build/fuzz/release lane.
+- Release dependency graph: `app/gradle.lockfile`.
+- Settings/plugin dependency graph: `settings-gradle.lockfile`.
+- Artifact integrity: `gradle/verification-metadata.xml`.
+- Release source: a GitHub-verified annotated signed tag.
 
-## Inputs
+The release jobs use `--dependency-verification=strict`. Dependency locks and verification metadata must never be regenerated implicitly during a release.
 
-Required files:
+## Independent no-secrets rebuild
 
-- `gradlew`
-- `gradle/wrapper/gradle-wrapper.jar`
-- `gradle/wrapper/gradle-wrapper.properties`
-- `gradle/libs.versions.toml`
-- `gradle/verification-metadata.xml`
-- `app/gradle.lockfile`
-- `app/build.gradle.kts`
-- `keystore.properties`
-- Release keystore referenced by `keystore.properties`
-
-`keystore.properties` must stay outside version control. It has this shape:
-
-```properties
-storeFile=/absolute/path/to/release.keystore
-storePassword=...
-keyAlias=...
-keyPassword=...
-```
-
-## Local Rebuild
-
-From a clean checkout:
+Use a fresh standalone clone of the exact signed tag. It must contain neither
+`keystore.properties` nor any keystore:
 
 ```bash
 git fetch --tags origin
-git checkout vX.Y.Z
-./scripts/release/reproducible-build.sh
+git clone --no-checkout https://github.com/clench-wallet/clench-wallet.git ../clench-verify
+cd ../clench-verify
+git checkout --detach vX.Y.Z
+scripts/release/rebuild-unsigned.sh
 ```
 
-The script runs:
+The script fails on a linked Git worktree, dirty checkout, tracked signing
+material, or any local signing material. Android Gradle Plugin does not resolve
+version-control metadata from the `.git` indirection file used by linked
+worktrees; accepting one would replace the source revision in the APK with
+`NO_VALID_GIT_FOUND` and destroy reproducibility. The script therefore requires
+a standalone `.git` directory and verifies the exact source revision embedded
+in the APK. It discovers AGP's single release APK without assuming whether the
+filename includes `-unsigned`, copies it to a stable verification path, and
+requires `apksigner verify` to fail for that file.
+
+To compare it with the published signed APK:
 
 ```bash
-./gradlew --no-daemon --dependency-verification=strict clean assembleRelease
+VERSION=X.Y.Z \
+VERSION_CODE=EXPECTED_CODE \
+EXPECTED_RELEASE_SIGNER_SHA256=d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca \
+scripts/release/verify-independent-apk.sh \
+  release-artifacts \
+  app/build/outputs/apk/release/app-release.apk \
+  release-artifacts/INDEPENDENT-APK-VERIFICATION.json
 ```
 
-It writes a manifest under `build/release-trust/` with:
+The JSON report records both whole-file hashes, the number of compared entries,
+and a digest of the canonical payload-and-ZIP-metadata inventory. The report
+validator independently reconstructs that inventory from the signed APK.
 
-- Source commit.
-- Version name and version code.
-- Gradle distribution URL.
-- Dependency verification metadata hash.
-- Release APK path.
-- Release APK SHA-256 digest.
-
-## Dirty Worktrees
-
-The script refuses to run on a dirty worktree. For local experimentation only:
+Exercise the verifier itself without signing material:
 
 ```bash
-CLENCH_ALLOW_DIRTY_REPRO=1 ./scripts/release/reproducible-build.sh
+python3 -B scripts/verification/test-release-tools.py
 ```
 
-Do not publish release attestations from a dirty worktree.
+This synthetic hostile suite requires rejection of payload and compression
+changes, duplicate/traversal ZIP entries, misleading non-signature
+`META-INF/*.MF` files, truncated SBOM inventories, and incomplete provenance.
 
-## Dependency Verification
+## Maintainer signed rebuild
 
-Gradle dependency verification must stay enabled. If a dependency changes:
+`scripts/release/reproducible-build.sh` is for an authorized maintainer who possesses the established release key. It refuses dirty source and requires an untracked `keystore.properties`. Never use it on an independent verifier or expose its key material to CI jobs other than the protected signing job.
 
-1. Review why the dependency changed.
-2. Review the upstream artifact and release notes.
-3. Regenerate verification metadata intentionally.
-4. Commit lockfile and verification-metadata changes together.
-5. Record the dependency change in the release notes.
+Signing-key access is not needed to establish payload reproducibility.
 
-## Expected Limits
+## SBOM and provenance
 
-Android release APK bytes can vary if:
+Each release publishes:
 
-- The release is signed with a different keystore.
-- The build environment uses different Android build tools.
-- Timestamps or generated resources differ across tool versions.
+- `clench-X.Y.Z-sbom.cdx.json`: deterministic CycloneDX 1.6 inventory of the locked release runtime, including artifact SHA-256 evidence from Gradle verification metadata.
+- `PROVENANCE.intoto.jsonl`: deterministic in-toto Statement v1 / SLSA provenance v1 binding APK and SBOM to the source, tag, toolchain, locks, workflow, and verifier scripts.
+- GitHub Sigstore build-provenance and CycloneDX SBOM attestations for the signed APK.
+- `INDEPENDENT-APK-VERIFICATION.json`: separate-runner unsigned payload comparison evidence.
 
-The release target is deterministic rebuildability from the same source, pinned toolchain, locked dependencies, and same signing key. Independent verifiers should compare the rebuilt unsigned or signed artifact and publish any mismatch with the source commit, tool versions, and artifact digests.
+Generate the SBOM twice and compare it byte-for-byte:
+
+```bash
+COMMIT=$(git rev-parse HEAD)
+scripts/release/generate-sbom.py --commit "$COMMIT" --output /tmp/clench-sbom-1.json
+scripts/release/generate-sbom.py --commit "$COMMIT" --output /tmp/clench-sbom-2.json
+cmp /tmp/clench-sbom-1.json /tmp/clench-sbom-2.json
+```
+
+## Mismatch handling
+
+Any payload mismatch blocks publication. Record:
+
+- Source tag and commit.
+- Signed and unsigned APK hashes.
+- Runner image, JDK, Gradle distribution and checksum.
+- Android SDK/build-tools versions.
+- Dependency lock and verification-metadata hashes.
+- First missing, unexpected, or changed APK entries.
+
+Do not expand the exclusion list to make a mismatch pass. Find and remove the nondeterministic input, then rebuild both sides.
