@@ -5,9 +5,9 @@ import android.util.Base64
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.network.BoundedBlockingCall
 import net.clench.wallet.data.network.TorAwareHttpClient
 import net.clench.wallet.domain.model.ScriptType
 import net.clench.wallet.data.local.dao.TransactionDao
@@ -158,6 +158,7 @@ class BdkBitcoinRepository @Inject constructor(
 ) : BitcoinRepository {
 
     private val maxHttpResponseChars = 2 * 1024 * 1024
+    private val recoveryScanTimeoutMs = 5 * 60_000L
 
     private data class TransactionFingerprint(
         val version: Int,
@@ -217,8 +218,12 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     /** Dispose every cached native wallet/persister when the app leaves the foreground. */
-    fun clearCachedWallets() {
-        walletCache.keys.toList().forEach(::evictWallet)
+    suspend fun clearCachedWallets() = withContext(Dispatchers.IO) {
+        walletCache.keys.toList().forEach { walletId ->
+            syncMutex(walletId).withLock {
+                evictWallet(walletId)
+            }
+        }
     }
 
     private fun discardFailedWalletCreation(walletId: String) {
@@ -239,7 +244,9 @@ class BdkBitcoinRepository @Inject constructor(
     // source of truth for whether a passphrase wallet is unlocked.
     private val unlockedPassphraseWallets = ConcurrentHashMap.newKeySet<String>()
 
-    // R7-1: Per-wallet sync mutex to prevent concurrent syncs corrupting BDK wallet DB
+    // R7-1: Per-wallet operation mutex. BDK Wallet/Persister objects are native,
+    // mutable, and shared by sync, address, review, signing, and recovery paths.
+    // Serialize every operation that reads or mutates those objects.
     private val syncMutexes = ConcurrentHashMap<String, Mutex>()
     private fun syncMutex(walletId: String) = syncMutexes.getOrPut(walletId) { Mutex() }
 
@@ -542,6 +549,7 @@ class BdkBitcoinRepository @Inject constructor(
         mnemonic: List<String>,
         passphrase: String?
     ): Unit = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         val walletEntity = walletDao.getById(walletId)
             ?: throw IllegalArgumentException("Wallet not found")
         if (!walletEntity.isWatchOnly) {
@@ -612,6 +620,7 @@ class BdkBitcoinRepository @Inject constructor(
             try { derivedChangeDescriptor?.close() } catch (_: Exception) {}
             try { mnemonicObj.destroy() } catch (_: Exception) {}
             try { secretKey?.destroy() } catch (_: Exception) {}
+        }
         }
     }
 
@@ -787,46 +796,45 @@ class BdkBitcoinRepository @Inject constructor(
                 if (logSensitive) {
                     if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: creating ElectrumClient mode=${resolved.mode} (timeout=${timeoutMs}ms)")
                 }
-                val connectFuture = executor.submit(java.util.concurrent.Callable {
-                    electrumConnectionFactory.createConnection(effectiveConfig)
-                })
-                try {
-                    activeConnection = connectFuture.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-                } catch (e: java.util.concurrent.TimeoutException) {
-                    connectFuture.cancel(true)
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: ElectrumClient connect TIMEOUT after ${timeoutMs}ms")
-                    throw java.util.concurrent.TimeoutException("ElectrumClient connection timed out after ${timeoutMs}ms")
-                } catch (e: java.util.concurrent.ExecutionException) {
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: ElectrumClient connect ERROR: ${e.cause?.message}")
-                    throw e.cause ?: e
-                }
+                activeConnection = BoundedBlockingCall.awaitResource(
+                    executor = executor,
+                    timeoutMs = timeoutMs,
+                    operation = "Electrum connection",
+                    create = { electrumConnectionFactory.createConnection(effectiveConfig) },
+                    close = { it.close() }
+                )
                 val electrumClient = activeConnection.client
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: ElectrumClient created OK (mode=${activeConnection.mode})")
 
-                // Full scan with coroutine timeout (fullScan is also blocking but generally completes)
-                withTimeout(timeoutMs) {
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: building fullScan request for $walletId")
-                    val fullScanRequest = wallet.startFullScan().build()
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: starting fullScan (stopGap=20, batch=10)")
-                    val update = electrumClient.fullScan(
+                // fullScan is a blocking native call, so a coroutine timeout cannot
+                // pre-empt it. Run it on the dedicated executor and close its
+                // transport before cancellation if the hard deadline expires.
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: building fullScan request for $walletId")
+                val fullScanRequest = wallet.startFullScan().build()
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: starting fullScan (stopGap=20, batch=10)")
+                val scanFuture = executor.submit(java.util.concurrent.Callable {
+                    electrumClient.fullScan(
                         fullScanRequest,
                         stopGap = 20uL,
                         batchSize = 10uL,
                         fetchPrevTxouts = true
                     )
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: fullScan complete, applying update")
+                })
+                val update = BoundedBlockingCall.await(
+                    future = scanFuture,
+                    timeoutMs = timeoutMs,
+                    operation = "Electrum full scan",
+                    onTimeout = { activeConnection.close() }
+                )
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: fullScan complete, applying update")
 
-                    wallet.applyUpdate(update)
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: update applied, persisting")
+                wallet.applyUpdate(update)
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: update applied, persisting")
 
-                    wallet.persist(entry.persister)
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: persisted OK")
-                }
-            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: TIMEOUT for $walletId: ${e.message}")
-                throw e
+                wallet.persist(entry.persister)
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: persisted OK")
             } catch (e: java.util.concurrent.TimeoutException) {
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: CONNECT TIMEOUT for $walletId: ${e.message}")
+                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: TIMEOUT for $walletId: ${e.message}")
                 throw e
             } catch (e: Exception) {
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: ERROR for $walletId: ${e.javaClass.simpleName}: ${e.message}")
@@ -1041,19 +1049,39 @@ class BdkBitcoinRepository @Inject constructor(
                         changeDescriptor.close()
                     }
                     replacementEntry = WalletEntry(wallet, persister)
-                    val activeConnection = electrumConnectionFactory.createConnection(settingsManager.loadElectrumConfig())
+                    val electrumConfig = settingsManager.loadElectrumConfig()
+                    val connectionTimeoutMs = if (electrumConfig.isCustom) 60_000L else 30_000L
+                    val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+                    var activeConnection: net.clench.wallet.data.network.ActiveElectrumConnection? = null
                     try {
+                        activeConnection = BoundedBlockingCall.awaitResource(
+                            executor = executor,
+                            timeoutMs = connectionTimeoutMs,
+                            operation = "Electrum recovery connection",
+                            create = { electrumConnectionFactory.createConnection(electrumConfig) },
+                            close = { it.close() }
+                        )
                         val request = wallet.startFullScan().build()
-                        val update = activeConnection.client.fullScan(
-                            request,
-                            stopGap = stopGap.toULong(),
-                            batchSize = 10uL,
-                            fetchPrevTxouts = true
+                        val connection = activeConnection
+                        val scanFuture = executor.submit(java.util.concurrent.Callable {
+                            connection.client.fullScan(
+                                request,
+                                stopGap = stopGap.toULong(),
+                                batchSize = 10uL,
+                                fetchPrevTxouts = true
+                            )
+                        })
+                        val update = BoundedBlockingCall.await(
+                            future = scanFuture,
+                            timeoutMs = recoveryScanTimeoutMs,
+                            operation = "Electrum recovery scan",
+                            onTimeout = { connection.close() }
                         )
                         wallet.applyUpdate(update)
                         wallet.persist(persister)
                     } finally {
-                        activeConnection.close()
+                        runCatching { activeConnection?.close() }
+                        executor.shutdownNow()
                     }
 
                     cacheWallet(walletId, checkNotNull(replacementEntry))
@@ -1098,15 +1126,17 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
     override suspend fun getBalance(walletId: String): WalletBalance = withContext(Dispatchers.IO) {
-        val entry = loadWallet(walletId)
-        val wallet = entry.wallet
-        val balance = wallet.balance()
-        WalletBalance(
-            confirmedSat = balance.confirmed.toSat().toLong(),
-            trustedPendingSat = balance.trustedPending.toSat().toLong(),
-            untrustedPendingSat = balance.untrustedPending.toSat().toLong(),
-            immatureSat = balance.immature.toSat().toLong()
-        )
+        syncMutex(walletId).withLock {
+            val entry = loadWallet(walletId)
+            val wallet = entry.wallet
+            val balance = wallet.balance()
+            WalletBalance(
+                confirmedSat = balance.confirmed.toSat().toLong(),
+                trustedPendingSat = balance.trustedPending.toSat().toLong(),
+                untrustedPendingSat = balance.untrustedPending.toSat().toLong(),
+                immatureSat = balance.immature.toSat().toLong()
+            )
+        }
     }
 
     override suspend fun getTransactions(walletId: String): List<TransactionItem> {
@@ -1137,31 +1167,35 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun getLastAddress(walletId: String): DomainAddress = withContext(Dispatchers.IO) {
-        // R7-3: Fixed !! crash — use loadWallet() which always returns a valid entry
-        // R7-8: Use nextUnusedAddress() which returns the next unused address without advancing the gap limit
-        val entry = loadWallet(walletId)
-        val wallet = entry.wallet
-        val addressInfo = wallet.nextUnusedAddress(KeychainKind.EXTERNAL)
-        DomainAddress(
-            address = addressInfo.address.toString(),
-            index = addressInfo.index.toInt(),
-            used = false
-        )
+        syncMutex(walletId).withLock {
+            // R7-3: Fixed !! crash — use loadWallet() which always returns a valid entry
+            // R7-8: Use nextUnusedAddress() which returns the next unused address without advancing the gap limit
+            val entry = loadWallet(walletId)
+            val wallet = entry.wallet
+            val addressInfo = wallet.nextUnusedAddress(KeychainKind.EXTERNAL)
+            DomainAddress(
+                address = addressInfo.address.toString(),
+                index = addressInfo.index.toInt(),
+                used = false
+            )
+        }
     }
 
     override suspend fun getReceiveAddress(walletId: String): DomainAddress = withContext(Dispatchers.IO) {
-        val entry = loadWallet(walletId)
-        val wallet = entry.wallet
-        val addressInfo = wallet.revealNextAddress(KeychainKind.EXTERNAL)
+        syncMutex(walletId).withLock {
+            val entry = loadWallet(walletId)
+            val wallet = entry.wallet
+            val addressInfo = wallet.revealNextAddress(KeychainKind.EXTERNAL)
 
-        // Persist wallet state after revealing address
-        wallet.persist(entry.persister)
+            // Persist wallet state after revealing address
+            wallet.persist(entry.persister)
 
-        DomainAddress(
-            address = addressInfo.address.toString(),
-            index = addressInfo.index.toInt(),
-            used = false
-        )
+            DomainAddress(
+                address = addressInfo.address.toString(),
+                index = addressInfo.index.toInt(),
+                used = false
+            )
+        }
     }
 
     override suspend fun buildTransaction(
@@ -1173,6 +1207,7 @@ class BdkBitcoinRepository @Inject constructor(
         utxoVout: UInt?,
         selectedOutpoints: List<String>
     ): String = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         val entry = loadWallet(walletId)
         val wallet = entry.wallet
         val network = activeNetwork()
@@ -1274,24 +1309,50 @@ class BdkBitcoinRepository @Inject constructor(
             runCatching { psbt.close() }
             throw e
         }
+        }
     }
 
     override suspend fun broadcastTransaction(config: ElectrumConfig, txHex: String): String = withContext(Dispatchers.IO) {
         if (settingsManager.isOfflineMode()) {
             throw IllegalStateException("Cannot broadcast in offline mode")
         }
-        val activeConnection = electrumConnectionFactory.createConnection(config)
 
         // Parse transaction from hex bytes — BDK 2.x takes ByteArray
         val txBytes = txHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         val tx = Transaction(txBytes)
 
-        // Broadcast to network — BDK 2.x returns Txid object
         try {
-            return@withContext activeConnection.client.transactionBroadcast(tx).toString()
+            broadcastTransactionBounded(config, tx)
         } finally {
             tx.close()
-            activeConnection.close()
+        }
+    }
+
+    private fun broadcastTransactionBounded(config: ElectrumConfig, tx: Transaction): String {
+        val timeoutMs = if (config.isCustom) 60_000L else 30_000L
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        var activeConnection: net.clench.wallet.data.network.ActiveElectrumConnection? = null
+        try {
+            activeConnection = BoundedBlockingCall.awaitResource(
+                executor = executor,
+                timeoutMs = timeoutMs,
+                operation = "Electrum broadcast connection",
+                create = { electrumConnectionFactory.createConnection(config) },
+                close = { it.close() }
+            )
+            val connection = activeConnection
+            val broadcastFuture = executor.submit(java.util.concurrent.Callable {
+                connection.client.transactionBroadcast(tx).toString()
+            })
+            return BoundedBlockingCall.await(
+                future = broadcastFuture,
+                timeoutMs = timeoutMs,
+                operation = "Electrum transaction broadcast",
+                onTimeout = { connection.close() }
+            )
+        } finally {
+            runCatching { activeConnection?.close() }
+            executor.shutdownNow()
         }
     }
 
@@ -1299,6 +1360,7 @@ class BdkBitcoinRepository @Inject constructor(
         walletId: String,
         txHex: String
     ): BuiltTransactionReview = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         val txBytes = txHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         val tx = Transaction(txBytes)
         try {
@@ -1306,12 +1368,14 @@ class BdkBitcoinRepository @Inject constructor(
         } finally {
             tx.close()
         }
+        }
     }
 
     override suspend fun inspectPsbt(
         walletId: String,
         psbtBase64: String
     ): BuiltTransactionReview = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         PsbtSafety.inspectBase64(psbtBase64)
         val psbt = Psbt(psbtBase64)
         try {
@@ -1343,6 +1407,7 @@ class BdkBitcoinRepository @Inject constructor(
             }
         } finally {
             psbt.close()
+        }
         }
     }
 
@@ -1405,7 +1470,8 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
-    override suspend fun deleteWallet(walletId: String) {
+    override suspend fun deleteWallet(walletId: String) = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         // Remove from cache first
         evictWallet(walletId)
 
@@ -1425,6 +1491,7 @@ class BdkBitcoinRepository @Inject constructor(
         utxoMetadataDao.deleteForWallet(walletId)
         addressBookDao.deleteForWallet(walletId)
         walletDao.deleteById(walletId)
+        }
     }
 
     override suspend fun getAddresses(walletId: String, count: Int): List<DomainAddress> = withContext(Dispatchers.IO) {
@@ -1432,6 +1499,7 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun getAddresses(walletId: String, keychain: KeychainKind, count: Int): List<DomainAddress> = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         val entry = loadWallet(walletId)
         val wallet = entry.wallet
 
@@ -1489,6 +1557,7 @@ class BdkBitcoinRepository @Inject constructor(
             )
         }
         addresses
+        }
     }
 
     override suspend fun renameWallet(walletId: String, newName: String) {
@@ -1496,8 +1565,6 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun getAccountXpub(walletId: String): String = withContext(Dispatchers.IO) {
-        val entry = loadWallet(walletId)
-        val wallet = entry.wallet
         val walletEntity = walletDao.getById(walletId)
             ?: throw IllegalArgumentException("Wallet not found: $walletId")
         val descriptorStr = walletEntity.descriptor
@@ -1594,6 +1661,8 @@ class BdkBitcoinRepository @Inject constructor(
         // Try Electrum first
         val electrumFees = try {
             estimateFeesFromElectrum()
+        } catch (e: InterruptedException) {
+            throw e
         } catch (e: Exception) {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "Electrum fee estimation failed: ${e.message}")
             null
@@ -1625,50 +1694,58 @@ class BdkBitcoinRepository @Inject constructor(
      */
     private suspend fun estimateFeesFromElectrum(): FeeEstimates? {
         val config = settingsManager.loadElectrumConfig()
-        val activeConnection = electrumConnectionFactory.createConnection(config)
-        val electrumClient = activeConnection.client
+        val timeoutMs = if (config.isCustom) 60_000L else 30_000L
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        var activeConnection: net.clench.wallet.data.network.ActiveElectrumConnection? = null
         return try {
-            // BDK's ElectrumClient.estimateFee() takes a target (ULong blocks)
-            // and returns a Double representing BTC/kvB.
-            // Convert BTC/kvB to sat/vB: multiply by 100_000 (1e8 / 1000).
-            val priorityBtcKvb = try {
-                electrumClient.estimateFee(1uL)
-            } catch (_: Exception) { null }
+            activeConnection = BoundedBlockingCall.awaitResource(
+                executor = executor,
+                timeoutMs = timeoutMs,
+                operation = "Electrum fee-estimation connection",
+                create = { electrumConnectionFactory.createConnection(config) },
+                close = { it.close() }
+            )
+            val connection = activeConnection
+            val estimateFuture = executor.submit(java.util.concurrent.Callable {
+                // BDK's estimateFee() returns BTC/kvB. Convert to sat/vB with 1e5.
+                val priorityBtcKvb = runCatching { connection.client.estimateFee(1uL) }.getOrNull()
+                val standardBtcKvb = runCatching { connection.client.estimateFee(3uL) }.getOrNull()
+                val economyBtcKvb = runCatching { connection.client.estimateFee(6uL) }.getOrNull()
 
-            val standardBtcKvb = try {
-                electrumClient.estimateFee(3uL)
-            } catch (_: Exception) { null }
+                fun btcKvbToSatVb(btcKvb: Double?): Float? {
+                    if (btcKvb == null || btcKvb <= 0.0) return null
+                    return (btcKvb * 100_000.0).toFloat()
+                }
 
-            val economyBtcKvb = try {
-                electrumClient.estimateFee(6uL)
-            } catch (_: Exception) { null }
+                val prioritySatVb = btcKvbToSatVb(priorityBtcKvb)
+                val standardSatVb = btcKvbToSatVb(standardBtcKvb)
+                val economySatVb = btcKvbToSatVb(economyBtcKvb)
 
-            // Convert BTC/kvB → sat/vB: (btc_per_kvb * 1e8) / 1000 = btc_per_kvb * 1e5
-            fun btcKvbToSatVb(btcKvb: Double?): Float? {
-                if (btcKvb == null || btcKvb <= 0.0) return null
-                return (btcKvb * 100_000.0).toFloat()
-            }
-
-            val prioritySatVb = btcKvbToSatVb(priorityBtcKvb)
-            val standardSatVb = btcKvbToSatVb(standardBtcKvb)
-            val economySatVb = btcKvbToSatVb(economyBtcKvb)
-
-            // If all estimates failed, return null to trigger fallback
-            if (prioritySatVb == null && standardSatVb == null && economySatVb == null) {
-                null
-            } else {
-                FeeEstimates(
-                    priority = (prioritySatVb ?: standardSatVb ?: 10f).coerceAtLeast(1f),
-                    standard = (standardSatVb ?: economySatVb ?: 5f).coerceAtLeast(1f),
-                    economy = (economySatVb ?: 2f).coerceAtLeast(1f),
-                    timestamp = System.currentTimeMillis()
-                )
-            }
+                if (prioritySatVb == null && standardSatVb == null && economySatVb == null) {
+                    null
+                } else {
+                    FeeEstimates(
+                        priority = (prioritySatVb ?: standardSatVb ?: 10f).coerceAtLeast(1f),
+                        standard = (standardSatVb ?: economySatVb ?: 5f).coerceAtLeast(1f),
+                        economy = (economySatVb ?: 2f).coerceAtLeast(1f),
+                        timestamp = System.currentTimeMillis()
+                    )
+                }
+            })
+            BoundedBlockingCall.await(
+                future = estimateFuture,
+                timeoutMs = timeoutMs,
+                operation = "Electrum fee estimation",
+                onTimeout = { connection.close() }
+            )
+        } catch (e: InterruptedException) {
+            throw e
         } catch (e: Exception) {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "Electrum fee estimation error: ${e.message}")
             null
         } finally {
-            activeConnection.close()
+            runCatching { activeConnection?.close() }
+            executor.shutdownNow()
         }
     }
 
@@ -1705,6 +1782,7 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     override suspend fun bumpFee(walletId: String, txid: String, newFeeRate: Float): String = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         val entry = loadWallet(walletId)
         val wallet = entry.wallet
         val feeRate = validatedFeeRate(newFeeRate)
@@ -1721,9 +1799,11 @@ class BdkBitcoinRepository @Inject constructor(
             runCatching { psbt.close() }
             throw e
         }
+        }
     }
 
     override suspend fun cancelTransaction(walletId: String, txid: String, newFeeRate: Float): String = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         val walletEntity = walletDao.getById(walletId)
         require(walletEntity?.isWatchOnly != true) { "Watch-only wallets must cancel via their external signer." }
 
@@ -1795,9 +1875,11 @@ class BdkBitcoinRepository @Inject constructor(
         } finally {
             originalTx.close()
         }
+        }
     }
 
     override suspend fun listUnspent(walletId: String): List<net.clench.wallet.domain.model.UtxoInfo> = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         // Passphrase wallet guard — same as getTransactions().
         // Never expose UTXOs from the public descriptor (xpub) wallet in the locked state.
         val walletEntity = walletDao.getById(walletId)
@@ -1869,6 +1951,7 @@ class BdkBitcoinRepository @Inject constructor(
                 isFrozen = outpointStr in frozenOutpoints
             )
         }
+        }
     }
 
     override suspend fun createPsbt(
@@ -1880,6 +1963,7 @@ class BdkBitcoinRepository @Inject constructor(
         utxoVout: UInt?,
         selectedOutpoints: List<String>
     ): String = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         val entry = loadWallet(walletId)
         val wallet = entry.wallet
         val network = activeNetwork()
@@ -2029,6 +2113,7 @@ class BdkBitcoinRepository @Inject constructor(
         } finally {
             psbt.close()
         }
+        }
     }
 
     override suspend fun buildBatchTransaction(
@@ -2037,6 +2122,7 @@ class BdkBitcoinRepository @Inject constructor(
         feeRateSatPerVbyte: Float,
         selectedOutpoints: List<String>
     ): String = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         require(recipients.isNotEmpty()) { "At least one recipient is required" }
         // B-3: Defense-in-depth — toULong() wraps negatives to huge numbers; guard here
         recipients.forEach { r ->
@@ -2097,6 +2183,7 @@ class BdkBitcoinRepository @Inject constructor(
             runCatching { psbt.close() }
             throw e
         }
+        }
     }
 
     override suspend fun createBatchPsbt(
@@ -2105,6 +2192,7 @@ class BdkBitcoinRepository @Inject constructor(
         feeRateSatPerVbyte: Float,
         selectedOutpoints: List<String>
     ): String = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         require(recipients.isNotEmpty()) { "At least one recipient is required" }
         // B-3: Defense-in-depth — toULong() wraps negatives to huge numbers; guard here
         recipients.forEach { r ->
@@ -2162,6 +2250,7 @@ class BdkBitcoinRepository @Inject constructor(
         } finally {
             psbt.close()
         }
+        }
     }
 
     override suspend fun applyAndBroadcastPsbt(walletId: String, signedPsbtBase64: String, unsignedPsbtBase64: String): String = withContext(Dispatchers.IO) {
@@ -2198,12 +2287,7 @@ class BdkBitcoinRepository @Inject constructor(
             try {
                 validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, tx)
                 val config = settingsManager.loadElectrumConfig()
-                val activeConnection = electrumConnectionFactory.createConnection(config)
-                try {
-                    activeConnection.client.transactionBroadcast(tx).toString()
-                } finally {
-                    activeConnection.close()
-                }
+                broadcastTransactionBounded(config, tx)
             } finally {
                 tx.close()
             }
@@ -3415,6 +3499,7 @@ class BdkBitcoinRepository @Inject constructor(
      * @throws IllegalArgumentException if wallet not found or passphrase is incorrect
      */
     override suspend fun unlockPassphraseWallet(walletId: String, passphrase: String): Unit = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "unlockPassphraseWallet: starting for $walletId")
         val walletEntity = walletDao.getById(walletId)
             ?: throw IllegalArgumentException("Wallet not found: $walletId")
@@ -3477,13 +3562,15 @@ class BdkBitcoinRepository @Inject constructor(
         unlockedPassphraseWallets.add(walletId)
         
         if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "unlockPassphraseWallet: unlocked wallet $walletId")
+        }
     }
 
     /**
      * Lock a passphrase wallet by evicting the cached secret wallet.
      * The public-key-only version remains available for viewing balance/addresses.
      */
-    override fun lockPassphraseWallet(walletId: String) {
+    override suspend fun lockPassphraseWallet(walletId: String): Unit = withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         // Remove from unlock tracking set first
         unlockedPassphraseWallets.remove(walletId)
         // Close and discard the in-memory wallet — all session data is destroyed
@@ -3509,6 +3596,7 @@ class BdkBitcoinRepository @Inject constructor(
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "lockPassphraseWallet: failed to delete DB: ${e.message}")
         }
         if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "lockPassphraseWallet: locked and discarded in-memory wallet $walletId")
+        }
     }
 
     /**

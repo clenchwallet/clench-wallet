@@ -362,7 +362,7 @@ interface BitcoinRepository {
     /**
      * Lock a passphrase wallet by evicting the cached secret wallet.
      */
-    fun lockPassphraseWallet(walletId: String)
+    suspend fun lockPassphraseWallet(walletId: String)
 
     /**
      * Check if a passphrase wallet is currently unlocked (secret wallet cached).

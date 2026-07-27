@@ -1,1 +1,1 @@
-Hardens PSBT, animated QR, Coinkite NFC, multisig, fee review, interrupted signing, and recovery boundaries. Adds reproducible hostile-input tests plus independently verified APK, SBOM, provenance, and release-key isolation evidence.
+Hardens PSBT, animated QR, Coinkite NFC, multisig, fee review, interrupted signing, recovery, and blocking network boundaries. Adds reproducible hostile-input tests plus independently verified APK, SBOM, provenance, and release-key isolation evidence.

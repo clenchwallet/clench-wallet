@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import net.clench.wallet.data.backup.ClenchStateBackupManager
 import net.clench.wallet.data.local.PinManager
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.network.BoundedBlockingCall
 import net.clench.wallet.data.network.ElectrumConnectionFactory
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.PublicElectrumServers
@@ -236,8 +237,20 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val result = try {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val conn = electrumConnectionFactory.createConnection(testConfig)
-                    conn.close()
+                    val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+                    var connection: net.clench.wallet.data.network.ActiveElectrumConnection? = null
+                    try {
+                        connection = BoundedBlockingCall.awaitResource(
+                            executor = executor,
+                            timeoutMs = 60_000L,
+                            operation = "Electrum connection test",
+                            create = { electrumConnectionFactory.createConnection(testConfig) },
+                            close = { it.close() }
+                        )
+                    } finally {
+                        runCatching { connection?.close() }
+                        executor.shutdownNow()
+                    }
                 }
                 "✓ Connected to $cleanUrl:$port (${resolved.mode.name})"
             } catch (e: net.clench.wallet.data.network.ElectrumConnectionException.TorProxyUnavailable) {
