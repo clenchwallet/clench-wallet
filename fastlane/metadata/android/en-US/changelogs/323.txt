@@ -1,0 +1,1 @@
+Removes unused Bluetooth permissions and stale USB/Bluetooth/Virtual Disk signer claims. Clench now enforces QR, intentional NFC tap, and user-selected file/removable-card transports, and verifies the chain code used when setting up TAPSIGNER.

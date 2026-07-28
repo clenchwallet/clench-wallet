@@ -32,8 +32,8 @@ android {
         applicationId = "net.clench.wallet"
         minSdk = 26
         targetSdk = 35
-        versionCode = 322
-        versionName = "0.3.22"
+        versionCode = 323
+        versionName = "0.3.23"
 
         manifestPlaceholders["appLabel"] = "Clench"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

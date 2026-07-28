@@ -25,7 +25,7 @@ Release documentation:
 - [Signed-release verification](signed-release-verification.md)
 - [Release tag signing](tag-signing.md)
 - [Verification laboratory](../verification/README.md)
-- [Current physical-hardware gates](../qa/physical-hardware-gates-v0.3.22.md)
+- [Current physical-hardware gates](../qa/physical-hardware-gates-v0.3.23.md)
 - [v0.3.22 release-key isolation review](../security/release-key-isolation-v0.3.22.md)
 
 Security review documentation:

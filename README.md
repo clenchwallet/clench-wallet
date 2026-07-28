@@ -112,6 +112,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 
 | Version | Highlights |
 | --- | --- |
+| 0.3.23 | Removes unused Bluetooth permissions and stale USB/Bluetooth/Virtual Disk signer claims, enforces QR/NFC/user-selected-file transports, verifies TAPSIGNER setup chain-code use, and documents the exact SATSCARD/TAPSIGNER compatible-wallet listing gates. |
 | 0.3.22 | Added hostile protocol/property testing, reproducible-build and provenance evidence, stronger PSBT/QR/NFC/multisig/fee/storage boundaries, and an independently verified signed release. Hardware-wallet signing remains a QR/NFC/file PSBT round trip; direct TAPSIGNER payment signing is not yet implemented. |
 | 0.3.21 | Fixed Clench phone-signer multisig creation, prevented unavailable OS authentication from blocking signing, showed estimated final multisig PSBT size and fee rate, and improved F-Droid “Bitcoin wallet” discovery metadata. |
 | 0.3.20 | Hardened encrypted wallet-state recovery, transaction approval, fee controls, PSBT validation, TLS pinning, release signing, and dependency verification; added secure BIP39 entry, guided sweep/recovery flows, unified transaction review, and clearer hardware-signer progress. |
