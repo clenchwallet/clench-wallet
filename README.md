@@ -13,15 +13,21 @@ The static source for [clench.net](https://clench.net/) is in [`website/`](websi
 - Multiple script types: Native SegWit (BIP-84), Nested SegWit (BIP-49), Legacy (BIP-44), Taproot (BIP-86)
 - Testnet support
 
-### Hardware Wallet Support
+### Hardware Wallet Signing — Without USB or Bluetooth
 - **QR-based:** SeedSigner, Keystone, Foundation Passport, Blockstream Jade
 - **Coldcard Q:** BBQr QR, NFC, and file-based PSBT transfer
-- **Coldcard Mk4/Mk5:** NFC, SD card, and virtual disk PSBT transfer
-- **Tapsigner:** NFC Tap Protocol status checks and screenless-signer guardrails; direct PSBT signing is blocked until authenticated signing support is complete
+- **Coldcard Mk4/Mk5:** NFC or user-selected file/microSD PSBT transfer
+- **TAPSIGNER:** Set up, import, verify, and save an encrypted card backup over NFC. The current release cannot yet use the card to sign a payment; this is a temporary software limitation, not a warning that single-signature TAPSIGNER wallets are unsafe.
 - **SATSCARD:** NFC Tap Protocol status checks plus certificate-verified, CVC-authenticated active-slot unseal and sweep
 - **Signed-return support:** signed PSBT import, plus finalized transaction returns where supported
 - Explicit broadcast confirmation after hardware-wallet signing
 - Full PSBT (BIP-174) workflow
+
+Clench never opens a USB or Bluetooth data connection to a signing device.
+Transactions move by QR, an intentional NFC tap, or a file/removable card chosen
+by the user. A signer may still use a USB cable for power. With a screen-equipped
+signer, review the transaction on that device. TAPSIGNER is screenless, so its
+transaction details must be reviewed in Clench before a future tap-to-sign flow.
 
 ### Privacy
 - **Tor support for Electrum** — route wallet sync traffic through a SOCKS5 proxy
@@ -82,6 +88,7 @@ Release trust docs:
 - [Threat model](docs/security/threat-model.md)
 - [Security hardening](docs/security/security-hardening.md)
 - [Audit path](docs/security/audit-path.md)
+- [Coinkite compatible-wallet listing readiness](docs/qa/coinkite-wallet-list-readiness.md)
 
 ## Architecture
 
@@ -105,6 +112,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 
 | Version | Highlights |
 | --- | --- |
+| 0.3.22 | Added hostile protocol/property testing, reproducible-build and provenance evidence, stronger PSBT/QR/NFC/multisig/fee/storage boundaries, and an independently verified signed release. Hardware-wallet signing remains a QR/NFC/file PSBT round trip; direct TAPSIGNER payment signing is not yet implemented. |
 | 0.3.21 | Fixed Clench phone-signer multisig creation, prevented unavailable OS authentication from blocking signing, showed estimated final multisig PSBT size and fee rate, and improved F-Droid “Bitcoin wallet” discovery metadata. |
 | 0.3.20 | Hardened encrypted wallet-state recovery, transaction approval, fee controls, PSBT validation, TLS pinning, release signing, and dependency verification; added secure BIP39 entry, guided sweep/recovery flows, unified transaction review, and clearer hardware-signer progress. |
 | 0.3.19 | Added WIF/OpenDime and verified SATSCARD sweep support, TAPSIGNER import and wallet verification flows, SATSCARD funding, the Signers vault, signer-based wallet creation choices, and release ABI filtering for F-Droid. |

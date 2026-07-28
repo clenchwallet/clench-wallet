@@ -159,9 +159,13 @@ fun PrivacyPolicyScreen(onBack: () -> Unit) {
             BulletItem("Internet — to connect to Electrum servers and optional price/fee APIs")
             BulletItem("Camera — to scan QR codes (addresses, PSBTs, hardware wallet communication). Only active when you open the scanner.")
             BulletItem("NFC — to communicate with NFC-based hardware wallets and cards (Coldcard, TAPSIGNER, SATSCARD). Only active during explicit NFC flows.")
-            BulletItem("Bluetooth — to discover and connect to Bluetooth hardware wallets when that signing flow is used.")
             BulletItem("Biometrics — to authenticate wallet access")
             BulletItem("Clench does not require Google Play Services, Firebase, analytics, or third-party crash reporting.")
+            BodyText(
+                "Clench does not communicate with signing devices over USB or Bluetooth. " +
+                    "Hardware-wallet transactions move by QR, an intentional NFC tap, or a " +
+                    "user-selected file or removable card. A signer may still use USB for power."
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 

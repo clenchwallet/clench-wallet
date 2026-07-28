@@ -34,7 +34,7 @@ internal object SignerProgressPresentation {
         HardwareWalletType.FOUNDATION_PASSPORT -> "Scan the BC-UR PSBT or use microSD, verify outputs on Passport, then return the signed PSBT."
         HardwareWalletType.COLDCARD_Q -> "Use BBQr, NFC, or microSD; verify every output on Coldcard Q before returning the signed PSBT."
         HardwareWalletType.COLDCARD_MK4, HardwareWalletType.COLDCARD_MK5 ->
-            "Use NFC, SD card, or virtual disk; verify every output on Coldcard before returning the signed PSBT."
+            "Use an intentional NFC tap or a user-selected microSD file; verify every output on Coldcard before returning the signed PSBT."
         HardwareWalletType.TAPSIGNER -> "Direct transaction signing is unavailable. NFC status checks do not sign or approve this PSBT."
         HardwareWalletType.JADE -> "Scan the BC-UR PSBT, verify outputs on Jade, then scan Jade's signed PSBT back."
     }

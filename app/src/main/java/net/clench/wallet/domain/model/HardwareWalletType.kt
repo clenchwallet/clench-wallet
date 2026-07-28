@@ -5,8 +5,8 @@ enum class HardwareWalletType(val displayName: String, val connectionMethod: Str
     KEYSTONE("Keystone", "QR / File"),
     FOUNDATION_PASSPORT("Foundation Passport", "QR / File"),
     COLDCARD_Q("Coldcard Q", "QR / NFC / File"),
-    COLDCARD_MK4("Coldcard Mk4", "NFC / SD Card / Virtual Disk"),
-    COLDCARD_MK5("Coldcard Mk5", "NFC / SD Card / Virtual Disk"),
+    COLDCARD_MK4("Coldcard Mk4", "NFC / File / SD Card"),
+    COLDCARD_MK5("Coldcard Mk5", "NFC / File / SD Card"),
     TAPSIGNER("TAPSIGNER", "NFC"),
     JADE("Blockstream Jade", "QR");
 

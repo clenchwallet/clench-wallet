@@ -119,7 +119,9 @@ fun HardwareWalletSettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                "USB connections are not supported.",
+                "Clench does not communicate with signing devices over USB or Bluetooth. " +
+                    "Use QR, an intentional NFC tap, or a user-selected file or removable card. " +
+                    "A signer may still use USB for power.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

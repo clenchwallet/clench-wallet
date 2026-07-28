@@ -12,6 +12,7 @@ import org.bouncycastle.crypto.signers.ECDSASigner
 import org.bouncycastle.crypto.signers.HMacDSAKCalculator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -270,6 +271,20 @@ class TapsignerTapProtocolTest {
 
         assertTrue(result.xpub.contentEquals(rawXpub))
         assertTrue(result.cardNonce!!.contentEquals(nonce))
+    }
+
+    @Test
+    fun `master xpub must preserve wallet provided chain code`() {
+        val chainCode = ByteArray(32) { index -> (index + 1).toByte() }
+        val rawXpub = ByteArray(78)
+        chainCode.copyInto(rawXpub, destinationOffset = 13)
+
+        TapsignerTapProtocol.requireMasterXpubChainCode(rawXpub, chainCode)
+
+        val substituted = chainCode.copyOf().also { it[0] = (it[0] + 1).toByte() }
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerTapProtocol.requireMasterXpubChainCode(rawXpub, substituted)
+        }
     }
 
     @Test

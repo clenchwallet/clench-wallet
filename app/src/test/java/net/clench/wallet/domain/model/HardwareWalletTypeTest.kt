@@ -23,4 +23,24 @@ class HardwareWalletTypeTest {
         assertTrue(HardwareWalletType.COLDCARD_MK5.usesColdcardNfcPayload)
         assertFalse(HardwareWalletType.COLDCARD_Q.usesCoinkiteTapProtocol)
     }
+
+    @Test
+    fun `supported signer transports never advertise USB Bluetooth or virtual disk`() {
+        HardwareWalletType.entries.forEach { device ->
+            val transport = device.connectionMethod.lowercase()
+            assertFalse("${device.displayName} advertised USB", transport.contains("usb"))
+            assertFalse("${device.displayName} advertised Bluetooth", transport.contains("bluetooth"))
+            assertFalse("${device.displayName} advertised BLE", transport.contains("ble"))
+            assertFalse("${device.displayName} advertised Virtual Disk", transport.contains("virtual disk"))
+        }
+    }
+
+    @Test
+    fun `Coldcards without cameras retain NFC and removable file paths`() {
+        listOf(HardwareWalletType.COLDCARD_MK4, HardwareWalletType.COLDCARD_MK5).forEach { device ->
+            assertTrue(device.supportsNfc)
+            assertTrue(device.supportsSdCard)
+            assertTrue(device.connectionMethod.contains("File"))
+        }
+    }
 }
