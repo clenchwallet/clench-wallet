@@ -20,7 +20,7 @@ No seed phrase, private key, CVC/PIN, PSBT containing sensitive wallet metadata,
 | TAPSIGNER setup/key-pick/derive | NOT RUN | Empty-card check, intended derivation path, wallet-provided chain code, and resulting xpub are verified |
 | TAPSIGNER backup and PIN/CVC handling | NOT RUN | Encrypted backup is captured without requesting its AES key; PIN/CVC is never stored; wrong PIN and auth delay fail safely |
 | TAPSIGNER import/pair and address verification | NOT RUN | Watch-only descriptor and a receive address match the card |
-| TAPSIGNER direct PSBT signing | NOT APPLICABLE | Direct authenticated signing is intentionally unsupported; UI must not imply that a screenless card reviewed or signed a transaction |
+| TAPSIGNER direct PSBT signing | NOT IMPLEMENTED | This is a temporary software limitation, not a safety policy. A future release must implement authenticated signing, exact digest/path checks, signature injection, finalization, and post-finalization validation before running the real-card matrix |
 
 ## Hardware-wallet PSBT round trips
 
@@ -30,11 +30,11 @@ For each applicable device, test a small Testnet3 wallet and a funded transactio
 | --- | --- | --- |
 | Coldcard Q — BBQr | NOT RUN | Multi-frame export/import, shuffled scan tolerance, device address/amount/fee review, signed return |
 | Coldcard Q — NFC | NOT RUN | Tag dispatch, complete transfer, removal/interruption recovery, wrong-wallet rejection |
-| Coldcard Mk4/Mk5 — microSD | NOT RUN | Unsigned file export, signed file import, exact transaction preservation |
+| Coldcard Mk4/Mk5 — NFC or microSD/file | NOT RUN | NFC and user-selected file export/import, interruption recovery, and exact transaction preservation |
 | SeedSigner — QR/UR | NOT RUN | Animated QR round trip and on-device review |
 | Keystone — QR/UR | NOT RUN | Animated QR round trip and on-device review |
 | Foundation Passport — QR/microSD | NOT RUN | Both supported transports and on-device review |
-| Blockstream Jade — QR/USB/Bluetooth as supported | NOT RUN | Supported Clench path, on-device review, disconnect/interruption recovery |
+| Blockstream Jade — QR | NOT RUN | Animated QR round trip, on-device review, and interrupted-scan recovery; Clench does not use Jade USB or Bluetooth transports |
 
 ## Multisig and recovery
 
@@ -58,7 +58,7 @@ For each applicable device, test a small Testnet3 wallet and a funded transactio
 | Biometric cancel, lockout, and enrollment change | NOT RUN | Authorization is never inferred from cancellation/lockout; enrollment or secure-lock changes invalidate protected secrets predictably |
 | Hardware-backed Keystore confirmation | NOT RUN | `KeyInfo`/device security properties are recorded for a production-class device without exporting keys; software-only fallback is not mislabeled as hardware-backed |
 | Process kill / power loss at persistence boundaries | NOT RUN | Kill during PSBT handoff, wallet creation, restore, and corrupt-state recovery cannot reuse stale authorization or lose the only original state copy |
-| Removable media and Android file picker | NOT RUN | microSD/USB import-export handles removal, duplicate names, zero-byte/truncated files, read-only media, and provider failure without overwriting unrelated files |
+| Removable media and Android file picker | NOT RUN | User-selected file/microSD import-export handles removal, duplicate names, zero-byte/truncated files, read-only media, and provider failure without overwriting unrelated files |
 | In-place upgrade from signed 0.3.21 | NOT RUN | Existing watch-only, phone-signer, multisig, labels, settings, and encrypted Room data open correctly after APK upgrade; rollback expectations are recorded |
 | Fresh install / uninstall / backup-restore behavior | NOT RUN | Fresh install has no residual wallet state; uninstall/reinstall and Android backup policy do not create an apparently recoverable private wallet without explicit backup material |
 | Screen capture, recents, and accessibility exposure | NOT RUN | Seed/CVC/PIN/private-key views remain protected on a representative OEM build and do not persist in recents thumbnails |

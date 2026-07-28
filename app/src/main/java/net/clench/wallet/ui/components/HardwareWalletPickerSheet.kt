@@ -47,7 +47,9 @@ fun HardwareWalletPickerSheet(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             Text(
-                "USB connections are not supported.",
+                "Clench does not communicate with signing devices over USB or Bluetooth. " +
+                    "Use QR, an intentional NFC tap, or a user-selected file or removable card. " +
+                    "A signer may still use a USB cable for power.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp)

@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -15,6 +16,25 @@ RELEASE_SECRET_NAMES = (
     "RELEASE_KEYSTORE_PASSWORD",
     "RELEASE_KEY_ALIAS",
     "RELEASE_KEY_PASSWORD",
+)
+ANDROID_NAME = "{http://schemas.android.com/apk/res/android}name"
+FORBIDDEN_HARDWARE_PERMISSIONS = {
+    "android.permission.BLUETOOTH",
+    "android.permission.BLUETOOTH_ADMIN",
+    "android.permission.BLUETOOTH_CONNECT",
+    "android.permission.BLUETOOTH_SCAN",
+}
+FORBIDDEN_HARDWARE_FEATURES = {
+    "android.hardware.bluetooth",
+    "android.hardware.bluetooth_le",
+    "android.hardware.usb.accessory",
+    "android.hardware.usb.host",
+}
+FORBIDDEN_SIGNER_TRANSPORT_PATTERNS = (
+    re.compile(r"\bbluetooth\b", re.IGNORECASE),
+    re.compile(r"\bble\b", re.IGNORECASE),
+    re.compile(r"\busb\b", re.IGNORECASE),
+    re.compile(r"virtual\s+disk", re.IGNORECASE),
 )
 
 
@@ -34,6 +54,75 @@ def job_blocks(workflow: str) -> dict[str, str]:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(jobs_text)
         blocks[match.group(1)] = jobs_text[match.start() : end]
     return blocks
+
+
+def verify_hardware_transport_policy() -> None:
+    manifest_path = Path("app/src/main/AndroidManifest.xml")
+    manifest = ET.parse(manifest_path).getroot()
+    permissions = {
+        item.attrib.get(ANDROID_NAME)
+        for item in manifest.findall("uses-permission")
+    }
+    features = {
+        item.attrib.get(ANDROID_NAME)
+        for item in manifest.findall("uses-feature")
+    }
+    forbidden_permissions = sorted(
+        permission
+        for permission in permissions
+        if permission in FORBIDDEN_HARDWARE_PERMISSIONS
+    )
+    forbidden_features = sorted(
+        feature
+        for feature in features
+        if feature in FORBIDDEN_HARDWARE_FEATURES
+    )
+    if forbidden_permissions:
+        raise SystemExit(
+            "Manifest requests a forbidden direct signer transport permission: "
+            + ", ".join(forbidden_permissions)
+        )
+    if forbidden_features:
+        raise SystemExit(
+            "Manifest advertises a forbidden direct signer transport feature: "
+            + ", ".join(forbidden_features)
+        )
+
+    hardware_types = Path(
+        "app/src/main/java/net/clench/wallet/domain/model/HardwareWalletType.kt"
+    ).read_text(encoding="utf-8")
+    labels = re.findall(
+        r'(?m)^\s*[A-Z0-9_]+\("[^"]+",\s*"([^"]+)"\)',
+        hardware_types,
+    )
+    if not labels:
+        raise SystemExit("Could not parse hardware-wallet transport labels")
+    for label in labels:
+        for pattern in FORBIDDEN_SIGNER_TRANSPORT_PATTERNS:
+            if pattern.search(label):
+                raise SystemExit(
+                    f"Hardware-wallet transport label violates the no-USB/Bluetooth "
+                    f"policy: {label}"
+                )
+
+    required_copy = "Clench does not communicate with signing devices over USB or Bluetooth."
+    for source_path in (
+        Path(
+            "app/src/main/java/net/clench/wallet/ui/components/"
+            "HardwareWalletPickerSheet.kt"
+        ),
+        Path(
+            "app/src/main/java/net/clench/wallet/ui/screens/PrivacyPolicyScreen.kt"
+        ),
+        Path(
+            "app/src/main/java/net/clench/wallet/ui/screens/"
+            "HardwareWalletSettingsScreen.kt"
+        ),
+    ):
+        if required_copy not in source_path.read_text(encoding="utf-8"):
+            raise SystemExit(
+                f"Hardware-wallet transport policy copy is missing from {source_path}"
+            )
 
 
 def main() -> None:
@@ -77,6 +166,8 @@ def main() -> None:
     wrapper = Path("gradle/wrapper/gradle-wrapper.properties").read_text(encoding="utf-8")
     if not re.search(r"(?m)^distributionSha256Sum=[0-9a-f]{64}$", wrapper):
         raise SystemExit("Gradle wrapper distribution is not pinned by SHA-256")
+
+    verify_hardware_transport_policy()
 
     workflow_files = sorted(Path(".github/workflows").glob("*.yml"))
     for workflow_file in workflow_files:
@@ -145,7 +236,10 @@ def main() -> None:
         if re.search(r"(?m)^\s*runs-on:\s*(?:self-hosted|\[.*self-hosted)", block):
             raise SystemExit(f"{job} permits a self-hosted release runner")
 
-    print("Release-key isolation and no-secrets publication controls passed.")
+    print(
+        "Release-key isolation, no-secrets publication, and hardware-transport "
+        "controls passed."
+    )
 
 
 if __name__ == "__main__":

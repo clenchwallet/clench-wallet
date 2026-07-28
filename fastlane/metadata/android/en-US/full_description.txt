@@ -10,12 +10,13 @@ Wallet features:
 - Run node diagnostics for Electrum route, Tor mode, TLS pinning, server version, and tip height.
 
 Hardware-wallet features:
-- Exchange PSBTs by animated QR, BBQr, NFC, SD card, virtual disk, file import, or signed-return import where supported.
+- Exchange PSBTs by animated QR, BBQr, an intentional NFC tap, microSD/user-selected file import, or signed-return import where supported.
+- Clench does not communicate with signing devices over USB or Bluetooth. A signer may still use USB for power.
 - Work with QR-based signers such as SeedSigner, Keystone, Foundation Passport, and Blockstream Jade.
 - Work with Coldcard Q, Coldcard Mk4, and Coldcard Mk5 transfer paths.
 - Check Tapsigner NFC Tap Protocol status.
 - Sweep SATSCARD active slots with certificate verification and explicit CVC-authenticated unseal confirmation.
-- Block screenless-signer flows that require CVC-authenticated PSBT signing until dedicated authenticated support is complete.
+- TAPSIGNER setup, verification, xpub import, multisig policy import, and encrypted backup are available; direct payment signing is a temporary software limitation.
 - Require explicit broadcast confirmation after hardware-wallet signing.
 
 Security and privacy features:

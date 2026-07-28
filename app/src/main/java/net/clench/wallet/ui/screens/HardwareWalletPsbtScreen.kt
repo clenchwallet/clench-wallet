@@ -571,7 +571,7 @@ fun HardwareWalletPsbtScreen(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            "Coldcard airgap method",
+                            "Coldcard QR method",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -596,7 +596,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Use NFC for a phone-only flow: on Coldcard choose Advanced/Tools → NFC Tools → Sign PSBT, tap Send PSBT via NFC in Clench, review and sign, then tap again to import the signed return. SD card or virtual disk remains the fallback for large transactions.",
+                            "Use NFC for a phone-only flow: on Coldcard choose Advanced/Tools → NFC Tools → Sign PSBT, tap Send PSBT via NFC in Clench, review and sign, then tap again to import the signed return. A user-selected file or microSD card remains the fallback for large transactions.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -984,7 +984,7 @@ fun HardwareWalletPsbtScreen(
                 }
             }
 
-            // File flow (Coldcard SD/virtual disk, Keystone file transfer, Passport microSD)
+            // File flow (Coldcard or Passport microSD, or a user-selected signer file)
             if (supportsFileTransfer) {
                 // Step 1: Save PSBT file
                 Card(modifier = Modifier.fillMaxWidth()) {

@@ -1157,8 +1157,7 @@ private fun TapsignerMultisigControls(
 
 private fun supportsMultisigSignerFile(device: HardwareWalletType): Boolean {
     return device.connectionMethod.contains("File") ||
-        device.connectionMethod.contains("SD") ||
-        device.connectionMethod.contains("Virtual Disk")
+        device.connectionMethod.contains("SD")
 }
 
 @Composable
