@@ -3,6 +3,16 @@
 This is the authoritative physical-device evidence sheet for v0.3.24.
 `NOT RUN` means no claim is made and is not a pass.
 
+## Maintainer release attestation
+
+On 2026-08-04 the maintainer reported completing physical-device checks and
+explicitly authorized publication of v0.3.24. The report did not include the
+per-row APK digest/size, Android model/API, signer or card model/firmware,
+network/transport, or sanitized outcomes required below. The release therefore
+records an authorized evidence deferral: individual rows remain `NOT RUN`, and
+this repository makes no device-specific physical-pass claim. The three
+TAPSIGNER features marked `NOT IMPLEMENTED` remain unavailable.
+
 For every result, record the date/tester, exact APK size and SHA-256, Android
 model/API, card or signer model/firmware, Bitcoin network/transport, and a
 sanitized result. Never record a seed, private key, CVC/PIN, sensitive PSBT,

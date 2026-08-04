@@ -6,4 +6,4 @@ Security hardening release:
 - Strengthens PIN/device authentication, Electrum TLS and Tor routing, backups, and hostile QR/NFC/file imports.
 - Strengthens TAPSIGNER setup checks and tightens release-key isolation, reproducible-build evidence, and dependency auditing.
 
-Physical hardware tests remain separately documented. A direct NFC tap is a trusted physical boundary, and direct TAPSIGNER payment signing is not yet implemented.
+The maintainer reports physical checks were completed; device-specific evidence is not included here. A direct NFC tap is a trusted physical boundary, and direct TAPSIGNER payment signing is not yet implemented.
