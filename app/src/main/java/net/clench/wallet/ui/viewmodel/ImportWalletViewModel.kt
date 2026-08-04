@@ -8,7 +8,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.repository.SensitiveWalletOperationBarrier
+import net.clench.wallet.data.repository.WalletCacheEvictionInProgressException
+import net.clench.wallet.data.repository.WalletCacheRestartRequiredException
+import net.clench.wallet.data.repository.nativeCloseAction
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.ui.components.BcUrFramePolicy
 import net.clench.wallet.ui.components.HardwareWalletQrPayloadDecoder
 import net.clench.wallet.ui.components.MultisigWalletConfigParser
 import org.bitcoindevkit.Descriptor
@@ -25,7 +30,8 @@ import javax.inject.Inject
 @HiltViewModel
 class ImportWalletViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val operationBarrier: SensitiveWalletOperationBarrier
 ) : ViewModel() {
 
     /**
@@ -117,6 +123,7 @@ class ImportWalletViewModel @Inject constructor(
         val lower = trimmed.lowercase(Locale.US)
         if (lower.startsWith("ur:")) {
             val decoded = runCatching {
+                BcUrFramePolicy.requireSafeFrame(lower)
                 HardwareWalletQrPayloadDecoder.decodeUrPayload(URDecoder.decode(lower))
             }.getOrNull()
             if (!decoded.isNullOrBlank()) return decoded
@@ -326,6 +333,24 @@ class ImportWalletViewModel @Inject constructor(
             return
         }
 
+        try {
+            operationBarrier.withSynchronousLease { updateFingerprintUnderLease() }
+        } catch (failure: WalletCacheRestartRequiredException) {
+            _uiState.update {
+                it.copy(
+                    fingerprintBytes = null,
+                    masterFingerprintBytes = null,
+                    error = failure.message
+                )
+            }
+        } catch (_: WalletCacheEvictionInProgressException) {
+            _uiState.update {
+                it.copy(fingerprintBytes = null, masterFingerprintBytes = null)
+            }
+        }
+    }
+
+    private fun updateFingerprintUnderLease() {
         val state = _uiState.value
         val words = state.input.trim().split("\\s+".toRegex())
 
@@ -355,9 +380,13 @@ class ImportWalletViewModel @Inject constructor(
         } catch (_: Exception) {
             _uiState.update { it.copy(fingerprintBytes = null, masterFingerprintBytes = null) }
         } finally {
-            try { descriptor?.close() } catch (_: Exception) {}
-            try { secretKey?.destroy() } catch (_: Exception) {}
-            try { mnemonicObj?.destroy() } catch (_: Exception) {}
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(
+                    nativeCloseAction(descriptor) { it.close() },
+                    nativeCloseAction(secretKey) { it.destroy() },
+                    nativeCloseAction(mnemonicObj) { it.destroy() }
+                )
+            )
         }
     }
 
@@ -371,7 +400,18 @@ class ImportWalletViewModel @Inject constructor(
                         val words = state.input.trim().split("\\s+".toRegex())
                         // Validate BIP39
                         try {
-                            Mnemonic.fromString(words.joinToString(" ")).destroy()
+                            operationBarrier.withLease {
+                                val validationMnemonic = Mnemonic.fromString(words.joinToString(" "))
+                                operationBarrier.closeNativeResourcesOrFail(
+                                    listOfNotNull(
+                                        nativeCloseAction(validationMnemonic) { it.destroy() }
+                                    )
+                                )
+                            }
+                        } catch (e: WalletCacheRestartRequiredException) {
+                            throw e
+                        } catch (e: WalletCacheEvictionInProgressException) {
+                            throw e
                         } catch (e: Exception) {
                             _uiState.update { it.copy(isLoading = false, error = "Invalid seed phrase — check that all words are valid BIP39 words and in the correct order") }
                             return@launch

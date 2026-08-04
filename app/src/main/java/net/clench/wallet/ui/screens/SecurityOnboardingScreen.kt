@@ -16,6 +16,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.util.BiometricHelper
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -24,6 +25,8 @@ fun SecurityOnboardingScreen(
     onComplete: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
+    SecureWindowEffect()
+
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var showPinSetup by remember { mutableStateOf(false) }
@@ -138,9 +141,9 @@ fun SecurityOnboardingScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                 ) {
                     Text(
-                        "OS authentication is unavailable. Continue will turn off seed-view and " +
-                            "transaction-signing authentication gates so the wallet remains usable. " +
-                            "After configuring a device PIN or biometric, re-enable them in Settings → Security.",
+                        BiometricHelper.authenticationUnavailableGuidance() +
+                            " Continue will turn off seed-view and transaction-signing authentication " +
+                            "gates so the wallet remains usable.",
                         modifier = Modifier.padding(12.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer

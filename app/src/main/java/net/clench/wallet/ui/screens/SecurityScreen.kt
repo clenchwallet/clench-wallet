@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.util.BiometricHelper
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -28,6 +29,8 @@ fun SecurityScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
+    SecureWindowEffect()
+
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
@@ -51,11 +54,13 @@ fun SecurityScreen(
     var verifyPinEntry by remember { mutableStateOf("") }
     var verifyPinError by remember { mutableStateOf<String?>(null) }
     var showVerifyPin by remember { mutableStateOf(false) }
+    var securityError by remember { mutableStateOf<String?>(null) }
 
     val canBiometric = BiometricHelper.canAuthenticate(context)
 
     // Helper: attempt a mode change, verifying current auth first if needed
     fun attemptModeChange(newMode: String) {
+        securityError = null
         when (uiState.appLockMode) {
             "pin" -> {
                 // Must verify current PIN before changing
@@ -80,17 +85,16 @@ fun SecurityScreen(
                                 "biometric" -> { viewModel.setAppLockMode("biometric"); viewModel.clearPin() }
                             }
                         },
-                        onFailure = { pendingModeChange = null },
+                        onFailure = { message ->
+                            pendingModeChange = null
+                            securityError = "Authentication failed: $message"
+                        },
                         onCancel = { pendingModeChange = null }
                     )
                 } else {
-                    // No FragmentActivity — fall back to direct change
+                    // Never turn an authentication failure into authorization.
                     pendingModeChange = null
-                    when (newMode) {
-                        "none" -> { viewModel.setAppLockMode("none"); viewModel.clearPin() }
-                        "pin" -> showPinSetup = true
-                        "biometric" -> if (canBiometric) { viewModel.setAppLockMode("biometric"); viewModel.clearPin() }
-                    }
+                    securityError = BiometricHelper.authenticationUnavailableGuidance()
                 }
             }
             else -> {
@@ -123,6 +127,14 @@ fun SecurityScreen(
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            securityError?.let { error ->
+                Text(
+                    error,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
             Text("App Lock", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             Text(
@@ -332,8 +344,8 @@ fun SecurityScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (!canBiometric) {
                 Text(
-                    "Configure an OS device PIN or biometric before enabling these gates. " +
-                        "Any gate already enabled can still be turned off.",
+                    BiometricHelper.authenticationUnavailableGuidance() +
+                        " Any gate already enabled can still be turned off.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )

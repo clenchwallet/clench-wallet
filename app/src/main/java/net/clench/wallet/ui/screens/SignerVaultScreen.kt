@@ -3,8 +3,7 @@ package net.clench.wallet.ui.screens
 import android.app.Activity
 import android.nfc.NfcAdapter
 import android.nfc.Tag
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -69,6 +68,10 @@ import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.SignerVaultViewModel
+import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
+import net.clench.wallet.ui.picker.PickerDestination
+import net.clench.wallet.ui.picker.PickerPurpose
+import net.clench.wallet.ui.picker.PickerRequest
 import java.util.concurrent.atomic.AtomicBoolean
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -98,6 +101,40 @@ fun SignerVaultScreen(
     val selectedDevice = uiState.deviceType
         .takeIf { it.isNotBlank() }
         ?.let { runCatching { HardwareWalletType.valueOf(it) }.getOrNull() }
+    val pickerHost = LocalPickerRoundTripHost.current
+    val pickerResume by pickerHost.pickerResume.collectAsState()
+    val pickerDestination = PickerDestination.SignerVault
+
+    LaunchedEffect(pickerResume?.requestId) {
+        if (pickerResume?.purpose == PickerPurpose.SIGNER_VAULT_IMPORT) {
+            val result = pickerHost.consumePickerResult(
+                PickerPurpose.SIGNER_VAULT_IMPORT,
+                pickerDestination
+            )
+            val requestedDeviceType = (result?.request as? PickerRequest.SignerVaultImport)
+                ?.deviceType
+            result?.uri?.let { uriString ->
+                try {
+                    val text = context.contentResolver.openInputStream(Uri.parse(uriString))
+                        ?.bufferedReader()?.use { reader ->
+                            reader.readTextBounded(InputLimits.SECRET_TEXT_CHARS)
+                        }
+                    if (text.isNullOrBlank()) {
+                        nfcError = "Selected signer export file was empty"
+                    } else {
+                        viewModel.importSignerText(
+                            text.trim(),
+                            deviceType = requestedDeviceType
+                        )
+                        nfcStatus = "Loaded signer export file"
+                        nfcError = null
+                    }
+                } catch (e: Exception) {
+                    nfcError = "Could not read signer export file: ${e.message}"
+                }
+            }
+        }
+    }
 
     SecureWindowEffect(enabled = tapsignerPinInput.isNotBlank())
 
@@ -210,27 +247,6 @@ fun SignerVaultScreen(
 
     DisposableEffect(activity, nfcAdapter) {
         onDispose { stopNfcReader() }
-    }
-
-    val signerFileLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let {
-            try {
-                val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader ->
-                    reader.readTextBounded(InputLimits.SECRET_TEXT_CHARS)
-                }
-                if (text.isNullOrBlank()) {
-                    nfcError = "Selected signer export file was empty"
-                } else {
-                    viewModel.importSignerText(text.trim(), deviceType = uiState.deviceType.ifBlank { null })
-                    nfcStatus = "Loaded signer export file"
-                    nfcError = null
-                }
-            } catch (e: Exception) {
-                nfcError = "Could not read signer export file: ${e.message}"
-            }
-        }
     }
 
     if (showDevicePicker) {
@@ -378,7 +394,16 @@ fun SignerVaultScreen(
                         onChooseDevice = { showDevicePicker = true },
                         onClearDevice = { viewModel.setDeviceType("") },
                         onScanQr = { showScanner = true },
-                        onLoadFile = { signerFileLauncher.launch(arrayOf("text/*", "application/json", "application/octet-stream", "*/*")) },
+                        onLoadFile = {
+                            if (!pickerHost.launchPicker(
+                                    PickerRequest.SignerVaultImport(
+                                        uiState.deviceType.ifBlank { null }
+                                    )
+                                )
+                            ) {
+                                nfcError = "Finish the current file selection first"
+                            }
+                        },
                         onPaste = {
                             val text = clipboardManager.getText()?.text?.trim().orEmpty()
                             if (text.isBlank()) {

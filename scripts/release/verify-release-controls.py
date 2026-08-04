@@ -88,6 +88,21 @@ def verify_hardware_transport_policy() -> None:
             + ", ".join(forbidden_features)
         )
 
+    if "android.permission.HIDE_OVERLAY_WINDOWS" not in permissions:
+        raise SystemExit("Manifest does not opt out of third-party overlay windows")
+    main_activity = Path(
+        "app/src/main/java/net/clench/wallet/ui/MainActivity.kt"
+    ).read_text(encoding="utf-8")
+    for required_overlay_control in (
+        "filterTouchesWhenObscured = true",
+        "window.setHideOverlayWindows(true)",
+    ):
+        if required_overlay_control not in main_activity:
+            raise SystemExit(
+                f"Main activity is missing overlay/tapjacking control: "
+                f"{required_overlay_control}"
+            )
+
     hardware_types = Path(
         "app/src/main/java/net/clench/wallet/domain/model/HardwareWalletType.kt"
     ).read_text(encoding="utf-8")
@@ -127,6 +142,36 @@ def verify_hardware_transport_policy() -> None:
 
 def main() -> None:
     tracked = tracked_files()
+    generated = [path for path in tracked if path == ".kotlin" or path.startswith(".kotlin/")]
+    if generated:
+        raise SystemExit(
+            "Local Kotlin build artifacts are tracked by Git: " + ", ".join(generated)
+        )
+
+    local_identity_markers = (
+        b"/home/" + b"clawd/",
+        b".openclaw/" + b"workspace/",
+        b"clawd" + b"@openclaw.ai",
+    )
+    leaked_local_identity: list[str] = []
+    for path in tracked:
+        source = Path(path)
+        try:
+            content = source.read_bytes()
+        except (OSError, ValueError):
+            continue
+        if any(marker in content for marker in local_identity_markers):
+            leaked_local_identity.append(path)
+    if leaked_local_identity:
+        raise SystemExit(
+            "Tracked files expose a local build identity or workspace path: "
+            + ", ".join(leaked_local_identity)
+        )
+
+    gradle_properties = Path("gradle.properties").read_text(encoding="utf-8")
+    if re.search(r"(?m)^org\.gradle\.buildCacheDir\s*=\s*/", gradle_properties):
+        raise SystemExit("Gradle build cache must not use a host-specific absolute path")
+
     sensitive = [
         path
         for path in tracked
@@ -167,6 +212,27 @@ def main() -> None:
     if not re.search(r"(?m)^distributionSha256Sum=[0-9a-f]{64}$", wrapper):
         raise SystemExit("Gradle wrapper distribution is not pinned by SHA-256")
 
+    build_script = Path("app/build.gradle.kts").read_text(encoding="utf-8")
+    if re.search(
+        r"jniLibs\s*\.\s*pickFirsts[^\n]*(?:\*\*|\*\.so)",
+        build_script,
+    ):
+        raise SystemExit(
+            "Release packaging must not silently pick the first copy of arbitrary "
+            "native libraries; resolve or allowlist each exact collision"
+        )
+
+    biometric_helper = Path(
+        "app/src/main/java/net/clench/wallet/ui/util/BiometricHelper.kt"
+    ).read_text(encoding="utf-8")
+    if "allowUiOnlyFallback: Boolean = true" in biometric_helper:
+        raise SystemExit("Cryptographic authentication must fail closed by default")
+    for kotlin_path in Path("app/src/main/java").rglob("*.kt"):
+        if "allowUiOnlyFallback = true" in kotlin_path.read_text(encoding="utf-8"):
+            raise SystemExit(
+                f"Security-sensitive authentication enables UI-only fallback: {kotlin_path}"
+            )
+
     verify_hardware_transport_policy()
 
     workflow_files = sorted(Path(".github/workflows").glob("*.yml"))
@@ -191,37 +257,86 @@ def main() -> None:
 
     workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     blocks = job_blocks(workflow)
-    required_jobs = {"build_and_sign", "verify_release", "publish"}
+    required_jobs = {
+        "validate_source",
+        "build_unsigned",
+        "sign_release",
+        "verify_release",
+        "publish",
+    }
     if not required_jobs.issubset(blocks):
         raise SystemExit("Release workflow is missing required isolated jobs")
-    if "environment: release-signing" not in blocks["build_and_sign"]:
+    if "workflow_dispatch:" not in workflow:
+        raise SystemExit("Release workflow must be dispatched from protected master")
+    if re.search(r"(?m)^\s*push:\s*$", workflow):
+        raise SystemExit("Release workflow must not execute tag-controlled workflow code")
+    if workflow.count("scripts/release/check-osv.py") < 2:
+        raise SystemExit("Release build and independent verifier do not both run OSV")
+    if "scripts/verification/test-osv-check.py" not in blocks["build_unsigned"]:
+        raise SystemExit("Release build does not exercise hostile OSV-gate tests")
+    if "environment: release-signing" not in blocks["sign_release"]:
         raise SystemExit("Signing job is not bound to the protected release environment")
     if workflow.count("gradle/actions/wrapper-validation@") < 2:
         raise SystemExit("Release build and independent verifier do not validate the wrapper JAR")
-    for job in ("verify_release", "publish"):
+    for job in ("validate_source", "build_unsigned", "verify_release", "publish"):
         if "environment: release-signing" in blocks[job]:
             raise SystemExit(f"{job} must not inherit the signing environment")
 
+    source_gate = blocks["validate_source"]
+    for required_gate in (
+        ".github/release-signers.allowed",
+        "git verify-tag --raw",
+        "EXPECTED_SOURCE_TAG_SIGNER_SHA256",
+        'test "$WORKFLOW_REF" = refs/heads/master',
+        'test "$TAG_COMMIT" = "$WORKFLOW_COMMIT"',
+    ):
+        if required_gate not in source_gate and required_gate not in workflow:
+            raise SystemExit(f"Release source gate is missing: {required_gate}")
+
+    signer = blocks["sign_release"]
+    for forbidden in ("actions/checkout@", "./gradlew", "keystore.properties"):
+        if forbidden in signer:
+            raise SystemExit(f"Isolated signer must not receive source/build input: {forbidden}")
+    if re.search(r"(?m)^\s+scripts/", signer):
+        raise SystemExit("Isolated signer must not execute tag-controlled repository scripts")
+    for required_signer_control in (
+        "EXPECTED_APKSIGNER_SHA256",
+        "EXPECTED_APKSIGNER_JAR_SHA256",
+        "sha256sum --strict -c BUILD-SHA256SUMS",
+        "Sign the prebuilt digest with no source checkout",
+    ):
+        if required_signer_control not in workflow:
+            raise SystemExit(
+                f"Isolated signer is missing pinned-input control: {required_signer_control}"
+            )
+
     for secret in RELEASE_SECRET_NAMES:
         reference = "${{ secrets." + secret + " }}"
-        if reference not in blocks["build_and_sign"]:
+        if reference not in signer:
             raise SystemExit(f"Signing job does not require {secret}")
         for job, block in blocks.items():
-            if job != "build_and_sign" and reference in block:
+            if job != "sign_release" and reference in block:
                 raise SystemExit(f"{secret} leaked into non-signing job {job}")
 
-    destroy_offset = blocks["build_and_sign"].find("name: Destroy signing material")
-    build_offset = blocks["build_and_sign"].find("name: Build signed release")
-    prepare_offset = blocks["build_and_sign"].find("name: Prepare and verify release artifacts")
-    attest_offset = blocks["build_and_sign"].find("name: Attest signed APK provenance")
-    upload_offset = blocks["build_and_sign"].find("name: Upload verified release bundle")
-    if not (0 <= build_offset < destroy_offset < prepare_offset < attest_offset < upload_offset):
+    destroy_offset = signer.find("name: Destroy signing material")
+    sign_offset = signer.find("name: Sign the prebuilt digest with no source checkout")
+    verify_offset = signer.find("name: Verify signer continuity after key destruction")
+    attest_offset = signer.find("name: Attest signed APK provenance")
+    upload_offset = signer.find("name: Upload the minimally signed release inputs")
+    if not (0 <= sign_offset < destroy_offset < verify_offset < attest_offset < upload_offset):
         raise SystemExit(
-            "Signing material is not destroyed immediately after the signed build "
-            "and before custom artifact processing"
+            "Signing material is not destroyed immediately after signing and before "
+            "verification, attestation, or artifact upload"
         )
-    if "needs: [build_and_sign, verify_release]" not in blocks["publish"]:
+    if "needs: [validate_source, verify_release]" not in blocks["publish"]:
         raise SystemExit("Publication is not gated on the no-secrets verification job")
+    if blocks["publish"].count("git verify-tag --raw") != 1:
+        raise SystemExit("Publication does not reverify the pinned source tag")
+    if (
+        'test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" ='
+        not in blocks["publish"]
+    ):
+        raise SystemExit("Publication does not rebind the tag to the validated commit")
     if "--deny-self-hosted-runners" not in blocks["verify_release"]:
         raise SystemExit("Attestation verification does not reject self-hosted builders")
     if "--predicate-type https://cyclonedx.org/bom" not in blocks["verify_release"]:

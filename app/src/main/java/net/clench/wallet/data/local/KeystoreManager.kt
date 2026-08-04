@@ -106,11 +106,10 @@ class KeystoreManager @Inject constructor(
      * Passphrases are no longer stored for security — this is a one-time migration cleanup.
      */
     fun deleteAllPassphrases() {
-        val editor = prefs.edit()
-        prefs.all.keys
-            .filter { it.startsWith("passphrase_") }
-            .forEach { editor.remove(it) }
-        editor.commitOrThrow("removing legacy passphrases")
+        // SharedPreferences.commit() is synchronous and commits the removals as one editor
+        // transaction. Re-read the encrypted preferences afterward so a false-successing or
+        // partially applied storage implementation cannot silently retain a passphrase.
+        LegacyPassphraseCleanup.deleteAndVerify(prefs)
     }
 
     /** Delete all stored secrets for a wallet. Call when deleting a wallet. */
@@ -143,6 +142,17 @@ class KeystoreManager @Inject constructor(
             .putString(DATABASE_KEY, android.util.Base64.encodeToString(key, android.util.Base64.NO_WRAP))
             .commitOrThrow("saving the database encryption key")
         return key
+    }
+
+    /**
+     * Report the actual runtime protection Android assigned to the wallet-secret master key.
+     * Accessing [prefs] first ensures the key exists. No key bytes are exported.
+     */
+    fun walletSecretKeyProtection(): AndroidKeystoreProtection {
+        return runCatching {
+            prefs.contains(DATABASE_KEY)
+            inspectAndroidKeystoreProtection(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+        }.getOrDefault(AndroidKeystoreProtection.UNKNOWN)
     }
 
     private fun mnemonicKey(walletId: String) = "mnemonic_$walletId"

@@ -1,7 +1,5 @@
 package net.clench.wallet.ui.screens
 
-import android.app.Activity
-import android.view.WindowManager
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -14,7 +12,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -22,7 +19,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.zxing.BarcodeFormat
 import com.journeyapps.barcodescanner.BarcodeEncoder
 import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.ReceiveViewModel
+import net.clench.wallet.ui.util.SecureWindowEffect
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -35,15 +34,7 @@ fun ReceiveScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // FLAG_SECURE — prevent screenshots of receive address
-    val context = LocalContext.current
-    DisposableEffect(Unit) {
-        val activity = context as? Activity
-        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose {
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
-    }
+    SecureWindowEffect()
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
 

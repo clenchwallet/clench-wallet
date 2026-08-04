@@ -338,9 +338,18 @@ interface BitcoinRepository {
      * @param walletId wallet that created the original PSBT
      * @param signedPsbtBase64 base64-encoded signed PSBT from hardware wallet
      * @param unsignedPsbtBase64 base64-encoded original unsigned PSBT for output validation
+     * @param assertBroadcastAuthorized fail-closed authorization check invoked
+     * immediately before the validated transaction is handed to the network
+     * transport. Callers coordinating an external signing session must use this
+     * boundary check to prevent a stale or replaced session from broadcasting.
      * @return txid of the broadcast transaction
      */
-    suspend fun applyAndBroadcastPsbt(walletId: String, signedPsbtBase64: String, unsignedPsbtBase64: String): String
+    suspend fun applyAndBroadcastPsbt(
+        walletId: String,
+        signedPsbtBase64: String,
+        unsignedPsbtBase64: String,
+        assertBroadcastAuthorized: () -> Unit
+    ): String
 
     /**
      * Merge returned signer data into the current PSBT and report whether the

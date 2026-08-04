@@ -1,9 +1,11 @@
 # Reproducible Builds
 
-Clench uses two independent release builds:
+Clench uses two independent no-secrets builds and a source-free signing step:
 
-1. The protected `build_and_sign` job tests the source, generates the SBOM, temporarily loads the production key, and creates the signed APK.
-2. A separate `verify_release` runner checks out the same signed tag with no signing material, strictly rebuilds the unsigned APK, and compares every ZIP payload entry with the signed APK.
+1. `validate_source` runs the trusted workflow from protected `master`, verifies the tag against the pinned SSH key, and requires the tag to equal current protected `master`.
+2. `build_unsigned` tests the approved source and produces a checksummed unsigned APK and deterministic SBOM without signing credentials.
+3. The protected `sign_release` job checks out no source and executes no Gradle or repository script. It verifies the unsigned inputs and pinned `apksigner`, signs the prebuilt APK, and destroys the temporary keystore immediately.
+4. A separate `verify_release` runner checks out the immutable commit already approved by the signed-tag gate, with no signing material, strictly rebuilds the unsigned APK, and compares every ZIP payload entry with the signed APK.
 
 Only the APK signing block and actual v1 `META-INF/MANIFEST.MF` plus
 certificate/signature records may differ. Resources, DEX, native libraries,
@@ -21,9 +23,11 @@ compressed bytes, archive comment, and every other entry must match exactly.
 - Release dependency graph: `app/gradle.lockfile`.
 - Settings/plugin dependency graph: `settings-gradle.lockfile`.
 - Artifact integrity: `gradle/verification-metadata.xml`.
-- Release source: a GitHub-verified annotated signed tag.
+- Release source: an annotated tag signed by the public key pinned in `.github/release-signers.allowed` and resolving exactly to protected `master`.
 
 The release jobs use `--dependency-verification=strict`. Dependency locks and verification metadata must never be regenerated implicitly during a release.
+
+The build and independent verifier also query the official OSV batch API for every exact Maven PURL in the deterministic SBOM. Network/API failure, malformed responses, new findings, expired exceptions, and stale exceptions all block release. Any temporary exception must identify the exact PURL and advisory, contain a meaningful reachability rationale, and expire in `scripts/release/osv-allowlist.json`.
 
 ## Independent no-secrets rebuild
 

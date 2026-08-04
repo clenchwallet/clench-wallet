@@ -28,6 +28,7 @@ import net.clench.wallet.ui.util.walletRuntimeMessage
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Decodes a SeedQR (Standard format) string into a BIP39 mnemonic phrase.
@@ -266,7 +267,7 @@ fun QrScanner(
 
     Column(modifier = modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f)) {
-            val urDecoder = remember { URDecoder() }
+            val urDecoder = remember { AtomicReference(URDecoder()) }
             val executor = remember { Executors.newSingleThreadExecutor() }
             val multiReader = remember { MultiFormatReader().apply {
                 setHints(
@@ -384,16 +385,30 @@ fun QrScanner(
                                     }
                                 } else if (lowerText.startsWith("ur:")) {
                                     // BC-UR animated frame
-                                    urDecoder.receivePart(lowerText)
-                                    progress = urDecoder.estimatedPercentComplete.toFloat()
-
-                                    val decoderResult = urDecoder.result
-                                    if (decoderResult != null && decoderResult.type == ResultType.SUCCESS) {
-                                        val ur = decoderResult.ur
-                                        val decodedPayload = HardwareWalletQrPayloadDecoder.decodeUrPayload(ur)
-                                        if (!decodedPayload.isNullOrBlank()) {
-                                            deliverResult(decodedPayload)
+                                    try {
+                                        BcUrFramePolicy.requireSafeFrame(lowerText)
+                                        val decoder = urDecoder.get()
+                                        BcUrFramePolicy.requireStateCapacity(decoder.processedPartsCount)
+                                        decoder.receivePart(lowerText)
+                                        require(decoder.expectedPartCount <= BcUrFramePolicy.MAX_SEQUENCE_PARTS) {
+                                            "BC-UR sequence exceeds safety limit"
                                         }
+                                        progress = decoder.estimatedPercentComplete.toFloat()
+
+                                        val decoderResult = decoder.result
+                                        if (decoderResult != null && decoderResult.type == ResultType.SUCCESS) {
+                                            val ur = decoderResult.ur
+                                            val decodedPayload = HardwareWalletQrPayloadDecoder.decodeUrPayload(ur)
+                                            if (!decodedPayload.isNullOrBlank()) {
+                                                deliverResult(decodedPayload)
+                                            }
+                                        }
+                                    } catch (t: Throwable) {
+                                        if (t.shouldRethrowForUiBoundary()) throw t
+                                        // Discard all fountain state after malformed, oversized, or
+                                        // deliberately state-exhausting input. A later valid stream starts cleanly.
+                                        urDecoder.set(URDecoder())
+                                        progress = 0f
                                     }
                                 } else {
                                     // Static QR — check for SeedQR (Standard format) first,

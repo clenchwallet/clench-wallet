@@ -11,6 +11,7 @@ import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.RawTransactionPayload
 import net.clench.wallet.domain.model.RawTransactionPreview
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.security.ContextFreeRawSignaturePolicy
 import org.bitcoindevkit.Network
 import javax.inject.Inject
 
@@ -62,8 +63,22 @@ class RawTransactionViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isBroadcasting = true, error = null) }
             try {
+                // The raw tool has no original PSBT or prevouts, so it cannot
+                // perform the coordinator's full policy validation. Still fail
+                // closed on every recognizable weak signature-hash flag before
+                // loading network configuration or making a network request.
+                ContextFreeRawSignaturePolicy.validate(
+                    RawTransactionPayload.decode(preview.normalizedHex)
+                )
                 val txid = bitcoinRepository.broadcastTransaction(settingsManager.loadElectrumConfig(), preview.normalizedHex)
                 _uiState.update { it.copy(isBroadcasting = false, broadcastTxid = txid) }
+            } catch (e: SecurityException) {
+                _uiState.update {
+                    it.copy(
+                        isBroadcasting = false,
+                        error = "Security check failed: ${e.message ?: "unsafe raw transaction"}"
+                    )
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isBroadcasting = false, error = e.message ?: "Broadcast failed") }
             }

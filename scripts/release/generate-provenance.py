@@ -84,8 +84,11 @@ def main() -> None:
         Path("app/build.gradle.kts"),
         Path("gradle/libs.versions.toml"),
         workflow,
+        Path(".github/release-signers.allowed"),
         Path("scripts/release/generate-sbom.py"),
         Path("scripts/release/validate-sbom.py"),
+        Path("scripts/release/check-osv.py"),
+        Path("scripts/release/osv-allowlist.json"),
         Path("scripts/release/generate-provenance.py"),
         Path("scripts/release/validate-provenance.py"),
         Path("scripts/release/verify-sbom-attestation.py"),
@@ -95,6 +98,7 @@ def main() -> None:
         Path("scripts/release/validate-independent-report.py"),
         Path("scripts/release/verify-release-controls.py"),
         Path("scripts/verification/test-release-tools.py"),
+        Path("scripts/verification/test-osv-check.py"),
     ]
     statement = {
         "_type": "https://in-toto.io/Statement/v1",
@@ -107,7 +111,7 @@ def main() -> None:
             "buildDefinition": {
                 "buildType": (
                     f"https://github.com/{args.repository}/.github/workflows/"
-                    f"release.yml@refs/tags/{args.tag}"
+                    "release.yml@refs/heads/master"
                 ),
                 "externalParameters": {
                     "repository": f"https://github.com/{args.repository}",
@@ -139,7 +143,7 @@ def main() -> None:
                 "builder": {
                     "id": (
                         f"https://github.com/{args.repository}/.github/workflows/"
-                        f"release.yml@refs/tags/{args.tag}"
+                        "release.yml@refs/heads/master"
                     )
                 },
                 "metadata": {"invocationId": f"{args.repository}:{args.tag}:{args.commit}"},

@@ -167,4 +167,41 @@ class BoundedBlockingCallTest {
             executor.shutdownNow()
         }
     }
+
+    @Test
+    fun `native owner cleanup waits for actual worker termination and reports a stall`() {
+        val executor = Executors.newSingleThreadExecutor()
+        val entered = CountDownLatch(1)
+        val release = AtomicBoolean(false)
+        val stalled = CountDownLatch(1)
+        val terminationVerified = CountDownLatch(1)
+        executor.submit {
+            entered.countDown()
+            while (!release.get()) {
+                try {
+                    Thread.sleep(5)
+                } catch (_: InterruptedException) {
+                    // Model native work which does not honor Future cancellation.
+                }
+            }
+        }
+        assertTrue(entered.await(1, TimeUnit.SECONDS))
+
+        val waiter = Thread {
+            BoundedBlockingCall.shutdownAndAwaitTermination(
+                executor = executor,
+                operation = "stuck native owner",
+                terminationGraceMs = 25L,
+                onTerminationStalled = { stalled.countDown() }
+            )
+            terminationVerified.countDown()
+        }
+        waiter.start()
+
+        assertTrue(stalled.await(1, TimeUnit.SECONDS))
+        assertEquals(1L, terminationVerified.count)
+        release.set(true)
+        assertTrue(terminationVerified.await(1, TimeUnit.SECONDS))
+        waiter.join(1_000L)
+    }
 }

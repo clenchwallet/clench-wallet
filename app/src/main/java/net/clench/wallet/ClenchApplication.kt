@@ -7,7 +7,6 @@ import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
 import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.dao.WalletDao
-import net.clench.wallet.data.local.entity.WalletEntity
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
@@ -16,13 +15,14 @@ import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.*
 import net.clench.wallet.security.CrashReportSanitizer
+import net.clench.wallet.ui.AppProcessSecurityCoordinator
 
 @HiltAndroidApp
 class ClenchApplication : Application() {
 
     @Inject lateinit var keystoreManager: KeystoreManager
     @Inject lateinit var walletDao: WalletDao
-    @Inject lateinit var transactionDao: net.clench.wallet.data.local.dao.TransactionDao
+    @Inject lateinit var appProcessSecurityCoordinator: AppProcessSecurityCoordinator
 
     // [S-4] Gate sensitive debug logging in release builds.
     private val logSensitive: Boolean
@@ -33,41 +33,11 @@ class ClenchApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         installCrashHandler()
-        // One-time migration: delete any stale passphrases from encrypted storage [C-2]
-        try {
-            keystoreManager.deleteAllPassphrases()
-        } catch (e: Exception) {
-            if (net.clench.wallet.BuildConfig.DEBUG) Log.w("ClenchApp", "Passphrase cleanup failed (non-fatal)", e)
-        }
-
-        // On every cold start, wipe on-disk DBs for passphrase wallets.
-        // Passphrase wallets use in-memory sessions only — the disk DB must not contain
-        // cached UTXOs or transaction history that would be visible before the passphrase is entered.
-        try {
-            val passphraseWallets = walletDao.getAllSync().filter { it.hasPassphrase }
-            for (wallet in passphraseWallets) {
-                // Wipe BDK on-disk DB
-                val dbFile = getDatabasePath("wallet_${wallet.id}.db")
-                dbFile.delete()
-                java.io.File(dbFile.path + "-wal").delete()
-                java.io.File(dbFile.path + "-shm").delete()
-                java.io.File(dbFile.path + "-journal").delete()
-                // [S-4] Gate: wallet ID exposure
-                if (logSensitive) {
-                    if (net.clench.wallet.BuildConfig.DEBUG) Log.d("ClenchApp", "Startup: wiped on-disk DB for passphrase wallet ${wallet.id}")
-                }
-                // Wipe Room transaction cache — same reason: real tx history must not be visible
-                // before the passphrase is entered
-                kotlinx.coroutines.runBlocking {
-                    try { transactionDao.deleteForWallet(wallet.id) } catch (_: Exception) {}
-                }
-                if (logSensitive) {
-                    if (net.clench.wallet.BuildConfig.DEBUG) Log.d("ClenchApp", "Startup: wiped Room tx cache for passphrase wallet ${wallet.id}")
-                }
-            }
-        } catch (e: Exception) {
-            if (net.clench.wallet.BuildConfig.DEBUG) Log.w("ClenchApp", "Passphrase wallet DB wipe failed (non-fatal): ${e.message}")
-        }
+        appProcessSecurityCoordinator.register(this)
+        // Establish the same fail-closed boundary on cold start as on process background. Both
+        // stale encrypted-passphrase deletion and native/disk/Room cache eviction are attempted
+        // independently; wallet admission opens only when every pass verifies successfully.
+        runBlocking { appProcessSecurityCoordinator.secureColdStart() }
 
         // [H-3] Orphan wallet auto-recovery is disabled.
         // We do not silently reconstruct wallet records on startup because that can

@@ -320,7 +320,10 @@ class WalletInfoViewModel @Inject constructor(
                 val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
                 val safeName = wallet.name.lowercase(Locale.US).replace(Regex("[^a-z0-9]+"), "-").trim('-').ifBlank { "wallet" }
                 val fileName = "clench-$safeName-descriptors-$dateStr.json"
-                val file = File(context.cacheDir, fileName)
+                val exportDir = File(context.cacheDir, "exports").also {
+                    check(it.exists() || it.mkdirs()) { "Could not create the protected export directory" }
+                }
+                val file = File(exportDir, fileName)
                 withContext(Dispatchers.IO) { file.writeText(payload) }
 
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
@@ -351,7 +354,10 @@ class WalletInfoViewModel @Inject constructor(
                 val jsonl = Bip329.exportLabels(labels)
                 val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
                 val fileName = "clench-labels-$dateStr.jsonl"
-                val file = File(context.cacheDir, fileName)
+                val exportDir = File(context.cacheDir, "exports").also {
+                    check(it.exists() || it.mkdirs()) { "Could not create the protected export directory" }
+                }
+                val file = File(exportDir, fileName)
                 withContext(Dispatchers.IO) { file.writeText(jsonl) }
 
                 val uri = FileProvider.getUriForFile(

@@ -1,7 +1,6 @@
 package net.clench.wallet.ui.screens
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -11,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -26,10 +26,15 @@ import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.RawTransactionViewModel
 import net.clench.wallet.security.InputLimits
 import net.clench.wallet.security.readTextBounded
+import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
+import net.clench.wallet.ui.picker.PickerDestination
+import net.clench.wallet.ui.picker.PickerPurpose
+import net.clench.wallet.ui.picker.PickerRequest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RawTransactionScreen(
+    walletId: String,
     onBack: () -> Unit,
     onConnect: () -> Unit = {},
     viewModel: RawTransactionViewModel = hiltViewModel()
@@ -37,10 +42,18 @@ fun RawTransactionScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     SecureWindowEffect()
-    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
+    val pickerHost = LocalPickerRoundTripHost.current
+    val pickerResume by pickerHost.pickerResume.collectAsState()
+    val pickerDestination = remember(walletId) { PickerDestination.RawTransaction(walletId) }
+    LaunchedEffect(pickerResume?.requestId) {
+        if (pickerResume?.purpose == PickerPurpose.RAW_TRANSACTION_IMPORT) {
+            val result = pickerHost.consumePickerResult(
+                PickerPurpose.RAW_TRANSACTION_IMPORT,
+                pickerDestination
+            )
+            if (result?.uri != null) {
             runCatching {
-                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
+                context.contentResolver.openInputStream(Uri.parse(result.uri))?.bufferedReader()?.use {
                     it.readTextBounded(InputLimits.RAW_TRANSACTION_CHARS)
                 }
                     ?: error("Could not read file")
@@ -49,6 +62,7 @@ fun RawTransactionScreen(
                 viewModel.preview()
             }.onFailure { e ->
                 viewModel.setError("Could not read file: ${e.message ?: "unknown error"}")
+            }
             }
         }
     }
@@ -77,7 +91,7 @@ fun RawTransactionScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    "Import or paste a fully signed Bitcoin transaction. Clench parses it first and only broadcasts after explicit confirmation.",
+                    "Import or paste a fully signed Bitcoin transaction. Clench rejects recognizable weak signature flags, but a raw transaction does not include enough information to prove every signature is safe. Prefer the hardware-signer return screen whenever possible. Clench only broadcasts after explicit confirmation.",
                     modifier = Modifier.padding(12.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -94,7 +108,11 @@ fun RawTransactionScreen(
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
-                    onClick = { fileLauncher.launch(arrayOf("*/*")) },
+                    onClick = {
+                        if (!pickerHost.launchPicker(PickerRequest.RawTransactionImport(walletId))) {
+                            viewModel.setError("Finish the current file selection first")
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 ) { Text("Load File") }
                 Button(

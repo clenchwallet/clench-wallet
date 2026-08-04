@@ -6,12 +6,12 @@ Add SATSCARD-aware Coinkite Tap Protocol status support and CVC-authenticated ac
 
 ## Files
 
-- `/home/clawd/.openclaw/workspace/clench/android/app/src/main/java/net/clench/wallet/ui/components/TapsignerTapProtocol.kt`
-- `/home/clawd/.openclaw/workspace/clench/android/app/src/test/java/net/clench/wallet/ui/components/TapsignerTapProtocolTest.kt`
-- `/home/clawd/.openclaw/workspace/clench/android/app/src/main/java/net/clench/wallet/ui/screens/SweepScreen.kt`
-- `/home/clawd/.openclaw/workspace/clench/android/app/src/main/java/net/clench/wallet/ui/screens/PrivacyPolicyScreen.kt`
-- `/home/clawd/.openclaw/workspace/clench/android/docs/qa/manual-test-plan.md`
-- `/home/clawd/.openclaw/workspace/clench/android/README.md`
+- `app/src/main/java/net/clench/wallet/ui/components/TapsignerTapProtocol.kt`
+- `app/src/test/java/net/clench/wallet/ui/components/TapsignerTapProtocolTest.kt`
+- `app/src/main/java/net/clench/wallet/ui/screens/SweepScreen.kt`
+- `app/src/main/java/net/clench/wallet/ui/screens/PrivacyPolicyScreen.kt`
+- `docs/qa/manual-test-plan.md`
+- `README.md`
 
 ## Behavior
 

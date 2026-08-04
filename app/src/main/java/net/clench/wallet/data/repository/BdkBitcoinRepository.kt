@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Base64
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.SettingsManager
@@ -33,7 +34,9 @@ import net.clench.wallet.domain.repository.PsbtSigningProgress
 import net.clench.wallet.domain.repository.TransactionReviewOutput
 import net.clench.wallet.domain.repository.WalletStateRecoveryResult
 import net.clench.wallet.domain.repository.WalletStateRecoveryPolicy
+import net.clench.wallet.security.ExternalSignaturePolicy
 import net.clench.wallet.security.PsbtSafety
+import net.clench.wallet.security.WalletMnemonicGenerator
 import net.clench.wallet.security.readTextBounded
 import org.bitcoindevkit.Amount
 import org.bitcoindevkit.ChainPosition
@@ -50,11 +53,12 @@ import org.bitcoindevkit.Psbt
 import org.bitcoindevkit.Transaction
 import org.bitcoindevkit.TxBuilder
 import org.bitcoindevkit.Wallet
-import org.bitcoindevkit.WordCount
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.Locale
 import java.util.UUID
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -154,7 +158,9 @@ class BdkBitcoinRepository @Inject constructor(
     private val keystoreManager: KeystoreManager,
     private val settingsManager: SettingsManager,
     private val electrumConnectionFactory: net.clench.wallet.data.network.ElectrumConnectionFactory,
-    private val torAwareHttpClient: TorAwareHttpClient
+    private val torAwareHttpClient: TorAwareHttpClient,
+    private val walletMnemonicGenerator: WalletMnemonicGenerator,
+    private val operationBarrier: SensitiveWalletOperationBarrier
 ) : BitcoinRepository {
 
     private val maxHttpResponseChars = 2 * 1024 * 1024
@@ -180,7 +186,9 @@ class BdkBitcoinRepository @Inject constructor(
         && (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
     // Wallet entry with persister for persistence
-    private data class WalletEntry(val wallet: Wallet, val persister: Persister)
+    private class WalletEntry(val wallet: Wallet, val persister: Persister) {
+        val closeState = NativeWalletResourceCleanup.CloseState(this)
+    }
 
     /**
      * Result of normalizing a descriptor input, including extracted key origin info.
@@ -194,48 +202,334 @@ class BdkBitcoinRepository @Inject constructor(
 
     // In-memory wallet cache to avoid reopening SQLite on every call
     private val walletCache = ConcurrentHashMap<String, WalletEntry>()
+    private val walletCacheGuard = Any()
+    private val evictionTicketGuard = Any()
+    private var currentEvictionTicket: SensitiveWalletOperationBarrier.Ticket? = null
+    private val failedNativeCloseEntries: MutableSet<WalletEntry> =
+        Collections.newSetFromMap(IdentityHashMap())
 
-    private fun closeWalletEntry(entry: WalletEntry) {
-        // UniFFI wallet objects own native key/descriptors and must not be left for GC,
-        // especially when a passphrase wallet is locked or a secret-bearing cache entry
-        // is replaced.
-        runCatching { entry.wallet.close() }
-        runCatching { entry.persister.close() }
+    private suspend fun <T> withSensitiveWalletOperation(
+        block: suspend (SensitiveWalletOperationBarrier.Lease) -> T
+    ): T = operationBarrier.withLease(block)
+
+    /**
+     * Fail closed on destruction of any secret-bearing native wrapper.
+     *
+     * Every action is attempted. Failed wrappers are kept strongly reachable and never retried;
+     * all later sensitive admission is permanently denied until Android starts a new process.
+     */
+    private fun closeSecretNativeResources(
+        vararg actions: NativeWalletResourceCleanup.CloseAction?
+    ) {
+        operationBarrier.closeNativeResourcesOrFail(actions.filterNotNull())
     }
 
-    private fun cacheWallet(walletId: String, entry: WalletEntry) {
-        walletCache.put(walletId, entry)?.let(::closeWalletEntry)
-    }
-
-    private fun cacheWalletIfAbsent(walletId: String, entry: WalletEntry): WalletEntry {
-        val existing = walletCache.putIfAbsent(walletId, entry)
-        if (existing != null) closeWalletEntry(entry)
-        return existing ?: entry
-    }
-
-    private fun evictWallet(walletId: String) {
-        walletCache.remove(walletId)?.let(::closeWalletEntry)
-    }
-
-    /** Dispose every cached native wallet/persister when the app leaves the foreground. */
-    suspend fun clearCachedWallets() = withContext(Dispatchers.IO) {
-        walletCache.keys.toList().forEach { walletId ->
-            syncMutex(walletId).withLock {
-                evictWallet(walletId)
-            }
+    /** Construct a pair without leaking the first descriptor if the second constructor fails. */
+    private inline fun createDescriptorPair(
+        createExternal: () -> Descriptor,
+        createChange: () -> Descriptor
+    ): Pair<Descriptor, Descriptor> {
+        var external: Descriptor? = null
+        var change: Descriptor? = null
+        try {
+            external = createExternal()
+            change = createChange()
+            return checkNotNull(external) to checkNotNull(change)
+        } catch (failure: Throwable) {
+            closeSecretNativeResources(
+                nativeCloseAction(change) { it.close() },
+                nativeCloseAction(external) { it.close() }
+            )
+            throw failure
         }
     }
 
-    private fun discardFailedWalletCreation(walletId: String) {
-        evictWallet(walletId)
+    /**
+     * Build a Wallet/Persister pair while retaining ownership locally until descriptor cleanup
+     * has succeeded. Any partial-construction or first-close failure attempts every later close.
+     */
+    private inline fun createWalletEntryFromDescriptors(
+        descriptors: Pair<Descriptor, Descriptor>,
+        createPersister: () -> Persister,
+        createWallet: (Descriptor, Descriptor, Persister) -> Wallet
+    ): WalletEntry {
+        val (external, change) = descriptors
+        var persister: Persister? = null
+        var wallet: Wallet? = null
+        try {
+            persister = createPersister()
+            wallet = createWallet(external, change, persister)
+        } catch (failure: Throwable) {
+            closeSecretNativeResources(
+                nativeCloseAction(wallet) { it.close() },
+                nativeCloseAction(persister) { it.close() },
+                nativeCloseAction(change) { it.close() },
+                nativeCloseAction(external) { it.close() }
+            )
+            throw failure
+        }
+
+        if (!operationBarrier.attemptCloseNativeResources(
+                listOfNotNull(
+                    nativeCloseAction(change) { it.close() },
+                    nativeCloseAction(external) { it.close() }
+                )
+            )
+        ) {
+            // The entry was not transferred to cache because descriptor cleanup was unverified.
+            // Attempt and quarantine both remaining wrappers before exposing the fatal outcome.
+            operationBarrier.attemptCloseNativeResources(
+                listOfNotNull(
+                    nativeCloseAction(wallet) { it.close() },
+                    nativeCloseAction(persister) { it.close() }
+                )
+            )
+            throw WalletCacheRestartRequiredException()
+        }
+        return WalletEntry(checkNotNull(wallet), checkNotNull(persister))
+    }
+
+    private fun closeDescriptorPair(descriptors: Pair<Descriptor, Descriptor>) {
+        closeSecretNativeResources(
+            nativeCloseAction(descriptors.second) { it.close() },
+            nativeCloseAction(descriptors.first) { it.close() }
+        )
+    }
+
+    private fun closeWalletEntry(
+        entry: WalletEntry,
+        lease: SensitiveWalletOperationBarrier.Lease
+    ) {
+        operationBarrier.assertActive(lease)
+        val closeFailures = NativeWalletResourceCleanup.closeAll(
+            entries = listOf(entry.closeState),
+            closeWallet = { it.wallet.close() },
+            closePersister = { it.persister.close() }
+        )
+        synchronized(walletCacheGuard) {
+            if (entry.closeState.fullyClosed) failedNativeCloseEntries.remove(entry)
+            else failedNativeCloseEntries.add(entry)
+        }
+        if (closeFailures != 0 || !entry.closeState.fullyClosed) {
+            operationBarrier.markFailedRestartRequiredFromOperation()
+            throw WalletCacheRestartRequiredException()
+        }
+    }
+
+    private fun cacheWallet(
+        walletId: String,
+        entry: WalletEntry,
+        lease: SensitiveWalletOperationBarrier.Lease
+    ) {
+        operationBarrier.assertActive(lease)
+        synchronized(walletCacheGuard) {
+            operationBarrier.assertActive(lease)
+            walletCache.put(walletId, entry)?.let { closeWalletEntry(it, lease) }
+        }
+    }
+
+    private fun cacheWalletIfAbsent(
+        walletId: String,
+        entry: WalletEntry,
+        lease: SensitiveWalletOperationBarrier.Lease
+    ): WalletEntry {
+        operationBarrier.assertActive(lease)
+        return synchronized(walletCacheGuard) {
+            operationBarrier.assertActive(lease)
+            val existing = walletCache.putIfAbsent(walletId, entry)
+            if (existing != null) closeWalletEntry(entry, lease)
+            existing ?: entry
+        }
+    }
+
+    private fun evictWallet(
+        walletId: String,
+        lease: SensitiveWalletOperationBarrier.Lease
+    ) {
+        operationBarrier.assertActive(lease)
+        synchronized(walletCacheGuard) {
+            operationBarrier.assertActive(lease)
+            walletCache.remove(walletId)?.let { closeWalletEntry(it, lease) }
+        }
+    }
+
+    private fun cachedWallet(
+        walletId: String,
+        lease: SensitiveWalletOperationBarrier.Lease
+    ): WalletEntry? = synchronized(walletCacheGuard) {
+        operationBarrier.assertActive(lease)
+        walletCache[walletId]
+    }
+
+    private fun isWalletCached(
+        walletId: String,
+        lease: SensitiveWalletOperationBarrier.Lease
+    ): Boolean = synchronized(walletCacheGuard) {
+        operationBarrier.assertActive(lease)
+        walletCache.containsKey(walletId)
+    }
+
+    private fun markPassphraseWalletUnlocked(
+        walletId: String,
+        lease: SensitiveWalletOperationBarrier.Lease
+    ) = synchronized(walletCacheGuard) {
+        operationBarrier.assertActive(lease)
+        unlockedPassphraseWallets.add(walletId)
+    }
+
+    private fun markPassphraseWalletLocked(
+        walletId: String,
+        lease: SensitiveWalletOperationBarrier.Lease
+    ) = synchronized(walletCacheGuard) {
+        operationBarrier.assertActive(lease)
+        unlockedPassphraseWallets.remove(walletId)
+    }
+
+    private fun isPassphraseWalletMarkedUnlocked(walletId: String): Boolean =
+        synchronized(walletCacheGuard) {
+            unlockedPassphraseWallets.contains(walletId)
+        }
+
+    /** Immediately close admission before waiting on any wallet, DAO, or filesystem operation. */
+    fun beginSensitiveSessionEviction() {
+        val ticket = operationBarrier.beginDrain()
+        synchronized(evictionTicketGuard) {
+            currentEvictionTicket = ticket
+        }
+    }
+
+    /** Re-open access only after every native and privacy-cache cleanup pass succeeded. */
+    fun allowSensitiveSessionAccess() {
+        val ticket = synchronized(evictionTicketGuard) {
+            checkNotNull(currentEvictionTicket)
+        }
+        val emptyStateVerified = synchronized(walletCacheGuard) {
+            walletCache.isEmpty() &&
+                unlockedPassphraseWallets.isEmpty() &&
+                failedNativeCloseEntries.isEmpty() &&
+                !operationBarrier.hasQuarantinedNativeResources()
+        }
+        if (!emptyStateVerified) {
+            operationBarrier.markFailedRestartRequired(ticket)
+            throw WalletCacheRestartRequiredException()
+        }
+        try {
+            operationBarrier.reopen(ticket)
+        } catch (_: Throwable) {
+            operationBarrier.markFailedRestartRequired(ticket)
+            throw WalletCacheRestartRequiredException()
+        }
+        synchronized(evictionTicketGuard) { currentEvictionTicket = null }
+    }
+
+    /**
+     * Dispose every cached native wallet/persister when the app leaves the foreground.
+     *
+     * This security boundary is deliberately non-cancellable. Cache insertions are rejected
+     * while eviction is active, all previously admitted operations drain before native handles
+     * are detached, and unlock markers are cleared in the same critical section as the cache.
+     * Every wallet and persister close is attempted before a sanitized failure is exposed.
+     */
+    suspend fun completeSensitiveSessionEviction() = withContext(NonCancellable + Dispatchers.IO) {
+        val ticket = synchronized(evictionTicketGuard) {
+            checkNotNull(currentEvictionTicket)
+        }
+        val restartAlreadyRequired = operationBarrier.awaitAndMarkEvicting(ticket)
+
+        val entries = synchronized(walletCacheGuard) {
+            val detached = (walletCache.values + failedNativeCloseEntries).distinct()
+            walletCache.clear()
+            failedNativeCloseEntries.clear()
+            unlockedPassphraseWallets.clear()
+            detached
+        }
+        val closeFailures = NativeWalletResourceCleanup.closeAll(
+            entries = entries.map { it.closeState },
+            closeWallet = { it.wallet.close() },
+            closePersister = { it.persister.close() }
+        )
+        val remaining = entries.filterNot { it.closeState.fullyClosed }
+        if (remaining.isNotEmpty()) {
+            synchronized(walletCacheGuard) { failedNativeCloseEntries.addAll(remaining) }
+        }
+        val nativeRestartRequired = restartAlreadyRequired ||
+            closeFailures != 0 || remaining.isNotEmpty()
+        if (nativeRestartRequired) {
+            operationBarrier.markFailedRestartRequired(ticket)
+        } else {
+            operationBarrier.markSecured(ticket)
+        }
+
+        // Room rows and on-disk passphrase caches are independent cleanup passes. Attempt them
+        // even after an unverifiable native close, then preserve restart-required as the dominant
+        // result so this process can never retry the failed native resource.
+        var failureCount = 0
+        val allWallets = runCatching {
+            walletDao.getAll()
+        }.getOrElse {
+            failureCount++
+            emptyList()
+        }
+
+        val passphraseWallets = allWallets.filter { it.hasPassphrase }
+
+        passphraseWallets.forEach { wallet ->
+            runCatching { transactionDao.deleteForWallet(wallet.id) }
+                .onFailure { failureCount++ }
+            runCatching {
+                val database = context.getDatabasePath("wallet_${wallet.id}.db")
+                check(PassphraseWalletCacheCleanup.deleteAndFindRemaining(database).isEmpty())
+            }.onFailure { failureCount++ }
+        }
+
+        // Constructor/process-death orphans are not represented in Room and otherwise survive
+        // forever with public descriptors, owned scripts, balances, and transaction history.
+        // Run this on every cold/background cleanup while admission is closed.
+        if (allWallets.isNotEmpty() || failureCount == 0) {
+            runCatching {
+                val databaseDirectory = checkNotNull(
+                    context.getDatabasePath("wallet_probe.db").parentFile
+                )
+                check(
+                    WalletDatabaseOrphanCleanup.deleteAndFindRemaining(
+                        databaseDirectory = databaseDirectory,
+                        knownWalletIds = allWallets.mapTo(mutableSetOf()) { it.id }
+                    ).isEmpty()
+                )
+            }.onFailure { failureCount++ }
+        }
+
+        if (nativeRestartRequired) throw WalletCacheRestartRequiredException()
+        if (failureCount != 0) throw WalletCacheSecurityCleanupException()
+    }
+
+    private fun discardFailedWalletCreation(
+        walletId: String,
+        lease: SensitiveWalletOperationBarrier.Lease
+    ) {
+        var nativeRestartRequired = false
+        var cleanupFailed = false
+        try {
+            evictWallet(walletId, lease)
+        } catch (_: WalletCacheRestartRequiredException) {
+            // Continue attempting every independent secret/file cleanup, but never reopen this
+            // process after an unverifiable native close.
+            nativeRestartRequired = true
+        }
         runCatching { keystoreManager.deleteWalletSecrets(walletId) }
+            .onFailure { cleanupFailed = true }
         val dbFile = context.getDatabasePath("wallet_${walletId}.db")
         listOf(
             dbFile,
             java.io.File(dbFile.path + "-wal"),
             java.io.File(dbFile.path + "-shm"),
             java.io.File(dbFile.path + "-journal")
-        ).forEach { runCatching { it.delete() } }
+        ).forEach { file ->
+            runCatching { check(!file.exists() || file.delete()) }
+                .onFailure { cleanupFailed = true }
+        }
+        if (nativeRestartRequired) throw WalletCacheRestartRequiredException()
+        if (cleanupFailed) throw WalletCacheSecurityCleanupException()
     }
 
     // Tracks passphrase wallets that have been explicitly unlocked via unlockPassphraseWallet().
@@ -260,53 +554,54 @@ class BdkBitcoinRepository @Inject constructor(
         passphrase: String?,
         mnemonicWords: List<String>?,
         scriptType: ScriptType
-    ): Pair<List<String>, WalletData> = withContext(Dispatchers.IO) {
+    ): Pair<List<String>, WalletData> = withSensitiveWalletOperation { lease ->
+        withContext(Dispatchers.IO) {
         // Use the already-displayed/verified mnemonic when provided. Otherwise preserve the
         // legacy repository behavior of generating a fresh mnemonic for direct repository callers.
-        val mnemonic = if (mnemonicWords != null) {
-            Mnemonic.fromString(mnemonicWords.joinToString(" "))
-        } else {
-            val wordCountEnum = if (wordCount == 12) WordCount.WORDS12 else WordCount.WORDS24
-            Mnemonic(wordCountEnum)
-        }
-        val walletMnemonicWords = mnemonicWords ?: mnemonic.toString().split(" ")
-
-        // Derive descriptors for the selected script type.
+        var mnemonic: Mnemonic? = null
+        var secretKey: DescriptorSecretKey? = null
+        var descriptors: Pair<Descriptor, Descriptor>? = null
         val network = activeNetwork()
-        val secretKey = DescriptorSecretKey(network, mnemonic, passphrase ?: "")
-        val externalDescriptor: Descriptor
-        val changeDescriptor: Descriptor
         try {
-            externalDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
-            changeDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
-        } finally {
-            // H-1: Destroy sensitive BDK objects after descriptor derivation
-            try { mnemonic.destroy() } catch (_: Exception) {}
-            try { secretKey.destroy() } catch (_: Exception) {}
-        }
-        val publicDescriptor = externalDescriptor.toString()
-        val publicChangeDescriptor = changeDescriptor.toString()
-        val secretDescriptor = if (passphrase.isNullOrBlank()) externalDescriptor.toStringWithSecret() else null
-        val secretChangeDescriptor = if (passphrase.isNullOrBlank()) changeDescriptor.toStringWithSecret() else null
+            mnemonic = if (mnemonicWords != null) {
+                Mnemonic.fromString(mnemonicWords.joinToString(" "))
+            } else {
+                walletMnemonicGenerator.generate(wordCount)
+            }
+            val walletMnemonicWords = mnemonicWords ?: mnemonic.toString().split(" ")
+            secretKey = DescriptorSecretKey(network, mnemonic, passphrase ?: "")
+            descriptors = createDescriptorPair(
+                createExternal = {
+                    ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
+                },
+                createChange = {
+                    ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
+                }
+            )
+            val externalDescriptor = descriptors.first
+            val changeDescriptor = descriptors.second
+            val publicDescriptor = externalDescriptor.toString()
+            val publicChangeDescriptor = changeDescriptor.toString()
+            val secretDescriptor = if (passphrase.isNullOrBlank()) externalDescriptor.toStringWithSecret() else null
+            val secretChangeDescriptor = if (passphrase.isNullOrBlank()) changeDescriptor.toStringWithSecret() else null
 
-        // Generate wallet ID
-        val walletId = UUID.randomUUID().toString()
+            // Generate wallet ID
+            val walletId = UUID.randomUUID().toString()
 
-        // Create BDK wallet with SQLite persistence
-        val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
-        val persister = Persister.newSqlite(dbPath)
-        val wallet = try {
-            Wallet(externalDescriptor, changeDescriptor, network, persister)
-        } catch (e: Exception) {
-            persister.close()
-            throw e
-        } finally {
-            externalDescriptor.close()
-            changeDescriptor.close()
-        }
-        cacheWallet(walletId, WalletEntry(wallet, persister))
+            // Create BDK wallet with SQLite persistence. This helper consumes/closes descriptors.
+            val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
+            val ownedDescriptors = checkNotNull(descriptors)
+            descriptors = null
+            val entry = createWalletEntryFromDescriptors(
+                descriptors = ownedDescriptors,
+                createPersister = { Persister.newSqlite(dbPath) },
+                createWallet = { external, change, persister ->
+                    Wallet(external, change, network, persister)
+                }
+            )
+            cacheWallet(walletId, entry, lease)
 
-        try {
+            try {
             // Commit the mnemonic and, for non-passphrase wallets, both private
             // descriptors in one durable encrypted-preferences transaction.
             keystoreManager.storeWalletSecrets(
@@ -345,9 +640,17 @@ class BdkBitcoinRepository @Inject constructor(
             )
 
             Pair(walletMnemonicWords, walletData)
-        } catch (e: Exception) {
-            discardFailedWalletCreation(walletId)
-            throw e
+            } catch (e: Exception) {
+                discardFailedWalletCreation(walletId, lease)
+                throw e
+            }
+        } finally {
+            descriptors?.let(::closeDescriptorPair)
+            closeSecretNativeResources(
+                nativeCloseAction(secretKey) { it.destroy() },
+                nativeCloseAction(mnemonic) { it.destroy() }
+            )
+        }
         }
     }
 
@@ -356,54 +659,51 @@ class BdkBitcoinRepository @Inject constructor(
         mnemonic: List<String>,
         passphrase: String?,
         scriptType: ScriptType
-    ): WalletData = withContext(Dispatchers.IO) {
-        // Restore mnemonic from words
-        val mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
-
-        // Use the selected script type's BIP derivation
+    ): WalletData = withSensitiveWalletOperation { lease ->
+        withContext(Dispatchers.IO) {
         val network = activeNetwork()
-        val secretKey = DescriptorSecretKey(network, mnemonicObj, passphrase ?: "")
-        val externalDescriptor: Descriptor
-        val changeDescriptor: Descriptor
+        var mnemonicObj: Mnemonic? = null
+        var secretKey: DescriptorSecretKey? = null
+        var descriptors: Pair<Descriptor, Descriptor>? = null
         try {
-            externalDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
-            changeDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
-        } finally {
-            // H-1: Destroy sensitive BDK objects after descriptor derivation
-            try { mnemonicObj.destroy() } catch (_: Exception) {}
-            try { secretKey.destroy() } catch (_: Exception) {}
-        }
+            mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
+            secretKey = DescriptorSecretKey(network, mnemonicObj, passphrase ?: "")
+            descriptors = createDescriptorPair(
+                createExternal = {
+                    ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
+                },
+                createChange = {
+                    ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
+                }
+            )
+            val externalDescriptor = descriptors.first
+            val changeDescriptor = descriptors.second
 
-        // Prevent duplicate imports — compare using public descriptor
-        val publicDescriptor = externalDescriptor.toString()
-        val publicChangeDescriptor = changeDescriptor.toString()
-        val secretDescriptor = externalDescriptor.toStringWithSecret()
-        val secretChangeDescriptor = changeDescriptor.toStringWithSecret()
-        val existing = walletDao.getAll()
-        if (existing.any { it.descriptor == publicDescriptor }) {
-            externalDescriptor.close()
-            changeDescriptor.close()
-            throw IllegalArgumentException("This seed phrase is already imported in your wallet list.")
-        }
+            // Prevent duplicate imports — compare using public descriptor
+            val publicDescriptor = externalDescriptor.toString()
+            val publicChangeDescriptor = changeDescriptor.toString()
+            val secretDescriptor = externalDescriptor.toStringWithSecret()
+            val secretChangeDescriptor = changeDescriptor.toStringWithSecret()
+            val existing = walletDao.getAll()
+            if (existing.any { it.descriptor == publicDescriptor }) {
+                throw IllegalArgumentException("This seed phrase is already imported in your wallet list.")
+            }
 
-        // Generate wallet ID
-        val walletId = UUID.randomUUID().toString()
+            val walletId = UUID.randomUUID().toString()
 
-        // Create BDK wallet with SQLite persistence
-        val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
-        val persister = Persister.newSqlite(dbPath)
-        val wallet = try {
-            Wallet(externalDescriptor, changeDescriptor, network, persister)
-        } catch (e: Exception) {
-            persister.close()
-            throw e
-        } finally {
-            externalDescriptor.close()
-            changeDescriptor.close()
-        }
-        cacheWallet(walletId, WalletEntry(wallet, persister))
+            val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
+            val ownedDescriptors = checkNotNull(descriptors)
+            descriptors = null
+            val entry = createWalletEntryFromDescriptors(
+                descriptors = ownedDescriptors,
+                createPersister = { Persister.newSqlite(dbPath) },
+                createWallet = { external, change, persister ->
+                    Wallet(external, change, network, persister)
+                }
+            )
+            cacheWallet(walletId, entry, lease)
 
-        try {
+            try {
             keystoreManager.storeWalletSecrets(
                 walletId = walletId,
                 mnemonic = mnemonic.joinToString(" "),
@@ -427,7 +727,7 @@ class BdkBitcoinRepository @Inject constructor(
             )
             walletDao.insert(walletEntity)
 
-            WalletData(
+                WalletData(
                 id = walletId,
                 name = name,
                 descriptor = publicDescriptor,
@@ -437,10 +737,18 @@ class BdkBitcoinRepository @Inject constructor(
                 createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
                 network = activeNetwork,
                 hasPassphrase = !passphrase.isNullOrBlank()
+                )
+            } catch (e: Exception) {
+                discardFailedWalletCreation(walletId, lease)
+                throw e
+            }
+        } finally {
+            descriptors?.let(::closeDescriptorPair)
+            closeSecretNativeResources(
+                nativeCloseAction(secretKey) { it.destroy() },
+                nativeCloseAction(mnemonicObj) { it.destroy() }
             )
-        } catch (e: Exception) {
-            discardFailedWalletCreation(walletId)
-            throw e
+        }
         }
     }
 
@@ -448,7 +756,8 @@ class BdkBitcoinRepository @Inject constructor(
         name: String,
         descriptor: String,
         deviceType: String?
-    ): WalletData = withContext(Dispatchers.IO) {
+    ): WalletData = withSensitiveWalletOperation { lease ->
+        withContext(Dispatchers.IO) {
         // [S-4] Gate: wallet name and import details
         if (logSensitive) {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "importWatchOnly: name=$name input=(redacted)")
@@ -467,19 +776,18 @@ class BdkBitcoinRepository @Inject constructor(
         if (logSensitive) {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "importWatchOnly: network=$network")
         }
-        val externalDescriptor = try {
-            Descriptor(externalDescriptorStr, network)
+        var descriptors: Pair<Descriptor, Descriptor>? = try {
+            createDescriptorPair(
+                createExternal = { Descriptor(externalDescriptorStr, network) },
+                createChange = { Descriptor(changeDescriptorStr, network) }
+            )
         } catch (e: Exception) {
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "importWatchOnly: external descriptor invalid")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "importWatchOnly: descriptor invalid")
             throw IllegalArgumentException("Invalid descriptor or extended public key. Please check the format and try again.\n\nDetails: ${e.message}")
         }
-        val changeDescriptor = try {
-            Descriptor(changeDescriptorStr, network)
-        } catch (e: Exception) {
-            externalDescriptor.close()
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "importWatchOnly: change descriptor invalid")
-            throw IllegalArgumentException("Invalid descriptor or extended public key. Please check the format and try again.\n\nDetails: ${e.message}")
-        }
+        try {
+        val externalDescriptor = checkNotNull(descriptors).first
+        val changeDescriptor = checkNotNull(descriptors).second
         val publicDescriptor = externalDescriptor.toString()
         val publicChangeDescriptor = changeDescriptor.toString()
 
@@ -487,8 +795,8 @@ class BdkBitcoinRepository @Inject constructor(
         val existing = walletDao.getAllByNetwork(settingsManager.getNetwork())
         if (existing.any { it.descriptor == publicDescriptor }) {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "importWatchOnly: duplicate descriptor found")
-            externalDescriptor.close()
-            changeDescriptor.close()
+            closeDescriptorPair(checkNotNull(descriptors))
+            descriptors = null
             throw IllegalArgumentException("A wallet with this descriptor is already in your wallet list.")
         }
 
@@ -497,17 +805,16 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Create BDK wallet with SQLite persistence (no signing keys)
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
-        val persister = Persister.newSqlite(dbPath)
-        val wallet = try {
-            Wallet(externalDescriptor, changeDescriptor, network, persister)
-        } catch (e: Exception) {
-            persister.close()
-            throw e
-        } finally {
-            externalDescriptor.close()
-            changeDescriptor.close()
-        }
-        cacheWallet(walletId, WalletEntry(wallet, persister))
+        val ownedDescriptors = checkNotNull(descriptors)
+        descriptors = null
+        val entry = createWalletEntryFromDescriptors(
+            descriptors = ownedDescriptors,
+            createPersister = { Persister.newSqlite(dbPath) },
+            createWallet = { external, change, persister ->
+                Wallet(external, change, network, persister)
+            }
+        )
+        cacheWallet(walletId, entry, lease)
 
         // Persist wallet metadata to Room DB (isWatchOnly = true)
         val activeNetwork = settingsManager.getNetwork()
@@ -542,13 +849,18 @@ class BdkBitcoinRepository @Inject constructor(
             derivationPath = normalized.derivationPath,
             importedViaDevice = deviceType
         )
+        } finally {
+            descriptors?.let(::closeDescriptorPair)
+        }
+        }
     }
 
     override suspend fun convertWatchOnlyToHot(
         walletId: String,
         mnemonic: List<String>,
         passphrase: String?
-    ): Unit = withContext(Dispatchers.IO) {
+    ): Unit = withSensitiveWalletOperation { lease ->
+        withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
         val walletEntity = walletDao.getById(walletId)
             ?: throw IllegalArgumentException("Wallet not found")
@@ -567,18 +879,28 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         val network = if (walletEntity.network == "testnet") Network.TESTNET else Network.BITCOIN
-        val mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
+        var mnemonicObj: Mnemonic? = null
         var secretKey: DescriptorSecretKey? = null
-        var derivedExternalDescriptor: Descriptor? = null
-        var derivedChangeDescriptor: Descriptor? = null
+        var descriptors: Pair<Descriptor, Descriptor>? = null
         try {
+            mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
             val passphraseValue = passphrase.orEmpty()
             secretKey = DescriptorSecretKey(network, mnemonicObj, passphraseValue)
             val scriptType = ScriptType.fromDescriptor(walletEntity.descriptor)
-            val externalDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
-            val changeDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
-            derivedExternalDescriptor = externalDescriptor
-            derivedChangeDescriptor = changeDescriptor
+            descriptors = createDescriptorPair(
+                createExternal = {
+                    ScriptType.createDescriptor(
+                        checkNotNull(secretKey), scriptType, KeychainKind.EXTERNAL, network
+                    )
+                },
+                createChange = {
+                    ScriptType.createDescriptor(
+                        checkNotNull(secretKey), scriptType, KeychainKind.INTERNAL, network
+                    )
+                }
+            )
+            val externalDescriptor = checkNotNull(descriptors).first
+            val changeDescriptor = checkNotNull(descriptors).second
 
             val expectedXpub = Regex("[xt]pub[1-9A-HJ-NP-Za-km-z]+").find(walletEntity.descriptor)?.value
             val derivedXpub = Regex("[xt]pub[1-9A-HJ-NP-Za-km-z]+").find(externalDescriptor.toString())?.value
@@ -603,23 +925,27 @@ class BdkBitcoinRepository @Inject constructor(
             walletDao.setWatchOnlyAndPassphrase(walletId, isWatchOnly = false, hasPassphrase = hasPassphrase)
 
             // Evict the public-only cached wallet so future signing loads the secret descriptors.
-            evictWallet(walletId)
+            evictWallet(walletId, lease)
             if (hasPassphrase) {
-                val persister = Persister.newInMemory()
-                val wallet = try {
-                    Wallet(externalDescriptor, changeDescriptor, network, persister)
-                } catch (e: Exception) {
-                    persister.close()
-                    throw e
-                }
-                cacheWallet(walletId, WalletEntry(wallet, persister))
-                unlockedPassphraseWallets.add(walletId)
+                val ownedDescriptors = checkNotNull(descriptors)
+                descriptors = null
+                val entry = createWalletEntryFromDescriptors(
+                    descriptors = ownedDescriptors,
+                    createPersister = { Persister.newInMemory() },
+                    createWallet = { external, change, persister ->
+                        Wallet(external, change, network, persister)
+                    }
+                )
+                cacheWallet(walletId, entry, lease)
+                markPassphraseWalletUnlocked(walletId, lease)
             }
         } finally {
-            try { derivedExternalDescriptor?.close() } catch (_: Exception) {}
-            try { derivedChangeDescriptor?.close() } catch (_: Exception) {}
-            try { mnemonicObj.destroy() } catch (_: Exception) {}
-            try { secretKey?.destroy() } catch (_: Exception) {}
+            descriptors?.let(::closeDescriptorPair)
+            closeSecretNativeResources(
+                nativeCloseAction(secretKey) { it.destroy() },
+                nativeCloseAction(mnemonicObj) { it.destroy() }
+            )
+        }
         }
         }
     }
@@ -627,7 +953,8 @@ class BdkBitcoinRepository @Inject constructor(
     override suspend fun importPrivateDescriptor(
         name: String,
         descriptor: String
-    ): WalletData = withContext(Dispatchers.IO) {
+    ): WalletData = withSensitiveWalletOperation { lease ->
+        withContext(Dispatchers.IO) {
         if (!containsPrivateKeyMaterial(descriptor)) {
             throw IllegalArgumentException("Private descriptor import requires a private descriptor or private extended key.")
         }
@@ -641,17 +968,17 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         val network = activeNetwork()
-        val externalDescriptor = try {
-            Descriptor(externalDescriptorStr, network)
+        var descriptors: Pair<Descriptor, Descriptor>? = try {
+            createDescriptorPair(
+                createExternal = { Descriptor(externalDescriptorStr, network) },
+                createChange = { Descriptor(changeDescriptorStr, network) }
+            )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid private descriptor. Please check the format and try again.\n\nDetails: ${e.message}")
         }
-        val changeDescriptor = try {
-            Descriptor(changeDescriptorStr, network)
-        } catch (e: Exception) {
-            externalDescriptor.close()
-            throw IllegalArgumentException("Invalid private change descriptor. Please check the format and try again.\n\nDetails: ${e.message}")
-        }
+        try {
+        val externalDescriptor = checkNotNull(descriptors).first
+        val changeDescriptor = checkNotNull(descriptors).second
 
         val publicDescriptor = externalDescriptor.toString()
         val publicChangeDescriptor = changeDescriptor.toString()
@@ -663,8 +990,8 @@ class BdkBitcoinRepository @Inject constructor(
         val activeNetwork = settingsManager.getNetwork()
         val existing = walletDao.getAllByNetwork(activeNetwork)
         if (existing.any { it.descriptor == publicDescriptor }) {
-            externalDescriptor.close()
-            changeDescriptor.close()
+            closeDescriptorPair(checkNotNull(descriptors))
+            descriptors = null
             throw IllegalArgumentException("A wallet with this descriptor is already in your wallet list.")
         }
 
@@ -672,17 +999,16 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Create BDK wallet with secret descriptors so this wallet can sign.
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
-        val persister = Persister.newSqlite(dbPath)
-        val wallet = try {
-            Wallet(externalDescriptor, changeDescriptor, network, persister)
-        } catch (e: Exception) {
-            persister.close()
-            throw e
-        } finally {
-            externalDescriptor.close()
-            changeDescriptor.close()
-        }
-        cacheWallet(walletId, WalletEntry(wallet, persister))
+        val ownedDescriptors = checkNotNull(descriptors)
+        descriptors = null
+        val entry = createWalletEntryFromDescriptors(
+            descriptors = ownedDescriptors,
+            createPersister = { Persister.newSqlite(dbPath) },
+            createWallet = { external, change, persister ->
+                Wallet(external, change, network, persister)
+            }
+        )
+        cacheWallet(walletId, entry, lease)
 
         try {
             keystoreManager.storeWalletSecrets(
@@ -721,23 +1047,28 @@ class BdkBitcoinRepository @Inject constructor(
                 hasPassphrase = false
             )
         } catch (e: Exception) {
-            discardFailedWalletCreation(walletId)
+            discardFailedWalletCreation(walletId, lease)
             throw e
+        }
+        } finally {
+            descriptors?.let(::closeDescriptorPair)
+        }
         }
     }
 
-    override suspend fun syncWallet(walletId: String, config: ElectrumConfig?): WalletBalance = withContext(Dispatchers.IO) {
+    override suspend fun syncWallet(walletId: String, config: ElectrumConfig?): WalletBalance =
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         // Offline mode — skip sync entirely, return cached balance
         if (settingsManager.isOfflineMode()) {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "Offline mode — skipping sync")
-            return@withContext getBalance(walletId)
+            return@withContext getBalanceUnderLease(walletId, lease)
         }
 
         // Passphrase wallet guard — never sync using the public descriptor (xpub) wallet.
         // Syncing the xpub against Electrum reveals real UTXO/tx history in the locked state,
         // which leaks wallet activity before the passphrase is entered. Only sync after unlock.
         val walletEntityForPassphraseCheck = walletDao.getById(walletId)
-        if (walletEntityForPassphraseCheck?.hasPassphrase == true && !unlockedPassphraseWallets.contains(walletId)) {
+        if (walletEntityForPassphraseCheck?.hasPassphrase == true && !isPassphraseWalletMarkedUnlocked(walletId)) {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: SKIPPING $walletId — passphrase wallet is locked")
             return@withContext WalletBalance(0, 0, 0, 0)
         }
@@ -747,7 +1078,7 @@ class BdkBitcoinRepository @Inject constructor(
         val currentNetwork = settingsManager.getNetwork()
         if (walletEntity != null && walletEntity.network != currentNetwork) {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "syncWallet: SKIPPING $walletId — wallet is ${walletEntity.network} but current network is $currentNetwork")
-            return@withContext getBalance(walletId)
+            return@withContext getBalanceUnderLease(walletId, lease)
         }
 
         // R7-1: Per-wallet mutex — serialize syncs to prevent concurrent BDK access.
@@ -780,7 +1111,7 @@ class BdkBitcoinRepository @Inject constructor(
             if (logSensitive) {
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: loading wallet $walletId")
             }
-            val entry = loadWallet(walletId)
+            val entry = loadWallet(walletId, lease)
             val wallet = entry.wallet
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: wallet loaded OK")
 
@@ -789,6 +1120,9 @@ class BdkBitcoinRepository @Inject constructor(
             val timeoutMs = if (effectiveConfig.isCustom) 60_000L else 30_000L
             val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
             var activeConnection: net.clench.wallet.data.network.ActiveElectrumConnection? = null
+            var fullScanBuilder: org.bitcoindevkit.FullScanRequestBuilder? = null
+            var fullScanRequest: org.bitcoindevkit.FullScanRequest? = null
+            var scanUpdate: org.bitcoindevkit.Update? = null
             try {
                 // Create ElectrumClient via connection factory (handles TLS pinning + Tor relay)
                 val resolved = electrumConnectionFactory.resolveConnection(effectiveConfig)
@@ -801,7 +1135,8 @@ class BdkBitcoinRepository @Inject constructor(
                     timeoutMs = timeoutMs,
                     operation = "Electrum connection",
                     create = { electrumConnectionFactory.createConnection(effectiveConfig) },
-                    close = { it.close() }
+                    close = { it.close() },
+                    onCloseFailure = operationBarrier::quarantineNativeResource
                 )
                 val electrumClient = activeConnection.client
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: ElectrumClient created OK (mode=${activeConnection.mode})")
@@ -810,25 +1145,27 @@ class BdkBitcoinRepository @Inject constructor(
                 // pre-empt it. Run it on the dedicated executor and close its
                 // transport before cancellation if the hard deadline expires.
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: building fullScan request for $walletId")
-                val fullScanRequest = wallet.startFullScan().build()
+                fullScanBuilder = wallet.startFullScan()
+                fullScanRequest = fullScanBuilder.build()
+                val request = fullScanRequest
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: starting fullScan (stopGap=20, batch=10)")
                 val scanFuture = executor.submit(java.util.concurrent.Callable {
                     electrumClient.fullScan(
-                        fullScanRequest,
+                        request,
                         stopGap = 20uL,
                         batchSize = 10uL,
                         fetchPrevTxouts = true
                     )
                 })
-                val update = BoundedBlockingCall.await(
+                scanUpdate = BoundedBlockingCall.await(
                     future = scanFuture,
                     timeoutMs = timeoutMs,
                     operation = "Electrum full scan",
-                    onTimeout = { activeConnection.close() }
+                    onTimeout = { activeConnection.cancelTransport() }
                 )
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: fullScan complete, applying update")
 
-                wallet.applyUpdate(update)
+                wallet.applyUpdate(scanUpdate)
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: update applied, persisting")
 
                 wallet.persist(entry.persister)
@@ -840,8 +1177,20 @@ class BdkBitcoinRepository @Inject constructor(
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: ERROR for $walletId: ${e.javaClass.simpleName}: ${e.message}")
                 throw e
             } finally {
-                try { activeConnection?.close() } catch (_: Exception) {}
-                executor.shutdownNow()
+                activeConnection?.cancelTransport()
+                BoundedBlockingCall.shutdownAndAwaitTermination(
+                    executor = executor,
+                    operation = "Electrum wallet sync worker",
+                    onTerminationStalled = operationBarrier::markFailedRestartRequiredFromOperation
+                )
+                operationBarrier.closeNativeResourcesOrFail(
+                    listOfNotNull(
+                        nativeCloseAction(scanUpdate) { it.close() },
+                        nativeCloseAction(fullScanRequest) { it.close() },
+                        nativeCloseAction(fullScanBuilder) { it.close() },
+                        nativeCloseAction(activeConnection) { it.close() }
+                    )
+                )
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: cleanup done")
             }
 
@@ -998,10 +1347,11 @@ class BdkBitcoinRepository @Inject constructor(
                 immatureSat = balance.immature.toSat().toLong()
             )
         }
+        }
     }
 
     override suspend fun recoverWalletState(walletId: String, stopGap: UInt): WalletStateRecoveryResult =
-        withContext(Dispatchers.IO) {
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
             require(WalletStateRecoveryPolicy.isValidStopGap(stopGap)) {
                 "Recovery stop gap must be from ${WalletStateRecoveryPolicy.MIN_STOP_GAP} to ${WalletStateRecoveryPolicy.MAX_STOP_GAP}"
             }
@@ -1014,7 +1364,7 @@ class BdkBitcoinRepository @Inject constructor(
             }
 
             syncMutex(walletId).withLock {
-                evictWallet(walletId)
+                evictWallet(walletId, lease)
                 val network = if (walletEntity.network == "testnet") Network.TESTNET else Network.BITCOIN
                 val dbFile = context.getDatabasePath("wallet_${walletId}.db")
                 val originalFiles = listOf(
@@ -1035,33 +1385,39 @@ class BdkBitcoinRepository @Inject constructor(
                 try {
                     stateTransaction.quarantineOriginals()
 
-                    val externalDescriptor = Descriptor(walletEntity.descriptor, network)
-                    val changeDescriptor = Descriptor(walletEntity.changeDescriptor, network)
+                    val descriptors = createDescriptorPair(
+                        createExternal = { Descriptor(walletEntity.descriptor, network) },
+                        createChange = { Descriptor(walletEntity.changeDescriptor, network) }
+                    )
                     stateTransaction.markReplacementStateStarted()
-                    val persister = Persister.newSqlite(dbFile.absolutePath)
-                    val wallet = try {
-                        Wallet(externalDescriptor, changeDescriptor, network, persister)
-                    } catch (e: Exception) {
-                        persister.close()
-                        throw e
-                    } finally {
-                        externalDescriptor.close()
-                        changeDescriptor.close()
-                    }
-                    replacementEntry = WalletEntry(wallet, persister)
+                    replacementEntry = createWalletEntryFromDescriptors(
+                        descriptors = descriptors,
+                        createPersister = { Persister.newSqlite(dbFile.absolutePath) },
+                        createWallet = { external, change, persister ->
+                            Wallet(external, change, network, persister)
+                        }
+                    )
+                    val wallet = replacementEntry.wallet
+                    val persister = replacementEntry.persister
                     val electrumConfig = settingsManager.loadElectrumConfig()
                     val connectionTimeoutMs = if (electrumConfig.isCustom) 60_000L else 30_000L
                     val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
                     var activeConnection: net.clench.wallet.data.network.ActiveElectrumConnection? = null
+                    var scanBuilder: org.bitcoindevkit.FullScanRequestBuilder? = null
+                    var scanRequest: org.bitcoindevkit.FullScanRequest? = null
+                    var scanUpdate: org.bitcoindevkit.Update? = null
                     try {
                         activeConnection = BoundedBlockingCall.awaitResource(
                             executor = executor,
                             timeoutMs = connectionTimeoutMs,
                             operation = "Electrum recovery connection",
                             create = { electrumConnectionFactory.createConnection(electrumConfig) },
-                            close = { it.close() }
+                            close = { it.close() },
+                            onCloseFailure = operationBarrier::quarantineNativeResource
                         )
-                        val request = wallet.startFullScan().build()
+                        scanBuilder = wallet.startFullScan()
+                        scanRequest = scanBuilder.build()
+                        val request = scanRequest
                         val connection = activeConnection
                         val scanFuture = executor.submit(java.util.concurrent.Callable {
                             connection.client.fullScan(
@@ -1071,36 +1427,52 @@ class BdkBitcoinRepository @Inject constructor(
                                 fetchPrevTxouts = true
                             )
                         })
-                        val update = BoundedBlockingCall.await(
+                        scanUpdate = BoundedBlockingCall.await(
                             future = scanFuture,
                             timeoutMs = recoveryScanTimeoutMs,
                             operation = "Electrum recovery scan",
-                            onTimeout = { connection.close() }
+                            onTimeout = { connection.cancelTransport() }
                         )
-                        wallet.applyUpdate(update)
+                        wallet.applyUpdate(scanUpdate)
                         wallet.persist(persister)
                     } finally {
-                        runCatching { activeConnection?.close() }
-                        executor.shutdownNow()
+                        activeConnection?.cancelTransport()
+                        BoundedBlockingCall.shutdownAndAwaitTermination(
+                            executor = executor,
+                            operation = "Electrum recovery worker",
+                            onTerminationStalled = operationBarrier::markFailedRestartRequiredFromOperation
+                        )
+                        operationBarrier.closeNativeResourcesOrFail(
+                            listOfNotNull(
+                                nativeCloseAction(scanUpdate) { it.close() },
+                                nativeCloseAction(scanRequest) { it.close() },
+                                nativeCloseAction(scanBuilder) { it.close() },
+                                nativeCloseAction(activeConnection) { it.close() }
+                            )
+                        )
                     }
 
-                    cacheWallet(walletId, checkNotNull(replacementEntry))
+                    cacheWallet(walletId, checkNotNull(replacementEntry), lease)
                     replacementEntry = null
                     val balance = wallet.balance()
-                    WalletStateRecoveryResult(
-                        balance = WalletBalance(
-                            confirmedSat = balance.confirmed.toSat().toLong(),
-                            trustedPendingSat = balance.trustedPending.toSat().toLong(),
-                            untrustedPendingSat = balance.untrustedPending.toSat().toLong(),
-                            immatureSat = balance.immature.toSat().toLong()
-                        ),
-                        quarantineId = recoveryId,
-                        preservedFileCount = stateTransaction.preservedFileCount,
-                        stopGap = stopGap
-                    )
+                    try {
+                        WalletStateRecoveryResult(
+                            balance = WalletBalance(
+                                confirmedSat = balance.confirmed.toSat().toLong(),
+                                trustedPendingSat = balance.trustedPending.toSat().toLong(),
+                                untrustedPendingSat = balance.untrustedPending.toSat().toLong(),
+                                immatureSat = balance.immature.toSat().toLong()
+                            ),
+                            quarantineId = recoveryId,
+                            preservedFileCount = stateTransaction.preservedFileCount,
+                            stopGap = stopGap
+                        )
+                    } finally {
+                        closeSecretNativeResources(nativeCloseAction(balance) { it.destroy() })
+                    }
                 } catch (e: Exception) {
-                    evictWallet(walletId)
-                    replacementEntry?.let(::closeWalletEntry)
+                    evictWallet(walletId, lease)
+                    replacementEntry?.let { closeWalletEntry(it, lease) }
                     replacementEntry = null
                     stateTransaction.rollback(e)
                     throw IllegalStateException(
@@ -1109,6 +1481,7 @@ class BdkBitcoinRepository @Inject constructor(
                     )
                 }
             }
+        }
         }
 
     override suspend fun deleteWalletStateQuarantine(walletId: String, quarantineId: String): Int =
@@ -1125,9 +1498,17 @@ class BdkBitcoinRepository @Inject constructor(
             matches.size
         }
 
-    override suspend fun getBalance(walletId: String): WalletBalance = withContext(Dispatchers.IO) {
-        syncMutex(walletId).withLock {
-            val entry = loadWallet(walletId)
+    override suspend fun getBalance(walletId: String): WalletBalance =
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
+            getBalanceUnderLease(walletId, lease)
+        } }
+
+    private suspend fun getBalanceUnderLease(
+        walletId: String,
+        lease: SensitiveWalletOperationBarrier.Lease
+    ): WalletBalance {
+        return syncMutex(walletId).withLock {
+            val entry = loadWallet(walletId, lease)
             val wallet = entry.wallet
             val balance = wallet.balance()
             WalletBalance(
@@ -1139,18 +1520,19 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
-    override suspend fun getTransactions(walletId: String): List<TransactionItem> {
+    override suspend fun getTransactions(walletId: String): List<TransactionItem> =
+        withSensitiveWalletOperation { _ ->
         // Passphrase wallets: never return Room-cached transactions when in the locked/in-memory state.
         // The Room transaction cache contains data from previous syncs of the real wallet, which must
         // not be visible before the passphrase is entered (same reason we use in-memory BDK wallets).
         // When unlocked, the cache is repopulated by syncWallet() and we return it normally.
         val walletEntity = walletDao.getById(walletId)
-        if (walletEntity?.hasPassphrase == true && !unlockedPassphraseWallets.contains(walletId)) {
-            return emptyList()
+        if (walletEntity?.hasPassphrase == true && !isPassphraseWalletMarkedUnlocked(walletId)) {
+            return@withSensitiveWalletOperation emptyList()
         }
         // Load labels for this wallet
         val labels = transactionLabelDao.getForWallet(walletId).associateBy { it.txid }
-        return transactionDao.getForWallet(walletId).map { entity ->
+        transactionDao.getForWallet(walletId).map { entity ->
             TransactionItem(
                 txid = entity.txid,
                 amountSat = entity.amountSat,
@@ -1164,13 +1546,14 @@ class BdkBitcoinRepository @Inject constructor(
                 label = labels[entity.txid]?.label
             )
         }
-    }
+        }
 
-    override suspend fun getLastAddress(walletId: String): DomainAddress = withContext(Dispatchers.IO) {
+    override suspend fun getLastAddress(walletId: String): DomainAddress =
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
             // R7-3: Fixed !! crash — use loadWallet() which always returns a valid entry
             // R7-8: Use nextUnusedAddress() which returns the next unused address without advancing the gap limit
-            val entry = loadWallet(walletId)
+            val entry = loadWallet(walletId, lease)
             val wallet = entry.wallet
             val addressInfo = wallet.nextUnusedAddress(KeychainKind.EXTERNAL)
             DomainAddress(
@@ -1179,11 +1562,13 @@ class BdkBitcoinRepository @Inject constructor(
                 used = false
             )
         }
+        }
     }
 
-    override suspend fun getReceiveAddress(walletId: String): DomainAddress = withContext(Dispatchers.IO) {
+    override suspend fun getReceiveAddress(walletId: String): DomainAddress =
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
-            val entry = loadWallet(walletId)
+            val entry = loadWallet(walletId, lease)
             val wallet = entry.wallet
             val addressInfo = wallet.revealNextAddress(KeychainKind.EXTERNAL)
 
@@ -1196,6 +1581,7 @@ class BdkBitcoinRepository @Inject constructor(
                 used = false
             )
         }
+        }
     }
 
     override suspend fun buildTransaction(
@@ -1206,9 +1592,9 @@ class BdkBitcoinRepository @Inject constructor(
         utxoTxid: String?,
         utxoVout: UInt?,
         selectedOutpoints: List<String>
-    ): String = withContext(Dispatchers.IO) {
+    ): String = withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
-        val entry = loadWallet(walletId)
+        val entry = loadWallet(walletId, lease)
         val wallet = entry.wallet
         val network = activeNetwork()
         val recipientAddress = org.bitcoindevkit.Address(toAddress, network)
@@ -1302,17 +1688,14 @@ class BdkBitcoinRepository @Inject constructor(
 
         // Build and sign transaction
         val psbt = builder.finish(wallet)
-        try {
-            wallet.sign(psbt)
-            return@withContext serializeFinalTransaction(psbt)
-        } catch (e: Exception) {
-            runCatching { psbt.close() }
-            throw e
+        wallet.sign(psbt)
+        return@withContext serializeFinalTransaction(psbt)
         }
         }
     }
 
-    override suspend fun broadcastTransaction(config: ElectrumConfig, txHex: String): String = withContext(Dispatchers.IO) {
+    override suspend fun broadcastTransaction(config: ElectrumConfig, txHex: String): String =
+        withSensitiveWalletOperation { _ -> withContext(Dispatchers.IO) {
         if (settingsManager.isOfflineMode()) {
             throw IllegalStateException("Cannot broadcast in offline mode")
         }
@@ -1324,7 +1707,8 @@ class BdkBitcoinRepository @Inject constructor(
         try {
             broadcastTransactionBounded(config, tx)
         } finally {
-            tx.close()
+            closeSecretNativeResources(nativeCloseAction(tx) { it.close() })
+        }
         }
     }
 
@@ -1338,7 +1722,8 @@ class BdkBitcoinRepository @Inject constructor(
                 timeoutMs = timeoutMs,
                 operation = "Electrum broadcast connection",
                 create = { electrumConnectionFactory.createConnection(config) },
-                close = { it.close() }
+                close = { it.close() },
+                onCloseFailure = operationBarrier::quarantineNativeResource
             )
             val connection = activeConnection
             val broadcastFuture = executor.submit(java.util.concurrent.Callable {
@@ -1348,25 +1733,33 @@ class BdkBitcoinRepository @Inject constructor(
                 future = broadcastFuture,
                 timeoutMs = timeoutMs,
                 operation = "Electrum transaction broadcast",
-                onTimeout = { connection.close() }
+                onTimeout = { connection.cancelTransport() }
             )
         } finally {
-            runCatching { activeConnection?.close() }
-            executor.shutdownNow()
+            activeConnection?.cancelTransport()
+            BoundedBlockingCall.shutdownAndAwaitTermination(
+                executor = executor,
+                operation = "Electrum broadcast worker",
+                onTerminationStalled = operationBarrier::markFailedRestartRequiredFromOperation
+            )
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(nativeCloseAction(activeConnection) { it.close() })
+            )
         }
     }
 
     override suspend fun inspectBuiltTransaction(
         walletId: String,
         txHex: String
-    ): BuiltTransactionReview = withContext(Dispatchers.IO) {
+    ): BuiltTransactionReview = withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
         val txBytes = txHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         val tx = Transaction(txBytes)
         try {
-            inspectTransaction(walletId, tx)
+            inspectTransaction(walletId, tx, lease = lease)
         } finally {
-            tx.close()
+            closeSecretNativeResources(nativeCloseAction(tx) { it.close() })
+        }
         }
         }
     }
@@ -1374,7 +1767,7 @@ class BdkBitcoinRepository @Inject constructor(
     override suspend fun inspectPsbt(
         walletId: String,
         psbtBase64: String
-    ): BuiltTransactionReview = withContext(Dispatchers.IO) {
+    ): BuiltTransactionReview = withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
         PsbtSafety.inspectBase64(psbtBase64)
         val psbt = Psbt(psbtBase64)
@@ -1398,15 +1791,17 @@ class BdkBitcoinRepository @Inject constructor(
                 inspectTransaction(
                     walletId = walletId,
                     tx = tx,
+                    lease = lease,
                     knownFeeSat = psbt.fee().toLong(),
                     vsizeOverride = estimatedFinalVsize,
                     vsizeIsEstimate = estimatedFinalVsize != null
                 )
             } finally {
-                tx.close()
+                closeSecretNativeResources(nativeCloseAction(tx) { it.close() })
             }
         } finally {
-            psbt.close()
+            closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
+        }
         }
         }
     }
@@ -1414,11 +1809,12 @@ class BdkBitcoinRepository @Inject constructor(
     private suspend fun inspectTransaction(
         walletId: String,
         tx: Transaction,
+        lease: SensitiveWalletOperationBarrier.Lease,
         knownFeeSat: Long? = null,
         vsizeOverride: Long? = null,
         vsizeIsEstimate: Boolean = false
     ): BuiltTransactionReview {
-        val wallet = loadWallet(walletId).wallet
+        val wallet = loadWallet(walletId, lease).wallet
         val feeSat = knownFeeSat ?: wallet.calculateFee(tx).toSat().toLong()
         val vsize = vsizeOverride ?: tx.vsize().toLong()
         return BuiltTransactionReview(
@@ -1470,10 +1866,11 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
-    override suspend fun deleteWallet(walletId: String) = withContext(Dispatchers.IO) {
+    override suspend fun deleteWallet(walletId: String) =
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
         // Remove from cache first
-        evictWallet(walletId)
+        evictWallet(walletId, lease)
 
         // 1. Delete secrets FIRST — if process is killed mid-delete, private keys are already gone
         keystoreManager.deleteWalletSecrets(walletId)
@@ -1492,15 +1889,17 @@ class BdkBitcoinRepository @Inject constructor(
         addressBookDao.deleteForWallet(walletId)
         walletDao.deleteById(walletId)
         }
+        }
     }
 
     override suspend fun getAddresses(walletId: String, count: Int): List<DomainAddress> = withContext(Dispatchers.IO) {
         getAddresses(walletId, KeychainKind.EXTERNAL, count)
     }
 
-    override suspend fun getAddresses(walletId: String, keychain: KeychainKind, count: Int): List<DomainAddress> = withContext(Dispatchers.IO) {
+    override suspend fun getAddresses(walletId: String, keychain: KeychainKind, count: Int): List<DomainAddress> =
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
-        val entry = loadWallet(walletId)
+        val entry = loadWallet(walletId, lease)
         val wallet = entry.wallet
 
         // Determine "used" addresses by checking BDK's unused address list and
@@ -1557,6 +1956,7 @@ class BdkBitcoinRepository @Inject constructor(
             )
         }
         addresses
+        }
         }
     }
 
@@ -1703,7 +2103,8 @@ class BdkBitcoinRepository @Inject constructor(
                 timeoutMs = timeoutMs,
                 operation = "Electrum fee-estimation connection",
                 create = { electrumConnectionFactory.createConnection(config) },
-                close = { it.close() }
+                close = { it.close() },
+                onCloseFailure = operationBarrier::quarantineNativeResource
             )
             val connection = activeConnection
             val estimateFuture = executor.submit(java.util.concurrent.Callable {
@@ -1736,7 +2137,7 @@ class BdkBitcoinRepository @Inject constructor(
                 future = estimateFuture,
                 timeoutMs = timeoutMs,
                 operation = "Electrum fee estimation",
-                onTimeout = { connection.close() }
+                onTimeout = { connection.cancelTransport() }
             )
         } catch (e: InterruptedException) {
             throw e
@@ -1744,8 +2145,15 @@ class BdkBitcoinRepository @Inject constructor(
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "Electrum fee estimation error: ${e.message}")
             null
         } finally {
-            runCatching { activeConnection?.close() }
-            executor.shutdownNow()
+            activeConnection?.cancelTransport()
+            BoundedBlockingCall.shutdownAndAwaitTermination(
+                executor = executor,
+                operation = "Electrum fee-estimation worker",
+                onTerminationStalled = operationBarrier::markFailedRestartRequiredFromOperation
+            )
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(nativeCloseAction(activeConnection) { it.close() })
+            )
         }
     }
 
@@ -1781,33 +2189,31 @@ class BdkBitcoinRepository @Inject constructor(
         )
     }
 
-    override suspend fun bumpFee(walletId: String, txid: String, newFeeRate: Float): String = withContext(Dispatchers.IO) {
+    override suspend fun bumpFee(walletId: String, txid: String, newFeeRate: Float): String =
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
-        val entry = loadWallet(walletId)
+        val entry = loadWallet(walletId, lease)
         val wallet = entry.wallet
         val feeRate = validatedFeeRate(newFeeRate)
 
         val psbt = org.bitcoindevkit.BumpFeeTxBuilder(org.bitcoindevkit.Txid.fromString(txid), feeRate)
             .finish(wallet)
 
-        try {
-            // Sign the bumped transaction and durably persist the replacement state.
-            wallet.sign(psbt)
-            wallet.persist(entry.persister)
-            serializeFinalTransaction(psbt)
-        } catch (e: Exception) {
-            runCatching { psbt.close() }
-            throw e
+        // Sign the bumped transaction and durably persist the replacement state.
+        wallet.sign(psbt)
+        wallet.persist(entry.persister)
+        serializeFinalTransaction(psbt)
         }
         }
     }
 
-    override suspend fun cancelTransaction(walletId: String, txid: String, newFeeRate: Float): String = withContext(Dispatchers.IO) {
+    override suspend fun cancelTransaction(walletId: String, txid: String, newFeeRate: Float): String =
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
         val walletEntity = walletDao.getById(walletId)
         require(walletEntity?.isWatchOnly != true) { "Watch-only wallets must cancel via their external signer." }
 
-        val entry = loadWallet(walletId)
+        val entry = loadWallet(walletId, lease)
         val wallet = entry.wallet
         val txDetails = wallet.txDetails(org.bitcoindevkit.Txid.fromString(txid))
             ?: throw IllegalArgumentException("Transaction not found in this wallet")
@@ -1864,36 +2270,33 @@ class BdkBitcoinRepository @Inject constructor(
                     builder.manuallySelectedOnly().finish(wallet)
                 }
             )
-            try {
-                wallet.sign(psbt)
-                wallet.persist(entry.persister)
-                serializeFinalTransaction(psbt)
-            } catch (e: Exception) {
-                runCatching { psbt.close() }
-                throw e
-            }
+            wallet.sign(psbt)
+            wallet.persist(entry.persister)
+            serializeFinalTransaction(psbt)
         } finally {
-            originalTx.close()
+            closeSecretNativeResources(nativeCloseAction(originalTx) { it.close() })
+        }
         }
         }
     }
 
-    override suspend fun listUnspent(walletId: String): List<net.clench.wallet.domain.model.UtxoInfo> = withContext(Dispatchers.IO) {
+    override suspend fun listUnspent(walletId: String): List<net.clench.wallet.domain.model.UtxoInfo> =
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
         // Passphrase wallet guard — same as getTransactions().
         // Never expose UTXOs from the public descriptor (xpub) wallet in the locked state.
         val walletEntity = walletDao.getById(walletId)
-        if (walletEntity?.hasPassphrase == true && !unlockedPassphraseWallets.contains(walletId)) {
+        if (walletEntity?.hasPassphrase == true && !isPassphraseWalletMarkedUnlocked(walletId)) {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "listUnspent: passphrase wallet $walletId is locked — returning empty list")
             return@withContext emptyList()
         }
 
-        val entry = loadWallet(walletId)
+        val entry = loadWallet(walletId, lease)
         val wallet = entry.wallet
         val utxos = wallet.listUnspent()
         // [S-4] Gate: UTXO count and unlock status expose wallet balance info
         if (logSensitive) {
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "listUnspent: walletId=${walletId.take(8)} rawUtxoCount=${utxos.size} unlocked=${unlockedPassphraseWallets.contains(walletId)}")
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "listUnspent: walletId=${walletId.take(8)} rawUtxoCount=${utxos.size} unlocked=${isPassphraseWalletMarkedUnlocked(walletId)}")
         }
 
         // Calculate tip height for confirmation count via the configured Electrum route.
@@ -1952,6 +2355,7 @@ class BdkBitcoinRepository @Inject constructor(
             )
         }
         }
+        }
     }
 
     override suspend fun createPsbt(
@@ -1962,9 +2366,9 @@ class BdkBitcoinRepository @Inject constructor(
         utxoTxid: String?,
         utxoVout: UInt?,
         selectedOutpoints: List<String>
-    ): String = withContext(Dispatchers.IO) {
+    ): String = withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
-        val entry = loadWallet(walletId)
+        val entry = loadWallet(walletId, lease)
         val wallet = entry.wallet
         val network = activeNetwork()
         val recipientAddress = org.bitcoindevkit.Address(toAddress, network)
@@ -2111,7 +2515,8 @@ class BdkBitcoinRepository @Inject constructor(
 
             serializedPsbt
         } finally {
-            psbt.close()
+            closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
+        }
         }
         }
     }
@@ -2121,14 +2526,14 @@ class BdkBitcoinRepository @Inject constructor(
         recipients: List<net.clench.wallet.domain.repository.Recipient>,
         feeRateSatPerVbyte: Float,
         selectedOutpoints: List<String>
-    ): String = withContext(Dispatchers.IO) {
+    ): String = withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
         require(recipients.isNotEmpty()) { "At least one recipient is required" }
         // B-3: Defense-in-depth — toULong() wraps negatives to huge numbers; guard here
         recipients.forEach { r ->
             require(r.amountSat > 0) { "Recipient amount must be positive, got ${r.amountSat}" }
         }
-        val entry = loadWallet(walletId)
+        val entry = loadWallet(walletId, lease)
         val wallet = entry.wallet
         val network = activeNetwork()
         val feeRate = validatedFeeRate(feeRateSatPerVbyte)
@@ -2176,12 +2581,8 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         val psbt = builder.finish(wallet)
-        try {
-            wallet.sign(psbt)
-            serializeFinalTransaction(psbt)
-        } catch (e: Exception) {
-            runCatching { psbt.close() }
-            throw e
+        wallet.sign(psbt)
+        serializeFinalTransaction(psbt)
         }
         }
     }
@@ -2191,14 +2592,14 @@ class BdkBitcoinRepository @Inject constructor(
         recipients: List<net.clench.wallet.domain.repository.Recipient>,
         feeRateSatPerVbyte: Float,
         selectedOutpoints: List<String>
-    ): String = withContext(Dispatchers.IO) {
+    ): String = withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
         require(recipients.isNotEmpty()) { "At least one recipient is required" }
         // B-3: Defense-in-depth — toULong() wraps negatives to huge numbers; guard here
         recipients.forEach { r ->
             require(r.amountSat > 0) { "Recipient amount must be positive, got ${r.amountSat}" }
         }
-        val entry = loadWallet(walletId)
+        val entry = loadWallet(walletId, lease)
         val wallet = entry.wallet
         val network = activeNetwork()
         val feeRate = validatedFeeRate(feeRateSatPerVbyte)
@@ -2248,12 +2649,18 @@ class BdkBitcoinRepository @Inject constructor(
         try {
             psbt.serialize()
         } finally {
-            psbt.close()
+            closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
+        }
         }
         }
     }
 
-    override suspend fun applyAndBroadcastPsbt(walletId: String, signedPsbtBase64: String, unsignedPsbtBase64: String): String = withContext(Dispatchers.IO) {
+    override suspend fun applyAndBroadcastPsbt(
+        walletId: String,
+        signedPsbtBase64: String,
+        unsignedPsbtBase64: String,
+        assertBroadcastAuthorized: () -> Unit
+    ): String = withSensitiveWalletOperation { _ -> withContext(Dispatchers.IO) {
         if (settingsManager.isOfflineMode()) {
             throw IllegalStateException("Cannot broadcast in offline mode")
         }
@@ -2263,21 +2670,27 @@ class BdkBitcoinRepository @Inject constructor(
         // COLDCARD can return either a signed PSBT or a finalized transaction
         // (BBQr file type T / .txn), depending on the export path and settings.
         val signedPsbt = parseSignedPsbtPayload(signedPsbtBase64)
+        val signatureContext = externalSignatureContext(unsignedPsbtBase64)
         try {
             val tx = if (signedPsbt != null) {
+                validatePsbtMatchesUnsignedPsbt(unsignedPsbtBase64, signedPsbt, signatureContext)
                 // Finalize the PSBT before comparing the resulting transaction to
                 // the original unsigned PSBT. This is stricter than comparing PSBT
                 // metadata and covers QR, NFC, and file-import paths uniformly.
                 val finalizeResult = signedPsbt.finalize()
                 if (!finalizeResult.couldFinalize) {
                     val errorMsgs = finalizeResult.errors?.joinToString(", ") { it.toString() } ?: "Unknown error"
-                    finalizeResult.psbt.close()
+                    closeSecretNativeResources(
+                        nativeCloseAction(finalizeResult.psbt) { it.close() }
+                    )
                     throw IllegalStateException("Could not finalize PSBT: $errorMsgs")
                 }
                 try {
                     finalizeResult.psbt.extractTx()
                 } finally {
-                    finalizeResult.psbt.close()
+                    closeSecretNativeResources(
+                        nativeCloseAction(finalizeResult.psbt) { it.close() }
+                    )
                 }
             } else {
                 // Not a PSBT; treat it as a finalized raw transaction payload.
@@ -2285,14 +2698,19 @@ class BdkBitcoinRepository @Inject constructor(
             }
 
             try {
-                validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, tx)
+                validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, tx, signatureContext)
                 val config = settingsManager.loadElectrumConfig()
+                // This is deliberately the last step before any network I/O.
+                // Hardware-signing coordinators use it to prove that the exact
+                // reviewed session is still current after parsing/finalization.
+                assertBroadcastAuthorized()
                 broadcastTransactionBounded(config, tx)
             } finally {
-                tx.close()
+                closeSecretNativeResources(nativeCloseAction(tx) { it.close() })
             }
         } finally {
-            signedPsbt?.close()
+            closeSecretNativeResources(nativeCloseAction(signedPsbt) { it.close() })
+        }
         }
     }
 
@@ -2300,20 +2718,21 @@ class BdkBitcoinRepository @Inject constructor(
         unsignedPsbtBase64: String,
         currentPsbtBase64: String,
         signedPsbtPayload: String
-    ): PsbtSigningProgress = withContext(Dispatchers.IO) {
+    ): PsbtSigningProgress = withSensitiveWalletOperation { _ -> withContext(Dispatchers.IO) {
         val returnedPsbt = parseSignedPsbtPayload(signedPsbtPayload)
+        val signatureContext = externalSignatureContext(unsignedPsbtBase64)
 
         if (returnedPsbt == null) {
             val tx = Transaction(decodeTransactionPayload(signedPsbtPayload))
             try {
-                validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, tx)
+                validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, tx, signatureContext)
                 return@withContext PsbtSigningProgress(
                     psbtBase64 = signedPsbtPayload.trim(),
                     readyToBroadcast = true,
                     message = "Clench imported a finalized transaction and verified it matches the original PSBT."
                 )
             } finally {
-                tx.close()
+                closeSecretNativeResources(nativeCloseAction(tx) { it.close() })
             }
         }
 
@@ -2324,13 +2743,25 @@ class BdkBitcoinRepository @Inject constructor(
         var finalizedPsbt: Psbt? = null
         try {
             val signatureCountBefore = signatureMaterialCount(currentPsbt)
+            ExternalSignaturePolicy.validatePsbtBase64(
+                currentPsbtPayload,
+                signatureContext.inputKinds,
+                signatureContext.outputCount
+            )
+            validatePsbtMatchesUnsignedPsbt(unsignedPsbtBase64, returnedPsbt, signatureContext)
+            val signatureOnlyMerge = ExternalSignaturePolicy.mergeSignatureMaterial(
+                current = currentPsbtPayload,
+                returned = returnedPsbt.serialize(),
+                inputKinds = signatureContext.inputKinds,
+                outputCount = signatureContext.outputCount
+            )
             mergedPsbt = try {
-                currentPsbt.combine(returnedPsbt)
+                Psbt(signatureOnlyMerge)
             } catch (e: Exception) {
                 throw IllegalStateException("Signed PSBT could not be merged with the current PSBT: ${e.message}")
             }
 
-            validatePsbtMatchesUnsignedPsbt(unsignedPsbtBase64, mergedPsbt)
+            validatePsbtMatchesUnsignedPsbt(unsignedPsbtBase64, mergedPsbt, signatureContext)
             val mergedSerialized = mergedPsbt.serialize()
             val signatureCountAfter = signatureMaterialCount(mergedPsbt)
             val finalizeResult = mergedPsbt.finalize()
@@ -2339,9 +2770,9 @@ class BdkBitcoinRepository @Inject constructor(
             if (finalizeResult.couldFinalize) {
                 val finalizedTx = finalizedPsbt.extractTx()
                 try {
-                    validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, finalizedTx)
+                    validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, finalizedTx, signatureContext)
                 } finally {
-                    finalizedTx.close()
+                    closeSecretNativeResources(nativeCloseAction(finalizedTx) { it.close() })
                 }
                 return@withContext PsbtSigningProgress(
                     psbtBase64 = finalizedPsbt.serialize(),
@@ -2360,10 +2791,13 @@ class BdkBitcoinRepository @Inject constructor(
                 message = "Signature added. More signatures are required before broadcast."
             )
         } finally {
-            finalizedPsbt?.close()
-            mergedPsbt?.close()
-            currentPsbt.close()
-            returnedPsbt.close()
+            closeSecretNativeResources(
+                nativeCloseAction(finalizedPsbt) { it.close() },
+                nativeCloseAction(mergedPsbt) { it.close() },
+                nativeCloseAction(currentPsbt) { it.close() },
+                nativeCloseAction(returnedPsbt) { it.close() }
+            )
+        }
         }
     }
 
@@ -2423,7 +2857,11 @@ class BdkBitcoinRepository @Inject constructor(
      * original unsigned PSBT before broadcasting. Prevents a compromised signer
      * or transport from substituting recipient addresses, amounts, or inputs.
      */
-    private fun validateTransactionMatchesUnsignedPsbt(unsignedBase64: String, signedTx: Transaction) {
+    private fun validateTransactionMatchesUnsignedPsbt(
+        unsignedBase64: String,
+        signedTx: Transaction,
+        signatureContext: ExternalSignatureContext = externalSignatureContext(unsignedBase64)
+    ) {
         PsbtSafety.inspectBase64(unsignedBase64)
         val unsigned = Psbt(unsignedBase64)
         var unsignedTx: Transaction? = null
@@ -2439,14 +2877,26 @@ class BdkBitcoinRepository @Inject constructor(
 
             val actual = fingerprintTransaction(signedTx)
             compareTransactionFingerprints(expected, actual)
+            validateFinalizedSignaturePolicy(signedTx, signatureContext)
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "PSBT validation passed: complete unsigned transaction policy matches")
         } finally {
-            unsignedTx?.close()
-            unsigned.close()
+            closeSecretNativeResources(
+                nativeCloseAction(unsignedTx) { it.close() },
+                nativeCloseAction(unsigned) { it.close() }
+            )
         }
     }
 
-    private fun validatePsbtMatchesUnsignedPsbt(unsignedBase64: String, candidate: Psbt) {
+    private fun validatePsbtMatchesUnsignedPsbt(
+        unsignedBase64: String,
+        candidate: Psbt,
+        signatureContext: ExternalSignatureContext = externalSignatureContext(unsignedBase64)
+    ) {
+        ExternalSignaturePolicy.validatePsbtBase64(
+            candidate.serialize(),
+            signatureContext.inputKinds,
+            signatureContext.outputCount
+        )
         PsbtSafety.inspectBase64(unsignedBase64)
         val unsigned = Psbt(unsignedBase64)
         var expectedTx: Transaction? = null
@@ -2465,41 +2915,175 @@ class BdkBitcoinRepository @Inject constructor(
             }
             compareTransactionFingerprints(expected, actual)
         } finally {
-            actualTx?.close()
-            expectedTx?.close()
-            unsigned.close()
+            closeSecretNativeResources(
+                nativeCloseAction(actualTx) { it.close() },
+                nativeCloseAction(expectedTx) { it.close() },
+                nativeCloseAction(unsigned) { it.close() }
+            )
         }
     }
 
+    private data class ExternalSignatureContext(
+        val inputKinds: List<ExternalSignaturePolicy.InputKind>,
+        val outputCount: Int
+    )
+
+    private fun externalSignatureContext(unsignedBase64: String): ExternalSignatureContext {
+        PsbtSafety.inspectBase64(unsignedBase64)
+        val psbt = Psbt(unsignedBase64)
+        try {
+            return externalSignatureContext(psbt)
+        } finally {
+            closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
+        }
+    }
+
+    private fun externalSignatureContext(psbt: Psbt): ExternalSignatureContext {
+        val psbtInputs = psbt.input()
+        val psbtOutputs = psbt.output()
+        var unsignedTx: Transaction? = null
+        try {
+            val txInputs = psbt.extractTx().also { unsignedTx = it }.input()
+            try {
+                require(txInputs.size == psbtInputs.size) {
+                    "PSBT input metadata does not match the unsigned transaction"
+                }
+                val kinds = psbtInputs.mapIndexed { index, input ->
+                    val witnessScript = input.witnessScript?.toBytes()
+                    val redeemScript = input.redeemScript?.toBytes()
+                    val prevoutScript = input.witnessUtxo?.scriptPubkey?.toBytes()
+                        ?: input.nonWitnessUtxo?.let { previousTx ->
+                            val vout = txInputs[index].previousOutput.vout.toInt()
+                            val previousOutputs = previousTx.output()
+                            try {
+                                previousOutputs.getOrNull(vout)?.scriptPubkey?.toBytes()
+                            } finally {
+                                closeSecretNativeResources(
+                                    *previousOutputs.map { output ->
+                                        nativeCloseAction(output) { it.destroy() }
+                                    }.toTypedArray()
+                                )
+                            }
+                        }
+
+                    when {
+                        prevoutScript?.isPayToTaproot() == true -> ExternalSignaturePolicy.InputKind.TAPROOT
+                        witnessScript != null ||
+                            prevoutScript?.isPayToWitnessScriptHash() == true ||
+                            redeemScript?.isPayToWitnessScriptHash() == true ->
+                            ExternalSignaturePolicy.InputKind.ECDSA_WITNESS_SCRIPT
+                        else -> ExternalSignaturePolicy.InputKind.ECDSA
+                    }
+                }
+                return ExternalSignatureContext(kinds, psbtOutputs.size)
+            } finally {
+                closeSecretNativeResources(
+                    *txInputs.map { input ->
+                        nativeCloseAction(input) { it.destroy() }
+                    }.toTypedArray()
+                )
+            }
+        } finally {
+            closeSecretNativeResources(
+                *buildList {
+                    add(nativeCloseAction(unsignedTx) { it.close() })
+                    psbtInputs.forEach { input ->
+                        add(nativeCloseAction(input) { it.destroy() })
+                    }
+                    psbtOutputs.forEach { output ->
+                        add(nativeCloseAction(output) { it.destroy() })
+                    }
+                }.toTypedArray()
+            )
+        }
+    }
+
+    private fun validateFinalizedSignaturePolicy(
+        transaction: Transaction,
+        signatureContext: ExternalSignatureContext
+    ) {
+        val txInputs = transaction.input()
+        try {
+            require(txInputs.size == signatureContext.inputKinds.size) {
+                "Finalized transaction input count does not match the original PSBT"
+            }
+            ExternalSignaturePolicy.validateFinalizedInputs(
+                txInputs.mapIndexed { index, input ->
+                    ExternalSignaturePolicy.FinalizedInput(
+                        kind = signatureContext.inputKinds[index],
+                        scriptSig = input.scriptSig.toBytes(),
+                        witness = input.witness.map(ByteArray::copyOf)
+                    )
+                }
+            )
+        } finally {
+            closeSecretNativeResources(
+                *txInputs.map { input ->
+                    nativeCloseAction(input) { it.destroy() }
+                }.toTypedArray()
+            )
+        }
+    }
+
+    private fun ByteArray.isPayToTaproot(): Boolean =
+        size == 34 && this[0] == 0x51.toByte() && this[1] == 0x20.toByte()
+
+    private fun ByteArray.isPayToWitnessScriptHash(): Boolean =
+        size == 34 && this[0] == 0x00.toByte() && this[1] == 0x20.toByte()
+
     private fun signatureMaterialCount(psbt: Psbt): Int {
-        return psbt.input().sumOf { input ->
-            input.partialSigs.size +
-                input.tapScriptSigs.size +
-                (input.finalScriptWitness?.size ?: 0) +
-                (if (input.tapKeySig?.isNotEmpty() == true) 1 else 0) +
-                (if (input.finalScriptSig?.toBytes()?.isNotEmpty() == true) 1 else 0)
+        val inputs = psbt.input()
+        try {
+            return inputs.sumOf { input ->
+                input.partialSigs.size +
+                    input.tapScriptSigs.size +
+                    (input.finalScriptWitness?.size ?: 0) +
+                    (if (input.tapKeySig?.isNotEmpty() == true) 1 else 0) +
+                    (if (input.finalScriptSig?.toBytes()?.isNotEmpty() == true) 1 else 0)
+            }
+        } finally {
+            closeSecretNativeResources(
+                *inputs.map { input ->
+                    nativeCloseAction(input) { it.destroy() }
+                }.toTypedArray()
+            )
         }
     }
 
     private fun fingerprintTransaction(tx: Transaction): TransactionFingerprint {
-        val inputs = tx.input().map { input ->
-            val previousOutput = input.previousOutput
-            "${previousOutput.txid}:${previousOutput.vout}"
-        }
-        val sequences = tx.input().map { it.sequence.toLong() }
-        val outputs = tx.output().map { output ->
-            OutputFingerprint(
-                valueSat = output.value.toSat().toLong(),
-                scriptPubkeyHex = output.scriptPubkey.toBytes().toHexString()
+        val txInputs = tx.input()
+        val txOutputs = tx.output()
+        try {
+            val inputs = txInputs.map { input ->
+                val previousOutput = input.previousOutput
+                "${previousOutput.txid}:${previousOutput.vout}"
+            }
+            val sequences = txInputs.map { it.sequence.toLong() }
+            val outputs = txOutputs.map { output ->
+                OutputFingerprint(
+                    valueSat = output.value.toSat().toLong(),
+                    scriptPubkeyHex = output.scriptPubkey.toBytes().toHexString()
+                )
+            }
+            return TransactionFingerprint(
+                version = tx.version(),
+                lockTime = tx.lockTime().toLong(),
+                inputs = inputs,
+                sequences = sequences,
+                outputs = outputs
+            )
+        } finally {
+            closeSecretNativeResources(
+                *buildList {
+                    txInputs.forEach { input ->
+                        add(nativeCloseAction(input) { it.destroy() })
+                    }
+                    txOutputs.forEach { output ->
+                        add(nativeCloseAction(output) { it.destroy() })
+                    }
+                }.toTypedArray()
             )
         }
-        return TransactionFingerprint(
-            version = tx.version(),
-            lockTime = tx.lockTime().toLong(),
-            inputs = inputs,
-            sequences = sequences,
-            outputs = outputs
-        )
     }
 
     private fun compareOutputs(expected: List<OutputFingerprint>, actual: List<OutputFingerprint>) {
@@ -2538,15 +3122,15 @@ class BdkBitcoinRepository @Inject constructor(
     private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 
     private fun serializeFinalTransaction(psbt: Psbt): String {
+        var tx: Transaction? = null
         try {
-            val tx = psbt.extractTx()
-            try {
-                return tx.serialize().toHexString()
-            } finally {
-                tx.close()
-            }
+            tx = psbt.extractTx()
+            return tx.serialize().toHexString()
         } finally {
-            psbt.close()
+            closeSecretNativeResources(
+                nativeCloseAction(tx) { it.close() },
+                nativeCloseAction(psbt) { it.close() }
+            )
         }
     }
 
@@ -2563,9 +3147,13 @@ class BdkBitcoinRepository @Inject constructor(
      * For passphrase wallets (not yet unlocked): uses public descriptors only (watch-only mode).
      * For passphrase wallets (unlocked): uses the cached secret wallet.
      */
-    private suspend fun loadWallet(walletId: String): WalletEntry {
+    private suspend fun loadWallet(
+        walletId: String,
+        lease: SensitiveWalletOperationBarrier.Lease
+    ): WalletEntry {
+        operationBarrier.assertActive(lease)
         // Check cache first - for unlocked passphrase wallets, the cached entry has secret descriptors
-        walletCache[walletId]?.let { return it }
+        cachedWallet(walletId, lease)?.let { return it }
 
         // Load wallet entity from Room DB
         val walletEntity = walletDao.getById(walletId)
@@ -2581,7 +3169,7 @@ class BdkBitcoinRepository @Inject constructor(
         //   If not cached, fall back to public descriptors (user needs to enter passphrase to unlock)
         // - For regular wallets: use secrets if available in keystore
         val isPassphraseWallet = walletEntity.hasPassphrase
-        val isUnlocked = walletCache.containsKey(walletId)
+        val isUnlocked = isWalletCached(walletId, lease)
         
         val canUseSecrets = !walletEntity.isWatchOnly && (!isPassphraseWallet || isUnlocked)
         
@@ -2595,8 +3183,10 @@ class BdkBitcoinRepository @Inject constructor(
         } else {
             walletEntity.changeDescriptor
         }
-        val externalDescriptor = Descriptor(externalDescriptorStr, network)
-        val changeDescriptor = Descriptor(changeDescriptorStr, network)
+        val descriptors = createDescriptorPair(
+            createExternal = { Descriptor(externalDescriptorStr, network) },
+            createChange = { Descriptor(changeDescriptorStr, network) }
+        )
 
         // Passphrase wallets are ALWAYS in-memory only — never load from disk.
         // This prevents stale UTXO/tx data from the real wallet being visible in the locked state
@@ -2604,28 +3194,25 @@ class BdkBitcoinRepository @Inject constructor(
         // as the passphrase-derived wallet, so if we loaded from disk here, real wallet data
         // would be visible without any passphrase. In-memory guarantees a clean slate every time.
         if (isPassphraseWallet) {
-            val persister = Persister.newInMemory()
-            val wallet = try {
-                Wallet(externalDescriptor, changeDescriptor, network, persister)
-            } catch (e: Exception) {
-                persister.close()
-                throw e
-            } finally {
-                externalDescriptor.close()
-                changeDescriptor.close()
-            }
+            val entry = createWalletEntryFromDescriptors(
+                descriptors = descriptors,
+                createPersister = Persister::newInMemory,
+                createWallet = { external, change, persister ->
+                    Wallet(external, change, network, persister)
+                }
+            )
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "loadWallet: passphrase wallet $walletId — using in-memory persister (locked state)")
-            val entry = WalletEntry(wallet, persister)
-            return cacheWalletIfAbsent(walletId, entry)
+            return cacheWalletIfAbsent(walletId, entry, lease)
         }
 
         // Non-passphrase wallets: load from SQLite (if exists, else create new)
         val dbFile = context.getDatabasePath("wallet_${walletId}.db")
         val hadExistingDb = dbFile.exists()
         val dbPath = dbFile.absolutePath
-        val persister = Persister.newSqlite(dbPath)
-
-        val wallet = try {
+        val entry = createWalletEntryFromDescriptors(
+            descriptors = descriptors,
+            createPersister = { Persister.newSqlite(dbPath) },
+            createWallet = { externalDescriptor, changeDescriptor, persister ->
             try {
                 Wallet.load(externalDescriptor, changeDescriptor, persister)
             } catch (e: org.bitcoindevkit.LoadWithPersistException.CouldNotLoad) {
@@ -2643,13 +3230,9 @@ class BdkBitcoinRepository @Inject constructor(
             } catch (e: Exception) {
                 throw walletStateRecoveryRequired(walletId, e)
             }
-        } catch (e: Exception) {
-            persister.close()
-            throw e
-        } finally {
-            externalDescriptor.close()
-            changeDescriptor.close()
-        }
+            }
+        )
+        val wallet = entry.wallet
 
         // Debug: log descriptor and first address
         // [S-4] Gate: wallet ID and address exposure
@@ -2666,8 +3249,7 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         // Cache and return
-        val entry = WalletEntry(wallet, persister)
-        return cacheWalletIfAbsent(walletId, entry)
+        return cacheWalletIfAbsent(walletId, entry, lease)
     }
 
     private fun walletStateRecoveryRequired(walletId: String, cause: Exception): WalletStateRecoveryRequiredException {
@@ -3059,7 +3641,7 @@ class BdkBitcoinRepository @Inject constructor(
         threshold: Int,
         signerXpubs: List<String>,
         localSignerSecrets: Map<Int, MultisigPhoneSignerSecret>
-    ): WalletData = withContext(Dispatchers.IO) {
+    ): WalletData = withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         val network = activeNetwork()
         require(threshold in 1..signerXpubs.size) {
             "Threshold must be between 1 and the number of signers (${signerXpubs.size})"
@@ -3134,67 +3716,56 @@ class BdkBitcoinRepository @Inject constructor(
         if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createMultisigWallet: external=$externalDescriptorStr")
         if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createMultisigWallet: change=$changeDescriptorStr")
 
-        // Parse descriptors through BDK to validate
-        val externalDescriptor = try {
-            Descriptor(externalDescriptorStr, network)
+        var publicDescriptors: Pair<Descriptor, Descriptor>? = null
+        var signingDescriptors: Pair<Descriptor, Descriptor>? = null
+        try {
+        publicDescriptors = try {
+            createDescriptorPair(
+                createExternal = { Descriptor(externalDescriptorStr, network) },
+                createChange = { Descriptor(changeDescriptorStr, network) }
+            )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid multisig descriptor: ${e.message}")
         }
-        val changeDescriptor = try {
-            Descriptor(changeDescriptorStr, network)
-        } catch (e: Exception) {
-            externalDescriptor.close()
-            throw IllegalArgumentException("Invalid multisig change descriptor: ${e.message}")
-        }
-        val signingExternalDescriptor = signingExternalDescriptorStr?.let { descriptor ->
-            try {
-                Descriptor(descriptor, network)
+        if (signingExternalDescriptorStr != null && signingChangeDescriptorStr != null) {
+            signingDescriptors = try {
+                createDescriptorPair(
+                    createExternal = { Descriptor(signingExternalDescriptorStr, network) },
+                    createChange = { Descriptor(signingChangeDescriptorStr, network) }
+                )
             } catch (e: Exception) {
-                externalDescriptor.close()
-                changeDescriptor.close()
                 throw IllegalArgumentException("Invalid phone-signer descriptor: ${e.message}")
             }
         }
-        val signingChangeDescriptor = signingChangeDescriptorStr?.let { descriptor ->
-            try {
-                Descriptor(descriptor, network)
-            } catch (e: Exception) {
-                signingExternalDescriptor?.close()
-                externalDescriptor.close()
-                changeDescriptor.close()
-                throw IllegalArgumentException("Invalid phone-signer change descriptor: ${e.message}")
-            }
-        }
+        val externalDescriptor = checkNotNull(publicDescriptors).first
+        val changeDescriptor = checkNotNull(publicDescriptors).second
         val publicDescriptor = externalDescriptor.toString()
         val publicChangeDescriptor = changeDescriptor.toString()
-        val signingSecretDescriptor = signingExternalDescriptor?.toStringWithSecret()
-        val signingSecretChangeDescriptor = signingChangeDescriptor?.toStringWithSecret()
-        signingExternalDescriptor?.close()
-        signingChangeDescriptor?.close()
+        val signingSecretDescriptor = signingDescriptors?.first?.toStringWithSecret()
+        val signingSecretChangeDescriptor = signingDescriptors?.second?.toStringWithSecret()
+        signingDescriptors?.let(::closeDescriptorPair)
+        signingDescriptors = null
 
         // Prevent duplicate imports
         val activeNetwork = if (network == Network.TESTNET) "testnet" else "mainnet"
         val existing = walletDao.getAllByNetwork(activeNetwork)
         if (existing.any { it.descriptor == publicDescriptor }) {
-            externalDescriptor.close()
-            changeDescriptor.close()
             throw IllegalArgumentException("A wallet with this multisig configuration already exists.")
         }
 
         // Generate wallet ID and create BDK wallet
         val walletId = UUID.randomUUID().toString()
         val dbPath = context.getDatabasePath("wallet_${walletId}.db").absolutePath
-        val persister = Persister.newSqlite(dbPath)
-        val wallet = try {
-            Wallet(externalDescriptor, changeDescriptor, network, persister)
-        } catch (e: Exception) {
-            persister.close()
-            throw e
-        } finally {
-            externalDescriptor.close()
-            changeDescriptor.close()
-        }
-        cacheWallet(walletId, WalletEntry(wallet, persister))
+        val ownedDescriptors = checkNotNull(publicDescriptors)
+        publicDescriptors = null
+        val entry = createWalletEntryFromDescriptors(
+            descriptors = ownedDescriptors,
+            createPersister = { Persister.newSqlite(dbPath) },
+            createWallet = { external, change, persister ->
+                Wallet(external, change, network, persister)
+            }
+        )
+        cacheWallet(walletId, entry, lease)
 
         try {
             if (signingSecretDescriptor != null && signingSecretChangeDescriptor != null) {
@@ -3235,53 +3806,69 @@ class BdkBitcoinRepository @Inject constructor(
                 network = activeNetwork
             )
         } catch (e: Exception) {
-            discardFailedWalletCreation(walletId)
+            discardFailedWalletCreation(walletId, lease)
             throw e
+        }
+        } finally {
+            signingDescriptors?.let(::closeDescriptorPair)
+            publicDescriptors?.let(::closeDescriptorPair)
+        }
         }
     }
 
-    override suspend fun generateMultisigPhoneSigner(): GeneratedMultisigPhoneSigner = withContext(Dispatchers.IO) {
+    override suspend fun generateMultisigPhoneSigner(): GeneratedMultisigPhoneSigner =
+        withSensitiveWalletOperation { _ -> withContext(Dispatchers.IO) {
         val network = activeNetwork()
         val isTestnet = network == Network.TESTNET
         val derivationPath = if (isTestnet) "m/48'/1'/0'/2'" else "m/48'/0'/0'/2'"
-        val mnemonic = Mnemonic(WordCount.WORDS24)
-        val rootSecretKey = DescriptorSecretKey(network, mnemonic, "")
-        val accountPath = DerivationPath(derivationPath)
+        var mnemonic: Mnemonic? = null
+        var rootSecretKey: DescriptorSecretKey? = null
+        var accountPath: DerivationPath? = null
         var accountSecretKey: DescriptorSecretKey? = null
         var accountPublicKey: org.bitcoindevkit.DescriptorPublicKey? = null
         var rootPublicKey: org.bitcoindevkit.DescriptorPublicKey? = null
         try {
-            accountSecretKey = rootSecretKey.derive(accountPath)
+            mnemonic = walletMnemonicGenerator.generate(24)
+            rootSecretKey = DescriptorSecretKey(network, mnemonic, "")
+            accountPath = DerivationPath(derivationPath)
+            accountSecretKey = checkNotNull(rootSecretKey).derive(checkNotNull(accountPath))
             accountPublicKey = accountSecretKey.asPublic()
-            rootPublicKey = rootSecretKey.asPublic()
+            rootPublicKey = checkNotNull(rootSecretKey).asPublic()
             val fingerprint = rootPublicKey.masterFingerprint().uppercase(Locale.US)
             val publicKey = originWrapAccountKey(accountPublicKey.toString(), fingerprint, derivationPath)
             val secretKey = originWrapAccountKey(accountSecretKey.toString(), fingerprint, derivationPath)
             GeneratedMultisigPhoneSigner(
-                mnemonicWords = mnemonic.toString().split(" "),
+                mnemonicWords = checkNotNull(mnemonic).toString().split(" "),
                 xpubWithOrigin = publicKey,
                 accountXprvWithOrigin = secretKey,
                 fingerprint = fingerprint,
                 derivationPath = derivationPath
             )
         } finally {
-            try { accountPublicKey?.destroy() } catch (_: Exception) {}
-            try { accountSecretKey?.destroy() } catch (_: Exception) {}
-            try { rootPublicKey?.destroy() } catch (_: Exception) {}
-            try { accountPath.destroy() } catch (_: Exception) {}
-            try { rootSecretKey.destroy() } catch (_: Exception) {}
-            try { mnemonic.destroy() } catch (_: Exception) {}
+            closeSecretNativeResources(
+                nativeCloseAction(accountPublicKey) { it.destroy() },
+                nativeCloseAction(accountSecretKey) { it.destroy() },
+                nativeCloseAction(rootPublicKey) { it.destroy() },
+                nativeCloseAction(accountPath) { it.destroy() },
+                nativeCloseAction(rootSecretKey) { it.destroy() },
+                nativeCloseAction(mnemonic) { it.destroy() }
+            )
+        }
         }
     }
 
-    override suspend fun hasMultisigPhoneSigner(walletId: String): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun hasMultisigPhoneSigner(walletId: String): Boolean =
+        withSensitiveWalletOperation { _ -> withContext(Dispatchers.IO) {
         val walletEntity = walletDao.getById(walletId) ?: return@withContext false
         walletEntity.isMultisig &&
             keystoreManager.getSecretDescriptor(walletId) != null &&
             keystoreManager.getSecretChangeDescriptor(walletId) != null
+        }
     }
 
-    override suspend fun signMultisigPsbtWithPhoneKeys(walletId: String, psbtBase64: String): String = withContext(Dispatchers.IO) {
+    override suspend fun signMultisigPsbtWithPhoneKeys(walletId: String, psbtBase64: String): String =
+        withSensitiveWalletOperation { _ -> withContext(Dispatchers.IO) {
+        syncMutex(walletId).withLock {
         PsbtSafety.inspectBase64(psbtBase64)
         val walletEntity = walletDao.getById(walletId)
             ?: throw IllegalArgumentException("Wallet not found: $walletId")
@@ -3291,37 +3878,42 @@ class BdkBitcoinRepository @Inject constructor(
         val changeSecret = keystoreManager.getSecretChangeDescriptor(walletId)
             ?: throw IllegalStateException("No Clench phone signer change keys are stored for this wallet")
         val network = if (walletEntity.network == "testnet") Network.TESTNET else Network.BITCOIN
-        val externalDescriptor = Descriptor(externalSecret, network)
-        val changeDescriptor = try {
-            Descriptor(changeSecret, network)
-        } catch (e: Exception) {
-            externalDescriptor.close()
-            throw e
-        }
-        val persister = Persister.newInMemory()
-        val signingWallet = try {
-            Wallet(externalDescriptor, changeDescriptor, network, persister)
-        } catch (e: Exception) {
-            persister.close()
-            throw e
-        } finally {
-            externalDescriptor.close()
-            changeDescriptor.close()
-        }
+        val descriptors = createDescriptorPair(
+            createExternal = { Descriptor(externalSecret, network) },
+            createChange = { Descriptor(changeSecret, network) }
+        )
+        val entry = createWalletEntryFromDescriptors(
+            descriptors = descriptors,
+            createPersister = { Persister.newInMemory() },
+            createWallet = { external, change, persister ->
+                Wallet(external, change, network, persister)
+            }
+        )
+        val signingWallet = entry.wallet
         val psbt = try {
             Psbt(psbtBase64)
         } catch (e: Exception) {
-            signingWallet.close()
-            persister.close()
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(
+                    nativeCloseAction(signingWallet) { it.close() },
+                    nativeCloseAction(entry.persister) { it.close() }
+                )
+            )
             throw e
         }
         try {
             signingWallet.sign(psbt)
             psbt.serialize()
         } finally {
-            psbt.close()
-            signingWallet.close()
-            persister.close()
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(
+                    nativeCloseAction(psbt) { it.close() },
+                    nativeCloseAction(signingWallet) { it.close() },
+                    nativeCloseAction(entry.persister) { it.close() }
+                )
+            )
+        }
+        }
         }
     }
 
@@ -3498,7 +4090,8 @@ class BdkBitcoinRepository @Inject constructor(
      * 
      * @throws IllegalArgumentException if wallet not found or passphrase is incorrect
      */
-    override suspend fun unlockPassphraseWallet(walletId: String, passphrase: String): Unit = withContext(Dispatchers.IO) {
+    override suspend fun unlockPassphraseWallet(walletId: String, passphrase: String): Unit =
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
         if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "unlockPassphraseWallet: starting for $walletId")
         val walletEntity = walletDao.getById(walletId)
@@ -3513,55 +4106,59 @@ class BdkBitcoinRepository @Inject constructor(
         if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "unlockPassphraseWallet: mnemonic ${if (mnemonicStr != null) "found" else "NOT FOUND"}")
         if (mnemonicStr == null) throw IllegalStateException("Mnemonic not found for wallet: $walletId")
         
-        val mnemonic = Mnemonic.fromString(mnemonicStr)
         val network = if (walletEntity.network == "testnet") Network.TESTNET else Network.BITCOIN
-        
-        // Derive secret descriptors with the passphrase
-        val secretKey = DescriptorSecretKey(network, mnemonic, passphrase)
         val scriptType = ScriptType.fromDescriptor(walletEntity.descriptor)
         if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "unlockPassphraseWallet: scriptType=$scriptType network=$network")
-        val externalDescriptor: Descriptor
-        val changeDescriptor: Descriptor
+        var mnemonic: Mnemonic? = null
+        var secretKey: DescriptorSecretKey? = null
+        var descriptors: Pair<Descriptor, Descriptor>? = null
         try {
-            externalDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
-            changeDescriptor = ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.INTERNAL, network)
-        } finally {
-            // H-1: Destroy sensitive BDK objects after descriptor derivation
-            try { mnemonic.destroy() } catch (_: Exception) {}
-            try { secretKey.destroy() } catch (_: Exception) {}
-        }
-        
-        // Duress wallet design: any passphrase is silently accepted.
-        // We derive whatever wallet the passphrase produces and open it.
-        // No comparison against stored descriptor — comparing would break plausible deniability.
-        // The user identifies the correct wallet by recognising the fingerprint image.
-        //
-        // Option C — In-memory only wallet for passphrase sessions:
-        // Passphrase-derived wallets are NEVER persisted to disk. Each session uses a fresh
-        // in-memory SQLite persister via Persister.newInMemory(). This means:
-        //   - A decoy wallet (wrong passphrase) starts empty and stays empty unless synced
-        //   - No on-disk DB file exists that could reveal whether the real wallet was accessed
-        //   - All session data is discarded when lockPassphraseWallet() is called
-        //   - A full Electrum sync is required each session (correct — no cached state)
-        // This is the correct threat model for a duress/plausible-deniability wallet.
-        val persister = Persister.newInMemory()
-        val wallet = try {
-            Wallet(externalDescriptor, changeDescriptor, network, persister)
-        } catch (e: Exception) {
-            persister.close()
-            throw e
-        } finally {
-            externalDescriptor.close()
-            changeDescriptor.close()
-        }
+            mnemonic = Mnemonic.fromString(mnemonicStr)
+            secretKey = DescriptorSecretKey(network, mnemonic, passphrase)
+            descriptors = createDescriptorPair(
+                createExternal = {
+                    ScriptType.createDescriptor(
+                        checkNotNull(secretKey),
+                        scriptType,
+                        KeychainKind.EXTERNAL,
+                        network
+                    )
+                },
+                createChange = {
+                    ScriptType.createDescriptor(
+                        checkNotNull(secretKey),
+                        scriptType,
+                        KeychainKind.INTERNAL,
+                        network
+                    )
+                }
+            )
 
-        // Cache the in-memory wallet for this session and mark as explicitly unlocked.
-        // unlockedPassphraseWallets is the authoritative unlock signal — walletCache alone
-        // is not sufficient because loadWallet() pre-populates it with the public-xpub wallet.
-        cacheWallet(walletId, WalletEntry(wallet, persister))
-        unlockedPassphraseWallets.add(walletId)
-        
-        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "unlockPassphraseWallet: unlocked wallet $walletId")
+            // Duress wallet design: any passphrase is silently accepted. Passphrase-derived
+            // wallets use an in-memory persister and are discarded on lock/background.
+            val ownedDescriptors = checkNotNull(descriptors)
+            descriptors = null
+            val entry = createWalletEntryFromDescriptors(
+                descriptors = ownedDescriptors,
+                createPersister = { Persister.newInMemory() },
+                createWallet = { external, change, persister ->
+                    Wallet(external, change, network, persister)
+                }
+            )
+
+            // unlockedPassphraseWallets, not merely walletCache, is authoritative.
+            cacheWallet(walletId, entry, lease)
+            markPassphraseWalletUnlocked(walletId, lease)
+
+            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "unlockPassphraseWallet: unlocked wallet $walletId")
+        } finally {
+            descriptors?.let(::closeDescriptorPair)
+            closeSecretNativeResources(
+                nativeCloseAction(secretKey) { it.destroy() },
+                nativeCloseAction(mnemonic) { it.destroy() }
+            )
+        }
+        }
         }
     }
 
@@ -3569,33 +4166,32 @@ class BdkBitcoinRepository @Inject constructor(
      * Lock a passphrase wallet by evicting the cached secret wallet.
      * The public-key-only version remains available for viewing balance/addresses.
      */
-    override suspend fun lockPassphraseWallet(walletId: String): Unit = withContext(Dispatchers.IO) {
+    override suspend fun lockPassphraseWallet(walletId: String): Unit =
+        withSensitiveWalletOperation { lease -> withContext(Dispatchers.IO) {
         syncMutex(walletId).withLock {
         // Remove from unlock tracking set first
-        unlockedPassphraseWallets.remove(walletId)
+        markPassphraseWalletLocked(walletId, lease)
         // Close and discard the in-memory wallet — all session data is destroyed
-        evictWallet(walletId)
+        evictWallet(walletId, lease)
         // Wipe Room transaction cache — it contains real wallet tx history which must not be
         // visible before the passphrase is entered next session.
-        kotlinx.coroutines.runBlocking {
-            try { transactionDao.deleteForWallet(walletId) } catch (_: Exception) {}
-        }
+        transactionDao.deleteForWallet(walletId)
         // Delete the on-disk wallet DB so the locked state shows no cached UTXOs or balance.
         // The public descriptor (xpub) is preserved in Room — addresses can always be re-derived.
         // On next unlock, a fresh in-memory wallet is created and synced from Electrum.
         // This prevents stale UTXO data from leaking through the public descriptor wallet
         // which could reveal real wallet activity even before the passphrase is entered.
-        try {
-            val dbFile = context.getDatabasePath("wallet_${walletId}.db")
-            dbFile.delete()
-            java.io.File(dbFile.path + "-wal").delete()
-            java.io.File(dbFile.path + "-shm").delete()
-            java.io.File(dbFile.path + "-journal").delete()
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "lockPassphraseWallet: deleted on-disk DB for $walletId")
-        } catch (e: Exception) {
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "lockPassphraseWallet: failed to delete DB: ${e.message}")
+        val dbFile = context.getDatabasePath("wallet_${walletId}.db")
+        val undeleted = PassphraseWalletCacheCleanup.deleteAndFindRemaining(dbFile)
+        if (undeleted.isNotEmpty()) {
+            throw IllegalStateException(
+                "Passphrase wallet locked, but public cache cleanup failed for " +
+                    undeleted.joinToString { it.name }
+            )
         }
+        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "lockPassphraseWallet: verified on-disk DB deletion for $walletId")
         if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "lockPassphraseWallet: locked and discarded in-memory wallet $walletId")
+        }
         }
     }
 
@@ -3603,7 +4199,7 @@ class BdkBitcoinRepository @Inject constructor(
      * Check if a passphrase wallet is currently unlocked (secret wallet cached).
      */
     override fun isPassphraseWalletUnlocked(walletId: String): Boolean {
-        return unlockedPassphraseWallets.contains(walletId)
+        return operationBarrier.isOpen() && isPassphraseWalletMarkedUnlocked(walletId)
     }
 
     // ========== Transaction Label Methods ==========
@@ -3634,7 +4230,10 @@ class BdkBitcoinRepository @Inject constructor(
      * 
      * @return Pair(legacyIdenticonBytes [8], masterFingerprintBytes [4]) or null on error
      */
-    suspend fun getPassphraseFingerprint(walletId: String, passphrase: String): Pair<ByteArray, ByteArray>? = withContext(Dispatchers.IO) {
+    suspend fun getPassphraseFingerprint(
+        walletId: String,
+        passphrase: String
+    ): Pair<ByteArray, ByteArray>? = withSensitiveWalletOperation { _ -> withContext(Dispatchers.IO) {
         var mnemonic: Mnemonic? = null
         var secretKey: DescriptorSecretKey? = null
         var descriptor: Descriptor? = null
@@ -3675,9 +4274,12 @@ class BdkBitcoinRepository @Inject constructor(
             null
         } finally {
             passphraseBytes?.fill(0)
-            try { descriptor?.close() } catch (_: Exception) {}
-            try { secretKey?.destroy() } catch (_: Exception) {}
-            try { mnemonic?.destroy() } catch (_: Exception) {}
+            closeSecretNativeResources(
+                nativeCloseAction(descriptor) { it.close() },
+                nativeCloseAction(secretKey) { it.destroy() },
+                nativeCloseAction(mnemonic) { it.destroy() }
+            )
+        }
         }
     }
 

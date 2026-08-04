@@ -27,6 +27,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.network.ConnectionMode
+import net.clench.wallet.data.network.ElectrumConnectionFactory
+import net.clench.wallet.data.network.isOnionElectrumHost
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.PublicElectrumServers
 import net.clench.wallet.domain.model.PublicServer
@@ -36,7 +39,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ConnectionSetupViewModel @Inject constructor(
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val electrumConnectionFactory: ElectrumConnectionFactory
 ) : ViewModel() {
 
     data class SetupUiState(
@@ -68,30 +72,23 @@ class ConnectionSetupViewModel @Inject constructor(
     fun testConnection(host: String, port: Int, useSsl: Boolean) {
         _setupState.update { it.copy(testingConnection = true, connectionTestResult = null) }
         viewModelScope.launch {
-            // Warn immediately if SSL is on but using standard TCP port — common misconfiguration
-            if (useSsl && port == 50001) {
-                _setupState.update {
-                    it.copy(
-                        testingConnection = false,
-                        connectionTestResult = "⚠ Port 50001 is plain TCP — turn off SSL, or use port 50002 for SSL. Testing as TCP anyway…"
-                    )
-                }
-                // Small delay so user sees the warning, then continue test with TCP
-                kotlinx.coroutines.delay(1500)
-                _setupState.update { it.copy(testingConnection = true) }
-            }
-            val protocol = if (useSsl && port != 50001) "ssl" else "tcp"
-            val url = "$protocol://$host:$port"
             val result = try {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val client = org.bitcoindevkit.ElectrumClient(url)
-                    client.close()
+                val mode = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val trimmedHost = host.trim()
+                    val config = ElectrumConfig(
+                        serverUrl = trimmedHost,
+                        port = port,
+                        useSsl = useSsl,
+                        isCustom = true,
+                        useTor = isOnionElectrumHost(trimmedHost)
+                    )
+                    electrumConnectionFactory.createConnection(config).use { connection ->
+                        // Construction performs the actual socket/TLS/SOCKS setup.
+                        // Closing immediately keeps this a side-effect-free reachability test.
+                        connection.mode
+                    }
                 }
-                if (useSsl && port == 50001) {
-                    "✓ Connected (as TCP) — but your SSL toggle is ON. Switch SSL off to match port 50001."
-                } else {
-                    "✓ Connected to $host:$port"
-                }
+                connectionTestSuccessMessage(mode, host.trim(), port)
             } catch (t: Throwable) {
                 if (t.shouldRethrowForUiBoundary()) throw t
                 "✗ ${t.connectionRuntimeMessage()}"
@@ -100,6 +97,19 @@ class ConnectionSetupViewModel @Inject constructor(
         }
     }
 }
+
+internal fun connectionTestSuccessMessage(mode: ConnectionMode, host: String, port: Int): String =
+    when (mode) {
+        ConnectionMode.TLS_SYSTEM,
+        ConnectionMode.TLS_PINNED,
+        ConnectionMode.TOR_TLS -> "✓ Connected securely to $host:$port"
+
+        ConnectionMode.PLAIN_TCP ->
+            "⚠ Connected without encryption to $host:$port. Use only with a trusted local node."
+
+        ConnectionMode.TOR_PLAIN ->
+            "⚠ Connected through Tor without TLS to $host:$port."
+    }
 
 private enum class ConnectionOption {
     NONE, OWN_NODE, PUBLIC_SERVER, OFFLINE
@@ -117,8 +127,8 @@ fun ConnectionSetupScreen(
 
     // Own node fields
     var customHost by remember { mutableStateOf("") }
-    var customPort by remember { mutableStateOf("50001") }
-    var customUseSsl by remember { mutableStateOf(false) }
+    var customPort by remember { mutableStateOf("50002") }
+    var customUseSsl by remember { mutableStateOf(true) }
 
     // Public server selection
     var selectedServer by remember { mutableStateOf<PublicServer?>(null) }
@@ -302,13 +312,13 @@ fun ConnectionSetupScreen(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                "ℹ️ Plain TCP recommended (port 50001)",
+                                "🔒 TLS recommended (port 50002)",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                             Text(
-                                "This app uses BDK, which supports plain TCP and TLS with a CA-signed certificate. Self-signed certificates are not supported — use port 50001 with SSL off unless your server has a valid certificate.",
+                                "Use TLS or a Tor onion service whenever possible. Plain TCP exposes wallet queries and broadcasts to the local network and should be used only on a loopback or otherwise trusted private network. Self-signed certificates require a pinned-certificate setup.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
@@ -349,7 +359,7 @@ fun ConnectionSetupScreen(
                         onClick = {
                             viewModel.testConnection(
                                 customHost,
-                                customPort.toIntOrNull() ?: 50001,
+                                customPort.toIntOrNull() ?: 50002,
                                 customUseSsl
                             )
                         },
@@ -396,7 +406,7 @@ fun ConnectionSetupScreen(
                         onClick = {
                             val config = ElectrumConfig(
                                 serverUrl = customHost,
-                                port = customPort.toIntOrNull() ?: 50001,
+                                port = customPort.toIntOrNull() ?: 50002,
                                 useSsl = customUseSsl,
                                 isCustom = true
                             )

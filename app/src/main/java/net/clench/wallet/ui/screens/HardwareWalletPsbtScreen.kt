@@ -3,11 +3,10 @@ package net.clench.wallet.ui.screens
 import android.nfc.NfcAdapter
 import android.app.Activity
 import android.util.Base64
-import android.view.WindowManager
 import android.widget.Toast
 import android.nfc.tech.Ndef
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -27,6 +26,7 @@ import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.MainActivity
 import net.clench.wallet.ui.components.AnimatedQrCode
 import net.clench.wallet.ui.components.ColdcardNfcPayload
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
@@ -37,8 +37,14 @@ import net.clench.wallet.ui.components.SignerProgressStepper
 import net.clench.wallet.ui.components.encodePsbtForDevice
 import net.clench.wallet.ui.components.psbtQrFrameDelayMs
 import net.clench.wallet.ui.viewmodel.HardwareWalletPsbtViewModel
+import net.clench.wallet.ui.viewmodel.PsbtPickerPurpose
 import net.clench.wallet.security.InputLimits
 import net.clench.wallet.security.readBytesBounded
+import net.clench.wallet.ui.util.SecureWindowEffect
+import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
+import net.clench.wallet.ui.picker.PickerDestination
+import net.clench.wallet.ui.picker.PickerPurpose
+import net.clench.wallet.ui.picker.PickerRequest
 
 private enum class ColdcardNfcMode { Idle, SendUnsigned, ReceiveSigned }
 
@@ -73,7 +79,9 @@ fun HardwareWalletPsbtScreen(
             title = "Continue with signer",
             onDismiss = { showSignerPicker = false },
             onDeviceSelected = { selected ->
-                deviceType = selected
+                if (viewModel.selectDeviceType(selected.name)) {
+                    deviceType = selected
+                }
                 showSignerPicker = false
                 nfcMode = ColdcardNfcMode.Idle
                 nfcStatus = null
@@ -85,18 +93,156 @@ fun HardwareWalletPsbtScreen(
         )
     }
 
-    // R7-20: FLAG_SECURE — prevent screenshots of PSBT data
-    DisposableEffect(Unit) {
-        val activity = context as? Activity
-        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose {
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    // Prevent signer data from appearing in screenshots or Recents. The shared
+    // helper is reference-counted so overlapping protected routes cannot clear
+    // one another's secure-window flag during navigation.
+    SecureWindowEffect()
+
+    val pickerHost = LocalPickerRoundTripHost.current
+    val pickerResume by pickerHost.pickerResume.collectAsState()
+    val pickerDestination = pickerResume?.destination as? PickerDestination.HardwarePsbt
+    val stagedPurpose = when (pickerResume?.purpose) {
+        PickerPurpose.HARDWARE_PSBT_IMPORT -> PsbtPickerPurpose.HARDWARE_IMPORT
+        PickerPurpose.HARDWARE_PSBT_EXPORT -> PsbtPickerPurpose.HARDWARE_EXPORT
+        else -> null
+    }
+    val pickerRouteMatches = pickerDestination == null ||
+        (pickerDestination.walletId == walletId &&
+            pickerDestination.deviceType == initialDeviceType.name)
+
+    // The request ID/token key forces reconstruction even if DocumentsUI returned to the same
+    // Activity/ViewModel instance. A cancelled result is never allowed to reclaim staged PSBT data.
+    val storeData = remember(
+        pickerResume?.requestId,
+        pickerResume?.cancelled,
+        walletId,
+        initialDeviceType
+    ) {
+        when {
+            pickerResume == null -> viewModel.initFromStore(
+                expectedWalletId = walletId,
+                expectedDeviceType = initialDeviceType.name
+            )
+            pickerResume?.cancelled == true -> null
+            pickerDestination != null && stagedPurpose != null && pickerRouteMatches ->
+                viewModel.initFromStore(
+                    expectedWalletId = walletId,
+                    expectedDeviceType = initialDeviceType.name,
+                    pickerToken = pickerDestination.handoffToken,
+                    pickerPurpose = stagedPurpose
+                )
+            else -> null
+        }
+    }
+    val psbtBase64 = uiState.psbtBase64
+
+    LaunchedEffect(pickerResume?.requestId, pickerResume?.cancelled, pickerRouteMatches, storeData) {
+        val resume = pickerResume ?: return@LaunchedEffect
+        val destination = resume.destination as? PickerDestination.HardwarePsbt
+            ?: run {
+                pickerHost.abortPicker(resume.requestId)
+                return@LaunchedEffect
+            }
+        if (resume.cancelled) {
+            pickerHost.consumePickerResult(resume.purpose, destination)
+            viewModel.cancelDocumentPickerRoundTrip(destination.handoffToken)
+            return@LaunchedEffect
+        }
+        if (!pickerRouteMatches || storeData == null) {
+            viewModel.cancelDocumentPickerRoundTrip(
+                destination.handoffToken,
+                "The file hand-off did not match this signing route"
+            )
+            pickerHost.abortPicker(resume.requestId)
         }
     }
 
-    // Initialize PSBT from in-memory store (not nav args)
-    val storeData = remember { viewModel.initFromStore() }
-    val psbtBase64 = uiState.psbtBase64
+    val secureBack: () -> Unit = {
+        pickerResume?.let { resume ->
+            when (val destination = resume.destination) {
+                is PickerDestination.HardwarePsbt ->
+                    viewModel.cancelDocumentPickerRoundTrip(destination.handoffToken)
+                else -> Unit
+            }
+            pickerHost.abortPicker(resume.requestId)
+        }
+        onBack()
+    }
+    BackHandler(enabled = pickerResume != null, onBack = secureBack)
+
+    LaunchedEffect(
+        pickerResume?.requestId,
+        uiState.reviewAcknowledged,
+        uiState.transactionReview
+    ) {
+        val destination = pickerResume?.destination as? PickerDestination.HardwarePsbt
+            ?: return@LaunchedEffect
+        if (!pickerRouteMatches || storeData == null || pickerResume?.cancelled == true) {
+            return@LaunchedEffect
+        }
+        // DocumentsUI is a real background transition. The recreated route must re-inspect
+        // and re-approve the staged PSBT before the URI/result can be consumed.
+        if (!uiState.reviewAcknowledged || uiState.transactionReview == null) {
+            return@LaunchedEffect
+        }
+        when (pickerResume?.purpose) {
+            PickerPurpose.HARDWARE_PSBT_IMPORT -> {
+                val result = pickerHost.consumePickerResult(
+                    PickerPurpose.HARDWARE_PSBT_IMPORT,
+                    destination
+                )
+                if (result?.uri != null) {
+                    if (psbtBase64.isNotBlank()) {
+                        try {
+                            val bytes = context.contentResolver
+                                .openInputStream(Uri.parse(result.uri))
+                                ?.use { it.readBytesBounded(InputLimits.PSBT_BYTES) }
+                            if (bytes != null) {
+                                viewModel.onSignedPsbtReceived(
+                                    walletId,
+                                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                context,
+                                "Failed to read file: ${e.message}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            }
+            PickerPurpose.HARDWARE_PSBT_EXPORT -> {
+                val result = pickerHost.consumePickerResult(
+                    PickerPurpose.HARDWARE_PSBT_EXPORT,
+                    destination
+                )
+                if (result?.uri != null) {
+                    if (psbtBase64.isNotBlank()) {
+                        try {
+                            val bytes = Base64.decode(psbtBase64, Base64.DEFAULT)
+                            try {
+                                context.contentResolver.openOutputStream(Uri.parse(result.uri))
+                                    ?.use { it.write(bytes) }
+                                    ?: error("Could not open output file")
+                            } finally {
+                                bytes.fill(0)
+                            }
+                            Toast.makeText(context, "PSBT saved", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                context,
+                                "Save failed: ${e.message}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            }
+            else -> Unit
+        }
+    }
 
     DisposableEffect(nfcMode, psbtBase64, walletId, deviceType) {
         val hostActivity = activity
@@ -198,7 +344,7 @@ fun HardwareWalletPsbtScreen(
                 TopAppBar(
                     title = { Text("Sign with ${deviceType.displayName}") },
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
+                        IconButton(onClick = secureBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
@@ -240,7 +386,7 @@ fun HardwareWalletPsbtScreen(
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 OutlinedButton(
-                    onClick = onBack,
+                    onClick = secureBack,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Go Back")
@@ -287,39 +433,6 @@ fun HardwareWalletPsbtScreen(
         }
     }
 
-    // File picker for importing signed PSBT (Coldcard Mk4 SD card flow)
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val bytes = inputStream?.use { it.readBytesBounded(InputLimits.PSBT_BYTES) }
-                if (bytes != null) {
-                    val signedBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    viewModel.onSignedPsbtReceived(walletId, signedBase64)
-                }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Failed to read file: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-    val psbtSaveLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri ->
-        if (uri != null) {
-            try {
-                val psbtBytes = Base64.decode(psbtBase64, Base64.DEFAULT)
-                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                    outputStream.write(psbtBytes)
-                } ?: error("Could not open output file")
-                Toast.makeText(context, "PSBT saved", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(context, "Save failed: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     if (showScanner) {
         QrScanner(
             onResult = { signedPsbtBase64 ->
@@ -336,7 +449,7 @@ fun HardwareWalletPsbtScreen(
             TopAppBar(
                 title = { Text("Sign with ${deviceType.displayName}") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = secureBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
@@ -384,7 +497,7 @@ fun HardwareWalletPsbtScreen(
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
-                    onClick = onBack,
+                    onClick = secureBack,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Done") }
                 return@Column
@@ -472,7 +585,7 @@ fun HardwareWalletPsbtScreen(
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+                OutlinedButton(onClick = secureBack, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
                 return@Column
             }
 
@@ -517,7 +630,33 @@ fun HardwareWalletPsbtScreen(
                         if (isColdcardFileDevice) {
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedButton(
-                                onClick = { filePickerLauncher.launch("*/*") },
+                                onClick = {
+                                    val handoffToken = viewModel.stageForDocumentPicker(
+                                        PsbtPickerPurpose.HARDWARE_IMPORT,
+                                        deviceType.name
+                                    )
+                                    if (handoffToken == null) {
+                                        Toast.makeText(
+                                            context,
+                                            "Could not secure the signing hand-off",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else if (!pickerHost.launchPicker(
+                                            PickerRequest.HardwarePsbtImport(
+                                                walletId,
+                                                deviceType.name,
+                                                handoffToken
+                                            )
+                                        )
+                                    ) {
+                                        viewModel.discardDocumentPickerStage(handoffToken)
+                                        Toast.makeText(
+                                            context,
+                                            "Finish the current file selection first",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                },
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text("Import Different Signed File") }
                         }
@@ -542,7 +681,7 @@ fun HardwareWalletPsbtScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
                 OutlinedButton(
-                    onClick = onBack,
+                    onClick = secureBack,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Cancel") }
                 return@Column
@@ -1002,7 +1141,34 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
-                            onClick = { psbtSaveLauncher.launch(psbtFileName) },
+                            onClick = {
+                                val handoffToken = viewModel.stageForDocumentPicker(
+                                    PsbtPickerPurpose.HARDWARE_EXPORT,
+                                    deviceType.name
+                                )
+                                if (handoffToken == null) {
+                                    Toast.makeText(
+                                        context,
+                                        "Could not secure the signing hand-off",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else if (!pickerHost.launchPicker(
+                                        PickerRequest.HardwarePsbtExport(
+                                            walletId = walletId,
+                                            deviceType = deviceType.name,
+                                            filename = psbtFileName,
+                                            handoffToken = handoffToken
+                                        )
+                                    )
+                                ) {
+                                    viewModel.discardDocumentPickerStage(handoffToken)
+                                    Toast.makeText(
+                                        context,
+                                        "Finish the current file selection first",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("Save PSBT File") }
                     }
@@ -1026,7 +1192,33 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
-                            onClick = { filePickerLauncher.launch("*/*") },
+                            onClick = {
+                                val handoffToken = viewModel.stageForDocumentPicker(
+                                    PsbtPickerPurpose.HARDWARE_IMPORT,
+                                    deviceType.name
+                                )
+                                if (handoffToken == null) {
+                                    Toast.makeText(
+                                        context,
+                                        "Could not secure the signing hand-off",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else if (!pickerHost.launchPicker(
+                                        PickerRequest.HardwarePsbtImport(
+                                            walletId,
+                                            deviceType.name,
+                                            handoffToken
+                                        )
+                                    )
+                                ) {
+                                    viewModel.discardDocumentPickerStage(handoffToken)
+                                    Toast.makeText(
+                                        context,
+                                        "Finish the current file selection first",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(if (uiState.hasCollectedSignature) "Import Next Signed File" else "Import Signed File") }
                     }
@@ -1052,7 +1244,7 @@ fun HardwareWalletPsbtScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
             OutlinedButton(
-                onClick = onBack,
+                onClick = secureBack,
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Cancel") }
         }

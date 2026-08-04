@@ -1,9 +1,11 @@
 package net.clench.wallet.ui.util
 
 import kotlinx.coroutines.CancellationException
+import net.clench.wallet.data.repository.WalletCacheRestartRequiredException
 
 internal fun Throwable.shouldRethrowForUiBoundary(): Boolean {
     return this is CancellationException ||
+        this is WalletCacheRestartRequiredException ||
         this is VirtualMachineError ||
         this is ThreadDeath
 }

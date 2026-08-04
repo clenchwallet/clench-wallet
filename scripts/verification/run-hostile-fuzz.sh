@@ -14,10 +14,10 @@ export CLENCH_FUZZ_CASES="$CASES"
   --dependency-verification=strict \
   :app:testDebugUnitTest \
   --tests net.clench.wallet.security.PsbtSafetyPropertyTest \
+  --tests net.clench.wallet.security.ExternalSignaturePolicyTest \
   --tests net.clench.wallet.ui.components.BBQrHostilePropertyTest \
   --tests net.clench.wallet.ui.components.CoinkiteProtocolHostileTest \
   --tests net.clench.wallet.data.repository.MultisigDescriptorHostilePropertyTest \
   --tests net.clench.wallet.data.repository.StorageRecoveryHostilePropertyTest \
   --tests net.clench.wallet.verification.FeeAttackPropertyTest \
   --tests net.clench.wallet.ui.viewmodel.PsbtStoreInterruptionTest
-

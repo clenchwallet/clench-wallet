@@ -1,61 +1,100 @@
 name: Signed Release
 
+# This workflow is deliberately manual. workflow_dispatch always loads this
+# workflow definition from the protected default branch, whereas a tag-push
+# workflow would execute attacker-controlled workflow code from the tagged
+# commit before the source tag could be validated.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Signed release tag, for example v0.3.20'
+        description: 'Annotated release tag signed by the pinned maintainer key, for example v0.3.24'
         required: true
         type: string
 
 concurrency:
-  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  group: release-${{ inputs.tag }}
   cancel-in-progress: false
 
 env:
   EXPECTED_RELEASE_SIGNER_SHA256: d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca
+  EXPECTED_SOURCE_TAG_SIGNER_SHA256: Fi/RL+LFB92U1xn1Gd8eq9eXQQgMNrwPMGtXx+CVJyQ
+  APKSIGNER_BUILD_TOOLS_VERSION: 35.0.0
+  EXPECTED_APKSIGNER_SHA256: b47549e373b895ce6ca620d0c7887e674d9615ffa837a86ac601dcfd04adb0f0
+  EXPECTED_APKSIGNER_JAR_SHA256: 00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7
 
 jobs:
-  build_and_sign:
+  validate_source:
     runs-on: ubuntu-24.04
-    environment: release-signing
     outputs:
-      version: ${{ steps.version.outputs.VERSION }}
-      version_code: ${{ steps.version.outputs.VERSION_CODE }}
-      source_tag: ${{ steps.version.outputs.TAG }}
-      source_commit: ${{ steps.version.outputs.COMMIT }}
+      version: ${{ steps.source.outputs.VERSION }}
+      version_code: ${{ steps.source.outputs.VERSION_CODE }}
+      source_tag: ${{ steps.source.outputs.TAG }}
+      source_commit: ${{ steps.source.outputs.COMMIT }}
     permissions:
       contents: read
-      id-token: write
-      attestations: write
-
     steps:
-      - name: Check out the signed release tag
+      - name: Check out the trusted protected branch workflow
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
+
+      - name: Require the pinned maintainer signature and exact protected-master commit
+        id: source
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          WORKFLOW_REF: ${{ github.ref }}
+          WORKFLOW_COMMIT: ${{ github.sha }}
+        run: |
+          test "$WORKFLOW_REF" = refs/heads/master
+          case "$RELEASE_TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Release tag must be a semantic version such as v0.3.24" >&2; exit 1 ;;
+          esac
+          git fetch --force origin \
+            "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+
+          git config gpg.format ssh
+          git config gpg.ssh.allowedSignersFile \
+            "$GITHUB_WORKSPACE/.github/release-signers.allowed"
+          VERIFY_OUTPUT="$(git verify-tag --raw "$RELEASE_TAG" 2>&1)"
+          printf '%s\n' "$VERIFY_OUTPUT"
+          grep -Fq 'Good "git" signature for cw@clench.net' <<< "$VERIFY_OUTPUT"
+          grep -Fq "SHA256:$EXPECTED_SOURCE_TAG_SIGNER_SHA256" <<< "$VERIFY_OUTPUT"
+
+          TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          test "$TAG_COMMIT" = "$WORKFLOW_COMMIT"
+
+          BUILD_FILE="$(git show "$TAG_COMMIT:app/build.gradle.kts")"
+          VERSION="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' <<< "$BUILD_FILE")"
+          VERSION_CODE="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' <<< "$BUILD_FILE")"
+          test -n "$VERSION"
+          test -n "$VERSION_CODE"
+          test "$RELEASE_TAG" = "v$VERSION"
+          git cat-file -e "$TAG_COMMIT:docs/release/v$VERSION.md"
+          {
+            echo "VERSION=$VERSION"
+            echo "VERSION_CODE=$VERSION_CODE"
+            echo "TAG=$RELEASE_TAG"
+            echo "COMMIT=$TAG_COMMIT"
+          } >> "$GITHUB_OUTPUT"
+
+  build_unsigned:
+    needs: validate_source
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the approved source commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate_source.outputs.source_commit }}
+          fetch-depth: 1
 
       - name: Validate Gradle wrapper JAR
         uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
-
-      - name: Require an annotated, cryptographically signed tag
-        env:
-          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-          EVENT_NAME: ${{ github.event_name }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if test "$EVENT_NAME" = push; then
-            test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
-          fi
-          test "$(git describe --tags --exact-match HEAD)" = "$RELEASE_TAG"
-          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
-          TAG_OBJECT_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')"
-          VERIFIED="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$TAG_OBJECT_SHA" --jq '.verification.verified')"
-          test "$VERIFIED" = true
 
       - name: Set up JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
@@ -66,24 +105,105 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
 
-      - name: Test and lint before loading signing material
+      - name: Test, lint, and build without signing credentials
         env:
           CLENCH_FUZZ_CASES: 1024
-        run: ./gradlew --no-daemon --dependency-verification=strict clean testDebugUnitTest lint
-
-      - name: Verify release controls and generate deterministic SBOM
+          CLENCH_REQUIRE_NO_LOCAL_SIGNING_MATERIAL: 1
         run: |
           scripts/release/verify-release-controls.py
           python3 -B scripts/verification/test-release-tools.py
-          VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
-          mkdir -p build/release-artifacts
+          python3 -B scripts/verification/test-osv-check.py
+          ./gradlew --no-daemon --dependency-verification=strict \
+            clean testDebugUnitTest lint assembleRelease
+
+      - name: Require an unsigned APK and generate deterministic SBOM
+        env:
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
+        run: |
+          UNSIGNED_APK="$(find app/build/outputs/apk/release -maxdepth 1 \
+            -type f -name '*-unsigned.apk' -print -quit)"
+          test -f "$UNSIGNED_APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f \
+            | LC_ALL=C sort -V | tail -1)"
+          test -x "$APKSIGNER"
+          if "$APKSIGNER" verify "$UNSIGNED_APK" >/dev/null 2>&1; then
+            echo "No-secrets build unexpectedly produced a signed APK" >&2
+            exit 1
+          fi
+
+          mkdir -p build/unsigned-release
+          cp "$UNSIGNED_APK" \
+            "build/unsigned-release/clench-$VERSION-unsigned.apk"
+          cp "docs/release/v$VERSION.md" \
+            build/unsigned-release/RELEASE-NOTES.md
           scripts/release/generate-sbom.py \
-            --commit "$(git rev-parse HEAD)" \
-            --output "build/release-artifacts/clench-$VERSION-sbom.cdx.json"
+            --commit "$SOURCE_COMMIT" \
+            --output "build/unsigned-release/clench-$VERSION-sbom.cdx.json"
           scripts/release/validate-sbom.py \
-            "build/release-artifacts/clench-$VERSION-sbom.cdx.json" \
+            "build/unsigned-release/clench-$VERSION-sbom.cdx.json" \
             --version "$VERSION" \
-            --commit "$(git rev-parse HEAD)"
+            --commit "$SOURCE_COMMIT"
+          scripts/release/check-osv.py \
+            "build/unsigned-release/clench-$VERSION-sbom.cdx.json"
+          (
+            cd build/unsigned-release
+            sha256sum \
+              "clench-$VERSION-unsigned.apk" \
+              "clench-$VERSION-sbom.cdx.json" \
+              RELEASE-NOTES.md \
+              > BUILD-SHA256SUMS
+          )
+
+      - name: Upload the no-secrets unsigned build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unsigned-release-${{ needs.validate_source.outputs.version }}
+          path: build/unsigned-release/
+          if-no-files-found: error
+          retention-days: 7
+
+  sign_release:
+    needs: [validate_source, build_unsigned]
+    runs-on: ubuntu-24.04
+    environment: release-signing
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download only the approved unsigned build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: unsigned-release-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/unsigned-release
+
+      - name: Verify the isolated signer input and pinned apksigner
+        env:
+          VERSION: ${{ needs.validate_source.outputs.version }}
+        run: |
+          printf '%s\n' \
+            BUILD-SHA256SUMS \
+            RELEASE-NOTES.md \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-signer-inputs"
+          find "$RUNNER_TEMP/unsigned-release" -mindepth 1 -maxdepth 1 \
+            -printf '%f\n' | LC_ALL=C sort > "$RUNNER_TEMP/actual-signer-inputs"
+          cmp "$RUNNER_TEMP/expected-signer-inputs" "$RUNNER_TEMP/actual-signer-inputs"
+          (
+            cd "$RUNNER_TEMP/unsigned-release"
+            sha256sum --strict -c BUILD-SHA256SUMS
+          )
+
+          APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
+          APKSIGNER_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/lib/apksigner.jar"
+          test -x "$APKSIGNER"
+          test -f "$APKSIGNER_JAR"
+          test "$(sha256sum "$APKSIGNER" | awk '{print $1}')" = \
+            "$EXPECTED_APKSIGNER_SHA256"
+          test "$(sha256sum "$APKSIGNER_JAR" | awk '{print $1}')" = \
+            "$EXPECTED_APKSIGNER_JAR_SHA256"
 
       - name: Require release signing secrets
         env:
@@ -97,123 +217,84 @@ jobs:
           test -n "$RELEASE_KEY_ALIAS"
           test -n "$RELEASE_KEY_PASSWORD"
 
-      - name: Restore release keystore
+      - name: Sign the prebuilt digest with no source checkout
         env:
+          VERSION: ${{ needs.validate_source.outputs.version }}
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           umask 077
-          mkdir -p "$RUNNER_TEMP/clench-release"
-          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/clench-release/release.keystore"
-          {
-            printf 'storeFile=%s\n' "$RUNNER_TEMP/clench-release/release.keystore"
-            printf 'storePassword=%s\n' "$RELEASE_KEYSTORE_PASSWORD"
-            printf 'keyAlias=%s\n' "$RELEASE_KEY_ALIAS"
-            printf 'keyPassword=%s\n' "$RELEASE_KEY_PASSWORD"
-          } > keystore.properties
-
-      - name: Build signed release
-        run: ./gradlew --no-daemon --dependency-verification=strict assembleRelease
+          mkdir -p "$RUNNER_TEMP/clench-release" "$RUNNER_TEMP/signed-release"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode \
+            > "$RUNNER_TEMP/clench-release/release.keystore"
+          APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
+          "$APKSIGNER" sign \
+            --ks "$RUNNER_TEMP/clench-release/release.keystore" \
+            --ks-key-alias "$RELEASE_KEY_ALIAS" \
+            --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
+            --key-pass env:RELEASE_KEY_PASSWORD \
+            --out "$RUNNER_TEMP/signed-release/clench-$VERSION-release.apk" \
+            "$RUNNER_TEMP/unsigned-release/clench-$VERSION-unsigned.apk"
+          cp "$RUNNER_TEMP/unsigned-release/clench-$VERSION-sbom.cdx.json" \
+            "$RUNNER_TEMP/signed-release/"
+          cp "$RUNNER_TEMP/unsigned-release/RELEASE-NOTES.md" \
+            "$RUNNER_TEMP/signed-release/"
 
       - name: Destroy signing material
         if: always()
         run: |
           if command -v shred >/dev/null 2>&1; then
-            shred -u keystore.properties "$RUNNER_TEMP/clench-release/release.keystore" 2>/dev/null || true
+            shred -u "$RUNNER_TEMP/clench-release/release.keystore" 2>/dev/null || true
           fi
-          rm -f keystore.properties "$RUNNER_TEMP/clench-release/release.keystore"
+          rm -f "$RUNNER_TEMP/clench-release/release.keystore"
           rmdir "$RUNNER_TEMP/clench-release" 2>/dev/null || true
 
-      - name: Get and verify version metadata
-        id: version
+      - name: Verify signer continuity after key destruction
         env:
-          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          VERSION: ${{ needs.validate_source.outputs.version }}
         run: |
-          VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
-          VERSION_CODE=$(grep 'versionCode' app/build.gradle.kts | awk '{print $3}')
-          COMMIT=$(git rev-parse HEAD)
-          test "$RELEASE_TAG" = "v$VERSION"
-          {
-            echo "VERSION=$VERSION"
-            echo "VERSION_CODE=$VERSION_CODE"
-            echo "TAG=$RELEASE_TAG"
-            echo "COMMIT=$COMMIT"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Prepare and verify release artifacts
-        run: |
-          mkdir -p build/release-artifacts
-          cp app/build/outputs/apk/release/app-release.apk \
-            build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk
-          cp docs/release/v${{ steps.version.outputs.VERSION }}.md \
-            build/release-artifacts/RELEASE-NOTES.md
-          scripts/release/generate-provenance.py \
-            --apk build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk \
-            --sbom build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-sbom.cdx.json \
-            --tag ${{ steps.version.outputs.TAG }} \
-            --commit ${{ steps.version.outputs.COMMIT }} \
-            --repository "$GITHUB_REPOSITORY" \
-            --output build/release-artifacts/PROVENANCE.intoto.jsonl
-          (
-            cd build/release-artifacts
-            sha256sum \
-              clench-${{ steps.version.outputs.VERSION }}-release.apk \
-              clench-${{ steps.version.outputs.VERSION }}-sbom.cdx.json \
-              PROVENANCE.intoto.jsonl \
-              RELEASE-NOTES.md \
-              > SHA256SUMS
-            cp SHA256SUMS SHA256SUMS.txt
-          )
-          {
-            echo "versionName=${{ steps.version.outputs.VERSION }}"
-            echo "versionCode=${{ steps.version.outputs.VERSION_CODE }}"
-            echo "tag=${{ steps.version.outputs.TAG }}"
-            echo "commit=$(git rev-parse HEAD)"
-            echo "gradleDistributionUrl=$(grep '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties | cut -d= -f2-)"
-            echo "dependencyVerificationSha256=$(sha256sum gradle/verification-metadata.xml | awk '{print $1}')"
-            echo "sbomSha256=$(sha256sum build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-sbom.cdx.json | awk '{print $1}')"
-            echo "provenanceSha256=$(sha256sum build/release-artifacts/PROVENANCE.intoto.jsonl | awk '{print $1}')"
-            echo "apkSignerCertsFollow"
-          } > build/release-artifacts/RELEASE-MANIFEST.txt
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
-          test -x "$APKSIGNER"
-          "$APKSIGNER" verify --verbose --print-certs \
-            build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk \
-            | tee -a build/release-artifacts/RELEASE-MANIFEST.txt
+          APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
+          REPORT="$("$APKSIGNER" verify --verbose --print-certs \
+            "$RUNNER_TEMP/signed-release/clench-$VERSION-release.apk")"
+          printf '%s\n' "$REPORT"
+          grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$REPORT"
+          grep -Fq 'Number of signers: 1' <<< "$REPORT"
+          SIGNER_SHA256="$(awk -F': ' '/certificate SHA-256 digest/ {print tolower($NF); exit}' <<< "$REPORT")"
+          test "$SIGNER_SHA256" = "$EXPECTED_RELEASE_SIGNER_SHA256"
 
       - name: Attest signed APK provenance
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
-          subject-path: build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk
+          subject-path: ${{ runner.temp }}/signed-release/clench-${{ needs.validate_source.outputs.version }}-release.apk
 
       - name: Attest signed APK SBOM
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
         with:
-          subject-path: build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-release.apk
-          sbom-path: build/release-artifacts/clench-${{ steps.version.outputs.VERSION }}-sbom.cdx.json
+          subject-path: ${{ runner.temp }}/signed-release/clench-${{ needs.validate_source.outputs.version }}-release.apk
+          sbom-path: ${{ runner.temp }}/signed-release/clench-${{ needs.validate_source.outputs.version }}-sbom.cdx.json
 
-      - name: Upload verified release bundle
+      - name: Upload the minimally signed release inputs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: signed-release-${{ steps.version.outputs.VERSION }}
-          path: build/release-artifacts/
+          name: signed-release-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/signed-release/
           if-no-files-found: error
           retention-days: 7
 
   verify_release:
-    needs: build_and_sign
+    needs: [validate_source, build_unsigned, sign_release]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       attestations: read
     steps:
-      - name: Check out the verified release source
+      - name: Check out the approved release source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ needs.build_and_sign.outputs.source_tag }}
-          fetch-depth: 1
+          ref: ${{ needs.validate_source.outputs.source_commit }}
+          fetch-depth: 0
 
       - name: Validate Gradle wrapper JAR
         uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
@@ -232,47 +313,68 @@ jobs:
           CLENCH_REQUIRE_NO_LOCAL_SIGNING_MATERIAL: 1
         run: scripts/release/verify-release-controls.py
 
-      - name: Download signed release bundle
+      - name: Download signed release inputs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: signed-release-${{ needs.build_and_sign.outputs.version }}
+          name: signed-release-${{ needs.validate_source.outputs.version }}
           path: ${{ runner.temp }}/release-artifacts
 
-      - name: Verify checksums, package, version, and signer continuity
+      - name: Verify package, version, signer, SBOM, and source notes
         env:
-          VERSION: ${{ needs.build_and_sign.outputs.version }}
-          VERSION_CODE: ${{ needs.build_and_sign.outputs.version_code }}
-          RELEASE_TAG: ${{ needs.build_and_sign.outputs.source_tag }}
-          SOURCE_COMMIT: ${{ needs.build_and_sign.outputs.source_commit }}
-        run: scripts/release/verify-release-bundle.sh "$RUNNER_TEMP/release-artifacts"
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
+        run: |
+          APK="$RUNNER_TEMP/release-artifacts/clench-$VERSION-release.apk"
+          SBOM="$RUNNER_TEMP/release-artifacts/clench-$VERSION-sbom.cdx.json"
+          cmp "docs/release/v$VERSION.md" \
+            "$RUNNER_TEMP/release-artifacts/RELEASE-NOTES.md"
+          scripts/release/validate-sbom.py "$SBOM" \
+            --version "$VERSION" --commit "$SOURCE_COMMIT"
+          scripts/release/check-osv.py "$SBOM"
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f \
+            | LC_ALL=C sort -V | tail -1)"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -name aapt -type f \
+            | LC_ALL=C sort -V | tail -1)"
+          REPORT="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
+          grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$REPORT"
+          grep -Fq 'Number of signers: 1' <<< "$REPORT"
+          SIGNER_SHA256="$(awk -F': ' '/certificate SHA-256 digest/ {print tolower($NF); exit}' <<< "$REPORT")"
+          test "$SIGNER_SHA256" = "$EXPECTED_RELEASE_SIGNER_SHA256"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          PACKAGE_LINE="${BADGING%%$'\n'*}"
+          grep -Fq "package: name='net.clench.wallet'" <<< "$PACKAGE_LINE"
+          grep -Fq "versionCode='$VERSION_CODE'" <<< "$PACKAGE_LINE"
+          grep -Fq "versionName='$VERSION'" <<< "$PACKAGE_LINE"
 
       - name: Verify build-provenance attestation
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.build_and_sign.outputs.version }}
-          RELEASE_TAG: ${{ needs.build_and_sign.outputs.source_tag }}
-          SOURCE_COMMIT: ${{ needs.build_and_sign.outputs.source_commit }}
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
         run: |
-          gh attestation verify "$RUNNER_TEMP/release-artifacts/clench-$VERSION-release.apk" \
+          gh attestation verify \
+            "$RUNNER_TEMP/release-artifacts/clench-$VERSION-release.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
             --source-digest "$SOURCE_COMMIT" \
-            --source-ref "refs/tags/$RELEASE_TAG" \
+            --source-ref refs/heads/master \
             --deny-self-hosted-runners
 
       - name: Verify SBOM attestation and exact published predicate
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.build_and_sign.outputs.version }}
-          RELEASE_TAG: ${{ needs.build_and_sign.outputs.source_tag }}
-          SOURCE_COMMIT: ${{ needs.build_and_sign.outputs.source_commit }}
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
         run: |
-          gh attestation verify "$RUNNER_TEMP/release-artifacts/clench-$VERSION-release.apk" \
+          gh attestation verify \
+            "$RUNNER_TEMP/release-artifacts/clench-$VERSION-release.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --predicate-type https://cyclonedx.org/bom \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
             --source-digest "$SOURCE_COMMIT" \
-            --source-ref "refs/tags/$RELEASE_TAG" \
+            --source-ref refs/heads/master \
             --deny-self-hosted-runners \
             --format json \
             > "$RUNNER_TEMP/clench-sbom-attestation.json"
@@ -280,10 +382,53 @@ jobs:
             "$RUNNER_TEMP/clench-sbom-attestation.json" \
             "$RUNNER_TEMP/release-artifacts/clench-$VERSION-sbom.cdx.json"
 
+      - name: Create and verify the inspectable evidence bundle
+        env:
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
+          RELEASE_TAG: ${{ needs.validate_source.outputs.source_tag }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
+        run: |
+          ARTIFACTS="$RUNNER_TEMP/release-artifacts"
+          scripts/release/generate-provenance.py \
+            --apk "$ARTIFACTS/clench-$VERSION-release.apk" \
+            --sbom "$ARTIFACTS/clench-$VERSION-sbom.cdx.json" \
+            --tag "$RELEASE_TAG" \
+            --commit "$SOURCE_COMMIT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --output "$ARTIFACTS/PROVENANCE.intoto.jsonl"
+          {
+            echo "versionName=$VERSION"
+            echo "versionCode=$VERSION_CODE"
+            echo "tag=$RELEASE_TAG"
+            echo "commit=$SOURCE_COMMIT"
+            echo "gradleDistributionUrl=$(grep '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties | cut -d= -f2-)"
+            echo "dependencyVerificationSha256=$(sha256sum gradle/verification-metadata.xml | awk '{print $1}')"
+            echo "sbomSha256=$(sha256sum "$ARTIFACTS/clench-$VERSION-sbom.cdx.json" | awk '{print $1}')"
+            echo "provenanceSha256=$(sha256sum "$ARTIFACTS/PROVENANCE.intoto.jsonl" | awk '{print $1}')"
+            echo "apkSignerCertsFollow"
+          } > "$ARTIFACTS/RELEASE-MANIFEST.txt"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f \
+            | LC_ALL=C sort -V | tail -1)"
+          "$APKSIGNER" verify --verbose --print-certs \
+            "$ARTIFACTS/clench-$VERSION-release.apk" \
+            | tee -a "$ARTIFACTS/RELEASE-MANIFEST.txt"
+          (
+            cd "$ARTIFACTS"
+            sha256sum \
+              "clench-$VERSION-release.apk" \
+              "clench-$VERSION-sbom.cdx.json" \
+              PROVENANCE.intoto.jsonl \
+              RELEASE-NOTES.md \
+              > SHA256SUMS
+            cp SHA256SUMS SHA256SUMS.txt
+          )
+          scripts/release/verify-release-bundle.sh "$ARTIFACTS"
+
       - name: Independently rebuild and compare the unsigned APK payload
         env:
-          VERSION: ${{ needs.build_and_sign.outputs.version }}
-          VERSION_CODE: ${{ needs.build_and_sign.outputs.version_code }}
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
         run: |
           scripts/release/rebuild-unsigned.sh \
             "$RUNNER_TEMP/clench-$VERSION-independent-unsigned.apk"
@@ -294,10 +439,10 @@ jobs:
 
       - name: Finalize and reverify the public evidence bundle
         env:
-          VERSION: ${{ needs.build_and_sign.outputs.version }}
-          VERSION_CODE: ${{ needs.build_and_sign.outputs.version_code }}
-          RELEASE_TAG: ${{ needs.build_and_sign.outputs.source_tag }}
-          SOURCE_COMMIT: ${{ needs.build_and_sign.outputs.source_commit }}
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
+          RELEASE_TAG: ${{ needs.validate_source.outputs.source_tag }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
         run: |
           (
             cd "$RUNNER_TEMP/release-artifacts"
@@ -316,29 +461,52 @@ jobs:
       - name: Upload independently verified release bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: verified-release-${{ needs.build_and_sign.outputs.version }}
+          name: verified-release-${{ needs.validate_source.outputs.version }}
           path: ${{ runner.temp }}/release-artifacts/
           if-no-files-found: error
           retention-days: 7
 
   publish:
-    needs: [build_and_sign, verify_release]
+    needs: [validate_source, verify_release]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - name: Check out the trusted release gate
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate_source.outputs.source_commit }}
+          fetch-depth: 0
+
+      - name: Reverify immutable source tag immediately before publication
+        env:
+          RELEASE_TAG: ${{ needs.validate_source.outputs.source_tag }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
+        run: |
+          git fetch --force origin \
+            "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+          git config gpg.format ssh
+          git config gpg.ssh.allowedSignersFile \
+            "$GITHUB_WORKSPACE/.github/release-signers.allowed"
+          VERIFY_OUTPUT="$(git verify-tag --raw "$RELEASE_TAG" 2>&1)"
+          printf '%s\n' "$VERIFY_OUTPUT"
+          grep -Fq 'Good "git" signature for cw@clench.net' <<< "$VERIFY_OUTPUT"
+          grep -Fq "SHA256:$EXPECTED_SOURCE_TAG_SIGNER_SHA256" <<< "$VERIFY_OUTPUT"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = \
+            "$SOURCE_COMMIT"
+
       - name: Download verified release bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: verified-release-${{ needs.build_and_sign.outputs.version }}
+          name: verified-release-${{ needs.validate_source.outputs.version }}
           path: release-artifacts
 
       - name: Publish GitHub release without signing credentials
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          RELEASE_TAG: ${{ needs.validate_source.outputs.source_tag }}
         run: |
-          VERSION="${RELEASE_TAG#v}"
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             "release-artifacts/clench-$VERSION-release.apk" \

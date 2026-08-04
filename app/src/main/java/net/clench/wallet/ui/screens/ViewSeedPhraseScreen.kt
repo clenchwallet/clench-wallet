@@ -1,8 +1,6 @@
 package net.clench.wallet.ui.screens
 
-import android.app.Activity
 import android.content.ContextWrapper
-import android.view.WindowManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material.icons.Icons
@@ -20,6 +18,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.components.QrCodeImage
 import net.clench.wallet.ui.components.encodeSeedQr
 import net.clench.wallet.ui.util.BiometricHelper
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.ViewSeedPhraseViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,15 +31,8 @@ fun ViewSeedPhraseScreen(
     val uiState by viewModel.uiState.collectAsState()
     var showSeedQr by remember { mutableStateOf(false) }
 
-    // FLAG_SECURE — prevent screenshots
     val context = LocalContext.current
-    DisposableEffect(Unit) {
-        val activity = context as? Activity
-        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose {
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
-    }
+    SecureWindowEffect()
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
 
@@ -83,18 +75,18 @@ fun ViewSeedPhraseScreen(
             confirmButton = {
                 Button(onClick = {
                     // R7-7: Only show biometric if the setting is enabled
-                    if (uiState.biometricForSeedEnabled && fragmentActivity != null && BiometricHelper.canAuthenticate(context)) {
+                    if (!uiState.biometricForSeedEnabled) {
+                        viewModel.confirmWarning()
+                    } else if (fragmentActivity != null && BiometricHelper.canAuthenticate(context)) {
                         BiometricHelper.authenticate(
                             activity = fragmentActivity,
                             title = "Authenticate to view seed phrase",
                             subtitle = "Verify your identity to access sensitive data",
                             onSuccess = { viewModel.confirmWarning() },
-                            onFailure = { viewModel.setError(it) },
-                            allowUiOnlyFallback = true
+                            onFailure = { viewModel.setError(it) }
                         )
                     } else {
-                        // Biometric disabled or not available — allow access
-                        viewModel.confirmWarning()
+                        viewModel.setError(BiometricHelper.authenticationUnavailableGuidance())
                     }
                 }) {
                     Text("I understand, show seed phrase")

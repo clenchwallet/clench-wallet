@@ -13,6 +13,7 @@ import java.net.Socket
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import javax.net.ssl.SSLContext
@@ -34,6 +35,20 @@ enum class ConnectionMode {
     TOR_PLAIN,
     /** Routed through Tor SOCKS5 proxy — with TLS on top */
     TOR_TLS
+}
+
+/**
+ * Whether a raw upstream socket must be upgraded to TLS before any Electrum
+ * JSON-RPC bytes are sent. BDK handles [ConnectionMode.TLS_SYSTEM] itself for
+ * its native client, but Clench's direct JSON-RPC helpers use this raw-socket
+ * path and therefore must perform the TLS handshake here.
+ */
+internal fun ConnectionMode.requiresRawSocketTls(): Boolean = when (this) {
+    ConnectionMode.TLS_SYSTEM,
+    ConnectionMode.TLS_PINNED,
+    ConnectionMode.TOR_TLS -> true
+    ConnectionMode.PLAIN_TCP,
+    ConnectionMode.TOR_PLAIN -> false
 }
 
 /**
@@ -65,6 +80,16 @@ sealed class ElectrumConnectionException(message: String, cause: Throwable? = nu
         ElectrumConnectionException("Could not connect to $host:$port — check that the server is running.", cause)
 }
 
+internal fun normalizedElectrumHost(rawHost: String): String = rawHost
+    .trim()
+    .replaceFirst(Regex("^(?i:ssl|tcp)://"), "")
+    .trim()
+    .trimEnd('.')
+    .lowercase(Locale.ROOT)
+
+internal fun isOnionElectrumHost(rawHost: String): Boolean =
+    normalizedElectrumHost(rawHost).endsWith(".onion")
+
 /**
  * Factory that creates BDK ElectrumClient instances supporting three connection modes:
  *
@@ -91,8 +116,12 @@ class ElectrumConnectionFactory @Inject constructor(
      * Resolve what connection mode to use based on config + settings.
      */
     fun resolveConnection(config: ElectrumConfig): ResolvedConnection {
-        val host = config.serverUrl.removePrefix("ssl://").removePrefix("tcp://").trim()
-        val isOnion = host.endsWith(".onion")
+        val configuredHost = config.serverUrl
+            .trim()
+            .replaceFirst(Regex("^(?i:ssl|tcp)://"), "")
+            .trim()
+        val isOnion = isOnionElectrumHost(configuredHost)
+        val host = if (isOnion) normalizedElectrumHost(configuredHost) else configuredHost
         val torEnabled = settingsManager.isTorEnabled()
         val useTor = isOnion || config.useTor || torEnabled
         val pinnedCertBase64 = config.pinnedCert
@@ -280,7 +309,7 @@ class ElectrumConnectionFactory @Inject constructor(
         socket.soTimeout = SOCKET_NEGOTIATION_TIMEOUT_MS
 
         // Wrap in TLS if needed
-        return if (resolved.mode == ConnectionMode.TLS_PINNED || resolved.mode == ConnectionMode.TOR_TLS) {
+        return if (resolved.mode.requiresRawSocketTls()) {
             wrapTls(socket, resolved.host, resolved.pinnedCertDer)
         } else {
             socket
@@ -318,16 +347,22 @@ class ElectrumConnectionFactory @Inject constructor(
 
         // SOCKS5 connect request: version=5, cmd=CONNECT(1), rsv=0, atyp=DOMAINNAME(3)
         val hostBytes = targetHost.toByteArray(Charsets.US_ASCII)
-        val request = ByteArray(4 + 1 + hostBytes.size + 2)
-        request[0] = 0x05  // version
-        request[1] = 0x01  // connect
-        request[2] = 0x00  // reserved
-        request[3] = 0x03  // domain name
-        request[4] = hostBytes.size.toByte()
-        System.arraycopy(hostBytes, 0, request, 5, hostBytes.size)
-        request[5 + hostBytes.size] = (targetPort shr 8).toByte()
-        request[6 + hostBytes.size] = (targetPort and 0xFF).toByte()
-        os.write(request)
+        if (hostBytes.isEmpty() || hostBytes.size > 255) {
+            sock.close()
+            throw ElectrumConnectionException.ConnectionFailed(
+                targetHost,
+                targetPort,
+                IOException("SOCKS5 target host must be between 1 and 255 ASCII bytes")
+            )
+        }
+        // Write each field directly. Besides avoiding an unnecessary copy, this
+        // keeps the validated user-controlled hostname length out of array-size
+        // arithmetic (and therefore out of the overflow class CodeQL flags).
+        os.write(byteArrayOf(0x05, 0x01, 0x00, 0x03))
+        os.write(hostBytes.size)
+        os.write(hostBytes)
+        os.write((targetPort shr 8) and 0xff)
+        os.write(targetPort and 0xff)
         os.flush()
 
         // Read response header (4 bytes)
@@ -356,9 +391,17 @@ class ElectrumConnectionFactory @Inject constructor(
             0x01 -> readFully(ins, ByteArray(4 + 2))  // IPv4 + port
             0x03 -> {
                 val len = ins.read()
+                if (len < 0) {
+                    sock.close()
+                    throw IOException("Unexpected end of SOCKS5 domain response")
+                }
                 readFully(ins, ByteArray(len + 2))      // domain + port
             }
             0x04 -> readFully(ins, ByteArray(16 + 2)) // IPv6 + port
+            else -> {
+                sock.close()
+                throw IOException("Unsupported SOCKS5 address type: ${respHeader[3].toInt() and 0xFF}")
+            }
         }
 
         if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "SOCKS5 connected to $targetHost:$targetPort via $socksHost:$socksPort")
@@ -467,12 +510,23 @@ class ActiveElectrumConnection(
     val mode: ConnectionMode,
     private val relayResources: RelayResources? = null
 ) : AutoCloseable {
-    override fun close() {
-        try { client.close() } catch (_: Exception) {}
+    /**
+     * Interrupt only transport resources owned independently of the native client wrapper.
+     * The client itself is closed only after the dedicated worker has actually terminated.
+     */
+    fun cancelTransport() {
         relayResources?.let {
             try { it.upstreamSocket.close() } catch (_: Exception) {}
             try { it.localServer.close() } catch (_: Exception) {}
             it.relayThread.interrupt()
+        }
+    }
+
+    override fun close() {
+        try {
+            client.close()
+        } finally {
+            cancelTransport()
         }
     }
 }

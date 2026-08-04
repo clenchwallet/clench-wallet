@@ -6,16 +6,21 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import net.clench.wallet.data.local.KeystoreManager
+import net.clench.wallet.data.repository.SensitiveWalletOperationBarrier
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.ui.util.DescriptorDisplayPolicy
+import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
 import javax.inject.Inject
 
 @HiltViewModel
 class BackupViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
-    private val keystoreManager: KeystoreManager
+    private val keystoreManager: KeystoreManager,
+    private val operationBarrier: SensitiveWalletOperationBarrier
 ) : ViewModel() {
 
     data class UiState(
@@ -94,15 +99,22 @@ class BackupViewModel @Inject constructor(
         val walletId = _uiState.value.walletId
         viewModelScope.launch {
             try {
-                val mnemonic = keystoreManager.getMnemonic(walletId)
-                if (mnemonic != null) {
-                    val words = mnemonic.split(" ")
-                    _uiState.update { it.copy(seedRevealed = true, mnemonic = words) }
-                } else {
-                    _uiState.update { it.copy(error = "Seed phrase not available for this wallet") }
+                operationBarrier.withLease {
+                    val mnemonic = keystoreManager.getMnemonic(walletId)
+                    currentCoroutineContext().ensureActive()
+                    if (_uiState.value.walletId != walletId) return@withLease
+                    if (mnemonic != null) {
+                        val words = mnemonic.split(" ")
+                        currentCoroutineContext().ensureActive()
+                        if (_uiState.value.walletId != walletId) return@withLease
+                        _uiState.update { it.copy(seedRevealed = true, mnemonic = words) }
+                    } else {
+                        _uiState.update { it.copy(error = "Seed phrase not available for this wallet") }
+                    }
                 }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(error = "Failed to retrieve seed phrase: ${e.message}") }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                _uiState.update { it.copy(error = "Failed to retrieve seed phrase: ${t.message}") }
             }
         }
     }

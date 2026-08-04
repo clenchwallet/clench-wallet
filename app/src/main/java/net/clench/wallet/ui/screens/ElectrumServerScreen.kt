@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import net.clench.wallet.data.network.isOnionElectrumHost
 import net.clench.wallet.domain.model.PublicElectrumServers
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.viewmodel.SettingsViewModel
@@ -291,7 +292,7 @@ fun ElectrumServerScreen(
             } else {
                 uiState.publicServer.substringBefore(":").trim()
             }
-            val activeHostIsOnion = activeServerHost.endsWith(".onion")
+            val activeHostIsOnion = isOnionElectrumHost(activeServerHost)
 
             // Auto-enable Tor for .onion nodes, public or private.
             LaunchedEffect(uiState.useCustomServer, activeServerHost) {

@@ -32,8 +32,8 @@ android {
         applicationId = "net.clench.wallet"
         minSdk = 26
         targetSdk = 35
-        versionCode = 323
-        versionName = "0.3.23"
+        versionCode = 324
+        versionName = "0.3.24"
 
         manifestPlaceholders["appLabel"] = "Clench"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -95,8 +95,6 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
-            // Required for BDK native libs
-            jniLibs.pickFirsts += "**/*.so"
         }
     }
 
@@ -153,7 +151,7 @@ dependencies {
 
     // Coinkite Tap Protocol NFC status messages use CBOR.
     implementation("co.nstant.in:cbor:0.9")
-    implementation("org.bouncycastle:bcprov-jdk18on:1.79")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.85")
 
     // Unit testing
     testImplementation("junit:junit:4.13.2")

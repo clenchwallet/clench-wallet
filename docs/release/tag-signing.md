@@ -1,10 +1,10 @@
 # Release Tag Signing
 
-Clench production releases require an annotated, cryptographically signed tag that GitHub marks as verified. Never weaken `.github/workflows/release.yml` to accept a lightweight or unsigned tag.
+Clench production releases require an annotated tag signed by the maintainer key pinned in `.github/release-signers.allowed`. The tag must resolve to the exact current commit of protected `master`. Never weaken `.github/workflows/release.yml` to accept a lightweight tag, another signing key, or an off-branch commit.
 
 ## Maintainer prerequisites
 
-The maintainer must control a GitHub-registered GPG or SSH signing key. Keep the private key outside the repository and never paste it into an issue, pull request, chat, workflow input, or GitHub Actions secret used for APK signing.
+The maintainer must control the pinned SSH signing key. Keep the private key outside the repository and never paste it into an issue, pull request, chat, workflow input, or GitHub Actions secret used for APK signing. Rotating this key requires a separately reviewed protected-master change to the allowed-signers file before creating a release tag.
 
 For SSH signing:
 
@@ -42,13 +42,15 @@ git cat-file -p vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-`git cat-file -t` must report `tag`, not `commit`. After pushing, GitHub must report the annotated tag object's `verification.verified` field as `true`. The protected release workflow performs the same check and refuses to load APK signing material otherwise.
+`git cat-file -t` must report `tag`, not `commit`. The protected release workflow independently verifies the SSH signature against the pinned public key and requires the tag to equal current protected `master`; GitHub's generic "verified" label is not sufficient.
 
-For a manual workflow retry, dispatch the workflow with the signed tag as both the workflow ref and the `tag` input. Dispatching from a branch is rejected:
+The tag push does not execute release workflow code. Dispatch the trusted workflow definition from protected `master` and pass the signed tag only as data:
 
 ```bash
-gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z
+gh workflow run release.yml --ref master -f tag=vX.Y.Z
 ```
+
+The workflow builds the unsigned APK without secrets. The protected signer downloads only that checksummed APK and evidence, runs a pinned `apksigner` without checking out source or invoking Gradle, then destroys the temporary keystore before verification and upload.
 
 ## Separation of keys
 

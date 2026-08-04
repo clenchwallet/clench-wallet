@@ -1,7 +1,7 @@
 package net.clench.wallet.ui.screens
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,10 +11,15 @@ import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.viewmodel.SettingsViewModel
+import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
+import net.clench.wallet.ui.picker.PickerDestination
+import net.clench.wallet.ui.picker.PickerPurpose
+import net.clench.wallet.ui.picker.PickerRequest
 
 @Composable
 fun SettingsSectionCard(title: String, subtitle: String = "", onClick: () -> Unit) {
@@ -44,15 +49,33 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val exportBackupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        uri?.let { viewModel.exportStateBackup(it) }
+    val context = LocalContext.current
+    val pickerHost = LocalPickerRoundTripHost.current
+    val pickerResume by pickerHost.pickerResume.collectAsState()
+    val pickerDestination = PickerDestination.Settings
+
+    LaunchedEffect(pickerResume?.requestId) {
+        when (pickerResume?.purpose) {
+            PickerPurpose.SETTINGS_BACKUP_IMPORT -> {
+                pickerHost.consumePickerResult(
+                    PickerPurpose.SETTINGS_BACKUP_IMPORT,
+                    pickerDestination
+                )?.uri?.let { viewModel.importStateBackup(Uri.parse(it)) }
+            }
+            PickerPurpose.SETTINGS_BACKUP_EXPORT -> {
+                pickerHost.consumePickerResult(
+                    PickerPurpose.SETTINGS_BACKUP_EXPORT,
+                    pickerDestination
+                )?.uri?.let { viewModel.exportStateBackup(Uri.parse(it)) }
+            }
+            else -> Unit
+        }
     }
-    val importBackupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let { viewModel.importStateBackup(it) }
+
+    fun launchPicker(request: PickerRequest) {
+        if (!pickerHost.launchPicker(request)) {
+            Toast.makeText(context, "Finish the current file selection first", Toast.LENGTH_SHORT).show()
+        }
     }
 
     Scaffold(
@@ -171,12 +194,22 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
-                            onClick = { importBackupLauncher.launch(arrayOf("application/json", "text/json", "*/*")) },
+                            onClick = {
+                                launchPicker(
+                                    PickerRequest.SettingsBackupImport
+                                )
+                            },
                             enabled = !uiState.isBackupBusy,
                             modifier = Modifier.weight(1f)
                         ) { Text("Import") }
                         Button(
-                            onClick = { exportBackupLauncher.launch("clench-state-backup-${java.time.LocalDate.now()}.json") },
+                            onClick = {
+                                launchPicker(
+                                    PickerRequest.SettingsBackupExport(
+                                        "clench-state-backup-${java.time.LocalDate.now()}.json"
+                                    )
+                                )
+                            },
                             enabled = !uiState.isBackupBusy,
                             modifier = Modifier.weight(1f)
                         ) {

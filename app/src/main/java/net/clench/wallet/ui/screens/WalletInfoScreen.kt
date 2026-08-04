@@ -4,8 +4,6 @@ import android.app.Activity
 import android.net.Uri
 import android.nfc.NfcAdapter
 import android.nfc.Tag
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -47,6 +45,10 @@ import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.PhoneSigner
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.WalletInfoViewModel
+import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
+import net.clench.wallet.ui.picker.PickerDestination
+import net.clench.wallet.ui.picker.PickerPurpose
+import net.clench.wallet.ui.picker.PickerRequest
 
 private enum class TapsignerWalletNfcAction {
     REFRESH_STATUS,
@@ -109,10 +111,37 @@ fun WalletInfoScreen(
     var showTapsignerBackupConfirm by remember { mutableStateOf(false) }
     val tapsignerNfcProcessing = remember { AtomicBoolean(false) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val labelImportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let { viewModel.importLabels(it) }
+    val pickerHost = LocalPickerRoundTripHost.current
+    val pickerResume by pickerHost.pickerResume.collectAsState()
+    val pickerDestination = remember(walletId) { PickerDestination.WalletInfo(walletId) }
+
+    LaunchedEffect(pickerResume?.requestId) {
+        when (pickerResume?.purpose) {
+            PickerPurpose.WALLET_LABEL_IMPORT -> {
+                pickerHost.consumePickerResult(
+                    PickerPurpose.WALLET_LABEL_IMPORT,
+                    pickerDestination
+                )?.uri?.let { viewModel.importLabels(Uri.parse(it)) }
+            }
+            PickerPurpose.TAPSIGNER_WALLET_BACKUP -> {
+                val result = pickerHost.consumePickerResult(
+                    PickerPurpose.TAPSIGNER_WALLET_BACKUP,
+                    pickerDestination
+                )
+                if (result != null) {
+                    tapsignerPinInput = ""
+                    if (result.uri == null) {
+                        tapsignerPendingBackupUri = null
+                        tapsignerNfcStatus = "TAPSIGNER backup save cancelled"
+                    } else {
+                        tapsignerPendingBackupUri = Uri.parse(result.uri)
+                        tapsignerNfcError = null
+                        tapsignerNfcStatus = "Backup destination selected. Re-enter the TAPSIGNER PIN, then tap the card to create and save the encrypted backup."
+                    }
+                }
+            }
+            else -> Unit
+        }
     }
 
     SecureWindowEffect(enabled = isTapsignerWallet && tapsignerPinInput.isNotBlank())
@@ -279,20 +308,6 @@ fun WalletInfoScreen(
         return "tapsigner-backup-$suffix-${LocalDate.now()}.aes"
     }
 
-    val tapsignerBackupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri ->
-        when {
-            uri == null -> tapsignerNfcStatus = "TAPSIGNER backup save cancelled"
-            tapsignerPinInput.length !in 6..32 -> tapsignerNfcError = "Enter the TAPSIGNER PIN"
-            else -> {
-                tapsignerPendingBackupUri = uri
-                tapsignerNfcError = null
-                startTapsignerNfcReader(TapsignerWalletNfcAction.SAVE_BACKUP)
-            }
-        }
-    }
-
     LaunchedEffect(walletId) { viewModel.load(walletId) }
 
     DisposableEffect(isTapsignerWallet, activity, nfcAdapter) {
@@ -391,9 +406,20 @@ fun WalletInfoScreen(
                 Button(
                     onClick = {
                         showTapsignerBackupConfirm = false
-                        tapsignerBackupLauncher.launch(tapsignerBackupFilename())
+                        // The picker creates a real process-background boundary. Discard the
+                        // old PIN/CVC and require entry again before the NFC backup command.
+                        stopTapsignerNfcReader(clearPin = true)
+                        if (!pickerHost.launchPicker(
+                                PickerRequest.TapsignerWalletBackup(
+                                    walletId = walletId,
+                                    filename = tapsignerBackupFilename()
+                                )
+                            )
+                        ) {
+                            tapsignerNfcError = "Finish the current file selection first"
+                        }
                     }
-                ) { Text("Choose File, Then Tap") }
+                ) { Text("Choose File") }
             },
             dismissButton = {
                 TextButton(onClick = { showTapsignerBackupConfirm = false }) {
@@ -592,7 +618,13 @@ fun WalletInfoScreen(
                         onVerifyCard = { startTapsignerNfcReader(TapsignerWalletNfcAction.VERIFY_CARD) },
                         onRequestBackup = {
                             if (tapsignerPinInput.length !in 6..32) {
-                                tapsignerNfcError = "Enter the TAPSIGNER PIN"
+                                tapsignerNfcError = if (tapsignerPendingBackupUri == null) {
+                                    "Enter the TAPSIGNER PIN"
+                                } else {
+                                    "Re-enter the TAPSIGNER PIN"
+                                }
+                            } else if (tapsignerPendingBackupUri != null) {
+                                startTapsignerNfcReader(TapsignerWalletNfcAction.SAVE_BACKUP)
                             } else {
                                 showTapsignerBackupConfirm = true
                             }
@@ -754,7 +786,14 @@ fun WalletInfoScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
-                                onClick = { labelImportLauncher.launch(arrayOf("*/*")) },
+                                onClick = {
+                                    if (!pickerHost.launchPicker(
+                                            PickerRequest.WalletLabelImport(walletId)
+                                        )
+                                    ) {
+                                        tapsignerNfcError = "Finish the current file selection first"
+                                    }
+                                },
                                 modifier = Modifier.weight(1f)
                             ) { Text("Import Labels") }
                             Button(

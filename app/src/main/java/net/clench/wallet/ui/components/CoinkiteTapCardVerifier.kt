@@ -86,6 +86,49 @@ object CoinkiteTapCardVerifier {
         }
     }
 
+    /**
+     * Verify the TAPSIGNER derive proof exactly as specified by Coinkite:
+     * SHA256("OPENDIME" || previous_card_nonce || app_nonce || chain_code),
+     * signed by the derived key returned for the requested hardened path.
+     *
+     * The caller must still bind the later account xpub to [derive]'s chain
+     * code and public key before importing it.
+     */
+    fun verifyTapsignerDerive(
+        previousCardNonce: ByteArray,
+        requestNonce: ByteArray,
+        derive: TapsignerDeriveResult
+    ) {
+        require(previousCardNonce.size == 16) { "TAPSIGNER previous card nonce was invalid" }
+        require(requestNonce.size == 16) { "TAPSIGNER derive request nonce was invalid" }
+        val msg = "OPENDIME".toByteArray(Charsets.US_ASCII) +
+            previousCardNonce + requestNonce + derive.chainCode
+        if (!verifyEcdsa(derive.pubkey, sha256(msg), derive.signature)) {
+            error("TAPSIGNER derive signature did not verify")
+        }
+    }
+
+    /**
+     * Verify possession of the expected derived private key using an app-only
+     * challenge. The challenge is already a 32-byte digest and must not be
+     * hashed again: Tap Protocol's `sign` command signs it directly.
+     */
+    fun verifyTapsignerProofOfPossession(
+        challenge: ByteArray,
+        proof: TapsignerSignProof,
+        expectedDerivedPubkey: ByteArray
+    ) {
+        require(challenge.size == 32) { "TAPSIGNER proof challenge was invalid" }
+        require(expectedDerivedPubkey.size == 33) { "TAPSIGNER expected derived pubkey was invalid" }
+        if (proof.slot != 0L) error("TAPSIGNER proof used an unexpected slot")
+        if (!MessageDigest.isEqual(proof.pubkey, expectedDerivedPubkey)) {
+            error("TAPSIGNER proof public key did not match the derived account")
+        }
+        if (!verifyEcdsa(expectedDerivedPubkey, challenge, proof.signature)) {
+            error("TAPSIGNER proof-of-possession signature did not verify")
+        }
+    }
+
     fun verifyUnsealedPrivateKey(
         privateKey: ByteArray,
         responsePubkey: ByteArray?,
@@ -135,7 +178,7 @@ object CoinkiteTapCardVerifier {
             actual.endsWith(right)
     }
 
-    private fun verifyEcdsa(pubkey: ByteArray, digest: ByteArray, signature: ByteArray): Boolean {
+    internal fun verifyEcdsa(pubkey: ByteArray, digest: ByteArray, signature: ByteArray): Boolean {
         if (signature.size != 64 || digest.size != 32) return false
         val r = BigInteger(1, signature.copyOfRange(0, 32))
         val s = BigInteger(1, signature.copyOfRange(32, 64))

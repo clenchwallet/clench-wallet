@@ -27,8 +27,11 @@ RESOLVED_FILES = (
     "app/build.gradle.kts",
     "gradle/libs.versions.toml",
     ".github/workflows/release.yml",
+    ".github/release-signers.allowed",
     "scripts/release/generate-sbom.py",
     "scripts/release/validate-sbom.py",
+    "scripts/release/check-osv.py",
+    "scripts/release/osv-allowlist.json",
     "scripts/release/generate-provenance.py",
     "scripts/release/validate-provenance.py",
     "scripts/release/verify-sbom-attestation.py",
@@ -38,6 +41,7 @@ RESOLVED_FILES = (
     "scripts/release/validate-independent-report.py",
     "scripts/release/verify-release-controls.py",
     "scripts/verification/test-release-tools.py",
+    "scripts/verification/test-osv-check.py",
 )
 
 
@@ -100,7 +104,7 @@ def expected_statement(
     )
     workflow_id = (
         f"https://github.com/{repository}/.github/workflows/"
-        f"release.yml@refs/tags/{tag}"
+        "release.yml@refs/heads/master"
     )
     dependencies = [
         {

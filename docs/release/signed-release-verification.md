@@ -62,7 +62,7 @@ gh attestation verify clench-X.Y.Z-release.apk \
   --repo clenchwallet/clench-wallet \
   --signer-workflow clenchwallet/clench-wallet/.github/workflows/release.yml \
   --source-digest EXPECTED_COMMIT_SHA \
-  --source-ref refs/tags/vX.Y.Z \
+  --source-ref refs/heads/master \
   --deny-self-hosted-runners
 ```
 
@@ -74,7 +74,7 @@ gh attestation verify clench-X.Y.Z-release.apk \
   --predicate-type https://cyclonedx.org/bom \
   --signer-workflow clenchwallet/clench-wallet/.github/workflows/release.yml \
   --source-digest EXPECTED_COMMIT_SHA \
-  --source-ref refs/tags/vX.Y.Z \
+  --source-ref refs/heads/master \
   --deny-self-hosted-runners \
   --format json > clench-sbom-attestation.json
 

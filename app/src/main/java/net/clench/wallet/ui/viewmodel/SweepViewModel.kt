@@ -1,10 +1,11 @@
 package net.clench.wallet.ui.viewmodel
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,6 +15,8 @@ import kotlinx.coroutines.withContext
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.network.BoundedBlockingCall
 import net.clench.wallet.data.network.ElectrumConnectionFactory
+import net.clench.wallet.data.repository.SensitiveWalletOperationBarrier
+import net.clench.wallet.data.repository.nativeCloseAction
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.repository.BitcoinRepository
@@ -30,6 +33,7 @@ import org.bitcoindevkit.Network
 import org.bitcoindevkit.TxBuilder
 import org.bitcoindevkit.Transaction
 import org.bitcoindevkit.Wallet
+import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
 import javax.inject.Inject
 
 enum class SweepSeedScriptType { LEGACY, NESTED_SEGWIT, NATIVE_SEGWIT, TAPROOT }
@@ -40,7 +44,8 @@ internal object SweepDescriptorFactory {
         key: DescriptorSecretKey,
         network: Network,
         type: SweepSeedScriptType,
-        account: UInt
+        account: UInt,
+        operationBarrier: SensitiveWalletOperationBarrier
     ): Pair<Descriptor, Descriptor> {
         require(account <= 100u) { "Account index must be from 0 to 100" }
         val purpose = when (type) {
@@ -53,6 +58,8 @@ internal object SweepDescriptorFactory {
         val accountPathText = "m/${purpose}'/${coinType}'/${account}'"
         val accountPath = DerivationPath(accountPathText)
         var accountKey: DescriptorSecretKey? = null
+        var external: Descriptor? = null
+        var internal: Descriptor? = null
         try {
             val derivedAccountKey = key.derive(accountPath)
             accountKey = derivedAccountKey
@@ -70,10 +77,24 @@ internal object SweepDescriptorFactory {
                 }
                 return Descriptor(expression, network)
             }
-            return descriptor(0) to descriptor(1)
+            external = descriptor(0)
+            internal = descriptor(1)
+            return checkNotNull(external) to checkNotNull(internal)
+        } catch (failure: Throwable) {
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(
+                    nativeCloseAction(internal) { it.close() },
+                    nativeCloseAction(external) { it.close() }
+                )
+            )
+            throw failure
         } finally {
-            try { accountKey?.destroy() } catch (_: Exception) {}
-            try { accountPath.destroy() } catch (_: Exception) {}
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(
+                    nativeCloseAction(accountKey) { it.destroy() },
+                    nativeCloseAction(accountPath) { it.destroy() }
+                )
+            )
         }
     }
 }
@@ -85,7 +106,8 @@ internal object SweepWifDescriptorFactory {
     fun create(
         wif: String,
         network: Network,
-        script: SweepWifScriptType
+        script: SweepWifScriptType,
+        operationBarrier: SensitiveWalletOperationBarrier
     ): Pair<Descriptor, Descriptor> {
         val externalExpression = when (script) {
             SweepWifScriptType.LEGACY -> "pkh($wif)"
@@ -97,8 +119,10 @@ internal object SweepWifDescriptorFactory {
             // A single WIF has no change branch. BIP341's secp256k1 NUMS point has
             // no known private key and gives BDK a distinct, valid descriptor.
             external to Descriptor("wpkh($NUMS_PUBLIC_KEY)", network)
-        } catch (e: Exception) {
-            external.destroy()
+        } catch (e: Throwable) {
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(nativeCloseAction(external) { it.close() })
+            )
             throw e
         }
     }
@@ -106,11 +130,16 @@ internal object SweepWifDescriptorFactory {
 
 @HiltViewModel
 class SweepViewModel @Inject constructor(
-    @ApplicationContext private val appContext: Context,
     private val bitcoinRepository: BitcoinRepository,
     private val settingsManager: SettingsManager,
-    private val electrumConnectionFactory: ElectrumConnectionFactory
+    private val electrumConnectionFactory: ElectrumConnectionFactory,
+    private val operationBarrier: SensitiveWalletOperationBarrier
 ) : ViewModel() {
+
+    private data class SweepBalanceSnapshot(
+        val confirmedSat: Long,
+        val pendingSat: Long
+    )
 
     data class UiState(
         val walletName: String = "",
@@ -301,110 +330,78 @@ class SweepViewModel @Inject constructor(
      * Security: mnemonic CharArray zeroed in finally block per audit requirement.
      */
     fun validateSeedAndFetchBalance(mnemonicWords: CharArray, passphrase: CharArray?) {
+        val ownedMnemonic = mnemonicWords.copyOf().also { mnemonicWords.fill('0') }
+        val ownedPassphrase = passphrase?.copyOf().also { passphrase?.fill('0') }
         _uiState.update { it.copy(isLoadingBalance = true, error = null, seedValidated = false) }
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                var mnemonic: Mnemonic? = null
-                var secretKey: DescriptorSecretKey? = null
-                try {
-                    val network = if (settingsManager.isTestnet()) Network.TESTNET else Network.BITCOIN
-                    val mnemonicStr = String(mnemonicWords)
-                    mnemonic = Mnemonic.fromString(mnemonicStr)
-                    val passphraseStr = if (passphrase != null) String(passphrase) else ""
-                    secretKey = DescriptorSecretKey(network, mnemonic, passphraseStr)
-
-                    val sweepState = _uiState.value
-                    val (externalDesc, internalDesc) = SweepDescriptorFactory.create(
-                        secretKey,
-                        network,
-                        sweepState.seedScriptType,
-                        sweepState.seedAccount
-                    )
-
-                    // Create temp wallet to sync and get balance — use cacheDir (C-1)
-                    val tempDbPath = java.io.File.createTempFile("clench_sweep_", ".db", appContext.cacheDir).absolutePath
-                    val tempPersister = Persister.newSqlite(tempDbPath)
-                    val tempWallet = Wallet(externalDesc, internalDesc, network, tempPersister)
-
-                    try {
-                        // Sync the temp wallet
-                        val config = settingsManager.loadElectrumConfig()
-                        withBoundedElectrum(config, "Electrum seed-sweep balance scan") { activeConn ->
-                            val fullScanResult = tempWallet.startFullScan().build()
-                            val update = activeConn.client.fullScan(fullScanResult, stopGap = 20uL, batchSize = 10uL, fetchPrevTxouts = false)
-                            tempWallet.applyUpdate(update)
-                        }
-
-                        val balance = tempWallet.balance()
-                        val confirmed = balance.confirmed.toSat().toLong()
-                        val pending = (balance.trustedPending.toSat() + balance.untrustedPending.toSat()).toLong()
-
-                        _uiState.update {
-                            it.copy(
-                                isLoadingBalance = false,
-                                sourceBalanceSat = confirmed,
-                                sourcePendingSat = pending,
-                                seedValidated = true
-                            )
-                        }
-                    } finally {
-                        try { tempWallet.close() } catch (_: Exception) {}
-                        try { tempPersister.close() } catch (_: Exception) {}
-                        try { externalDesc.close() } catch (_: Exception) {}
-                        try { internalDesc.close() } catch (_: Exception) {}
-                        // C-1: Clean up temp DB and WAL/SHM/journal files
-                        try { java.io.File(tempDbPath).delete() } catch (_: Exception) {}
-                        try { java.io.File(tempDbPath + "-wal").delete() } catch (_: Exception) {}
-                        try { java.io.File(tempDbPath + "-shm").delete() } catch (_: Exception) {}
-                        try { java.io.File(tempDbPath + "-journal").delete() } catch (_: Exception) {}
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                withContext(Dispatchers.IO) {
+                    val snapshot = withSeedWallet(
+                        mnemonicWords = ownedMnemonic,
+                        passphrase = ownedPassphrase,
+                        script = _uiState.value.seedScriptType,
+                        account = _uiState.value.seedAccount
+                    ) { wallet ->
+                        fullScanWallet(wallet, "Electrum seed-sweep balance scan")
+                        readBalanceSnapshot(wallet)
                     }
-                } catch (e: Exception) {
+                    currentCoroutineContext().ensureActive()
                     _uiState.update {
                         it.copy(
                             isLoadingBalance = false,
-                            error = "Invalid seed or connection error: ${e.message}"
+                            sourceBalanceSat = snapshot.confirmedSat,
+                            sourcePendingSat = snapshot.pendingSat,
+                            seedValidated = true
                         )
                     }
-                } finally {
-                    // Security: sweep signing keys zeroed after use per audit requirement
-                    mnemonicWords.fill('0')
-                    passphrase?.fill('0')
-                    try { mnemonic?.destroy() } catch (_: Exception) {}
-                    try { secretKey?.destroy() } catch (_: Exception) {}
                 }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                _uiState.update {
+                    it.copy(
+                        isLoadingBalance = false,
+                        error = "Invalid seed or connection error: ${t.message}"
+                    )
+                }
+            } finally {
+                ownedMnemonic.fill('0')
+                ownedPassphrase?.fill('0')
             }
         }
     }
 
     fun validateWifAndFetchBalance(wifInput: CharArray) {
+        val ownedWif = wifInput.copyOf().also { wifInput.fill('0') }
         _uiState.update { it.copy(isLoadingBalance = true, error = null, seedValidated = false) }
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val balance = withWifWallet(wifInput, _uiState.value.wifScriptType) { tempWallet, activeConn ->
-                        syncWifWallet(tempWallet, activeConn)
-                        tempWallet.balance()
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                withContext(Dispatchers.IO) {
+                    val snapshot = operationBarrier.withLease {
+                        withWifWallet(ownedWif, _uiState.value.wifScriptType) { tempWallet ->
+                            syncWifWallet(tempWallet)
+                            readBalanceSnapshot(tempWallet)
+                        }
                     }
-                    val confirmed = balance.confirmed.toSat().toLong()
-                    val pending = (balance.trustedPending.toSat() + balance.untrustedPending.toSat()).toLong()
+                    currentCoroutineContext().ensureActive()
                     _uiState.update {
                         it.copy(
                             isLoadingBalance = false,
-                            sourceBalanceSat = confirmed,
-                            sourcePendingSat = pending,
+                            sourceBalanceSat = snapshot.confirmedSat,
+                            sourcePendingSat = snapshot.pendingSat,
                             seedValidated = true
                         )
                     }
-                } catch (e: Exception) {
-                    _uiState.update {
-                        it.copy(
-                            isLoadingBalance = false,
-                            error = "Invalid WIF or connection error: ${e.message}"
-                        )
-                    }
-                } finally {
-                    wifInput.fill('0')
                 }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                _uiState.update {
+                    it.copy(
+                        isLoadingBalance = false,
+                        error = "Invalid WIF or connection error: ${t.message}"
+                    )
+                }
+            } finally {
+                ownedWif.fill('0')
             }
         }
     }
@@ -421,81 +418,28 @@ class SweepViewModel @Inject constructor(
             passphrase?.fill('0')
             return
         }
+        val ownedMnemonic = mnemonicWords.copyOf().also { mnemonicWords.fill('0') }
+        val ownedPassphrase = passphrase?.copyOf().also { passphrase?.fill('0') }
         _uiState.update { it.copy(isSweeping = true, error = null) }
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                var mnemonic: Mnemonic? = null
-                var secretKey: DescriptorSecretKey? = null
-                try {
-                    val network = if (settingsManager.isTestnet()) Network.TESTNET else Network.BITCOIN
-                    val mnemonicStr = String(mnemonicWords)
-                    mnemonic = Mnemonic.fromString(mnemonicStr)
-                    val passphraseStr = if (passphrase != null) String(passphrase) else ""
-                    secretKey = DescriptorSecretKey(network, mnemonic, passphraseStr)
-
-                    val (externalDesc, internalDesc) = SweepDescriptorFactory.create(
-                        secretKey,
-                        network,
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                withContext(Dispatchers.IO) {
+                    withSeedWallet(
+                        mnemonicWords = ownedMnemonic,
+                        passphrase = ownedPassphrase,
                         state.seedScriptType,
                         state.seedAccount
-                    )
-
-                    val config = settingsManager.loadElectrumConfig()
-
-                    val tempDbPath = java.io.File.createTempFile("clench_sweep2_", ".db", appContext.cacheDir).absolutePath
-                    val tempPersister = Persister.newSqlite(tempDbPath)
-                    val tempWallet = Wallet(externalDesc, internalDesc, network, tempPersister)
-
-                    try {
-                        // Re-sync to get latest UTXOs
-                        withBoundedElectrum(config, "Electrum seed-sweep rescan") { activeConn ->
-                            val fullScanResult = tempWallet.startFullScan().build()
-                            val update = activeConn.client.fullScan(fullScanResult, stopGap = 20uL, batchSize = 10uL, fetchPrevTxouts = false)
-                            tempWallet.applyUpdate(update)
-                        }
-
-                        val destAddress = validatedDestination(state, network)
-                        val feeRate = validatedFeeRate(state.feeRate)
-
-                        // Build drain/sweep transaction (send max)
-                        val address = org.bitcoindevkit.Address(destAddress, network)
-                        val script = address.scriptPubkey()
-                        val psbt = TxBuilder()
-                            .drainWallet()
-                            .drainTo(script)
-                            .feeRate(feeRate)
-                            .finish(tempWallet)
-
-                        // Sign
-                        val finalized = tempWallet.sign(psbt)
-                        if (!finalized) {
-                            throw Exception("Transaction signing incomplete")
-                        }
-
-                        // Extract and hold for immutable review. Broadcasting happens only
-                        // after the user verifies the exact destination, amount, and fee.
-                        val tx = psbt.extractTx()
-                        prepareSweepTransaction(tempWallet, tx, state, destAddress)
-                    } finally {
-                        try { tempWallet.close() } catch (_: Exception) {}
-                        try { tempPersister.close() } catch (_: Exception) {}
-                        try { externalDesc.close() } catch (_: Exception) {}
-                        try { internalDesc.close() } catch (_: Exception) {}
-                        // C-1: Clean up temp DB and WAL/SHM/journal files
-                        try { java.io.File(tempDbPath).delete() } catch (_: Exception) {}
-                        try { java.io.File(tempDbPath + "-wal").delete() } catch (_: Exception) {}
-                        try { java.io.File(tempDbPath + "-shm").delete() } catch (_: Exception) {}
-                        try { java.io.File(tempDbPath + "-journal").delete() } catch (_: Exception) {}
+                    ) { wallet ->
+                        fullScanWallet(wallet, "Electrum seed-sweep rescan")
+                        buildAndPrepareSweep(wallet, state)
                     }
-                } catch (e: Exception) {
-                    _uiState.update { it.copy(isSweeping = false, error = e.message ?: "Sweep failed") }
-                } finally {
-                    // Security: sweep signing keys zeroed after broadcast per audit requirement
-                    mnemonicWords.fill('0')
-                    passphrase?.fill('0')
-                    try { mnemonic?.destroy() } catch (_: Exception) {}
-                    try { secretKey?.destroy() } catch (_: Exception) {}
                 }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                _uiState.update { it.copy(isSweeping = false, error = t.message ?: "Sweep failed") }
+            } finally {
+                ownedMnemonic.fill('0')
+                ownedPassphrase?.fill('0')
             }
         }
     }
@@ -507,45 +451,34 @@ class SweepViewModel @Inject constructor(
             wifInput.fill('0')
             return
         }
+        val ownedWif = wifInput.copyOf().also { wifInput.fill('0') }
         _uiState.update { it.copy(isSweeping = true, error = null) }
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    withWifWallet(wifInput, state.wifScriptType) { tempWallet, activeConn ->
-                        syncWifWallet(tempWallet, activeConn)
-
-                        val destAddress = validatedDestination(state, tempWallet.network())
-                        val feeRate = validatedFeeRate(state.feeRate)
-
-                        val address = org.bitcoindevkit.Address(destAddress, tempWallet.network())
-                        val psbt = TxBuilder()
-                            .drainWallet()
-                            .drainTo(address.scriptPubkey())
-                            .feeRate(feeRate)
-                            .finish(tempWallet)
-
-                        val finalized = tempWallet.sign(psbt)
-                        if (!finalized) {
-                            throw Exception("Transaction signing incomplete")
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                withContext(Dispatchers.IO) {
+                    operationBarrier.withLease {
+                        withWifWallet(ownedWif, state.wifScriptType) { tempWallet ->
+                            syncWifWallet(tempWallet)
+                            buildAndPrepareSweep(tempWallet, state)
                         }
-
-                        prepareSweepTransaction(tempWallet, psbt.extractTx(), state, destAddress)
                     }
-                } catch (e: Exception) {
-                    _uiState.update { it.copy(isSweeping = false, error = e.message ?: "Sweep failed") }
-                } finally {
-                    wifInput.fill('0')
                 }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                _uiState.update { it.copy(isSweeping = false, error = t.message ?: "Sweep failed") }
+            } finally {
+                ownedWif.fill('0')
             }
         }
     }
 
     fun sweepSatscardPrivateKey(privateKey: ByteArray, sourceIsTestnet: Boolean) {
+        val ownedPrivateKey = privateKey.copyOf().also { privateKey.fill(0) }
         _uiState.update { it.copy(isSweeping = true, error = null) }
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                var wifChars: CharArray? = null
-                try {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            var wifChars: CharArray? = null
+            try {
+                withContext(Dispatchers.IO) {
                     val walletIsTestnet = settingsManager.isTestnet()
                     if (sourceIsTestnet != walletIsTestnet) {
                         val cardNetwork = if (sourceIsTestnet) "testnet" else "mainnet"
@@ -553,41 +486,27 @@ class SweepViewModel @Inject constructor(
                         throw Exception("SATSCARD is $cardNetwork but this wallet is $walletNetwork")
                     }
                     val network = if (sourceIsTestnet) Network.TESTNET else Network.BITCOIN
-                    val wif = WifPrivateKeyParser.fromRawPrivateKey(privateKey, network, compressed = true)
+                    // BDK/WIF APIs require an immutable String internally. Keep its scope inside
+                    // this leased operation and wipe the mutable source/copy; do not claim the
+                    // JVM String itself can be zeroized.
+                    val wif = WifPrivateKeyParser.fromRawPrivateKey(ownedPrivateKey, network, compressed = true)
                     wifChars = wif.value.toCharArray()
-                    withWifWallet(wifChars, SweepWifScriptType.NATIVE_SEGWIT) { tempWallet, activeConn ->
-                        syncWifWallet(tempWallet, activeConn)
-
-                        val balance = tempWallet.balance()
-                        val confirmed = balance.confirmed.toSat().toLong()
-                        if (confirmed <= 0L) {
-                            throw Exception("No confirmed funds found on the unsealed SATSCARD slot")
+                    operationBarrier.withLease {
+                        withWifWallet(wifChars, SweepWifScriptType.NATIVE_SEGWIT) { tempWallet ->
+                            syncWifWallet(tempWallet)
+                            if (readBalanceSnapshot(tempWallet).confirmedSat <= 0L) {
+                                throw Exception("No confirmed funds found on the unsealed SATSCARD slot")
+                            }
+                            buildAndPrepareSweep(tempWallet, _uiState.value)
                         }
-
-                        val currentState = _uiState.value
-                        val destAddress = validatedDestination(currentState, tempWallet.network())
-                        val feeRate = validatedFeeRate(currentState.feeRate)
-
-                        val address = org.bitcoindevkit.Address(destAddress, tempWallet.network())
-                        val psbt = TxBuilder()
-                            .drainWallet()
-                            .drainTo(address.scriptPubkey())
-                            .feeRate(feeRate)
-                            .finish(tempWallet)
-
-                        val finalized = tempWallet.sign(psbt)
-                        if (!finalized) {
-                            throw Exception("Transaction signing incomplete")
-                        }
-
-                        prepareSweepTransaction(tempWallet, psbt.extractTx(), currentState, destAddress)
                     }
-                } catch (e: Exception) {
-                    _uiState.update { it.copy(isSweeping = false, error = e.message ?: "SATSCARD sweep failed") }
-                } finally {
-                    privateKey.fill(0)
-                    wifChars?.fill('0')
                 }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                _uiState.update { it.copy(isSweeping = false, error = t.message ?: "SATSCARD sweep failed") }
+            } finally {
+                ownedPrivateKey.fill(0)
+                wifChars?.fill('0')
             }
         }
     }
@@ -606,6 +525,7 @@ class SweepViewModel @Inject constructor(
             _uiState.update { it.copy(isBroadcasting = true, error = null) }
             try {
                 val txid = bitcoinRepository.broadcastTransaction(settingsManager.loadElectrumConfig(), txHex)
+                currentCoroutineContext().ensureActive()
                 _uiState.update {
                     it.copy(
                         isBroadcasting = false,
@@ -616,8 +536,9 @@ class SweepViewModel @Inject constructor(
                         highFeeAcknowledged = false
                     )
                 }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isBroadcasting = false, error = e.message ?: "Sweep broadcast failed") }
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                _uiState.update { it.copy(isBroadcasting = false, error = t.message ?: "Sweep broadcast failed") }
             }
         }
     }
@@ -626,14 +547,20 @@ class SweepViewModel @Inject constructor(
         val raw = state.destinationAddress.trim()
         if (raw.isBlank()) throw IllegalArgumentException("Destination address is empty")
         val address = org.bitcoindevkit.Address(raw, network)
-        check(address.isValidForNetwork(network)) { "Destination address is for the wrong Bitcoin network" }
-        val normalized = address.toString()
-        if (normalized != state.defaultDestinationAddress && !state.externalDestinationConfirmed) {
-            throw SecurityException(
-                "This destination is not the receive address Clench generated for the selected wallet. Confirm the external destination before preparing the sweep."
+        try {
+            check(address.isValidForNetwork(network)) { "Destination address is for the wrong Bitcoin network" }
+            val normalized = address.toString()
+            if (normalized != state.defaultDestinationAddress && !state.externalDestinationConfirmed) {
+                throw SecurityException(
+                    "This destination is not the receive address Clench generated for the selected wallet. Confirm the external destination before preparing the sweep."
+                )
+            }
+            return normalized
+        } finally {
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(nativeCloseAction(address) { it.close() })
             )
         }
-        return normalized
     }
 
     private fun validatedFeeRate(raw: String): FeeRate {
@@ -644,27 +571,76 @@ class SweepViewModel @Inject constructor(
         return FeeRate.fromSatPerVb(kotlin.math.ceil(value).toLong().toULong())
     }
 
-    private fun prepareSweepTransaction(
+    /** Construct every immutable TxBuilder stage explicitly so each native Arc is closed. */
+    private suspend fun buildAndPrepareSweep(sourceWallet: Wallet, draft: UiState) {
+        val destinationAddress = validatedDestination(draft, sourceWallet.network())
+        var address: org.bitcoindevkit.Address? = null
+        var script: org.bitcoindevkit.Script? = null
+        var feeRate: FeeRate? = null
+        var initialBuilder: TxBuilder? = null
+        var drainBuilder: TxBuilder? = null
+        var destinationBuilder: TxBuilder? = null
+        var feeBuilder: TxBuilder? = null
+        var psbt: org.bitcoindevkit.Psbt? = null
+        try {
+            address = org.bitcoindevkit.Address(destinationAddress, sourceWallet.network())
+            script = address.scriptPubkey()
+            feeRate = validatedFeeRate(draft.feeRate)
+            initialBuilder = TxBuilder()
+            drainBuilder = initialBuilder.drainWallet()
+            destinationBuilder = drainBuilder.drainTo(script)
+            feeBuilder = destinationBuilder.feeRate(feeRate)
+            psbt = feeBuilder.finish(sourceWallet)
+
+            check(sourceWallet.sign(psbt)) { "Transaction signing incomplete" }
+            prepareSweepTransaction(sourceWallet, psbt.extractTx(), draft, destinationAddress)
+        } finally {
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(
+                    nativeCloseAction(psbt) { it.close() },
+                    nativeCloseAction(feeBuilder) { it.close() },
+                    nativeCloseAction(destinationBuilder) { it.close() },
+                    nativeCloseAction(drainBuilder) { it.close() },
+                    nativeCloseAction(initialBuilder) { it.close() },
+                    nativeCloseAction(feeRate) { it.close() },
+                    nativeCloseAction(script) { it.close() },
+                    nativeCloseAction(address) { it.close() }
+                )
+            )
+        }
+    }
+
+    private suspend fun prepareSweepTransaction(
         sourceWallet: Wallet,
         tx: Transaction,
         draft: UiState,
         destinationAddress: String
     ) {
+        var outputs: List<org.bitcoindevkit.TxOut> = emptyList()
+        var inputs: List<org.bitcoindevkit.TxIn> = emptyList()
+        var expectedAddress: org.bitcoindevkit.Address? = null
+        var expectedScript: org.bitcoindevkit.Script? = null
+        var feeAmount: Amount? = null
+        var txid: org.bitcoindevkit.Txid? = null
         try {
-            val outputs = tx.output()
+            outputs = tx.output()
             check(outputs.size == 1) { "Sweep transaction contains an unexpected output" }
-            val expectedScript = org.bitcoindevkit.Address(destinationAddress, sourceWallet.network()).scriptPubkey()
+            expectedAddress = org.bitcoindevkit.Address(destinationAddress, sourceWallet.network())
+            expectedScript = expectedAddress.scriptPubkey()
             check(outputs.single().scriptPubkey.toBytes().contentEquals(expectedScript.toBytes())) {
                 "Sweep transaction destination differs from the reviewed address"
             }
-            val feeSat = sourceWallet.calculateFee(tx).toSat().toLong()
+            feeAmount = sourceWallet.calculateFee(tx)
+            val feeSat = feeAmount.toSat().toLong()
             val vsize = tx.vsize().toLong()
+            txid = tx.computeTxid()
+            inputs = tx.input()
             val review = BuiltTransactionReview(
-                txid = tx.computeTxid().toString(),
+                txid = txid.toString(),
                 feeSat = feeSat,
                 vsize = vsize,
                 feeRateSatPerVbyte = if (vsize > 0) feeSat.toDouble() / vsize else 0.0,
-                inputs = tx.input().map { "${it.previousOutput.txid}:${it.previousOutput.vout}" },
+                inputs = inputs.map { "${it.previousOutput.txid}:${it.previousOutput.vout}" },
                 outputs = listOf(
                     TransactionReviewOutput(
                         index = 0,
@@ -676,6 +652,7 @@ class SweepViewModel @Inject constructor(
             )
             SendViewModel.feeSafetyError(review)?.let { error(it) }
             val txHex = tx.serialize().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            currentCoroutineContext().ensureActive()
             _uiState.update { current ->
                 if (current.destinationAddress.trim() != draft.destinationAddress.trim() ||
                     current.feeRate != draft.feeRate
@@ -696,41 +673,145 @@ class SweepViewModel @Inject constructor(
                 }
             }
         } finally {
-            tx.close()
+            operationBarrier.closeNativeResourcesOrFail(
+                buildList {
+                    inputs.forEach { add(checkNotNull(nativeCloseAction(it) { value -> value.destroy() })) }
+                    outputs.forEach { add(checkNotNull(nativeCloseAction(it) { value -> value.destroy() })) }
+                    addAll(
+                        listOfNotNull(
+                            nativeCloseAction(txid) { it.close() },
+                            nativeCloseAction(feeAmount) { it.close() },
+                            nativeCloseAction(expectedScript) { it.close() },
+                            nativeCloseAction(expectedAddress) { it.close() },
+                            nativeCloseAction(tx) { it.close() }
+                        )
+                    )
+                }
+            )
+        }
+    }
+
+    private suspend fun <T> withSeedWallet(
+        mnemonicWords: CharArray,
+        passphrase: CharArray?,
+        script: SweepSeedScriptType,
+        account: UInt,
+        block: suspend (Wallet) -> T
+    ): T = operationBarrier.withLease {
+        val network = if (settingsManager.isTestnet()) Network.TESTNET else Network.BITCOIN
+        var mnemonic: Mnemonic? = null
+        var secretKey: DescriptorSecretKey? = null
+        var externalDesc: Descriptor? = null
+        var internalDesc: Descriptor? = null
+        var tempPersister: Persister? = null
+        var tempWallet: Wallet? = null
+        try {
+            // BDK constructors require immutable strings. Keep them expression-local; mutable
+            // caller copies are wiped immediately at API entry and again when this lease ends.
+            mnemonic = Mnemonic.fromString(String(mnemonicWords))
+            secretKey = DescriptorSecretKey(network, mnemonic, passphrase?.let(::String).orEmpty())
+            val descriptors = SweepDescriptorFactory.create(
+                secretKey,
+                network,
+                script,
+                account,
+                operationBarrier
+            )
+            externalDesc = descriptors.first
+            internalDesc = descriptors.second
+            tempPersister = Persister.newInMemory()
+            tempWallet = Wallet(externalDesc, internalDesc, network, tempPersister)
+            block(tempWallet)
+        } finally {
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(
+                    nativeCloseAction(tempWallet) { it.close() },
+                    nativeCloseAction(tempPersister) { it.close() },
+                    nativeCloseAction(externalDesc) { it.close() },
+                    nativeCloseAction(internalDesc) { it.close() },
+                    nativeCloseAction(secretKey) { it.destroy() },
+                    nativeCloseAction(mnemonic) { it.destroy() }
+                )
+            )
         }
     }
 
     private suspend fun <T> withWifWallet(
         wifInput: CharArray,
         script: SweepWifScriptType,
-        block: (Wallet, net.clench.wallet.data.network.ActiveElectrumConnection) -> T
+        block: suspend (Wallet) -> T
     ): T {
         val network = if (settingsManager.isTestnet()) Network.TESTNET else Network.BITCOIN
         val wif = WifPrivateKeyParser.extract(wifInput, network)
         var externalDesc: Descriptor? = null
         var internalDesc: Descriptor? = null
-        val tempDbPath = java.io.File.createTempFile("clench_wif_sweep_", ".db", appContext.cacheDir).absolutePath
-        val tempPersister = Persister.newSqlite(tempDbPath)
+        var tempPersister: Persister? = null
         var tempWallet: Wallet? = null
         try {
-            val descriptors = SweepWifDescriptorFactory.create(wif.value, network, script)
+            val descriptors = SweepWifDescriptorFactory.create(
+                wif.value,
+                network,
+                script,
+                operationBarrier
+            )
             externalDesc = descriptors.first
             internalDesc = descriptors.second
-            val wallet = Wallet(externalDesc, internalDesc, network, tempPersister)
-            tempWallet = wallet
-            val config = settingsManager.loadElectrumConfig()
-            return withBoundedElectrum(config, "Electrum WIF-sweep operation") { connection ->
-                block(wallet, connection)
-            }
+            tempPersister = Persister.newInMemory()
+            tempWallet = Wallet(externalDesc, internalDesc, network, tempPersister)
+            return block(tempWallet)
         } finally {
-            try { tempWallet?.close() } catch (_: Exception) {}
-            try { tempPersister.close() } catch (_: Exception) {}
-            try { externalDesc?.destroy() } catch (_: Exception) {}
-            try { internalDesc?.destroy() } catch (_: Exception) {}
-            try { java.io.File(tempDbPath).delete() } catch (_: Exception) {}
-            try { java.io.File(tempDbPath + "-wal").delete() } catch (_: Exception) {}
-            try { java.io.File(tempDbPath + "-shm").delete() } catch (_: Exception) {}
-            try { java.io.File(tempDbPath + "-journal").delete() } catch (_: Exception) {}
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(
+                    nativeCloseAction(tempWallet) { it.close() },
+                    nativeCloseAction(tempPersister) { it.close() },
+                    nativeCloseAction(externalDesc) { it.close() },
+                    nativeCloseAction(internalDesc) { it.close() }
+                )
+            )
+        }
+    }
+
+    private fun fullScanWallet(wallet: Wallet, operation: String) {
+        var builder: org.bitcoindevkit.FullScanRequestBuilder? = null
+        var request: org.bitcoindevkit.FullScanRequest? = null
+        var update: org.bitcoindevkit.Update? = null
+        try {
+            builder = wallet.startFullScan()
+            request = builder.build()
+            val ownedRequest = request
+            update = withBoundedElectrum(settingsManager.loadElectrumConfig(), operation) {
+                it.client.fullScan(
+                    ownedRequest,
+                    stopGap = 20uL,
+                    batchSize = 10uL,
+                    fetchPrevTxouts = false
+                )
+            }
+            wallet.applyUpdate(update)
+        } finally {
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(
+                    nativeCloseAction(update) { it.close() },
+                    nativeCloseAction(request) { it.close() },
+                    nativeCloseAction(builder) { it.close() }
+                )
+            )
+        }
+    }
+
+    private fun readBalanceSnapshot(wallet: Wallet): SweepBalanceSnapshot {
+        val balance = wallet.balance()
+        try {
+            return SweepBalanceSnapshot(
+                confirmedSat = balance.confirmed.toSat().toLong(),
+                pendingSat = (
+                    balance.trustedPending.toSat() + balance.untrustedPending.toSat()
+                    ).toLong()
+            )
+        } finally {
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(nativeCloseAction(balance) { it.destroy() })
+            )
         }
     }
 
@@ -754,7 +835,8 @@ class SweepViewModel @Inject constructor(
                 timeoutMs = timeoutMs,
                 operation = "$operation connection",
                 create = { electrumConnectionFactory.createConnection(config) },
-                close = { it.close() }
+                close = { it.close() },
+                onCloseFailure = operationBarrier::quarantineNativeResource
             )
             val connection = activeConnection
             val operationFuture = executor.submit(java.util.concurrent.Callable {
@@ -764,35 +846,53 @@ class SweepViewModel @Inject constructor(
                 future = operationFuture,
                 timeoutMs = timeoutMs,
                 operation = operation,
-                onTimeout = { connection.close() }
+                onTimeout = { connection.cancelTransport() }
             )
         } finally {
-            runCatching { activeConnection?.close() }
-            executor.shutdownNow()
+            activeConnection?.cancelTransport()
+            BoundedBlockingCall.shutdownAndAwaitTermination(
+                executor = executor,
+                operation = "$operation worker",
+                onTerminationStalled = operationBarrier::markFailedRestartRequiredFromOperation
+            )
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(nativeCloseAction(activeConnection) { it.close() })
+            )
         }
     }
 
-    private fun syncWifWallet(
-        wallet: Wallet,
-        activeConn: net.clench.wallet.data.network.ActiveElectrumConnection
-    ) {
+    private fun syncWifWallet(wallet: Wallet) {
         // A WIF controls one fixed, non-wildcard script. Reveal that script and use
         // BDK's bounded sync request; gap-based full scans are intended for ranged
         // descriptors rather than this one fixed script.
         val addressInfo = wallet.revealNextAddress(org.bitcoindevkit.KeychainKind.EXTERNAL)
+        var builder: org.bitcoindevkit.SyncRequestBuilder? = null
+        var request: org.bitcoindevkit.SyncRequest? = null
+        var update: org.bitcoindevkit.Update? = null
         try {
-            wallet.startSyncWithRevealedSpks().use { builder ->
-                builder.build().use { request ->
-                    val update = activeConn.client.sync(
-                        request,
-                        batchSize = 1uL,
-                        fetchPrevTxouts = false
-                    )
-                    wallet.applyUpdate(update)
-                }
+            builder = wallet.startSyncWithRevealedSpks()
+            request = builder.build()
+            val ownedRequest = request
+            update = withBoundedElectrum(
+                settingsManager.loadElectrumConfig(),
+                "Electrum WIF-sweep sync"
+            ) { activeConn ->
+                activeConn.client.sync(
+                    ownedRequest,
+                    batchSize = 1uL,
+                    fetchPrevTxouts = false
+                )
             }
+            wallet.applyUpdate(update)
         } finally {
-            addressInfo.destroy()
+            operationBarrier.closeNativeResourcesOrFail(
+                listOfNotNull(
+                    nativeCloseAction(update) { it.close() },
+                    nativeCloseAction(request) { it.close() },
+                    nativeCloseAction(builder) { it.close() },
+                    nativeCloseAction(addressInfo) { it.destroy() }
+                )
+            )
         }
     }
 

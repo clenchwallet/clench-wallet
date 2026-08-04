@@ -27,7 +27,8 @@ This document summarizes Clench Wallet's current security controls for reviewers
 
 ## Release Controls
 
-- Production APKs are built from `v*` tags by the signed-release workflow.
+- Production APKs are built only after a trusted protected-master workflow verifies a `v*` tag against the pinned maintainer key and exact protected-master commit.
+- The release key is exposed only to a minimal source-free signing job that signs a checksummed prebuilt APK using a pinned `apksigner`; it cannot run Gradle or tagged repository scripts.
 - Release artifacts include checksum and signature verification documentation.
 - Debug APKs produced by CI are short-retention artifacts and are not production releases.
 - Dependency verification metadata is committed with Gradle dependency changes.

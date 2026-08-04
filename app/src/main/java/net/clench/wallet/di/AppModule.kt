@@ -19,6 +19,10 @@ import net.clench.wallet.data.local.dao.SavedSignerDao
 import net.clench.wallet.data.local.dao.WalletKeystoreMetadataDao
 import net.clench.wallet.data.repository.BdkBitcoinRepository
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.security.SecureRandomWalletEntropySource
+import net.clench.wallet.security.BdkWalletMnemonicFactory
+import net.clench.wallet.security.WalletEntropySource
+import net.clench.wallet.security.WalletMnemonicFactory
 import net.zetetic.database.sqlcipher.SQLiteDatabase
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import javax.inject.Singleton
@@ -47,16 +51,25 @@ object DatabaseModule {
             if (dbFile.exists()) {
                 try {
                     val dbKey = keystoreManager.getOrCreateDatabaseKey()
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Verifying encrypted DB...")
-                    val testDb = SQLiteDatabase.openDatabase(
-                        dbFile.absolutePath,
-                        dbKey,
-                        null,
-                        SQLiteDatabase.OPEN_READONLY,
-                        null
-                    )
-                    testDb.close()
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Encrypted DB verified OK")
+                    try {
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Verifying encrypted DB...")
+                        val testDb = SQLiteDatabase.openDatabase(
+                            dbFile.absolutePath,
+                            dbKey,
+                            null,
+                            SQLiteDatabase.OPEN_READONLY,
+                            null
+                        )
+                        try {
+                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Encrypted DB verified OK")
+                        } finally {
+                            testDb.close()
+                        }
+                    } finally {
+                        // The verification database is closed, so SQLCipher no longer needs this
+                        // caller-owned key buffer. Wipe it on both success and failure.
+                        dbKey.fill(0)
+                    }
                 } catch (e: Exception) {
                     // [S-2] SECURITY: in release builds, fail-closed rather than destructively
                     // deleting the database on verification failure. An unreadable encrypted DB
@@ -79,6 +92,10 @@ object DatabaseModule {
 
         if (!isDebug) {
             val dbKey = keystoreManager.getOrCreateDatabaseKey()
+            // SQLCipher Android 4.15.0 SupportOpenHelperFactory and SQLiteOpenHelper retain this
+            // exact byte-array reference for later database reopen. Wiping it here would replace
+            // the live password with zeros and cause a later open to fail. Keep exactly this one
+            // required buffer for the Room helper's lifetime; do not make an additional copy.
             val factory = SupportOpenHelperFactory(dbKey)
             builder.openHelperFactory(factory)
         } else {
@@ -138,6 +155,18 @@ object DatabaseModule {
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
+
+    @Binds
+    @Singleton
+    abstract fun bindWalletEntropySource(
+        impl: SecureRandomWalletEntropySource
+    ): WalletEntropySource
+
+    @Binds
+    @Singleton
+    abstract fun bindWalletMnemonicFactory(
+        impl: BdkWalletMnemonicFactory
+    ): WalletMnemonicFactory
 
     @Binds
     @Singleton
