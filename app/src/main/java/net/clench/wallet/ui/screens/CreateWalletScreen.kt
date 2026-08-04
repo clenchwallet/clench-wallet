@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.domain.model.ScriptType
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -31,17 +32,10 @@ fun CreateWalletScreen(
     val uiState by viewModel.uiState.collectAsState()
     val scrollState = rememberScrollState()
 
-    // Prevent screenshots when mnemonic is visible
-    val context = androidx.compose.ui.platform.LocalContext.current
-    if (uiState.mnemonic.isNotEmpty()) {
-        androidx.compose.runtime.DisposableEffect(Unit) {
-            val activity = context as? android.app.Activity
-            activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-            onDispose {
-                activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-            }
-        }
-    }
+    // Protect the entire seed-creation route, including the transition to verification.
+    // SecureWindowEffect is reference counted so overlapping protected routes cannot clear
+    // FLAG_SECURE out from under one another.
+    SecureWindowEffect()
 
     Scaffold(
         topBar = {
@@ -241,5 +235,4 @@ fun CreateWalletScreen(
         }
     }
 }
-
 

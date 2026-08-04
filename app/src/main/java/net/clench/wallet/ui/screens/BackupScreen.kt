@@ -1,8 +1,6 @@
 package net.clench.wallet.ui.screens
 
-import android.app.Activity
 import android.content.ContextWrapper
-import android.view.WindowManager
 import net.clench.wallet.ui.util.copyToClipboardWithAutoClear
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
@@ -25,6 +23,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.components.QrCodeImage
 import net.clench.wallet.ui.components.WalletFingerprint
 import net.clench.wallet.ui.util.BiometricHelper
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.BackupViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,16 +36,7 @@ fun BackupScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    // FLAG_SECURE when seed is revealed
-    DisposableEffect(uiState.seedRevealed) {
-        val activity = context as? Activity
-        if (uiState.seedRevealed) {
-            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
-        onDispose {
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
-    }
+    SecureWindowEffect(enabled = uiState.seedRevealed)
 
     LaunchedEffect(walletId) { viewModel.load(walletId) }
 
@@ -246,11 +236,10 @@ fun BackupScreen(
                                                 title = "Authenticate to view seed phrase",
                                                 subtitle = "Verify your identity to access your backup",
                                                 onSuccess = { viewModel.revealSeed() },
-                                                onFailure = { viewModel.setError(it) },
-                                                allowUiOnlyFallback = true
+                                                onFailure = { viewModel.setError(it) }
                                             )
                                         } else {
-                                            viewModel.revealSeed()
+                                            viewModel.setError(BiometricHelper.authenticationUnavailableGuidance())
                                         }
                                     },
                                     colors = ButtonDefaults.buttonColors(

@@ -76,7 +76,7 @@ object BitcoinAddressVerifier {
             Address(trimmed, expected)
         } catch (e: Exception) {
             val otherNetwork = if (isTestnet) Network.BITCOIN else Network.TESTNET
-            val parsesForOtherNetwork = runCatching { Address(trimmed, otherNetwork) }.isSuccess
+            val parsesForOtherNetwork = parsesForNetwork(trimmed, otherNetwork)
             if (parsesForOtherNetwork) {
                 val expectedLabel = if (isTestnet) "testnet" else "mainnet"
                 val otherLabel = if (isTestnet) "mainnet" else "testnet"
@@ -85,16 +85,36 @@ object BitcoinAddressVerifier {
             error("Invalid Bitcoin address: ${e.message ?: "checksum or format failed"}")
         }
 
-        if (!parsed.isValidForNetwork(expected)) {
-            val expectedLabel = if (isTestnet) "testnet" else "mainnet"
-            error("This address is not valid for $expectedLabel.")
-        }
+        return try {
+            if (!parsed.isValidForNetwork(expected)) {
+                val expectedLabel = if (isTestnet) "testnet" else "mainnet"
+                error("This address is not valid for $expectedLabel.")
+            }
 
-        return AddressVerificationResult(
-            normalizedAddress = parsed.toString(),
-            networkLabel = if (isTestnet) "Testnet" else "Mainnet",
-            scriptLabel = scriptLabelFor(parsed.toString())
-        )
+            val normalized = parsed.toString()
+            AddressVerificationResult(
+                normalizedAddress = normalized,
+                networkLabel = if (isTestnet) "Testnet" else "Mainnet",
+                scriptLabel = scriptLabelFor(normalized)
+            )
+        } finally {
+            // Address is a UniFFI native wrapper even though it contains no
+            // private material. Close it deterministically on every path.
+            parsed.close()
+        }
+    }
+
+    private fun parsesForNetwork(address: String, network: Network): Boolean {
+        val parsed = try {
+            Address(address, network)
+        } catch (_: Exception) {
+            return false
+        }
+        return try {
+            parsed.isValidForNetwork(network)
+        } finally {
+            parsed.close()
+        }
     }
 
     private fun normalizeBech32Case(address: String): String {

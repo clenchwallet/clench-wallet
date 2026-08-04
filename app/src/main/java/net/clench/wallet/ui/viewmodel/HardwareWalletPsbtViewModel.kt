@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.domain.repository.BuiltTransactionReview
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
 @HiltViewModel
@@ -41,21 +43,97 @@ class HardwareWalletPsbtViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
 
-    // Store the original unsigned PSBT for validation at broadcast time
-    private var unsignedPsbtBase64: String = ""
+    private data class SigningSession(
+        val generation: Long,
+        val walletId: String,
+        val unsignedPsbtBase64: String
+    )
+
+    private val sessionLock = Any()
+    private val sessionGeneration = AtomicLong(0L)
+    private var activeSession: SigningSession? = null
+    private val signingOperationActive = AtomicBoolean(false)
+
+    private fun isActiveSession(session: SigningSession): Boolean = synchronized(sessionLock) {
+        activeSession === session && activeSession?.generation == session.generation
+    }
+
+    private fun assertActiveSession(session: SigningSession) {
+        if (!isActiveSession(session)) {
+            throw SecurityException(
+                "Signer session changed before the transaction could be broadcast"
+            )
+        }
+    }
+
+    private inline fun updateIfActive(
+        session: SigningSession,
+        transform: (UiState) -> UiState
+    ): Boolean = synchronized(sessionLock) {
+        if (activeSession !== session || activeSession?.generation != session.generation) {
+            false
+        } else {
+            _uiState.update { current ->
+                if (activeSession === session &&
+                    activeSession?.generation == session.generation &&
+                    current.walletId == session.walletId &&
+                    current.psbtBase64.isNotBlank()
+                ) {
+                    transform(current)
+                } else {
+                    current
+                }
+            }
+            true
+        }
+    }
 
     /**
      * Initialize from PsbtStore — called once when the screen opens.
      */
-    fun initFromStore(): Triple<String, String, String>? {
-        val data = psbtStore.consume()
-        if (data != null) {
-            unsignedPsbtBase64 = data.second
+    internal fun initFromStore(
+        expectedWalletId: String,
+        expectedDeviceType: String,
+        pickerToken: String? = null,
+        pickerPurpose: PsbtPickerPurpose? = null
+    ): PsbtHandoff? {
+        val initialized = synchronized(sessionLock) {
+            // Never replace an authorization while signer verification or a
+            // broadcast is in flight. PsbtStore remains unconsumed so a caller
+            // can retry after the current operation completes.
+            if (signingOperationActive.get()) {
+                _uiState.update {
+                    it.copy(error = "A signer operation is already in progress; retry after it completes")
+                }
+                return null
+            }
+            val data = psbtStore.consume(
+                expectedWalletId = expectedWalletId,
+                expectedDeviceType = expectedDeviceType,
+                pickerToken = pickerToken,
+                pickerPurpose = pickerPurpose
+            ) ?: run {
+                if (pickerToken != null || pickerPurpose != null) {
+                    invalidatePickerSessionLocked("The file hand-off expired or did not match this signing session")
+                }
+                return null
+            }
+            val nextGeneration = sessionGeneration.updateAndGet { localGeneration ->
+                val baseline = maxOf(localGeneration, data.sourceSessionGeneration)
+                check(baseline < Long.MAX_VALUE) { "Signing session generation is exhausted" }
+                baseline + 1L
+            }
+            val session = SigningSession(
+                generation = nextGeneration,
+                walletId = data.walletId,
+                unsignedPsbtBase64 = data.originalUnsignedPsbtBase64
+            )
+            activeSession = session
             _uiState.update {
                 it.copy(
-                    walletId = data.first,
-                    psbtBase64 = data.second,
-                    deviceType = data.third,
+                    walletId = data.walletId,
+                    psbtBase64 = data.currentPsbtBase64,
+                    deviceType = data.deviceType,
                     signedPsbtBase64 = null,
                     readyToBroadcast = false,
                     hasCollectedSignature = false,
@@ -68,24 +146,29 @@ class HardwareWalletPsbtViewModel @Inject constructor(
                     highFeeAcknowledged = false
                 )
             }
-            viewModelScope.launch {
-                try {
-                    val review = bitcoinRepository.inspectPsbt(data.first, data.second)
-                    SendViewModel.feeSafetyError(review)?.let { error(it) }
-                    _uiState.update {
-                        it.copy(
-                            transactionReview = review,
-                            isReviewLoading = false,
-                            requiresHighFeeConfirmation = SendViewModel.requiresHighFeeConfirmation(review)
-                        )
-                    }
-                } catch (e: Exception) {
-                    _uiState.update {
-                        it.copy(
-                            isReviewLoading = false,
-                            error = "Could not verify the PSBT before hardware signing: ${e.message}"
-                        )
-                    }
+            data to session
+        }
+        val (data, session) = initialized
+        viewModelScope.launch {
+            try {
+                val review = bitcoinRepository.inspectPsbt(
+                    data.walletId,
+                    data.currentPsbtBase64
+                )
+                SendViewModel.feeSafetyError(review)?.let { error(it) }
+                updateIfActive(session) {
+                    it.copy(
+                        transactionReview = review,
+                        isReviewLoading = false,
+                        requiresHighFeeConfirmation = SendViewModel.requiresHighFeeConfirmation(review)
+                    )
+                }
+            } catch (e: Exception) {
+                updateIfActive(session) {
+                    it.copy(
+                        isReviewLoading = false,
+                        error = "Could not verify the PSBT before hardware signing: ${e.message}"
+                    )
                 }
             }
         }
@@ -93,25 +176,98 @@ class HardwareWalletPsbtViewModel @Inject constructor(
     }
 
     /**
+     * Preserve only the bounded PSBT hand-off in the process-scoped store while DocumentsUI
+     * forces route/ViewModel disposal. The recreated route re-inspects it and requires a fresh
+     * review acknowledgement before consuming the selected file URI.
+     */
+    internal fun stageForDocumentPicker(
+        purpose: PsbtPickerPurpose,
+        requestedDeviceType: String
+    ): String? = synchronized(sessionLock) {
+        val current = _uiState.value
+        val session = activeSession
+        if (signingOperationActive.get() ||
+            session == null ||
+            current.walletId.isBlank() ||
+            current.psbtBase64.isBlank() ||
+            current.deviceType.isBlank() ||
+            current.deviceType != requestedDeviceType ||
+            current.walletId != session.walletId
+        ) {
+            _uiState.update { it.copy(error = "No idle PSBT session is available for file transfer") }
+            return@synchronized null
+        }
+        return@synchronized try {
+            psbtStore.stageForPicker(
+                walletId = current.walletId,
+                originalUnsignedPsbtBase64 = session.unsignedPsbtBase64,
+                currentPsbtBase64 = current.psbtBase64,
+                deviceType = current.deviceType,
+                sourceSessionGeneration = session.generation,
+                purpose = purpose
+            )
+        } catch (_: Throwable) {
+            _uiState.update { it.copy(error = "Another signing hand-off is already pending") }
+            null
+        }
+    }
+
+    fun selectDeviceType(requestedDeviceType: String): Boolean = synchronized(sessionLock) {
+        if (requestedDeviceType.isBlank() || signingOperationActive.get() || activeSession == null) {
+            return@synchronized false
+        }
+        _uiState.update { current -> current.copy(deviceType = requestedDeviceType) }
+        true
+    }
+
+    fun discardDocumentPickerStage(token: String) {
+        psbtStore.discardPickerStage(token)
+    }
+
+    fun cancelDocumentPickerRoundTrip(token: String, message: String = "File selection was cancelled") {
+        synchronized(sessionLock) {
+            psbtStore.discardPickerStage(token)
+            invalidatePickerSessionLocked(message)
+        }
+    }
+
+    private fun invalidatePickerSessionLocked(message: String) {
+        activeSession = null
+        sessionGeneration.incrementAndGet()
+        _uiState.value = UiState(error = message)
+    }
+
+    /**
      * Called when signer data is received from the hardware wallet (via QR, NFC, or file).
      * Merge it into the current PSBT and only enable broadcast after the policy finalizes.
      */
     fun onSignedPsbtReceived(walletId: String, signedPsbtPayload: String) {
-        val current = _uiState.value
-        if (!current.reviewAcknowledged || current.transactionReview == null) {
-            _uiState.update { it.copy(error = "Review and approve the unsigned transaction before importing signatures") }
-            return
+        val operation = synchronized(sessionLock) {
+            val current = _uiState.value
+            val session = activeSession
+            if (walletId.isBlank() || walletId != current.walletId || session?.walletId != walletId) {
+                _uiState.update { it.copy(error = "Security: signer return does not belong to the active wallet") }
+                return
+            }
+            if (!current.reviewAcknowledged || current.transactionReview == null) {
+                _uiState.update { it.copy(error = "Review and approve the unsigned transaction before importing signatures") }
+                return
+            }
+            if (current.psbtBase64.isBlank() || session.unsignedPsbtBase64.isBlank()) {
+                _uiState.update { it.copy(error = "No PSBT is loaded") }
+                return
+            }
+            if (!signingOperationActive.compareAndSet(false, true)) {
+                _uiState.update { it.copy(error = "A signer operation is already in progress") }
+                return
+            }
+            session to current.psbtBase64
         }
-        val currentPsbtBase64 = current.psbtBase64
-        if (currentPsbtBase64.isBlank() || unsignedPsbtBase64.isBlank()) {
-            _uiState.update { it.copy(error = "No PSBT is loaded") }
-            return
-        }
+        val (session, currentPsbtBase64) = operation
 
         viewModelScope.launch {
-            _uiState.update {
+            updateIfActive(session) {
                 it.copy(
-                    walletId = walletId,
                     isProcessingSignedPsbt = true,
                     signedPsbtBase64 = null,
                     readyToBroadcast = false,
@@ -121,11 +277,12 @@ class HardwareWalletPsbtViewModel @Inject constructor(
             }
             try {
                 val progress = bitcoinRepository.mergeSignedPsbt(
-                    unsignedPsbtBase64 = unsignedPsbtBase64,
+                    unsignedPsbtBase64 = session.unsignedPsbtBase64,
                     currentPsbtBase64 = currentPsbtBase64,
                     signedPsbtPayload = signedPsbtPayload
                 )
-                _uiState.update {
+                assertActiveSession(session)
+                updateIfActive(session) {
                     it.copy(
                         isProcessingSignedPsbt = false,
                         psbtBase64 = progress.psbtBase64,
@@ -138,19 +295,21 @@ class HardwareWalletPsbtViewModel @Inject constructor(
                     )
                 }
             } catch (e: SecurityException) {
-                _uiState.update {
+                updateIfActive(session) {
                     it.copy(
                         isProcessingSignedPsbt = false,
                         error = "Security: ${e.message}"
                     )
                 }
             } catch (e: Exception) {
-                _uiState.update {
+                updateIfActive(session) {
                     it.copy(
                         isProcessingSignedPsbt = false,
                         error = e.message ?: "Signed PSBT import failed"
                     )
                 }
+            } finally {
+                signingOperationActive.set(false)
             }
         }
     }
@@ -159,17 +318,38 @@ class HardwareWalletPsbtViewModel @Inject constructor(
      * Validate outputs match the original unsigned PSBT, finalize, and broadcast.
      */
     fun broadcastSignedPsbt(walletId: String) {
-        val signedPsbtBase64 = _uiState.value.signedPsbtBase64
-        if (signedPsbtBase64.isNullOrBlank() || !_uiState.value.readyToBroadcast) {
-            _uiState.update { it.copy(error = "Collect enough signatures before broadcasting") }
-            return
+        val operation = synchronized(sessionLock) {
+            val current = _uiState.value
+            val session = activeSession
+            if (walletId.isBlank() || walletId != current.walletId || session?.walletId != walletId) {
+                _uiState.update { it.copy(error = "Security: broadcast request does not belong to the active wallet") }
+                return
+            }
+            val signedPsbtBase64 = current.signedPsbtBase64
+            if (signedPsbtBase64.isNullOrBlank() || !current.readyToBroadcast) {
+                _uiState.update { it.copy(error = "Collect enough signatures before broadcasting") }
+                return
+            }
+            if (!signingOperationActive.compareAndSet(false, true)) {
+                _uiState.update { it.copy(error = "A signer operation is already in progress") }
+                return
+            }
+            session to signedPsbtBase64
         }
+        val (session, signedPsbtBase64) = operation
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isBroadcasting = true, error = null) }
+            updateIfActive(session) { it.copy(isBroadcasting = true, error = null) }
             try {
-                val txid = bitcoinRepository.applyAndBroadcastPsbt(walletId, signedPsbtBase64, unsignedPsbtBase64)
-                _uiState.update {
+                assertActiveSession(session)
+                val txid = bitcoinRepository.applyAndBroadcastPsbt(
+                    walletId,
+                    signedPsbtBase64,
+                    session.unsignedPsbtBase64,
+                    assertBroadcastAuthorized = { assertActiveSession(session) }
+                )
+                assertActiveSession(session)
+                updateIfActive(session) {
                     it.copy(
                         isBroadcasting = false,
                         signedPsbtBase64 = null,
@@ -178,9 +358,11 @@ class HardwareWalletPsbtViewModel @Inject constructor(
                     )
                 }
             } catch (e: SecurityException) {
-                _uiState.update { it.copy(isBroadcasting = false, error = "Security: ${e.message}") }
+                updateIfActive(session) { it.copy(isBroadcasting = false, error = "Security: ${e.message}") }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isBroadcasting = false, error = e.message ?: "Broadcast failed") }
+                updateIfActive(session) { it.copy(isBroadcasting = false, error = e.message ?: "Broadcast failed") }
+            } finally {
+                signingOperationActive.set(false)
             }
         }
     }

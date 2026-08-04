@@ -1,7 +1,9 @@
 package net.clench.wallet.domain.model
 
-import org.bitcoindevkit.Transaction
+import org.bitcoindevkit.Address
 import org.bitcoindevkit.Network
+import org.bitcoindevkit.Script
+import org.bitcoindevkit.Transaction
 
 data class RawTransactionPreview(
     val normalizedHex: String,
@@ -24,23 +26,74 @@ object RawTransactionPayload {
     fun parse(input: String, network: Network): RawTransactionPreview {
         val bytes = decode(input)
         val tx = Transaction(bytes)
-        return RawTransactionPreview(
-            normalizedHex = bytes.toHex(),
-            txid = tx.computeTxid().toString(),
-            vsize = tx.vsize().toLong(),
-            totalSize = tx.totalSize().toLong(),
-            isRbf = tx.isExplicitlyRbf(),
-            outputs = tx.output().mapIndexed { index, output ->
-                RawTransactionOutputPreview(
-                    index = index,
-                    amountSat = output.value.toSat().toLong(),
-                    address = runCatching {
-                        org.bitcoindevkit.Address.fromScript(output.scriptPubkey, network).toString()
-                    }.getOrNull(),
-                    scriptPubkeyHex = output.scriptPubkey.toBytes().toHex()
-                )
+        return try {
+            val txid = tx.computeTxid()
+            val txidText = try {
+                txid.toString()
+            } finally {
+                txid.close()
             }
-        )
+            val nativeOutputs = tx.output()
+            val outputs = try {
+                nativeOutputs.mapIndexed { index, output ->
+                    val script = output.scriptPubkey
+                    RawTransactionOutputPreview(
+                        index = index,
+                        amountSat = output.value.toSat().toLong(),
+                        address = addressString(script, network),
+                        scriptPubkeyHex = script.toBytes().toHex()
+                    )
+                }
+            } finally {
+                destroyAll(nativeOutputs)
+            }
+            RawTransactionPreview(
+                normalizedHex = bytes.toHex(),
+                txid = txidText,
+                vsize = tx.vsize().toLong(),
+                totalSize = tx.totalSize().toLong(),
+                isRbf = tx.isExplicitlyRbf(),
+                outputs = outputs
+            )
+        } finally {
+            // Transaction is a UniFFI native wrapper. Do not leave it to a
+            // later finalizer after parsing attacker-controlled raw input.
+            tx.close()
+        }
+    }
+
+    private fun addressString(script: Script, network: Network): String? {
+        val address = try {
+            Address.fromScript(script, network)
+        } catch (_: Exception) {
+            return null
+        }
+        return try {
+            address.toString()
+        } finally {
+            address.close()
+        }
+    }
+
+    /** Attempt every nested UniFFI cleanup before propagating the first failure. */
+    private fun destroyAll(outputs: List<org.bitcoindevkit.TxOut>) {
+        var failure: Throwable? = null
+        outputs.forEach { output ->
+            // TxOut.destroy() is fail-fast and may skip Script if Amount close
+            // fails. Close both owned fields independently instead.
+            listOf<() -> Unit>(
+                { output.value.close() },
+                { output.scriptPubkey.close() }
+            ).forEach { close ->
+                try {
+                    close()
+                } catch (t: Throwable) {
+                    val previous = failure
+                    if (previous == null) failure = t else previous.addSuppressed(t)
+                }
+            }
+        }
+        failure?.let { throw it }
     }
 
     fun decode(input: String): ByteArray {

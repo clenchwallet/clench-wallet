@@ -52,4 +52,14 @@ class KeystoreManagerTest {
             manager.deleteWalletSecrets(walletId)
         }
     }
+
+    @Test
+    fun walletSecretKeyReportsItsActualRuntimeProtection() {
+        val manager = KeystoreManager(InstrumentationRegistry.getInstrumentation().targetContext)
+
+        val protection = manager.walletSecretKeyProtection()
+
+        check(protection.displayName.isNotBlank())
+        check(protection in AndroidKeystoreProtection.entries)
+    }
 }

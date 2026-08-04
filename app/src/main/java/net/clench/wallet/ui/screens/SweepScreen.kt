@@ -1,11 +1,10 @@
 package net.clench.wallet.ui.screens
 
 import android.app.Activity
+import android.net.Uri
 import androidx.fragment.app.FragmentActivity
 import android.nfc.NfcAdapter
 import android.nfc.Tag
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -38,6 +37,10 @@ import net.clench.wallet.ui.components.TransactionReviewCard
 import net.clench.wallet.ui.components.FeeSafetySummary
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.util.BiometricHelper
+import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
+import net.clench.wallet.ui.picker.PickerDestination
+import net.clench.wallet.ui.picker.PickerPurpose
+import net.clench.wallet.ui.picker.PickerRequest
 import net.clench.wallet.ui.viewmodel.FeeTier
 import net.clench.wallet.ui.viewmodel.SweepViewModel
 import net.clench.wallet.ui.viewmodel.SweepSeedScriptType
@@ -59,6 +62,9 @@ fun SweepScreen(
     val uiState by viewModel.uiState.collectAsState()
     SecureWindowEffect()
     val context = LocalContext.current
+    val pickerHost = LocalPickerRoundTripHost.current
+    val pickerResume by pickerHost.pickerResume.collectAsState()
+    val pickerDestination = remember(walletId) { PickerDestination.Sweep(walletId) }
     val activity = context as? Activity
     val fragmentActivity = activity as? FragmentActivity
     val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
@@ -83,12 +89,16 @@ fun SweepScreen(
     var pendingSatscardCvc by remember { mutableStateOf<CharArray?>(null) }
     var wizardStep by remember { mutableStateOf(SweepWizardStep.Source) }
     val satscardNfcProcessing = remember { AtomicBoolean(false) }
-    val wifFileLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let {
+    LaunchedEffect(pickerResume?.requestId) {
+        if (pickerResume?.purpose != PickerPurpose.SWEEP_WIF_IMPORT) return@LaunchedEffect
+        val result = pickerHost.consumePickerResult(
+            PickerPurpose.SWEEP_WIF_IMPORT,
+            pickerDestination
+        ) ?: return@LaunchedEffect
+        result.uri?.let { encodedUri ->
             try {
-                val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader ->
+                val uri = Uri.parse(encodedUri)
+                val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
                     reader.readTextBounded(InputLimits.SECRET_TEXT_CHARS)
                 }
                 if (text.isNullOrBlank()) {
@@ -448,25 +458,19 @@ fun SweepScreen(
                                         when {
                                             !uiState.biometricForSendEnabled -> armUnsealReader()
                                             fragmentActivity == null || !BiometricHelper.canAuthenticate(context) ->
-                                                viewModel.setError("Biometric or device-credential authentication is required but unavailable")
+                                                viewModel.setError(BiometricHelper.authenticationUnavailableGuidance())
                                             else -> {
-                                                (context as? MainActivity)?.suppressPassphraseLock = true
                                                 BiometricHelper.authenticate(
                                                     activity = fragmentActivity,
                                                     title = "Authenticate SATSCARD unseal",
                                                     subtitle = "Verify your identity before permanently unsealing and signing the sweep",
                                                     onSuccess = {
-                                                        (context as? MainActivity)?.suppressPassphraseLock = false
                                                         armUnsealReader()
                                                     },
                                                     onFailure = { message ->
-                                                        (context as? MainActivity)?.suppressPassphraseLock = false
                                                         viewModel.setError("Authentication failed: $message")
                                                     },
-                                                    onCancel = {
-                                                        (context as? MainActivity)?.suppressPassphraseLock = false
-                                                    },
-                                                    allowUiOnlyFallback = false
+                                                    onCancel = { }
                                                 )
                                             }
                                         }
@@ -696,7 +700,13 @@ fun SweepScreen(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Scan QR")
                     }
-                    OutlinedButton(onClick = { wifFileLauncher.launch(arrayOf("text/*", "application/octet-stream", "*/*")) }) {
+                    OutlinedButton(
+                        onClick = {
+                            if (!pickerHost.launchPicker(PickerRequest.SweepWifImport(walletId))) {
+                                wifError = "Unlock Clench before choosing a WIF file"
+                            }
+                        }
+                    ) {
                         Text("Load private-key.txt")
                     }
                 }
@@ -931,25 +941,19 @@ fun SweepScreen(
                         when {
                             !uiState.biometricForSendEnabled -> prepareSweep()
                             fragmentActivity == null || !BiometricHelper.canAuthenticate(context) ->
-                                viewModel.setError("Biometric or device-credential authentication is required but unavailable")
+                                viewModel.setError(BiometricHelper.authenticationUnavailableGuidance())
                             else -> {
-                                (context as? MainActivity)?.suppressPassphraseLock = true
                                 BiometricHelper.authenticate(
                                     activity = fragmentActivity,
                                     title = "Authenticate sweep",
                                     subtitle = "Verify your identity before signing the reviewed sweep",
                                     onSuccess = {
-                                        (context as? MainActivity)?.suppressPassphraseLock = false
                                         prepareSweep()
                                     },
                                     onFailure = { message ->
-                                        (context as? MainActivity)?.suppressPassphraseLock = false
                                         viewModel.setError("Authentication failed: $message")
                                     },
-                                    onCancel = {
-                                        (context as? MainActivity)?.suppressPassphraseLock = false
-                                    },
-                                    allowUiOnlyFallback = false
+                                    onCancel = { }
                                 )
                             }
                         }

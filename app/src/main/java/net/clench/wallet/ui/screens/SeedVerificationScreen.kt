@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
 
 /**
@@ -25,6 +26,8 @@ fun SeedVerificationScreen(
     onBack: () -> Unit,
     viewModel: CreateWalletViewModel
 ) {
+    SecureWindowEffect()
+
     val uiState by viewModel.uiState.collectAsState()
     val mnemonic = uiState.mnemonic
 

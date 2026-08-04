@@ -14,9 +14,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.clench.wallet.data.backup.ClenchStateBackupManager
 import net.clench.wallet.data.local.PinManager
+import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.network.BoundedBlockingCall
 import net.clench.wallet.data.network.ElectrumConnectionFactory
+import net.clench.wallet.data.network.isOnionElectrumHost
+import net.clench.wallet.data.repository.SensitiveWalletOperationBarrier
+import net.clench.wallet.data.repository.nativeCloseAction
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.PublicElectrumServers
 import net.clench.wallet.domain.model.PublicServer
@@ -34,7 +38,9 @@ class SettingsViewModel @Inject constructor(
     private val bitcoinRepository: BitcoinRepository,
     private val settingsManager: SettingsManager,
     private val pinManager: PinManager,
+    private val keystoreManager: KeystoreManager,
     private val electrumConnectionFactory: ElectrumConnectionFactory,
+    private val operationBarrier: SensitiveWalletOperationBarrier,
     private val backupManager: ClenchStateBackupManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -78,7 +84,8 @@ class SettingsViewModel @Inject constructor(
         val serverHealthResult: String? = null,
         val isBackupBusy: Boolean = false,
         val backupStatus: String? = null,
-        val lastSyncError: String? = null
+        val lastSyncError: String? = null,
+        val walletSecretKeyProtection: String = "Unknown — not inspected"
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -128,7 +135,7 @@ class SettingsViewModel @Inject constructor(
                 torProxyPort = settingsManager.getTorProxyPort().toString(),
                 isPinSet = pinManager.isPinSet(),
                 pinnedCert = validatedConfig.pinnedCert,
-                useServerTor = validatedConfig.useTor || validatedConfig.serverUrl.endsWith(".onion"),
+                useServerTor = validatedConfig.useTor || isOnionElectrumHost(validatedConfig.serverUrl),
                 connectionModeLabel = computeConnectionModeLabel(validatedConfig),
                 lastSyncError = settingsManager.getLastSyncError()
             )
@@ -196,7 +203,7 @@ class SettingsViewModel @Inject constructor(
                 port = current.port,
                 useSsl = current.useSsl,
                 isCustom = false,
-                useTor = state.useServerTor || current.serverUrl.endsWith(".onion")
+                useTor = state.useServerTor || isOnionElectrumHost(current.serverUrl)
             )
         }
         settingsManager.saveElectrumConfig(config)
@@ -245,11 +252,18 @@ class SettingsViewModel @Inject constructor(
                             timeoutMs = 60_000L,
                             operation = "Electrum connection test",
                             create = { electrumConnectionFactory.createConnection(testConfig) },
-                            close = { it.close() }
+                            close = { it.close() },
+                            onCloseFailure = operationBarrier::quarantineNativeResource
                         )
                     } finally {
-                        runCatching { connection?.close() }
-                        executor.shutdownNow()
+                        connection?.cancelTransport()
+                        BoundedBlockingCall.shutdownAndAwaitTermination(
+                            executor = executor,
+                            operation = "Electrum connection-test worker"
+                        )
+                        operationBarrier.closeNativeResourcesOrFail(
+                            listOfNotNull(nativeCloseAction(connection) { it.close() })
+                        )
                     }
                 }
                 "✓ Connected to $cleanUrl:$port (${resolved.mode.name})"
@@ -363,9 +377,10 @@ class SettingsViewModel @Inject constructor(
                 torEnabled = settingsManager.isTorEnabled(),
                 torProxyHost = settingsManager.getTorProxyHost(),
                 torProxyPort = settingsManager.getTorProxyPort().toString(),
-                useServerTor = config.useTor || config.serverUrl.endsWith(".onion"),
+                useServerTor = config.useTor || isOnionElectrumHost(config.serverUrl),
                 connectionModeLabel = computeConnectionModeLabel(config),
-                lastSyncError = settingsManager.getLastSyncError()
+                lastSyncError = settingsManager.getLastSyncError(),
+                walletSecretKeyProtection = keystoreManager.walletSecretKeyProtection().displayName
             )
         }
     }
@@ -498,7 +513,7 @@ class SettingsViewModel @Inject constructor(
 
     fun selectPublicServer(server: PublicServer) {
         val state = _uiState.value
-        val useTor = state.useServerTor || server.host.endsWith(".onion")
+        val useTor = state.useServerTor || isOnionElectrumHost(server.host)
         val config = ElectrumConfig(
             serverUrl = server.host,
             port = server.port,
@@ -683,7 +698,7 @@ class SettingsViewModel @Inject constructor(
                 .removePrefix("tcp://")
                 .trim()
             require(cleanUrl.isNotBlank()) { "Enter a server address first" }
-            val useTor = state.useServerTor || cleanUrl.endsWith(".onion")
+            val useTor = state.useServerTor || isOnionElectrumHost(cleanUrl)
             ElectrumConfig(
                 serverUrl = cleanUrl,
                 port = state.customServerPort.toIntOrNull() ?: 50002,
@@ -694,7 +709,7 @@ class SettingsViewModel @Inject constructor(
             )
         } else {
             val selected = publicServerFromState(state)
-            val useTor = state.useServerTor || selected.host.endsWith(".onion")
+            val useTor = state.useServerTor || isOnionElectrumHost(selected.host)
             ElectrumConfig(
                 serverUrl = selected.host,
                 port = selected.port,
@@ -723,7 +738,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun routeDescription(config: ElectrumConfig): String {
-        val isOnion = config.serverUrl.endsWith(".onion")
+        val isOnion = isOnionElectrumHost(config.serverUrl)
         return when {
             isOnion -> "Tor .onion"
             config.useTor || settingsManager.isTorEnabled() ->
@@ -753,7 +768,7 @@ class SettingsViewModel @Inject constructor(
 
     private fun computeConnectionModeLabel(config: ElectrumConfig): String {
         val host = config.serverUrl.removePrefix("ssl://").removePrefix("tcp://").trim()
-        val isOnion = host.endsWith(".onion")
+        val isOnion = isOnionElectrumHost(host)
         return when {
             isOnion -> "🧅 Tor (.onion)"
             config.useTor || settingsManager.isTorEnabled() -> "🧅 Tor (SOCKS5)"

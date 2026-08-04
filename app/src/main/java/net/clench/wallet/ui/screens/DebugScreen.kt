@@ -83,6 +83,7 @@ fun DebugScreen(
                             appendLine("Offline mode: ${if (uiState.offlineMode) "On" else "Off"}")
                             appendLine("Connection mode: ${uiState.connectionModeLabel.ifBlank { "Unknown" }}")
                             appendLine("Tor via Orbot: ${if (uiState.torEnabled || uiState.useServerTor) "On" else "Off"}")
+                            appendLine("Wallet-secret key protection: ${uiState.walletSecretKeyProtection}")
                             appendLine("Last sync error: ${uiState.lastSyncError ?: "None recorded"}")
                             appendLine()
                             append(crashLog)
@@ -130,6 +131,7 @@ fun DebugScreen(
                             "Off"
                         }
                     )
+                    DiagnosticLine("Wallet-secret key protection", uiState.walletSecretKeyProtection)
                     DiagnosticLine("Last sync error", uiState.lastSyncError ?: "None recorded")
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(

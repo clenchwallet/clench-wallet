@@ -5,8 +5,6 @@ import android.net.Uri
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.Ndef
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -49,6 +47,10 @@ import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.ImportWalletViewModel
 import net.clench.wallet.security.InputLimits
 import net.clench.wallet.security.readTextBounded
+import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
+import net.clench.wallet.ui.picker.PickerDestination
+import net.clench.wallet.ui.picker.PickerPurpose
+import net.clench.wallet.ui.picker.PickerRequest
 
 private enum class ImportEntryMode { SeedPhrase, PublicOrDescriptor }
 
@@ -96,39 +98,75 @@ fun ImportWalletScreen(
     var pendingTapsignerBackup by remember { mutableStateOf(false) }
     var pendingTapsignerBackupUri by remember { mutableStateOf<Uri?>(null) }
     val nfcProcessing = remember { AtomicBoolean(false) }
-
-    val hardwareFileLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let {
-            try {
-                val text = context.contentResolver.openInputStream(it)?.bufferedReader()?.use { reader ->
-                    reader.readTextBounded(InputLimits.SECRET_TEXT_CHARS)
-                }
-                if (text.isNullOrBlank()) {
-                    nfcError = "Selected file was empty"
-                } else {
-                    viewModel.setInput(text.trim())
-                    nfcStatus = if (hardwareWalletMode) {
-                        "Loaded hardware wallet export file"
-                    } else {
-                        "Loaded wallet setup file"
-                    }
-                    nfcError = null
-                }
-            } catch (e: Exception) {
-                nfcError = "Could not read file: ${e.message}"
-            }
-        }
+    val pickerHost = LocalPickerRoundTripHost.current
+    val pickerResume by pickerHost.pickerResume.collectAsState()
+    val pickerDestination = remember(hardwareWalletMode) {
+        PickerDestination.WalletImport(hardwareWalletMode)
     }
 
     // HW wallet mode state
     var selectedDevice by remember { mutableStateOf<HardwareWalletType?>(null) }
     var showDevicePicker by remember { mutableStateOf(hardwareWalletMode) }
 
+    LaunchedEffect(pickerResume?.requestId) {
+        when (pickerResume?.purpose) {
+            PickerPurpose.WALLET_SETUP_IMPORT -> {
+                val result = pickerHost.consumePickerResult(
+                    PickerPurpose.WALLET_SETUP_IMPORT,
+                    pickerDestination
+                )
+                result?.uri?.let { uriString ->
+                    try {
+                        val text = context.contentResolver.openInputStream(Uri.parse(uriString))
+                            ?.bufferedReader()?.use { reader ->
+                                reader.readTextBounded(InputLimits.SECRET_TEXT_CHARS)
+                            }
+                        if (text.isNullOrBlank()) {
+                            nfcError = "Selected file was empty"
+                        } else {
+                            viewModel.setInput(text.trim())
+                            nfcStatus = if (hardwareWalletMode) {
+                                "Loaded hardware wallet export file"
+                            } else {
+                                "Loaded wallet setup file"
+                            }
+                            nfcError = null
+                        }
+                    } catch (e: Exception) {
+                        nfcError = "Could not read file: ${e.message}"
+                    }
+                }
+            }
+            PickerPurpose.TAPSIGNER_SETUP_BACKUP -> {
+                val result = pickerHost.consumePickerResult(
+                    PickerPurpose.TAPSIGNER_SETUP_BACKUP,
+                    pickerDestination
+                )
+                if (result != null) {
+                    tapsignerCvcInput = ""
+                    selectedDevice = HardwareWalletType.TAPSIGNER
+                    showDevicePicker = false
+                    viewModel.setHardwareDeviceType(HardwareWalletType.TAPSIGNER.name)
+                    if (result.uri == null) {
+                        pendingTapsignerBackupUri = null
+                        nfcStatus = "TAPSIGNER backup save cancelled"
+                    } else {
+                        pendingTapsignerBackupUri = Uri.parse(result.uri)
+                        tapsignerBackupAvailable = true
+                        nfcError = null
+                        nfcStatus = "Backup destination selected. Re-enter the TAPSIGNER PIN, then tap the card to create and save the encrypted backup."
+                    }
+                }
+            }
+            else -> Unit
+        }
+    }
+
     val isSeedPhrase = uiState.detectedType == ImportWalletViewModel.DetectedType.SEED_12 ||
             uiState.detectedType == ImportWalletViewModel.DetectedType.SEED_24
-    SecureWindowEffect(enabled = !hardwareWalletMode)
+    // Hardware import includes TAPSIGNER CVC entry and authenticated NFC operations.
+    // Ref-counting prevents this route from clearing protection owned by an adjacent screen.
+    SecureWindowEffect()
 
     LaunchedEffect(uiState.input, uiState.detectedType, hardwareWalletMode) {
         if (!hardwareWalletMode && isSeedPhrase) {
@@ -384,30 +422,6 @@ fun ImportWalletScreen(
         return "tapsigner-backup-$suffix-${LocalDate.now()}.aes"
     }
 
-    val tapsignerBackupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri ->
-        when {
-            uri == null -> nfcStatus = "TAPSIGNER backup save cancelled"
-            nfcAdapter == null -> nfcError = "This phone does not report NFC hardware"
-            !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
-            activity == null -> nfcError = "NFC reader is unavailable in this view"
-            selectedDevice == null -> nfcError = "Choose a hardware wallet first"
-            tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the TAPSIGNER PIN"
-            else -> {
-                pendingTapsignerBackupUri = uri
-                viewModel.clearError()
-                nfcError = null
-                suppressPassiveTapsignerStatusUntil = 0L
-                startHardwareNfcReader(
-                    device = selectedDevice!!,
-                    cvc = tapsignerCvcInput.toCharArray(),
-                    backupTapsigner = true
-                )
-            }
-        }
-    }
-
     fun requestTapsignerBackup() {
         when {
             nfcAdapter == null -> nfcError = "This phone does not report NFC hardware"
@@ -420,16 +434,9 @@ fun ImportWalletScreen(
     }
 
     // Hardware wallet onboarding is choice-based: select file, scan QR, or NFC explicitly.
-    DisposableEffect(nfcReaderActive, activity, nfcAdapter) {
-        val hostActivity = activity
-        val adapter = nfcAdapter
+    DisposableEffect(activity, nfcAdapter) {
         onDispose {
-            if (nfcReaderActive && hostActivity != null && adapter != null) {
-                adapter.disableReaderMode(hostActivity)
-                if (selectedDevice?.usesCoinkiteTapProtocol != true) {
-                    NfcDispatch.disableForegroundDispatch(hostActivity, adapter)
-                }
-            }
+            stopNfcReader(clearTapsignerPin = true)
         }
     }
 
@@ -539,9 +546,20 @@ fun ImportWalletScreen(
                 Button(
                     onClick = {
                         showTapsignerBackupConfirm = false
-                        tapsignerBackupLauncher.launch(tapsignerBackupFilename())
+                        // The picker backgrounds Clench and mandatory cleanup disposes this
+                        // screen. Never retain or reuse the PIN across that boundary.
+                        stopNfcReader(clearTapsignerPin = true)
+                        if (!pickerHost.launchPicker(
+                                PickerRequest.TapsignerSetupBackup(
+                                    hardwareWalletMode = hardwareWalletMode,
+                                    filename = tapsignerBackupFilename()
+                                )
+                            )
+                        ) {
+                            nfcError = "Finish the current file selection first"
+                        }
                     }
-                ) { Text("Choose File, Then Tap") }
+                ) { Text("Choose File") }
             },
             dismissButton = {
                 TextButton(onClick = { showTapsignerBackupConfirm = false }) {
@@ -692,7 +710,14 @@ fun ImportWalletScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (canLoadFile) {
                         OutlinedButton(
-                            onClick = { hardwareFileLauncher.launch(arrayOf("*/*")) },
+                            onClick = {
+                                if (!pickerHost.launchPicker(
+                                        PickerRequest.WalletSetupImport(hardwareWalletMode)
+                                    )
+                                ) {
+                                    nfcError = "Finish the current file selection first"
+                                }
+                            },
                             modifier = Modifier.weight(1f)
                         ) { Text("Load File") }
                     }
@@ -788,10 +813,37 @@ fun ImportWalletScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Button(
-                                onClick = { requestTapsignerBackup() },
+                                onClick = {
+                                    if (pendingTapsignerBackupUri == null) {
+                                        requestTapsignerBackup()
+                                    } else {
+                                        when {
+                                            nfcAdapter == null -> nfcError = "This phone does not report NFC hardware"
+                                            !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
+                                            activity == null -> nfcError = "NFC reader is unavailable in this view"
+                                            tapsignerCvcInput.length !in 6..32 -> nfcError = "Re-enter the TAPSIGNER PIN"
+                                            else -> {
+                                                viewModel.clearError()
+                                                nfcError = null
+                                                suppressPassiveTapsignerStatusUntil = 0L
+                                                startHardwareNfcReader(
+                                                    device = HardwareWalletType.TAPSIGNER,
+                                                    cvc = tapsignerCvcInput.toCharArray(),
+                                                    backupTapsigner = true
+                                                )
+                                            }
+                                        }
+                                    }
+                                },
                                 enabled = !nfcReaderActive
                             ) {
-                                Text("Save encrypted backup")
+                                Text(
+                                    if (pendingTapsignerBackupUri == null) {
+                                        "Save encrypted backup"
+                                    } else {
+                                        "Re-enter PIN, then tap card"
+                                    }
+                                )
                             }
                         }
                     }
@@ -854,7 +906,14 @@ fun ImportWalletScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
-                                onClick = { hardwareFileLauncher.launch(arrayOf("*/*")) },
+                                onClick = {
+                                    if (!pickerHost.launchPicker(
+                                            PickerRequest.WalletSetupImport(hardwareWalletMode)
+                                        )
+                                    ) {
+                                        nfcError = "Finish the current file selection first"
+                                    }
+                                },
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Text("Load File")

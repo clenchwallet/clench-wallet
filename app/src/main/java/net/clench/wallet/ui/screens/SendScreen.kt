@@ -2,9 +2,7 @@ package net.clench.wallet.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import android.app.Activity
 import android.content.ContextWrapper
-import android.view.WindowManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -33,6 +31,7 @@ import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.TransactionReviewCard
 import net.clench.wallet.ui.components.FeeSafetySummary
 import net.clench.wallet.ui.util.BiometricHelper
+import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.AmountUnit
 import net.clench.wallet.ui.viewmodel.FeeTier
 import net.clench.wallet.ui.viewmodel.RecipientEntry
@@ -56,7 +55,8 @@ fun SendScreen(
     var showHardwareWalletPicker by remember { mutableStateOf(false) }
     var showWatchOnlySheet by remember { mutableStateOf(false) }
 
-    // FLAG_SECURE — prevent screenshots of balance/addresses
+    // Prevent screenshots/Recents capture without clearing another protected route's ownership.
+    SecureWindowEffect()
     val context = LocalContext.current
 
     // Resolve FragmentActivity from Compose context
@@ -69,25 +69,13 @@ fun SendScreen(
         null
     }
 
-    DisposableEffect(Unit) {
-        val activity = context as? Activity
-        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose {
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
-    }
-
     val focusManager = LocalFocusManager.current
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        try {
-            result.contents?.let { scanned ->
-                // Pass full BIP-21 URI to setAddress — it handles pj= and amount parsing
-                viewModel.setAddress(scanned)
-                // Dismiss keyboard after scan fills the address
-                focusManager.clearFocus()
-            }
-        } finally {
-            (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
+        result.contents?.let { scanned ->
+            // Pass full BIP-21 URI to setAddress — it handles pj= and amount parsing
+            viewModel.setAddress(scanned)
+            // Dismiss keyboard after scan fills the address
+            focusManager.clearFocus()
         }
     }
 
@@ -101,11 +89,6 @@ fun SendScreen(
                 setBeepEnabled(false)
                 setOrientationLocked(true)
                 setCaptureActivity(net.clench.wallet.ui.PortraitCaptureActivity::class.java)
-            }
-            // Suppress biometric lock and passphrase lock when returning from scanner
-            (context as? net.clench.wallet.ui.MainActivity)?.let {
-                it.suppressLockOnResume = true
-                it.suppressPassphraseLock = true
             }
             scanLauncher.launch(options)
         } else {
@@ -773,29 +756,22 @@ fun SendScreen(
                     onClick = {
                         // R7-7: Only show biometric if the setting is enabled
                         if (uiState.biometricForSendEnabled && fragmentActivity != null && BiometricHelper.canAuthenticate(context)) {
-                            // Suppress passphrase lock while biometric dialog is showing
-                            (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = true
                             BiometricHelper.authenticate(
                                 activity = fragmentActivity,
                                 title = "Authenticate to send Bitcoin",
                                 subtitle = "Verify your identity to sign this transaction",
                                 onSuccess = {
-                                    (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
                                     viewModel.buildTx()
                                 },
                                 onFailure = { msg ->
-                                    (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
                                     viewModel.setError("Auth failed: $msg")
                                 },
-                                onCancel = {
-                                    (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
-                                },
-                                allowUiOnlyFallback = false
+                                onCancel = { }
                             )
                         } else if (!uiState.biometricForSendEnabled) {
                             viewModel.buildTx()
                         } else {
-                            viewModel.setError("Biometric or device-credential authentication is required but unavailable")
+                            viewModel.setError(BiometricHelper.authenticationUnavailableGuidance())
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),

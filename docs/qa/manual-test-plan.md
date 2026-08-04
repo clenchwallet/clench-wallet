@@ -1,9 +1,9 @@
 # Clench Wallet Manual Test Plan
 
-For the v0.3.23 candidate, record device-specific results in
-[`physical-hardware-gates-v0.3.23.md`](physical-hardware-gates-v0.3.23.md)
+For the v0.3.24 candidate, record device-specific results in
+[`physical-hardware-gates-v0.3.24.md`](physical-hardware-gates-v0.3.24.md)
 and the ship decision in
-[`v0.3.23-release-gate.md`](v0.3.23-release-gate.md). Automated simulator
+[`v0.3.24-release-gate.md`](v0.3.24-release-gate.md). Automated simulator
 results must not be recorded as physical-device passes.
 
 ## Goal

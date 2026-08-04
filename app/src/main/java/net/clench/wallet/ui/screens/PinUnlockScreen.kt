@@ -10,12 +10,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import net.clench.wallet.data.local.PinManager
+import net.clench.wallet.ui.util.SecureWindowEffect
 
 @Composable
 fun PinUnlockScreen(
     pinManager: PinManager,
     onUnlocked: () -> Unit
 ) {
+    SecureWindowEffect()
+
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var remainingDelay by remember { mutableStateOf(0L) }

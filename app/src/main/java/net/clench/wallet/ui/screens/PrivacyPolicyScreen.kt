@@ -34,7 +34,7 @@ fun PrivacyPolicyScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState())
         ) {
             Text(
-                "Last updated: May 5, 2026",
+                "Last updated: August 4, 2026",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -67,7 +67,8 @@ fun PrivacyPolicyScreen(onBack: () -> Unit) {
             BulletItem("Wallet data — addresses, transactions, labels, balances")
             BulletItem("Key material — mnemonics and private keys, encrypted with AES-256-GCM via Android Keystore")
             BulletItem("Settings — your app preferences (server configuration, display currency, etc.)")
-            BulletItem("Database — all local data is stored in a SQLCipher-encrypted database")
+            BulletItem("Application records — stored in a SQLCipher-encrypted database")
+            BulletItem("Public wallet state — BDK stores public descriptors, addresses, balances, and transaction history in separate app-private files protected by Android's app sandbox and device encryption; these files do not contain seeds or private keys and are not SQLCipher-encrypted")
             Spacer(modifier = Modifier.height(8.dp))
             BodyText(
                 "This data never leaves your device unless you explicitly export it (e.g., " +
@@ -137,7 +138,7 @@ fun PrivacyPolicyScreen(onBack: () -> Unit) {
             BodyText("Your mnemonics (seed phrases) and private keys:")
             Spacer(modifier = Modifier.height(8.dp))
             BulletItem("Are generated on-device using cryptographically secure random number generation")
-            BulletItem("Are encrypted at rest using AES-256-GCM with keys stored in the Android Keystore hardware-backed security module")
+            BulletItem("Are encrypted at rest using AES-256-GCM with keys protected by Android Keystore. Hardware-backed protection depends on the phone and Android configuration; Settings → Diagnostics reports the actual level Android assigned to the wallet-secret key.")
             BulletItem("Never leave your device — not to our servers (we don't have any), not to any third party, not anywhere")
             BulletItem("Are never included in Android backups")
 

@@ -6,19 +6,24 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import net.clench.wallet.data.repository.SensitiveWalletOperationBarrier
+import net.clench.wallet.data.repository.nativeCloseAction
 import net.clench.wallet.domain.model.ScriptType
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.security.WalletMnemonicGenerator
 import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
 import net.clench.wallet.ui.util.walletRuntimeMessage
-import org.bitcoindevkit.Mnemonic
-import org.bitcoindevkit.WordCount
 import java.security.MessageDigest
 import javax.inject.Inject
 
 @HiltViewModel
 class CreateWalletViewModel @Inject constructor(
-    private val bitcoinRepository: BitcoinRepository
+    private val bitcoinRepository: BitcoinRepository,
+    private val walletMnemonicGenerator: WalletMnemonicGenerator,
+    private val operationBarrier: SensitiveWalletOperationBarrier
 ) : ViewModel() {
 
     data class UiState(
@@ -99,17 +104,22 @@ class CreateWalletViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                val wordCountEnum = if (_uiState.value.wordCount == 12) WordCount.WORDS12 else WordCount.WORDS24
-                val mnemonic = Mnemonic(wordCountEnum)
-                val mnemonicWords = try {
-                    mnemonic.toString().split(" ")
-                } finally {
-                    mnemonic.destroy()
+                operationBarrier.withLease {
+                    val mnemonic = walletMnemonicGenerator.generate(_uiState.value.wordCount)
+                    val mnemonicWords = try {
+                        mnemonic.toString().split(" ")
+                    } finally {
+                        operationBarrier.closeNativeResourcesOrFail(
+                            listOfNotNull(nativeCloseAction(mnemonic) { it.destroy() })
+                        )
+                    }
+
+                    // Navigation teardown cancels this scope on a security transition. Never
+                    // republish recovery words from a cancelled foreground generation.
+                    currentCoroutineContext().ensureActive()
+                    pendingMnemonic = mnemonicWords
+                    _uiState.update { it.copy(mnemonic = mnemonicWords, isLoading = false) }
                 }
-
-                pendingMnemonic = mnemonicWords
-
-                _uiState.update { it.copy(mnemonic = mnemonicWords, isLoading = false) }
             } catch (t: Throwable) {
                 if (t.shouldRethrowForUiBoundary()) throw t
                 _uiState.update { it.copy(isLoading = false, error = t.walletRuntimeMessage("generating a wallet")) }

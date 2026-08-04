@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.repository.SensitiveWalletOperationBarrier
 import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.ui.viewmodel.ImportWalletViewModel
@@ -27,7 +28,11 @@ class ImportWalletViewModelTest {
     ): ImportWalletViewModel {
         val settingsManager = mockk<SettingsManager>(relaxed = true)
         every { settingsManager.isOfflineMode() } returns true
-        return ImportWalletViewModel(repository, settingsManager)
+        return ImportWalletViewModel(
+            repository,
+            settingsManager,
+            SensitiveWalletOperationBarrier()
+        )
     }
 
     @Test

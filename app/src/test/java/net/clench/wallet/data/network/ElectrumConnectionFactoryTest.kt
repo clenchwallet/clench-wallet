@@ -82,6 +82,22 @@ class ElectrumConnectionFactoryTest {
     }
 
     @Test
+    fun `onion routing is case-insensitive and strips a DNS trailing dot`() {
+        val resolved = factory(globalTorEnabled = false).resolveConnection(
+            ElectrumConfig(
+                serverUrl = "SSL://ExampleABCDEFGHIJKLMNOP.ONION.",
+                port = 50001,
+                useSsl = false,
+                useTor = false
+            )
+        )
+
+        assertEquals(ConnectionMode.TOR_PLAIN, resolved.mode)
+        assertEquals("exampleabcdefghijklmnop.onion", resolved.host)
+        assertTrue(isOnionElectrumHost(" TCP://ExampleABCDEFGHIJKLMNOP.ONION. "))
+    }
+
+    @Test
     fun `invalid certificate pin fails closed`() {
         val failure = runCatching {
             factory().resolveConnection(
@@ -95,5 +111,18 @@ class ElectrumConnectionFactoryTest {
         }.exceptionOrNull()
 
         assertTrue(failure is ElectrumConnectionException.TlsCertPinningFailed)
+    }
+
+    @Test
+    fun `raw socket TLS policy includes system trust and pinned and Tor TLS`() {
+        assertTrue(ConnectionMode.TLS_SYSTEM.requiresRawSocketTls())
+        assertTrue(ConnectionMode.TLS_PINNED.requiresRawSocketTls())
+        assertTrue(ConnectionMode.TOR_TLS.requiresRawSocketTls())
+    }
+
+    @Test
+    fun `raw socket TLS policy excludes explicit plaintext modes`() {
+        assertTrue(!ConnectionMode.PLAIN_TCP.requiresRawSocketTls())
+        assertTrue(!ConnectionMode.TOR_PLAIN.requiresRawSocketTls())
     }
 }

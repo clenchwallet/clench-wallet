@@ -3,8 +3,8 @@ package net.clench.wallet.ui.screens
 import android.util.Base64
 import android.widget.Toast
 import android.content.ContextWrapper
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +23,11 @@ import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.components.TransactionReviewCard
 import net.clench.wallet.ui.viewmodel.PhoneSignerPsbtViewModel
+import net.clench.wallet.ui.viewmodel.PsbtPickerPurpose
+import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
+import net.clench.wallet.ui.picker.PickerDestination
+import net.clench.wallet.ui.picker.PickerPurpose
+import net.clench.wallet.ui.picker.PickerRequest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,22 +46,94 @@ fun PhoneSignerPsbtScreen(
         null
     }
     val uiState by viewModel.uiState.collectAsState()
-    val storeData = remember { viewModel.initFromStore() }
     SecureWindowEffect()
+    val pickerHost = LocalPickerRoundTripHost.current
+    val pickerResume by pickerHost.pickerResume.collectAsState()
+    val pickerDestination = pickerResume?.destination as? PickerDestination.PhonePsbt
+    val pickerRouteMatches = pickerDestination == null || pickerDestination.walletId == walletId
+    val storeData = remember(
+        pickerResume?.requestId,
+        pickerResume?.cancelled,
+        walletId
+    ) {
+        when {
+            pickerResume == null -> viewModel.initFromStore(expectedWalletId = walletId)
+            pickerResume?.cancelled == true -> null
+            pickerResume?.purpose == PickerPurpose.PHONE_PSBT_EXPORT &&
+                pickerDestination != null && pickerRouteMatches -> viewModel.initFromStore(
+                    expectedWalletId = walletId,
+                    pickerToken = pickerDestination.handoffToken,
+                    pickerPurpose = PsbtPickerPurpose.PHONE_EXPORT
+                )
+            else -> null
+        }
+    }
 
-    val signedPsbtSaveLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri ->
-        val signed = uiState.signedPsbtBase64
-        if (uri != null && signed != null) {
-            try {
-                val psbtBytes = Base64.decode(signed, Base64.DEFAULT)
-                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                    outputStream.write(psbtBytes)
-                } ?: error("Could not open output file")
-                Toast.makeText(context, "Signed PSBT saved", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(context, "Save failed: ${e.message}", Toast.LENGTH_SHORT).show()
+    LaunchedEffect(pickerResume?.requestId, pickerResume?.cancelled, pickerRouteMatches, storeData) {
+        val resume = pickerResume ?: return@LaunchedEffect
+        val destination = resume.destination as? PickerDestination.PhonePsbt
+            ?: run {
+                pickerHost.abortPicker(resume.requestId)
+                return@LaunchedEffect
+            }
+        if (resume.cancelled) {
+            pickerHost.consumePickerResult(resume.purpose, destination)
+            viewModel.cancelDocumentPickerRoundTrip(destination.handoffToken)
+            return@LaunchedEffect
+        }
+        if (!pickerRouteMatches || storeData == null) {
+            viewModel.cancelDocumentPickerRoundTrip(
+                destination.handoffToken,
+                "The file hand-off did not match this signing route"
+            )
+            pickerHost.abortPicker(resume.requestId)
+        }
+    }
+
+    val secureBack: () -> Unit = {
+        pickerResume?.let { resume ->
+            (resume.destination as? PickerDestination.PhonePsbt)?.let { destination ->
+                viewModel.cancelDocumentPickerRoundTrip(destination.handoffToken)
+            }
+            pickerHost.abortPicker(resume.requestId)
+        }
+        onBack()
+    }
+    BackHandler(enabled = pickerResume != null, onBack = secureBack)
+
+    LaunchedEffect(pickerResume?.requestId, uiState.signedPsbtBase64) {
+        if (pickerResume?.purpose == PickerPurpose.PHONE_PSBT_EXPORT) {
+            // The system picker disposed the old signing route. Re-inspect and sign again in
+            // this fresh authorized route before consuming the destination URI.
+            val destination = pickerDestination ?: return@LaunchedEffect
+            if (!pickerRouteMatches || storeData == null || pickerResume?.cancelled == true ||
+                uiState.signedPsbtBase64 == null
+            ) return@LaunchedEffect
+            val result = pickerHost.consumePickerResult(
+                PickerPurpose.PHONE_PSBT_EXPORT,
+                destination
+            )
+            if (result?.uri != null) {
+                val signed = uiState.signedPsbtBase64
+                if (signed != null) {
+                    try {
+                        val bytes = Base64.decode(signed, Base64.DEFAULT)
+                        try {
+                            context.contentResolver.openOutputStream(Uri.parse(result.uri))
+                                ?.use { it.write(bytes) }
+                                ?: error("Could not open output file")
+                        } finally {
+                            bytes.fill(0)
+                        }
+                        Toast.makeText(context, "Signed PSBT saved", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(
+                            context,
+                            "Save failed: ${e.message}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
             }
         }
     }
@@ -66,7 +143,7 @@ fun PhoneSignerPsbtScreen(
             TopAppBar(
                 title = { Text("Phone Signer") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = secureBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
@@ -92,7 +169,7 @@ fun PhoneSignerPsbtScreen(
                         color = MaterialTheme.colorScheme.onErrorContainer
                     )
                 }
-                OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+                OutlinedButton(onClick = secureBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
                 return@Column
             }
 
@@ -118,7 +195,7 @@ fun PhoneSignerPsbtScreen(
                         Text(uiState.txid ?: "", style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Done") }
+                Button(onClick = secureBack, modifier = Modifier.fillMaxWidth()) { Text("Done") }
                 return@Column
             }
 
@@ -146,28 +223,19 @@ fun PhoneSignerPsbtScreen(
                         when {
                             !uiState.biometricForSendEnabled -> viewModel.signWithPhoneKeys(walletId)
                             fragmentActivity == null || !BiometricHelper.canAuthenticate(context) ->
-                                viewModel.setError(
-                                    "OS authentication is unavailable. Configure a device PIN or biometric, " +
-                                        "or turn off ‘Require authentication to send’ in Settings → Security."
-                                )
+                                viewModel.setError(BiometricHelper.authenticationUnavailableGuidance())
                             else -> {
-                                (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = true
                                 BiometricHelper.authenticate(
                                     activity = fragmentActivity,
                                     title = "Authenticate phone signer",
                                     subtitle = "Verify your identity before wallet keys sign this transaction",
                                     onSuccess = {
-                                        (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
                                         viewModel.signWithPhoneKeys(walletId)
                                     },
                                     onFailure = { message ->
-                                        (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
                                         viewModel.setError("Authentication failed: $message")
                                     },
-                                    onCancel = {
-                                        (context as? net.clench.wallet.ui.MainActivity)?.suppressPassphraseLock = false
-                                    },
-                                    allowUiOnlyFallback = false
+                                    onCancel = { }
                                 )
                             }
                         }
@@ -215,7 +283,30 @@ fun PhoneSignerPsbtScreen(
                     }
                 }
                 OutlinedButton(
-                    onClick = { signedPsbtSaveLauncher.launch("${walletId.take(8)}_phone_signed.psbt") },
+                    onClick = {
+                        val handoffToken = viewModel.stageForDocumentPicker()
+                        if (handoffToken == null) {
+                            Toast.makeText(
+                                context,
+                                "Could not secure the signing hand-off",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else if (!pickerHost.launchPicker(
+                                PickerRequest.PhonePsbtExport(
+                                    walletId,
+                                    "${walletId.take(8)}_phone_signed.psbt",
+                                    handoffToken
+                                )
+                            )
+                        ) {
+                            viewModel.discardDocumentPickerStage(handoffToken)
+                            Toast.makeText(
+                                context,
+                                "Finish the current file selection first",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Save Signed PSBT") }
             }
@@ -232,7 +323,7 @@ fun PhoneSignerPsbtScreen(
                 }
             }
 
-            OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+            OutlinedButton(onClick = secureBack, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
         }
     }
 }

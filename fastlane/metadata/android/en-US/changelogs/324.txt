@@ -1,0 +1,9 @@
+Security hardening release:
+
+- Uses explicit Android OS entropy for new Clench seeds and fails closed if secure randomness is unavailable.
+- Rejects external hardware-wallet signatures that do not commit to the full reviewed transaction.
+- Keeps seed creation and verification protected from screenshots, screen recording, Recents previews, and obscured touches.
+- Strengthens PIN/device authentication, Electrum TLS and Tor routing, backups, and hostile QR/NFC/file imports.
+- Strengthens TAPSIGNER setup checks and tightens release-key isolation, reproducible-build evidence, and dependency auditing.
+
+Physical hardware tests remain separately documented. A direct NFC tap is a trusted physical boundary, and direct TAPSIGNER payment signing is not yet implemented.

@@ -13,11 +13,17 @@ import kotlinx.coroutines.test.setMain
 import net.clench.wallet.domain.model.ScriptType
 import net.clench.wallet.domain.model.WalletData
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.data.repository.SensitiveWalletOperationBarrier
+import net.clench.wallet.security.WalletEntropySource
+import net.clench.wallet.security.WalletMnemonicFactory
+import net.clench.wallet.security.WalletMnemonicGenerator
 import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.security.ProviderException
 
 /**
  * Tests for CreateWalletViewModel companion object functions — pure functions.
@@ -53,7 +59,11 @@ class CreateWalletViewModelTest {
                 )
             }
 
-            val viewModel = CreateWalletViewModel(repository)
+            val viewModel = CreateWalletViewModel(
+                repository,
+                mockk(),
+                SensitiveWalletOperationBarrier()
+            )
             val preparedMnemonic = listOf(
                 "abandon", "abandon", "abandon", "abandon", "abandon", "abandon",
                 "abandon", "abandon", "abandon", "abandon", "abandon", "about"
@@ -80,6 +90,49 @@ class CreateWalletViewModelTest {
                     scriptType = ScriptType.TAPROOT
                 )
             }
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `entropy failure creates and persists no wallet material`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val repository = mockk<BitcoinRepository>(relaxed = true)
+            var factoryCalls = 0
+            val generator = WalletMnemonicGenerator(
+                entropySource = WalletEntropySource {
+                    throw ProviderException("OS entropy unavailable")
+                },
+                mnemonicFactory = WalletMnemonicFactory {
+                    factoryCalls += 1
+                    mockk()
+                }
+            )
+            val viewModel = CreateWalletViewModel(
+                repository,
+                generator,
+                SensitiveWalletOperationBarrier()
+            )
+
+            viewModel.generateWallet()
+            advanceUntilIdle()
+
+            assertEquals(emptyList<String>(), viewModel.uiState.value.mnemonic)
+            assertFalse(viewModel.uiState.value.isLoading)
+            assertNotNull(viewModel.uiState.value.error)
+            assertEquals(0, factoryCalls)
+
+            val pendingMnemonic = CreateWalletViewModel::class.java
+                .getDeclaredField("pendingMnemonic")
+                .apply { isAccessible = true }
+                .get(viewModel)
+            assertNull(pendingMnemonic)
+
+            coVerify(exactly = 0) { repository.createWallet(any(), any(), any(), any(), any()) }
         } finally {
             Dispatchers.resetMain()
         }

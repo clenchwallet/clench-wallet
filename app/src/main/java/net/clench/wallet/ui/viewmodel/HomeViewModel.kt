@@ -401,7 +401,7 @@ class HomeViewModel @Inject constructor(
                 val friendlyMsg = when {
                     e is kotlinx.coroutines.TimeoutCancellationException ||
                     e is java.util.concurrent.TimeoutException ->
-                        "Sync timed out — server may be unreachable or port blocked by your network. Try a different server or switch to TCP (unencrypted)."
+                        "Sync timed out — the server may be unreachable or the port may be blocked. Try another TLS server, a Tor onion service, or your own trusted local server."
                     e.message?.contains("Connection refused") == true ->
                         "Connection refused — is your Electrum server running?\n\nTip: If your server uses a self-signed certificate, disable SSL and use port 50001 (plain TCP). Note: Clench uses BDK which does not support self-signed certificates over SSL."
                     e.message?.contains("Unable to resolve host") == true ||
@@ -453,7 +453,10 @@ class HomeViewModel @Inject constructor(
                 val jsonl = Bip329.exportLabels(labels)
                 val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
                 val fileName = "clench-labels-$dateStr.jsonl"
-                val file = File(context.cacheDir, fileName)
+                val exportDir = File(context.cacheDir, "exports").also {
+                    check(it.exists() || it.mkdirs()) { "Could not create the protected export directory" }
+                }
+                val file = File(exportDir, fileName)
                 file.writeText(jsonl)
 
                 val uri = FileProvider.getUriForFile(

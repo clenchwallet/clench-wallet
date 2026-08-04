@@ -3,8 +3,7 @@ package net.clench.wallet.ui.screens
 import android.app.Activity
 import android.nfc.NfcAdapter
 import android.nfc.Tag
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -46,6 +45,10 @@ import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.TapsignerNfcReader
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.CreateMultisigViewModel
+import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
+import net.clench.wallet.ui.picker.PickerDestination
+import net.clench.wallet.ui.picker.PickerPurpose
+import net.clench.wallet.ui.picker.PickerRequest
 import java.util.concurrent.atomic.AtomicBoolean
 
 private enum class TapsignerMultisigNfcAction {
@@ -59,17 +62,17 @@ private enum class TapsignerMultisigNfcAction {
 fun CreateMultisigScreen(
     onWalletCreated: (walletId: String) -> Unit,
     onBack: () -> Unit,
+    pickerSignerId: String? = null,
+    pickerPreset: String? = null,
     viewModel: CreateMultisigViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val activity = context as? Activity
     val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
-    if (uiState.signers.any { it.isLocalKey }) {
-        SecureWindowEffect()
-    }
+    // This route can hold local recovery words and TAPSIGNER CVC/PIN input.
+    SecureWindowEffect()
     var devicePickerTargetIndex by remember { mutableStateOf<Int?>(null) }
-    var fileImportTargetIndex by remember { mutableStateOf<Int?>(null) }
     var tapsignerReaderActiveIndex by remember { mutableStateOf<Int?>(null) }
     var tapsignerPendingAction by remember { mutableStateOf<TapsignerMultisigNfcAction?>(null) }
     var tapsignerPendingCvc by remember { mutableStateOf<CharArray?>(null) }
@@ -79,6 +82,37 @@ fun CreateMultisigScreen(
     val tapsignerNfcStatuses = remember { mutableStateMapOf<Int, String>() }
     val tapsignerNfcErrors = remember { mutableStateMapOf<Int, String>() }
     val tapsignerNfcProcessing = remember { AtomicBoolean(false) }
+    val pickerHost = LocalPickerRoundTripHost.current
+    val pickerResume by pickerHost.pickerResume.collectAsState()
+
+    LaunchedEffect(pickerResume?.requestId) {
+        val destination = pickerResume?.destination as? PickerDestination.CreateMultisig
+            ?: return@LaunchedEffect
+        if (pickerResume?.purpose != PickerPurpose.MULTISIG_SIGNER_IMPORT) {
+            return@LaunchedEffect
+        }
+        val result = pickerHost.consumePickerResult(
+            PickerPurpose.MULTISIG_SIGNER_IMPORT,
+            destination
+        )
+        val request = result?.request as? PickerRequest.MultisigSignerImport
+        val index = request?.signerIndex
+        if (result?.uri != null && index != null) {
+            try {
+                val text = context.contentResolver.openInputStream(Uri.parse(result.uri))
+                    ?.bufferedReader()?.use {
+                        it.readTextBounded(InputLimits.SECRET_TEXT_CHARS)
+                    }
+                if (text.isNullOrBlank()) {
+                    viewModel.setError("Selected signer export file was empty")
+                } else {
+                    viewModel.updateSigner(index, xpub = text.trim())
+                }
+            } catch (e: Exception) {
+                viewModel.setError("Could not read signer export file: ${e.message}")
+            }
+        }
+    }
 
     fun clearTapsignerPendingCvc() {
         tapsignerPendingCvc?.fill('0')
@@ -209,27 +243,6 @@ fun CreateMultisigScreen(
             stopTapsignerNfcReader()
         }
     }
-    val signerFileLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        val index = fileImportTargetIndex
-        fileImportTargetIndex = null
-        if (uri != null && index != null) {
-            try {
-                val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
-                    it.readTextBounded(InputLimits.SECRET_TEXT_CHARS)
-                }
-                if (text.isNullOrBlank()) {
-                    viewModel.setError("Selected signer export file was empty")
-                } else {
-                    viewModel.updateSigner(index, xpub = text.trim())
-                }
-            } catch (e: Exception) {
-                viewModel.setError("Could not read signer export file: ${e.message}")
-            }
-        }
-    }
-
     devicePickerTargetIndex?.let { targetIndex ->
         HardwareWalletPickerSheet(
             title = "Choose signer device",
@@ -411,8 +424,16 @@ fun CreateMultisigScreen(
                     onSaveSigner = { index -> viewModel.saveSignerToVault(index) },
                     onScanQr = { viewModel.showQrScanner(it) },
                     onLoadFile = { index ->
-                        fileImportTargetIndex = index
-                        signerFileLauncher.launch(arrayOf("*/*"))
+                        if (!pickerHost.launchPicker(
+                                PickerRequest.MultisigSignerImport(
+                                    signerIndex = index,
+                                    signerId = pickerSignerId,
+                                    preset = pickerPreset
+                                )
+                            )
+                        ) {
+                            viewModel.setError("Finish the current file selection first")
+                        }
                     },
                     onPasteEmpty = { viewModel.setError("Clipboard is empty") },
                     tapsignerPinInputs = tapsignerPinInputs,

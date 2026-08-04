@@ -43,7 +43,6 @@ object NfcDispatch {
         val filters = mutableListOf<IntentFilter>()
         for (host in COINKITE_TAP_HOSTS) {
             filters += coinkiteUrlFilter(NfcAdapter.ACTION_NDEF_DISCOVERED, host)
-            filters += coinkiteUrlFilter(Intent.ACTION_VIEW, host)
         }
         filters += IntentFilter(NfcAdapter.ACTION_TECH_DISCOVERED)
         filters += IntentFilter(NfcAdapter.ACTION_TAG_DISCOVERED)
@@ -53,7 +52,6 @@ object NfcDispatch {
     private fun coinkiteUrlFilter(action: String, host: String): IntentFilter {
         return IntentFilter(action).apply {
             addCategory(Intent.CATEGORY_DEFAULT)
-            addCategory(Intent.CATEGORY_BROWSABLE)
             addDataScheme("https")
             addDataAuthority(host, null)
             addDataPath("/start", PatternMatcher.PATTERN_PREFIX)

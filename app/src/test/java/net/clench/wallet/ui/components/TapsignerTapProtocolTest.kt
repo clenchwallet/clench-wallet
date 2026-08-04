@@ -4,6 +4,7 @@ import co.nstant.`in`.cbor.CborBuilder
 import co.nstant.`in`.cbor.CborEncoder
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
+import java.security.MessageDigest
 import org.bouncycastle.asn1.sec.SECNamedCurves
 import org.bouncycastle.crypto.digests.SHA256Digest
 import org.bouncycastle.crypto.params.ECDomainParameters
@@ -117,6 +118,43 @@ class TapsignerTapProtocolTest {
         assertTrue(command.toHex().contains("63636d6466646572697665"))
         assertTrue(command.toHex().contains("6470617468841a800000301a800000001a800000001a80000002"))
         assertTrue(command.toHex().contains("656e6f6e636550"))
+    }
+
+    @Test
+    fun `Tapsigner proof command encrypts secret challenge and fixes slot and subpath`() {
+        val cardPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 1 })
+        val challenge = ByteArray(32) { (it + 91).toByte() }
+        val command = TapsignerTapProtocol.authenticatedTapsignerProofCommand(
+            challenge = challenge,
+            cardPubkey = cardPubkey,
+            cardNonce = ByteArray(16) { (it + 1).toByte() },
+            cvc = "123456".toCharArray()
+        )
+        try {
+            assertEquals("00cb0000", command.take(4).toByteArray().toHex())
+            assertTrue(command.toHex().contains("63636d64647369676e"))
+            assertTrue(command.toHex().contains("64736c6f7400"))
+            assertTrue(command.toHex().contains("677375627061746880"))
+            assertTrue(command.toHex().contains("666469676573745820"))
+            assertTrue(command.toHex().contains("67657075626b65795821"))
+            assertFalse(command.toHex().contains(challenge.toHex()))
+        } finally {
+            command.fill(0)
+            challenge.fill(0)
+        }
+    }
+
+    @Test
+    fun `SATSCARD read remains unauthenticated and unchanged`() {
+        val nonce = ByteArray(16) { (it + 1).toByte() }
+        val command = TapsignerTapProtocol.readCommand(nonce)
+        val hex = command.toHex()
+
+        assertTrue(hex.contains("63636d646472656164"))
+        assertTrue(hex.contains("656e6f6e636550${nonce.toHex()}"))
+        assertFalse(hex.contains("657075626b6579"))
+        assertFalse(hex.contains("6478637663"))
+        assertFalse(hex.contains("66646967657374"))
     }
 
     @Test
@@ -308,10 +346,177 @@ class TapsignerTapProtocolTest {
 
         val result = TapsignerTapProtocol.parseTapsignerDeriveResponse(response)
 
+        assertEquals(64, result.signature.size)
         assertTrue(result.chainCode.contentEquals(chainCode))
         assertTrue(result.masterPubkey.contentEquals(masterPubkey))
         assertTrue(result.pubkey.contentEquals(pubkey))
         assertTrue(result.cardNonce.contentEquals(nonce))
+    }
+
+    @Test
+    fun `derive proof verifies nonce-bound response and rejects substitution`() {
+        val privateKey = ByteArray(32).also { it[31] = 7 }
+        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey)
+        val previousCardNonce = ByteArray(16) { (it + 1).toByte() }
+        val requestNonce = ByteArray(16) { (it + 21).toByte() }
+        val chainCode = ByteArray(32) { (it + 41).toByte() }
+        val digest = MessageDigest.getInstance("SHA-256").digest(
+            "OPENDIME".toByteArray(Charsets.US_ASCII) +
+                previousCardNonce + requestNonce + chainCode
+        )
+        val derive = TapsignerDeriveResult(
+            signature = compactSignature(privateKey, digest),
+            chainCode = chainCode,
+            masterPubkey = pubkey,
+            pubkey = pubkey,
+            cardNonce = ByteArray(16) { (it + 61).toByte() }
+        )
+
+        CoinkiteTapCardVerifier.verifyTapsignerDerive(previousCardNonce, requestNonce, derive)
+
+        val substituted = derive.copy(chainCode = chainCode.copyOf().also { it[0] = (it[0].toInt() xor 1).toByte() })
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerDerive(previousCardNonce, requestNonce, substituted)
+        }
+    }
+
+    @Test
+    fun `Tapsigner secret challenge proves expected derived key possession`() {
+        val privateKey = ByteArray(32).also { it[31] = 15 }
+        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey)
+        val challenge = ByteArray(32) { (it + 17).toByte() }
+        val proof = tapsignerSignProof(privateKey, challenge)
+
+        CoinkiteTapCardVerifier.verifyTapsignerProofOfPossession(
+            challenge = challenge,
+            proof = proof,
+            expectedDerivedPubkey = pubkey
+        )
+    }
+
+    @Test
+    fun `active relay cannot substitute a self consistent key and signature tuple`() {
+        val expectedPrivateKey = ByteArray(32).also { it[31] = 16 }
+        val expectedPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(expectedPrivateKey)
+        val attackerPrivateKey = ByteArray(32).also { it[31] = 17 }
+        val challenge = ByteArray(32) { (it + 18).toByte() }
+        val attackerProof = tapsignerSignProof(attackerPrivateKey, challenge)
+
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerProofOfPossession(
+                challenge = challenge,
+                proof = attackerProof,
+                expectedDerivedPubkey = expectedPubkey
+            )
+        }
+    }
+
+    @Test
+    fun `Tapsigner proof rejects replay and wrong session decryption`() {
+        val privateKey = ByteArray(32).also { it[31] = 18 }
+        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey)
+        val oldChallenge = ByteArray(32) { (it + 19).toByte() }
+        val freshChallenge = ByteArray(32) { (it + 51).toByte() }
+        val replayedProof = tapsignerSignProof(privateKey, oldChallenge)
+
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerProofOfPossession(
+                challenge = freshChallenge,
+                proof = replayedProof,
+                expectedDerivedPubkey = pubkey
+            )
+        }
+
+        val commandSession = ByteArray(32) { (it + 71).toByte() }
+        val wrongCardSession = commandSession.copyOf().also {
+            it[0] = (it[0].toInt() xor 1).toByte()
+        }
+        val digestSeenByWrongSession = ByteArray(32) { index ->
+            (freshChallenge[index].toInt() xor
+                commandSession[index].toInt() xor
+                wrongCardSession[index].toInt()).toByte()
+        }
+        val wrongSessionProof = tapsignerSignProof(privateKey, digestSeenByWrongSession)
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerProofOfPossession(
+                challenge = freshChallenge,
+                proof = wrongSessionProof,
+                expectedDerivedPubkey = pubkey
+            )
+        }
+    }
+
+    @Test
+    fun `Tapsigner proof requires slot zero`() {
+        val privateKey = ByteArray(32).also { it[31] = 19 }
+        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey)
+        val challenge = ByteArray(32) { (it + 20).toByte() }
+
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerProofOfPossession(
+                challenge = challenge,
+                proof = tapsignerSignProof(privateKey, challenge).copy(slot = 1L),
+                expectedDerivedPubkey = pubkey
+            )
+        }
+    }
+
+    @Test
+    fun `Tapsigner continuity binds certified card path and response nonce`() {
+        val status = TapsignerTapProtocol.parseStatusResponse(tapsignerStatusResponse())
+        val cardPubkey = status.cardPubkeyHex!!.hexToBytes()
+        val cardNonce = status.cardNonceHex!!.hexToBytes()
+        val path = listOf(0x80000054L, 0x80000000L, 0x80000000L)
+
+        val verifiedNonce = TapsignerNfcReader.requireTapsignerContinuity(
+            status = status,
+            expectedCardPubkey = cardPubkey,
+            expectedPath = path,
+            expectedCardNonce = cardNonce
+        )
+        assertTrue(verifiedNonce.contentEquals(cardNonce))
+
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.requireTapsignerContinuity(
+                status = status,
+                expectedCardPubkey = cardPubkey.copyOf().also { it[1] = (it[1].toInt() xor 1).toByte() },
+                expectedPath = path,
+                expectedCardNonce = cardNonce
+            )
+        }
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.requireTapsignerContinuity(
+                status = status,
+                expectedCardPubkey = cardPubkey,
+                expectedPath = TapsignerNfcReader.multisigAccountPath(isTestnet = false),
+                expectedCardNonce = cardNonce
+            )
+        }
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.requireTapsignerContinuity(
+                status = status,
+                expectedCardPubkey = cardPubkey,
+                expectedPath = path,
+                expectedCardNonce = cardNonce.copyOf().also { it[0] = (it[0].toInt() xor 1).toByte() }
+            )
+        }
+    }
+
+    @Test
+    fun `account xpub must match nonce-verified derivation key and chain code`() {
+        val chainCode = ByteArray(32) { (it + 3).toByte() }
+        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 9 })
+        val rawXpub = ByteArray(78).also {
+            chainCode.copyInto(it, destinationOffset = 13)
+            pubkey.copyInto(it, destinationOffset = 45)
+        }
+
+        TapsignerTapProtocol.requireTapsignerXpubBinding(rawXpub, chainCode, pubkey)
+
+        val substituted = rawXpub.copyOf().also { it[77] = (it[77].toInt() xor 1).toByte() }
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerTapProtocol.requireTapsignerXpubBinding(substituted, chainCode, pubkey)
+        }
     }
 
     @Test
@@ -324,6 +529,20 @@ class TapsignerTapProtocolTest {
 
         assertTrue(result.data.contentEquals(data))
         assertTrue(result.cardNonce.contentEquals(nonce))
+    }
+
+    @Test
+    fun `sign proof parser enforces response shapes`() {
+        val privateKey = ByteArray(32).also { it[31] = 20 }
+        val challenge = ByteArray(32) { (it + 21).toByte() }
+        val proof = tapsignerSignProof(privateKey, challenge)
+        val response = tapsignerSignResponse(proof)
+
+        val parsed = TapsignerTapProtocol.parseTapsignerSignProof(response)
+        assertEquals(0L, parsed.slot)
+        assertTrue(parsed.signature.contentEquals(proof.signature))
+        assertTrue(parsed.pubkey.contentEquals(proof.pubkey))
+        assertTrue(parsed.cardNonce.contentEquals(proof.cardNonce))
     }
 
     @Test
@@ -485,6 +704,17 @@ class TapsignerTapProtocolTest {
         return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
     }
 
+    private fun tapsignerSignResponse(proof: TapsignerSignProof): ByteArray {
+        val map = CborBuilder().addMap()
+            .put("slot", proof.slot)
+            .put("sig", proof.signature)
+            .put("pubkey", proof.pubkey)
+            .put("card_nonce", proof.cardNonce)
+        val out = ByteArrayOutputStream()
+        CborEncoder(out).encode(map.end().build())
+        return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+    }
+
     private fun coinkiteErrorResponse(code: Long, error: String): ByteArray {
         val map = CborBuilder().addMap()
             .put("code", code)
@@ -503,6 +733,18 @@ class TapsignerTapProtocolTest {
         val r = components[0]
         val s = components[1].let { if (it > domain.n.shiftRight(1)) domain.n.subtract(it) else it }
         return r.toFixed32() + s.toFixed32()
+    }
+
+    private fun tapsignerSignProof(
+        privateKey: ByteArray,
+        challenge: ByteArray
+    ): TapsignerSignProof {
+        return TapsignerSignProof(
+            slot = 0L,
+            signature = compactSignature(privateKey, challenge),
+            pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey),
+            cardNonce = ByteArray(16) { (it + 111).toByte() }
+        )
     }
 
     private fun BigInteger.toFixed32(): ByteArray {

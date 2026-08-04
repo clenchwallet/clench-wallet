@@ -54,6 +54,9 @@ class ClenchStateBackupManager @Inject constructor(
         val utxoJson = JSONArray()
 
         wallets.forEach { wallet ->
+            val network = wallet.network.toBdkNetwork()
+            requirePublicDescriptor(wallet.descriptor, network, "receive")
+            requirePublicDescriptor(wallet.changeDescriptor, network, "change")
             walletJson.put(JSONObject().apply {
                 put("id", wallet.id)
                 put("name", wallet.name)
@@ -239,19 +242,37 @@ class ClenchStateBackupManager @Inject constructor(
             require(descriptor.length <= MAX_DESCRIPTOR_CHARS && changeDescriptor.length <= MAX_DESCRIPTOR_CHARS) {
                 "Wallet descriptor is too large."
             }
-            require(!containsPrivateKeyMaterial(descriptor) && !containsPrivateKeyMaterial(changeDescriptor)) {
-                "Backup contains a private descriptor. Clench state backups must be watch-only."
-            }
-            MultisigDescriptorSafety.validate(descriptor)
-            MultisigDescriptorSafety.validate(changeDescriptor)
             val networkName = item.optString("network", "mainnet")
             require(networkName == "mainnet" || networkName == "testnet") { "Backup wallet has an invalid network." }
-            val network = if (networkName == "testnet") Network.TESTNET else Network.BITCOIN
-            runCatching { Descriptor(descriptor, network).close() }
-                .getOrElse { throw IllegalArgumentException("Backup contains an invalid receive descriptor.", it) }
-            runCatching { Descriptor(changeDescriptor, network).close() }
-                .getOrElse { throw IllegalArgumentException("Backup contains an invalid change descriptor.", it) }
+            val network = networkName.toBdkNetwork()
+            requirePublicDescriptor(descriptor, network, "receive")
+            requirePublicDescriptor(changeDescriptor, network, "change")
+            MultisigDescriptorSafety.validate(descriptor)
+            MultisigDescriptorSafety.validate(changeDescriptor)
         }
+    }
+
+    private fun requirePublicDescriptor(descriptor: String, network: Network, label: String) {
+        require(!containsPrivateKeyMaterial(descriptor)) {
+            "Backup contains a private descriptor. Clench state backups must be watch-only."
+        }
+        val parsed = runCatching { Descriptor(descriptor, network) }
+            .getOrElse { throw IllegalArgumentException("Backup contains an invalid $label descriptor.", it) }
+        try {
+            // BDK structurally separates secret and public descriptor material. This catches
+            // private-key encodings that a prefix/WIF regex does not know about.
+            require(parsed.toStringWithSecret() == parsed.toString()) {
+                "Backup contains a private descriptor. Clench state backups must be watch-only."
+            }
+        } finally {
+            parsed.close()
+        }
+    }
+
+    private fun String.toBdkNetwork(): Network = when (this) {
+        "mainnet" -> Network.BITCOIN
+        "testnet" -> Network.TESTNET
+        else -> throw IllegalArgumentException("Backup wallet has an invalid network.")
     }
 
     private fun descriptorKey(descriptor: String, network: String): String {
@@ -277,7 +298,7 @@ class ClenchStateBackupManager @Inject constructor(
         private const val MAX_LABEL_CHARS = 500
         private const val MAX_DESCRIPTOR_CHARS = 20_000
         private const val MAX_IDENTICON_BYTES = 4_096
-        private val PRIVATE_EXTENDED_KEY_REGEX = Regex("(?i)[xyzuv]prv[1-9A-HJ-NP-Za-km-z]+")
+        private val PRIVATE_EXTENDED_KEY_REGEX = Regex("(?i)[xyzuvt]prv[1-9A-HJ-NP-Za-km-z]+")
         private val WIF_REGEX = Regex("(?:^|[^1-9A-HJ-NP-Za-km-z])[KL5c9][1-9A-HJ-NP-Za-km-z]{50,51}(?:$|[^1-9A-HJ-NP-Za-km-z])")
         private val TXID_REGEX = Regex("(?i)^[0-9a-f]{64}$")
         private val OUTPOINT_REGEX = Regex("(?i)^[0-9a-f]{64}:[0-9]{1,10}$")

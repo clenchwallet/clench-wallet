@@ -1,8 +1,10 @@
 package net.clench.wallet.data.local
 
 import android.content.Context
+import android.os.SystemClock
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.provider.Settings
 import androidx.core.content.edit
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.KeyStore
@@ -36,7 +38,10 @@ class PinManager @Inject constructor(
         private const val PREFS_NAME = "clench_pin_prefs"
         private const val PREF_PIN_HASH = "pin_hmac"
         private const val PREF_FAILED_ATTEMPTS = "failed_attempts"
-        private const val PREF_LAST_FAILURE_TIME = "last_failure_ms"
+        private const val PREF_LAST_FAILURE_ELAPSED = "last_failure_elapsed_ms"
+        private const val PREF_LAST_FAILURE_BOOT_COUNT = "last_failure_boot_count"
+        // Removed in v0.3.24. Kept only so upgraded installs delete the wall-clock anchor.
+        private const val PREF_LEGACY_LAST_FAILURE_WALL_TIME = "last_failure_ms"
         const val MIN_PIN_LENGTH = 6
     }
 
@@ -52,8 +57,7 @@ class PinManager @Inject constructor(
         if (hash == null) return "Failed to set PIN — Keystore error"
         prefs.edit {
             putString(PREF_PIN_HASH, hash)
-            remove(PREF_FAILED_ATTEMPTS)
-            remove(PREF_LAST_FAILURE_TIME)
+            clearThrottlePreferences()
         }
         return null
     }
@@ -69,7 +73,7 @@ class PinManager @Inject constructor(
         val inputHash = computeHmac(pin)
         pin.fill('0')
         return if (inputHash != null && constantTimeEquals(inputHash, storedHash)) {
-            prefs.edit { remove(PREF_FAILED_ATTEMPTS); remove(PREF_LAST_FAILURE_TIME) }
+            prefs.edit { clearThrottlePreferences() }
             null
         } else {
             recordFailedAttempt()
@@ -81,28 +85,54 @@ class PinManager @Inject constructor(
 
     fun clearPin() {
         prefs.edit {
-            remove(PREF_PIN_HASH); remove(PREF_FAILED_ATTEMPTS); remove(PREF_LAST_FAILURE_TIME)
+            remove(PREF_PIN_HASH)
+            clearThrottlePreferences()
         }
     }
 
     fun getRemainingDelayMs(): Long {
         val attempts = prefs.getInt(PREF_FAILED_ATTEMPTS, 0)
         if (attempts < 5) return 0L
-        val lastFailureTime = prefs.getLong(PREF_LAST_FAILURE_TIME, 0L)
-        val delayMs = exponentialDelay(attempts)
-        val elapsed = System.currentTimeMillis() - lastFailureTime
-        return maxOf(0L, delayMs - elapsed)
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val nowBootCount = currentBootCount()
+        val decision = PinThrottlePolicy.remainingDelay(
+            attempts = attempts,
+            storedElapsedMs = prefs.getLong(PREF_LAST_FAILURE_ELAPSED, -1L),
+            storedBootCount = prefs.getInt(PREF_LAST_FAILURE_BOOT_COUNT, -1),
+            nowElapsedMs = nowElapsed,
+            nowBootCount = nowBootCount
+        )
+        if (decision.reanchor) {
+            // A reboot, monotonic-clock reset, or pre-v0.3.24 throttle record restarts the
+            // current delay. Rebooting or changing the wall clock can never shorten it.
+            prefs.edit(commit = true) {
+                putLong(PREF_LAST_FAILURE_ELAPSED, nowElapsed)
+                putInt(PREF_LAST_FAILURE_BOOT_COUNT, nowBootCount)
+                remove(PREF_LEGACY_LAST_FAILURE_WALL_TIME)
+            }
+        }
+        return decision.remainingMs
     }
 
     private fun recordFailedAttempt() {
-        val attempts = prefs.getInt(PREF_FAILED_ATTEMPTS, 0) + 1
-        prefs.edit { putInt(PREF_FAILED_ATTEMPTS, attempts); putLong(PREF_LAST_FAILURE_TIME, System.currentTimeMillis()) }
+        val attempts = prefs.getInt(PREF_FAILED_ATTEMPTS, 0).coerceIn(0, 99) + 1
+        prefs.edit(commit = true) {
+            putInt(PREF_FAILED_ATTEMPTS, attempts)
+            putLong(PREF_LAST_FAILURE_ELAPSED, SystemClock.elapsedRealtime())
+            putInt(PREF_LAST_FAILURE_BOOT_COUNT, currentBootCount())
+            remove(PREF_LEGACY_LAST_FAILURE_WALL_TIME)
+        }
     }
 
-    private fun exponentialDelay(attempts: Int): Long {
-        if (attempts < 5) return 0L
-        val multiplier = 1L shl (attempts - 5)
-        return minOf(30_000L * multiplier, 30 * 60 * 1000L)
+    private fun currentBootCount(): Int = runCatching {
+        Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT)
+    }.getOrDefault(-1)
+
+    private fun android.content.SharedPreferences.Editor.clearThrottlePreferences() {
+        remove(PREF_FAILED_ATTEMPTS)
+        remove(PREF_LAST_FAILURE_ELAPSED)
+        remove(PREF_LAST_FAILURE_BOOT_COUNT)
+        remove(PREF_LEGACY_LAST_FAILURE_WALL_TIME)
     }
 
     private fun getOrCreateHmacKey(): SecretKey {
@@ -115,22 +145,79 @@ class PinManager @Inject constructor(
     }
 
     private fun computeHmac(pin: CharArray): String? {
+        var pinBytes: ByteArray? = null
+        var result: ByteArray? = null
         return try {
             val key = getOrCreateHmacKey()
             val mac = Mac.getInstance("HmacSHA256")
             mac.init(key)
-            val pinBytes = ByteArray(pin.size) { pin[it].code.toByte() }
-            val result = mac.doFinal(pinBytes)
-            pinBytes.fill(0)
-            android.util.Base64.encodeToString(result, android.util.Base64.NO_WRAP)
-        } catch (_: Exception) { null }
+            pinBytes = ByteArray(pin.size) { pin[it].code.toByte() }
+            val computed = mac.doFinal(pinBytes)
+            result = computed
+            android.util.Base64.encodeToString(computed, android.util.Base64.NO_WRAP)
+        } catch (_: Exception) {
+            null
+        } finally {
+            pinBytes?.fill(0)
+            result?.fill(0)
+        }
     }
 
     private fun constantTimeEquals(a: String, b: String): Boolean {
-        val aBytes = a.toByteArray(); val bBytes = b.toByteArray()
-        if (aBytes.size != bBytes.size) return false
-        var diff: Byte = 0
-        for (i in aBytes.indices) diff = diff xor (aBytes[i] xor bBytes[i])
-        return diff == 0.toByte()
+        val aBytes = a.toByteArray()
+        val bBytes = b.toByteArray()
+        return try {
+            if (aBytes.size != bBytes.size) return false
+            var diff: Byte = 0
+            for (i in aBytes.indices) diff = diff xor (aBytes[i] xor bBytes[i])
+            diff == 0.toByte()
+        } finally {
+            aBytes.fill(0)
+            bBytes.fill(0)
+        }
+    }
+}
+
+internal data class PinThrottleDecision(
+    val remainingMs: Long,
+    val reanchor: Boolean
+)
+
+/** Pure policy kept separate from Android storage so rollback/reboot behavior is unit-testable. */
+internal object PinThrottlePolicy {
+    private const val FIRST_DELAY_MS = 30_000L
+    private const val MAX_DELAY_MS = 30L * 60L * 1_000L
+
+    fun remainingDelay(
+        attempts: Int,
+        storedElapsedMs: Long,
+        storedBootCount: Int,
+        nowElapsedMs: Long,
+        nowBootCount: Int
+    ): PinThrottleDecision {
+        val delayMs = delayForAttempts(attempts)
+        if (delayMs == 0L) return PinThrottleDecision(0L, false)
+
+        val missingAnchor = storedElapsedMs < 0L
+        // Treat a counter becoming available/unavailable as a boot-boundary uncertainty too.
+        // A platform quirk must never turn an unknown reboot into a shorter delay.
+        val bootChanged = storedBootCount != nowBootCount
+        val monotonicClockReset = nowElapsedMs < storedElapsedMs
+        if (missingAnchor || bootChanged || monotonicClockReset) {
+            return PinThrottleDecision(delayMs, true)
+        }
+
+        return PinThrottleDecision(
+            remainingMs = (delayMs - (nowElapsedMs - storedElapsedMs)).coerceAtLeast(0L),
+            reanchor = false
+        )
+    }
+
+    fun delayForAttempts(attempts: Int): Long {
+        if (attempts < 5) return 0L
+        // Six doublings already exceed the 30-minute cap. Clamping also prevents
+        // shift-count wraparound after an extremely large number of attempts.
+        val exponent = (attempts - 5).coerceIn(0, 6)
+        return (FIRST_DELAY_MS * (1L shl exponent)).coerceAtMost(MAX_DELAY_MS)
     }
 }

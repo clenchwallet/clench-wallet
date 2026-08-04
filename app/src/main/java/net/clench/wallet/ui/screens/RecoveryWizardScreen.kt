@@ -1,7 +1,7 @@
 package net.clench.wallet.ui.screens
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,11 +32,17 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.ui.viewmodel.RecoveryWizardViewModel
+import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
+import net.clench.wallet.ui.picker.PickerDestination
+import net.clench.wallet.ui.picker.PickerPurpose
+import net.clench.wallet.ui.picker.PickerRequest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,10 +56,18 @@ fun RecoveryWizardScreen(
     viewModel: RecoveryWizardViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val backupImportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) viewModel.importStateBackup(uri)
+    val context = LocalContext.current
+    val pickerHost = LocalPickerRoundTripHost.current
+    val pickerResume by pickerHost.pickerResume.collectAsState()
+    val pickerDestination = PickerDestination.RecoveryWizard
+
+    LaunchedEffect(pickerResume?.requestId) {
+        if (pickerResume?.purpose == PickerPurpose.RECOVERY_BACKUP_IMPORT) {
+            pickerHost.consumePickerResult(
+                PickerPurpose.RECOVERY_BACKUP_IMPORT,
+                pickerDestination
+            )?.uri?.let { viewModel.importStateBackup(Uri.parse(it)) }
+        }
     }
 
     Scaffold(
@@ -88,7 +102,18 @@ fun RecoveryWizardScreen(
                 body = "Restores public descriptors, wallet metadata, labels, UTXO notes, and non-secret settings. Hot wallets come back watch-only until the matching seed phrase is restored.",
                 primary = {
                     Button(
-                        onClick = { backupImportLauncher.launch(arrayOf("application/json", "text/json", "*/*")) },
+                        onClick = {
+                            if (!pickerHost.launchPicker(
+                                    PickerRequest.RecoveryBackupImport
+                                )
+                            ) {
+                                Toast.makeText(
+                                    context,
+                                    "Finish the current file selection first",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
                         enabled = !uiState.isImportingBackup,
                         modifier = Modifier.fillMaxWidth()
                     ) {

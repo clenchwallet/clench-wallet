@@ -31,8 +31,8 @@ import net.clench.wallet.ui.viewmodel.CreateWalletViewModel
 import net.clench.wallet.ui.viewmodel.HomeViewModel
 import net.clench.wallet.ui.viewmodel.StartupViewModel
 import net.clench.wallet.ui.viewmodel.SendViewModel
-import net.clench.wallet.ui.MainActivity
 import net.clench.wallet.ui.util.BiometricHelper
+import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
 
 @Composable
 fun ClenchNavHost(navController: NavHostController) {
@@ -53,29 +53,27 @@ fun ClenchNavHost(navController: NavHostController) {
         onFailure: (String) -> Unit
     ) {
         if (fragmentActivity == null || !BiometricHelper.canAuthenticate(context)) {
-            onFailure("Biometric or device-credential authentication is required but unavailable")
+            onFailure(BiometricHelper.authenticationUnavailableGuidance())
             return
         }
-        (context as? MainActivity)?.suppressPassphraseLock = true
         BiometricHelper.authenticate(
             activity = fragmentActivity,
             title = title,
             subtitle = subtitle,
             onSuccess = {
-                (context as? MainActivity)?.suppressPassphraseLock = false
                 onSuccess()
             },
             onFailure = { message ->
-                (context as? MainActivity)?.suppressPassphraseLock = false
                 onFailure("Authentication failed: $message")
             },
-            onCancel = { (context as? MainActivity)?.suppressPassphraseLock = false },
-            allowUiOnlyFallback = false
+            onCancel = { }
         )
     }
 
     val startupViewModel: StartupViewModel = hiltViewModel()
     val destination by startupViewModel.destination.collectAsState()
+    val pickerHost = LocalPickerRoundTripHost.current
+    val pendingPickerResume by pickerHost.pickerResume.collectAsState()
 
     NavHost(
         navController = navController,
@@ -95,7 +93,20 @@ fun ClenchNavHost(navController: NavHostController) {
                 startupViewModel.refresh()
             }
 
-            LaunchedEffect(destination) {
+            LaunchedEffect(destination, pendingPickerResume?.requestId) {
+                val pickerResume = pendingPickerResume
+                if (pickerResume != null) {
+                    navController.navigate(pickerResume.resumeRoute) {
+                        popUpTo("loading") { inclusive = true }
+                        launchSingleTop = true
+                    }
+                    return@LaunchedEffect
+                }
+                // A consumed picker result clears the broker while its resumed route is active.
+                // Do not let the startup destination immediately navigate over that fresh screen.
+                if (navController.currentDestination?.route != "loading") {
+                    return@LaunchedEffect
+                }
                 when (val dest = destination) {
                     is StartupViewModel.StartupDestination.Loading -> { /* still loading */ }
                     is StartupViewModel.StartupDestination.NetworkChoice -> {
@@ -236,14 +247,18 @@ fun ClenchNavHost(navController: NavHostController) {
                 navArgument("signerId") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("preset") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
-        ) {
+        ) { backStackEntry ->
+            val signerId = backStackEntry.arguments?.getString("signerId")
+            val preset = backStackEntry.arguments?.getString("preset")
             CreateMultisigScreen(
                 onWalletCreated = { walletId ->
                     navController.navigate(Routes.Home.build(walletId)) {
                         popUpTo(Routes.Welcome.route) { inclusive = true }
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                pickerSignerId = signerId,
+                pickerPreset = preset
             )
         }
 
@@ -338,8 +353,10 @@ fun ClenchNavHost(navController: NavHostController) {
         composable(
             route = Routes.RawTransaction.route,
             arguments = listOf(navArgument("walletId") { type = NavType.StringType })
-        ) {
+        ) { backStackEntry ->
+            val walletId = backStackEntry.arguments?.getString("walletId") ?: return@composable
             RawTransactionScreen(
+                walletId = walletId,
                 onBack = { navController.popBackStack() },
                 onConnect = { navController.navigate(Routes.SettingsElectrum.route) }
             )

@@ -38,14 +38,33 @@ class PhoneSignerPsbtViewModel @Inject constructor(
     val uiState = _uiState.asStateFlow()
 
     private var unsignedPsbtBase64: String = ""
+    private var sessionGeneration: Long = 0L
 
-    fun initFromStore(): Pair<String, String>? {
-        val data = psbtStore.consume() ?: return null
-        unsignedPsbtBase64 = data.second
+    internal fun initFromStore(
+        expectedWalletId: String,
+        pickerToken: String? = null,
+        pickerPurpose: PsbtPickerPurpose? = null
+    ): PsbtHandoff? {
+        val data = psbtStore.consume(
+            expectedWalletId = expectedWalletId,
+            expectedDeviceType = PHONE_SIGNER_DEVICE,
+            pickerToken = pickerToken,
+            pickerPurpose = pickerPurpose
+        ) ?: run {
+            if (pickerToken != null || pickerPurpose != null) {
+                invalidatePickerSession("The file hand-off expired or did not match this signing session")
+            }
+            return null
+        }
+        val baselineGeneration = maxOf(sessionGeneration, data.sourceSessionGeneration)
+        check(baselineGeneration < Long.MAX_VALUE) { "Signing session generation is exhausted" }
+        sessionGeneration = baselineGeneration + 1L
+        unsignedPsbtBase64 = data.originalUnsignedPsbtBase64
         _uiState.update {
             it.copy(
-                walletId = data.first,
-                psbtBase64 = data.second,
+                walletId = data.walletId,
+                psbtBase64 = data.currentPsbtBase64,
+                signedPsbtBase64 = null,
                 isReviewLoading = true,
                 transactionReview = null,
                 highFeeAcknowledged = false,
@@ -54,7 +73,10 @@ class PhoneSignerPsbtViewModel @Inject constructor(
         }
         viewModelScope.launch {
             try {
-                val review = bitcoinRepository.inspectPsbt(data.first, data.second)
+                val review = bitcoinRepository.inspectPsbt(
+                    data.walletId,
+                    data.currentPsbtBase64
+                )
                 SendViewModel.feeSafetyError(review)?.let { error(it) }
                 _uiState.update {
                     it.copy(
@@ -72,7 +94,47 @@ class PhoneSignerPsbtViewModel @Inject constructor(
                 }
             }
         }
-        return data.first to data.second
+        return data
+    }
+
+    /** Restore the unsigned policy after DocumentsUI; signing/authentication is repeated. */
+    fun stageForDocumentPicker(): String? {
+        val current = _uiState.value
+        if (current.isSigning || current.isBroadcasting ||
+            current.walletId.isBlank() || current.psbtBase64.isBlank() ||
+            unsignedPsbtBase64.isBlank() || sessionGeneration <= 0L
+        ) {
+            _uiState.update { it.copy(error = "No idle PSBT session is available for export") }
+            return null
+        }
+        return try {
+            psbtStore.stageForPicker(
+                walletId = current.walletId,
+                originalUnsignedPsbtBase64 = unsignedPsbtBase64,
+                currentPsbtBase64 = current.psbtBase64,
+                deviceType = PHONE_SIGNER_DEVICE,
+                sourceSessionGeneration = sessionGeneration,
+                purpose = PsbtPickerPurpose.PHONE_EXPORT
+            )
+        } catch (_: Throwable) {
+            _uiState.update { it.copy(error = "Another signing hand-off is already pending") }
+            null
+        }
+    }
+
+    fun discardDocumentPickerStage(token: String) {
+        psbtStore.discardPickerStage(token)
+    }
+
+    fun cancelDocumentPickerRoundTrip(token: String, message: String = "File selection was cancelled") {
+        psbtStore.discardPickerStage(token)
+        invalidatePickerSession(message)
+    }
+
+    private fun invalidatePickerSession(message: String) {
+        sessionGeneration += 1L
+        unsignedPsbtBase64 = ""
+        _uiState.value = UiState(error = message)
     }
 
     fun signWithPhoneKeys(walletId: String) {
@@ -101,16 +163,44 @@ class PhoneSignerPsbtViewModel @Inject constructor(
     }
 
     fun broadcastIfComplete(walletId: String) {
-        val signed = _uiState.value.signedPsbtBase64
+        val current = _uiState.value
+        if (walletId.isBlank() || walletId != current.walletId) {
+            _uiState.update { it.copy(error = "Security: broadcast request does not belong to the active wallet") }
+            return
+        }
+        val signed = current.signedPsbtBase64
         if (signed.isNullOrBlank()) {
             _uiState.update { it.copy(error = "Sign the PSBT with the phone signer first") }
+            return
+        }
+        val sessionUnsignedPsbt = unsignedPsbtBase64
+        if (sessionUnsignedPsbt.isBlank()) {
+            _uiState.update { it.copy(error = "No PSBT is loaded") }
             return
         }
         viewModelScope.launch {
             _uiState.update { it.copy(isBroadcasting = true, error = null) }
             try {
-                val txid = bitcoinRepository.applyAndBroadcastPsbt(walletId, signed, unsignedPsbtBase64)
+                val assertSessionCurrent = {
+                    if (_uiState.value.walletId != walletId ||
+                        unsignedPsbtBase64 != sessionUnsignedPsbt
+                    ) {
+                        throw SecurityException("Signer session changed before the transaction could be broadcast")
+                    }
+                }
+                assertSessionCurrent()
+                val txid = bitcoinRepository.applyAndBroadcastPsbt(
+                    walletId,
+                    signed,
+                    sessionUnsignedPsbt,
+                    assertBroadcastAuthorized = assertSessionCurrent
+                )
+                assertSessionCurrent()
                 _uiState.update { it.copy(isBroadcasting = false, txid = txid) }
+            } catch (e: SecurityException) {
+                _uiState.update {
+                    it.copy(isBroadcasting = false, error = "Security: ${e.message}")
+                }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
@@ -136,5 +226,9 @@ class PhoneSignerPsbtViewModel @Inject constructor(
                 it.copy(highFeeAcknowledged = true, error = null)
             } else it
         }
+    }
+
+    private companion object {
+        const val PHONE_SIGNER_DEVICE = "PHONE_SIGNER"
     }
 }
