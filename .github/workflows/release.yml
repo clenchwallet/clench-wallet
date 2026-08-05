@@ -176,8 +176,6 @@ jobs:
   build_independent_unsigned:
     needs: validate_source
     runs-on: ubuntu-24.04
-    env:
-      GRADLE_USER_HOME: ${{ runner.temp }}/gradle-pre-sign-independent
     permissions:
       contents: read
     steps:
@@ -198,6 +196,8 @@ jobs:
           distribution: 'temurin'
 
       - name: Set up isolated Gradle cache
+        env:
+          GRADLE_USER_HOME: ${{ runner.temp }}/gradle-pre-sign-independent
         uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
         with:
           cache-disabled: true
@@ -208,6 +208,7 @@ jobs:
           VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
           SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
           CLENCH_REQUIRE_NO_LOCAL_SIGNING_MATERIAL: 1
+          GRADLE_USER_HOME: ${{ runner.temp }}/gradle-pre-sign-independent
           ACTIONS_RUNTIME_TOKEN: ''
           ACTIONS_RESULTS_URL: ''
           ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
@@ -471,8 +472,6 @@ jobs:
   build_post_sign_unsigned:
     needs: validate_source
     runs-on: ubuntu-24.04
-    env:
-      GRADLE_USER_HOME: ${{ runner.temp }}/gradle-post-sign-independent
     permissions:
       contents: read
     steps:
@@ -493,6 +492,8 @@ jobs:
           distribution: 'temurin'
 
       - name: Set up a second isolated Gradle cache
+        env:
+          GRADLE_USER_HOME: ${{ runner.temp }}/gradle-post-sign-independent
         uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
         with:
           cache-disabled: true
@@ -502,6 +503,7 @@ jobs:
           VERSION: ${{ needs.validate_source.outputs.version }}
           VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
           CLENCH_REQUIRE_NO_LOCAL_SIGNING_MATERIAL: 1
+          GRADLE_USER_HOME: ${{ runner.temp }}/gradle-post-sign-independent
           ACTIONS_RUNTIME_TOKEN: ''
           ACTIONS_RESULTS_URL: ''
           ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''

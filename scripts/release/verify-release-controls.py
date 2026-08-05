@@ -152,6 +152,14 @@ def verify_release_workflow(workflow: str) -> None:
         )
 
     for job_name, block in blocks.items():
+        steps_offset = block.find("\n    steps:\n")
+        if steps_offset < 0:
+            raise SystemExit(f"Release job {job_name} has no steps block")
+        job_header = block[:steps_offset]
+        if "${{ runner." in job_header:
+            raise SystemExit(
+                f"Release job {job_name} uses runner context before runner assignment"
+            )
         if re.search(r"(?m)^      - (?!name:\s)", block):
             raise SystemExit(
                 f"Release job {job_name} contains an unnamed top-level step"

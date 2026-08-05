@@ -15,6 +15,36 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Validate GitHub Actions workflow schema and expressions
+        run: |
+          set -euo pipefail
+          ACTIONLINT_VERSION=1.7.12
+          ACTIONLINT_ARCHIVE="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          ACTIONLINT_DIR="$RUNNER_TEMP/actionlint-$ACTIONLINT_VERSION"
+          mkdir -p "$ACTIONLINT_DIR"
+          curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors \
+            -fsSLo "$ACTIONLINT_DIR/$ACTIONLINT_ARCHIVE" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${ACTIONLINT_ARCHIVE}"
+          curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors \
+            -fsSLo "$ACTIONLINT_DIR/checksums.txt" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          PUBLISHED_SHA256="$(
+            awk -v name="$ACTIONLINT_ARCHIVE" '$2 == name { print $1 }' \
+              "$ACTIONLINT_DIR/checksums.txt"
+          )"
+          ACTUAL_SHA256="$(
+            sha256sum "$ACTIONLINT_DIR/$ACTIONLINT_ARCHIVE" | awk '{print $1}'
+          )"
+          test -n "$PUBLISHED_SHA256"
+          test "$PUBLISHED_SHA256" = "$ACTIONLINT_SHA256"
+          test "$ACTUAL_SHA256" = "$ACTIONLINT_SHA256"
+          tar -xzf "$ACTIONLINT_DIR/$ACTIONLINT_ARCHIVE" \
+            -C "$ACTIONLINT_DIR" actionlint
+          "$ACTIONLINT_DIR/actionlint" -version
+          "$ACTIONLINT_DIR/actionlint" -no-color -oneline -shellcheck= \
+            .github/workflows/*.yml
+
       - name: Validate Gradle wrapper JAR
         uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
 
