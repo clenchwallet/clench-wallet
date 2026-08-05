@@ -19,6 +19,7 @@ The release tag must be annotated, cryptographically signed, and verified by Git
 - `clench-X.Y.Z-sbom.cdx.json`
 - `PROVENANCE.intoto.jsonl`
 - `INDEPENDENT-APK-VERIFICATION.json`
+- `UNSIGNED-BUILD-SHA256SUMS`
 - `SHA256SUMS` and `SHA256SUMS.txt`
 - `RELEASE-MANIFEST.txt`
 - `RELEASE-NOTES.md`
@@ -38,10 +39,17 @@ apksigner verify --verbose --print-certs clench-X.Y.Z-release.apk
 
 Require:
 
+- APK Signature Scheme v1: false.
 - APK Signature Scheme v2: true.
+- APK Signature Scheme v3: true.
+- APK Signature Scheme v3.1: false.
+- APK Signature Scheme v4: false.
+- SourceStamp: false.
 - Exactly one signer.
 - Signer certificate SHA-256:
   `d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca`.
+
+The APK must contain no v1/JAR signature records and no `.idsig` sidecar.
 
 This is the established Clench signer baseline. An unexpected signer is a hard failure unless a separately authenticated key-rotation notice exists.
 
@@ -105,7 +113,11 @@ and extra bundle entries are rejected.
 
 ## 7. Independently rebuild
 
-Follow [reproducible-builds.md](reproducible-builds.md). The no-secrets rebuild must be unsigned and its APK payload must match the signed artifact:
+Follow [reproducible-builds.md](reproducible-builds.md). Download the exact
+unsigned signer-input artifact and verify its `BUILD-SHA256SUMS`. The no-secrets
+rebuild must match that APK byte-for-byte before normalization. A disposable-key
+copy is then normalized with the pinned production `apksigner` policy and must
+match every production-signed APK ZIP entry with no exclusions:
 
 ```bash
 scripts/release/rebuild-unsigned.sh
@@ -113,10 +125,14 @@ scripts/release/rebuild-unsigned.sh
 VERSION=X.Y.Z \
 VERSION_CODE=EXPECTED_CODE \
 EXPECTED_RELEASE_SIGNER_SHA256=d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca \
+APKSIGNER_BUILD_TOOLS_VERSION=PINNED_BUILD_TOOLS_VERSION \
+EXPECTED_APKSIGNER_SHA256=PINNED_APKSIGNER_LAUNCHER_SHA256 \
+EXPECTED_APKSIGNER_JAR_SHA256=PINNED_APKSIGNER_JAR_SHA256 \
 scripts/release/verify-independent-apk.sh \
   release-artifacts \
   app/build/outputs/apk/release/app-release.apk \
-  independently-verified.json
+  independently-verified.json \
+  signer-input/clench-X.Y.Z-unsigned.apk
 ```
 
 ## Do not install if
@@ -124,6 +140,7 @@ scripts/release/verify-independent-apk.sh \
 - The APK is debug-signed or its package differs.
 - Any checksum, tag, source commit, attestation, signer, version, SBOM, or provenance check fails.
 - The independent build unexpectedly contains a signature.
-- Any non-signature APK payload, compressed byte stream, ordering, local ZIP
-  metadata, or archive comment differs.
+- The two raw unsigned APKs differ by any byte.
+- After pinned disposable-key normalization, any APK ZIP entry, compressed byte
+  stream, ordering, local ZIP metadata, or archive comment differs.
 - Verification requires weakening a key-isolation, dependency-integrity, attestation, or comparison rule.
