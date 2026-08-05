@@ -10,7 +10,7 @@ fail-closed workflow attempts and carries a new package version.
 
 ## Maintainer release attestation
 
-The maintainer reported completing physical-device checks and explicitly
+The maintainer reported running physical-device checks and explicitly
 authorized publication. The report did not include the per-row APK digest and
 size, Android model/API, signer or card model/firmware, network/transport, or
 sanitized outcomes required for an auditable row pass. Therefore every row
@@ -36,12 +36,14 @@ workflow rejected unexplained local ZIP alignment-header differences between
 the raw independent unsigned APK and the APK after production `apksigner`
 processing.
 
-The v0.3.26 candidate must prove that the isolated signer receives exactly the
-unsigned APK reproduced by a no-secrets build. It must then reproduce
-`apksigner`'s deterministic packaging transformation on a copy with a
-disposable verifier-only key, destroy that key, compare every ZIP entry with no
-exclusions, verify the independent Clench release signer, and publish only the
-allowlisted evidence bundle.
+The v0.3.26 candidate must prove that signer input A matches artifact-blind
+clean rebuild B byte-for-byte before key access. Artifact-blind clean rebuild C
+may run in parallel, but its separate attestation and equality to the approved
+raw digest are consumed only in post-sign verification. The verifier must then
+reproduce `apksigner`'s deterministic packaging transformation on a copy of C
+with a disposable verifier-only key, destroy that key, compare every ZIP entry
+with no exclusions, independently verify the established Clench release
+signer, and publish only the allowlisted evidence bundle.
 
 ## Evidence rule
 

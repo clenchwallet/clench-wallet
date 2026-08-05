@@ -68,10 +68,12 @@ scripts/release/validate-sbom.py \
 Run `scripts/release/rebuild-unsigned.sh` only from a clean standalone clone
 that contains no keystore or `keystore.properties`. A linked Git worktree is
 intentionally refused because AGP cannot reproduce its embedded Git revision
-metadata. During a release, the separate `verify_release` job runs this
-no-secrets build and first requires it to match the exact unsigned signer-input
-APK byte-for-byte. The verifier then signs a copy with the pinned `apksigner`
-and a disposable verifier-only key, destroys that key, and compares every
+metadata. During a release, the tested primary no-secrets build is A. Two
+separate clean build jobs produce B and C with equivalent strict recipes and
+without receiving expected APK artifacts. The pre-sign verifier requires A and
+B to match byte-for-byte before key access; the post-sign verifier
+confirms C against the same approved raw digest. It then signs a copy of C with
+the pinned `apksigner` and a disposable verifier-only key, destroys that key, and compares every
 normalized ZIP entry with the production-signed APK. No APK entry is excluded.
 
 The release-tool self-test creates synthetic signed/unsigned APK containers and

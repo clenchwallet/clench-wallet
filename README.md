@@ -74,13 +74,20 @@ cd clench-wallet
 
 The debug APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 
-### Release Build
+### Unsigned release evidence build
 ```bash
+test ! -e keystore.properties
 ./gradlew assembleRelease
 ```
-Requires a signing keystore configured in `keystore.properties`.
 
-Release builds are published only from `v*` tags. Debug APKs from CI are short-retention artifacts and are not production wallet releases.
+Without `keystore.properties`, this produces unsigned evidence only. Do not
+install or distribute it as a wallet release. Production APKs are signed only
+inside the protected, isolated GitHub release environment after the approved
+unsigned digest and independent build evidence pass.
+
+Production releases are dispatched only from protected `master` after a
+pinned-key signed `v*` tag is proven to target that exact commit. Debug APKs
+from CI are short-retention artifacts and are not production wallet releases.
 
 Release trust docs:
 - [Reproducible builds](docs/release/reproducible-builds.md)
@@ -114,7 +121,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 
 | Version | Highlights |
 | --- | --- |
-| 0.3.26 | Carries the v0.3.24 security hardening forward after two unpublished, fail-closed release attempts and adds a two-gate reproducibility proof: byte-identical unsigned builds, followed by deterministic `apksigner` packaging normalization and a no-exclusions comparison of every APK ZIP entry. |
+| 0.3.26 | Carries the v0.3.24 security hardening forward after two unpublished, fail-closed release attempts and adds a two-gate, three-build reproducibility proof: byte-identical unsigned builds, followed by deterministic `apksigner` packaging normalization and a no-exclusions comparison of every APK ZIP entry. |
 | 0.3.25 | Unpublished fail-closed candidate: disabled unused APK v4 sidecars, then stopped before publication when the independent verifier rejected a post-`apksigner` local-header alignment-metadata mismatch. |
 | 0.3.23 | Removes unused Bluetooth permissions and stale USB/Bluetooth/Virtual Disk signer claims, enforces QR/NFC/user-selected-file transports, verifies TAPSIGNER setup chain-code use, and documents the exact SATSCARD/TAPSIGNER compatible-wallet listing gates. |
 | 0.3.22 | Added hostile protocol/property testing, reproducible-build and provenance evidence, stronger PSBT/QR/NFC/multisig/fee/storage boundaries, and an independently verified signed release. Hardware-wallet signing remains a QR/NFC/file PSBT round trip; direct TAPSIGNER payment signing is not yet implemented. |
