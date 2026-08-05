@@ -1,11 +1,11 @@
 # Clench Wallet Manual Test Plan
 
-For the v0.3.25 candidate, use the detailed row definitions in
+For the v0.3.26 candidate, use the detailed row definitions in
 [`physical-hardware-gates-v0.3.24.md`](physical-hardware-gates-v0.3.24.md),
-record exact v0.3.25 evidence in
-[`physical-hardware-gates-v0.3.25.md`](physical-hardware-gates-v0.3.25.md),
+record exact v0.3.26 evidence in
+[`physical-hardware-gates-v0.3.26.md`](physical-hardware-gates-v0.3.26.md),
 and record the ship decision in
-[`v0.3.25-release-gate.md`](v0.3.25-release-gate.md). Automated simulator
+[`v0.3.26-release-gate.md`](v0.3.26-release-gate.md). Automated simulator
 results must not be recorded as physical-device passes.
 
 ## Goal

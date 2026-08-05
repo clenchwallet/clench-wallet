@@ -1,7 +1,7 @@
 # Coinkite Compatible-Wallet Listing Readiness
 
 Assessment date: 2026-07-28 UTC  
-Assessed source: v0.3.25 security release candidate
+Assessed source: v0.3.26 security release candidate
 
 This document records whether Clench can truthfully ask to appear on the
 SATSCARD and TAPSIGNER compatible-wallet pages. It is not a vendor endorsement,
@@ -49,7 +49,7 @@ SATSCARD running the current production app.
 | Keep CVC transient and handle wrong CVC and `auth_delay` safely | IMPLEMENTED / AUTOMATED | CVC uses wipeable `CharArray`; authentication delay is bounded and explicit; real wrong-CVC timing remains unverified |
 | Unseal only after an explicit irreversible-action warning, verify the revealed key, and sweep with full fee/output review | IMPLEMENTED / AUTOMATED | Authenticated unseal, key/address verification, native-SegWit drain construction, high-fee acknowledgement, explicit broadcast |
 | Recover after NFC removal/interruption without stale authorization | IMPLEMENTED / AUTOMATED | Single-use NFC state and interruption tests; physical RF/removal behavior remains unverified |
-| Complete setup, funding, read/verify, unseal, sweep, confirmation, and post-sweep inspection on a real card | PHYSICAL EVIDENCE REQUIRED | Execute every SATSCARD row defined in `physical-hardware-gates-v0.3.24.md`, then record the exact v0.3.25 APK evidence in `physical-hardware-gates-v0.3.25.md` |
+| Complete setup, funding, read/verify, unseal, sweep, confirmation, and post-sweep inspection on a real card | PHYSICAL EVIDENCE REQUIRED | Execute every SATSCARD row defined in `physical-hardware-gates-v0.3.24.md`, then record the exact v0.3.26 APK evidence in `physical-hardware-gates-v0.3.26.md` |
 | Publish a stable Android version that contains the tested behavior | PHYSICAL EVIDENCE REQUIRED | Record the tested APK hash/version and wait for that version to be available through the distribution channel named in the listing request |
 
 Before contacting Coinkite, record:
@@ -81,7 +81,7 @@ change the initial PIN/CVC or use the card to sign a transaction.
 | Restore/recover from backup and document loss/recovery behavior | PHYSICAL EVIDENCE REQUIRED | Backup export exists; a documented recovery exercise with a separate card/tool has not been run |
 | Sign each required input with a relative non-hardened subpath | MISSING | Authenticated Tap Protocol `sign` command and PSBT signature injection are not implemented |
 | Show the complete transaction before the tap, disclose the screenless trust model, and revalidate the finalized transaction | MISSING | Clench already has transaction review and return-validation components, but they are intentionally not connected to TAPSIGNER signing |
-| Single-sig TAPSIGNER payment | MISSING | The imported wallet is watch-only in Clench v0.3.25 |
+| Single-sig TAPSIGNER payment | MISSING | The imported wallet is watch-only in Clench v0.3.26 |
 | Multisig TAPSIGNER cosigner payment | MISSING | Policy import exists; obtaining and applying the TAPSIGNER signature does not |
 | Wrong card, wrong PIN, wrong network/path, corrupted backup, interrupted tap, and multi-input physical matrix | PHYSICAL EVIDENCE REQUIRED | Simulator/hostile coverage exists; real-card coverage is `NOT RUN` |
 

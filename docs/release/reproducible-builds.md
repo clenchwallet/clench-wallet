@@ -5,12 +5,16 @@ Clench uses two independent no-secrets builds and a source-free signing step:
 1. `validate_source` runs the trusted workflow from protected `master`, verifies the tag against the pinned SSH key, and requires the tag to equal current protected `master`.
 2. `build_unsigned` tests the approved source and produces a checksummed unsigned APK and deterministic SBOM without signing credentials.
 3. The protected `sign_release` job checks out no source and executes no Gradle or repository script. It verifies the unsigned inputs and pinned `apksigner`, signs the prebuilt APK with detached v4/`.idsig` generation explicitly disabled, asserts no sidecar exists, and destroys the temporary keystore immediately.
-4. A separate `verify_release` runner checks out the immutable commit already approved by the signed-tag gate, with no signing material, strictly rebuilds the unsigned APK, and compares every ZIP payload entry with the signed APK.
+4. A separate `verify_release` runner checks out the immutable commit already approved by the signed-tag gate, with no production signing material, strictly rebuilds the unsigned APK, and first requires it to match the exact signer-input APK byte-for-byte.
+5. The verifier processes a copy of the independent rebuild with the same pinned `apksigner` packaging policy and a disposable RSA-4096 verifier-only key, destroys that key, then compares every ZIP entry with the production-signed APK. No entry is excluded.
 
-Only the APK signing block and actual v1 `META-INF/MANIFEST.MF` plus
-certificate/signature records may differ. Resources, DEX, native libraries,
-manifest, relative payload order, timestamps, ZIP attributes, local headers,
-compressed bytes, archive comment, and every other entry must match exactly.
+The original signer-input APK and the independent unsigned APK must have the
+same whole-file SHA-256 before normalization. After deterministic
+normalization, resources, DEX, native libraries, manifest, payload order,
+timestamps, ZIP attributes, local headers, compressed bytes, archive comment,
+and every other ZIP entry must match exactly. The APK signing blocks contain
+different certificates by design and are verified separately. V1/JAR
+signature records are forbidden rather than excluded.
 
 ## Pinned inputs
 
@@ -52,21 +56,31 @@ in the APK. It discovers AGP's single release APK without assuming whether the
 filename includes `-unsigned`, copies it to a stable verification path, and
 requires `apksigner verify` to fail for that file.
 
-To compare it with the published signed APK:
+Download the exact unsigned APK and `BUILD-SHA256SUMS` from the no-secrets
+workflow artifact. Verify that strict allowlist and checksum before using it as
+the fourth argument below. To compare it with the published signed APK:
 
 ```bash
 VERSION=X.Y.Z \
 VERSION_CODE=EXPECTED_CODE \
 EXPECTED_RELEASE_SIGNER_SHA256=d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca \
+APKSIGNER_BUILD_TOOLS_VERSION=PINNED_BUILD_TOOLS_VERSION \
+EXPECTED_APKSIGNER_SHA256=PINNED_APKSIGNER_LAUNCHER_SHA256 \
+EXPECTED_APKSIGNER_JAR_SHA256=PINNED_APKSIGNER_JAR_SHA256 \
 scripts/release/verify-independent-apk.sh \
   release-artifacts \
   app/build/outputs/apk/release/app-release.apk \
-  release-artifacts/INDEPENDENT-APK-VERIFICATION.json
+  release-artifacts/INDEPENDENT-APK-VERIFICATION.json \
+  signer-input/clench-X.Y.Z-unsigned.apk
 ```
 
-The JSON report records both whole-file hashes, the number of compared entries,
-and a digest of the canonical payload-and-ZIP-metadata inventory. The report
-validator independently reconstructs that inventory from the signed APK.
+The JSON report records both raw unsigned whole-file hashes and their exact
+identity, the deterministic normalization policy, both comparison APK hashes,
+the number of compared entries, zero exclusions, and a digest of the canonical
+payload-and-ZIP-metadata inventory. The report validator independently
+reconstructs that inventory from the signed APK. The public release bundle
+includes `UNSIGNED-BUILD-SHA256SUMS`, which preserves the checksum evidence for
+the exact APK supplied to the isolated signer.
 
 Exercise the verifier itself without signing material:
 
@@ -92,6 +106,7 @@ Each release publishes:
 - `PROVENANCE.intoto.jsonl`: deterministic in-toto Statement v1 / SLSA provenance v1 binding APK and SBOM to the source, tag, toolchain, locks, workflow, and verifier scripts.
 - GitHub Sigstore build-provenance and CycloneDX SBOM attestations for the signed APK.
 - `INDEPENDENT-APK-VERIFICATION.json`: separate-runner unsigned payload comparison evidence.
+- `UNSIGNED-BUILD-SHA256SUMS`: the no-secrets build checksum manifest that binds the exact unsigned APK supplied to the isolated signer.
 
 Generate the SBOM twice and compare it byte-for-byte:
 
@@ -113,4 +128,7 @@ Any payload mismatch blocks publication. Record:
 - Dependency lock and verification-metadata hashes.
 - First missing, unexpected, or changed APK entries.
 
-Do not expand the exclusion list to make a mismatch pass. Find and remove the nondeterministic input, then rebuild both sides.
+There is no exclusion list. Do not omit an entry or metadata field to make a
+mismatch pass. Explain and deterministically reproduce any permitted packaging
+transformation, or find and remove the nondeterministic input, then rebuild
+both sides.

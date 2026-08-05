@@ -69,8 +69,10 @@ Run `scripts/release/rebuild-unsigned.sh` only from a clean standalone clone
 that contains no keystore or `keystore.properties`. A linked Git worktree is
 intentionally refused because AGP cannot reproduce its embedded Git revision
 metadata. During a release, the separate `verify_release` job runs this
-no-secrets build and `verify-independent-apk.sh` compares its payload with the
-signed APK.
+no-secrets build and first requires it to match the exact unsigned signer-input
+APK byte-for-byte. The verifier then signs a copy with the pinned `apksigner`
+and a disposable verifier-only key, destroys that key, and compares every
+normalized ZIP entry with the production-signed APK. No APK entry is excluded.
 
 The release-tool self-test creates synthetic signed/unsigned APK containers and
 requires rejection of changed compression, changed payloads, duplicate ZIP
