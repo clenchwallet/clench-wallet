@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Annotated release tag signed by the pinned maintainer key, for example v0.3.25'
+        description: 'Annotated release tag signed by the pinned maintainer key, for example vX.Y.Z'
         required: true
         type: string
 
@@ -22,6 +22,7 @@ env:
   APKSIGNER_BUILD_TOOLS_VERSION: 35.0.0
   EXPECTED_APKSIGNER_SHA256: b47549e373b895ce6ca620d0c7887e674d9615ffa837a86ac601dcfd04adb0f0
   EXPECTED_APKSIGNER_JAR_SHA256: 00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7
+  EXPECTED_AAPT_SHA256: 393c4c87f675f9555c50921fb53be1f3893cacd29f2270c4863e2e3f99583c39
 
 jobs:
   validate_source:
@@ -39,6 +40,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Require the pinned maintainer signature and exact protected-master commit
         id: source
@@ -48,10 +50,10 @@ jobs:
           WORKFLOW_COMMIT: ${{ github.sha }}
         run: |
           test "$WORKFLOW_REF" = refs/heads/master
-          case "$RELEASE_TAG" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "Release tag must be a semantic version such as v0.3.25" >&2; exit 1 ;;
-          esac
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release tag must be a semantic version such as v0.3.26" >&2
+            exit 1
+          fi
           git fetch --force origin \
             "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
@@ -92,6 +94,7 @@ jobs:
         with:
           ref: ${{ needs.validate_source.outputs.source_commit }}
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Validate Gradle wrapper JAR
         uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
@@ -124,9 +127,16 @@ jobs:
           UNSIGNED_APK="$(find app/build/outputs/apk/release -maxdepth 1 \
             -type f -name '*-unsigned.apk' -print -quit)"
           test -f "$UNSIGNED_APK"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f \
-            | LC_ALL=C sort -V | tail -1)"
+          APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
+          APKSIGNER_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/lib/apksigner.jar"
+          APKSIGNER_SHADOW_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner.jar"
           test -x "$APKSIGNER"
+          test -f "$APKSIGNER_JAR"
+          test ! -e "$APKSIGNER_SHADOW_JAR"
+          test "$(sha256sum "$APKSIGNER" | awk '{print $1}')" = \
+            "$EXPECTED_APKSIGNER_SHA256"
+          test "$(sha256sum "$APKSIGNER_JAR" | awk '{print $1}')" = \
+            "$EXPECTED_APKSIGNER_JAR_SHA256"
           if "$APKSIGNER" verify "$UNSIGNED_APK" >/dev/null 2>&1; then
             echo "No-secrets build unexpectedly produced a signed APK" >&2
             exit 1
@@ -163,8 +173,431 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build_independent_unsigned:
+    needs: validate_source
+    runs-on: ubuntu-24.04
+    env:
+      GRADLE_USER_HOME: ${{ runner.temp }}/gradle-pre-sign-independent
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the approved source for a blind independent build
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate_source.outputs.source_commit }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate Gradle wrapper JAR
+        uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up isolated Gradle cache
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-disabled: true
+
+      - name: Build the independent unsigned APK before receiving expected bytes
+        env:
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
+          CLENCH_REQUIRE_NO_LOCAL_SIGNING_MATERIAL: 1
+          ACTIONS_RUNTIME_TOKEN: ''
+          ACTIONS_RESULTS_URL: ''
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
+          ACTIONS_ID_TOKEN_REQUEST_URL: ''
+          GH_TOKEN: ''
+          GITHUB_TOKEN: ''
+        run: |
+          scripts/release/verify-release-controls.py
+          scripts/release/rebuild-unsigned.sh \
+            "$RUNNER_TEMP/clench-$VERSION-independent-unsigned.apk"
+          OUTPUT="$RUNNER_TEMP/independent-unsigned-build"
+          mkdir -p "$OUTPUT"
+          cp "$RUNNER_TEMP/clench-$VERSION-independent-unsigned.apk" "$OUTPUT/"
+          cp "docs/release/v$VERSION.md" "$OUTPUT/RELEASE-NOTES.md"
+          scripts/release/generate-sbom.py \
+            --commit "$SOURCE_COMMIT" \
+            --output "$OUTPUT/clench-$VERSION-sbom.cdx.json"
+          scripts/release/validate-sbom.py \
+            "$OUTPUT/clench-$VERSION-sbom.cdx.json" \
+            --version "$VERSION" --commit "$SOURCE_COMMIT"
+          scripts/release/check-osv.py "$OUTPUT/clench-$VERSION-sbom.cdx.json"
+          APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
+          APKSIGNER_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/lib/apksigner.jar"
+          APKSIGNER_SHADOW_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner.jar"
+          AAPT="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/aapt"
+          test -x "$APKSIGNER"
+          test -f "$APKSIGNER_JAR"
+          test ! -e "$APKSIGNER_SHADOW_JAR"
+          test -x "$AAPT"
+          test "$(sha256sum "$APKSIGNER" | awk '{print $1}')" = \
+            "$EXPECTED_APKSIGNER_SHA256"
+          test "$(sha256sum "$APKSIGNER_JAR" | awk '{print $1}')" = \
+            "$EXPECTED_APKSIGNER_JAR_SHA256"
+          test "$(sha256sum "$AAPT" | awk '{print $1}')" = \
+            "$EXPECTED_AAPT_SHA256"
+          INDEPENDENT="$OUTPUT/clench-$VERSION-independent-unsigned.apk"
+          if "$APKSIGNER" verify "$INDEPENDENT" >/dev/null 2>&1; then
+            echo "Independent build unexpectedly produced a signed APK." >&2
+            exit 1
+          fi
+          BADGING="$("$AAPT" dump badging "$INDEPENDENT")"
+          PACKAGE_LINE="${BADGING%%$'\n'*}"
+          grep -Fq "package: name='net.clench.wallet'" <<< "$PACKAGE_LINE"
+          grep -Fq "versionCode='$VERSION_CODE'" <<< "$PACKAGE_LINE"
+          grep -Fq "versionName='$VERSION'" <<< "$PACKAGE_LINE"
+          (
+            cd "$OUTPUT"
+            sha256sum \
+              "clench-$VERSION-independent-unsigned.apk" \
+              "clench-$VERSION-sbom.cdx.json" \
+              RELEASE-NOTES.md \
+              > INDEPENDENT-BUILD-SHA256SUMS
+            sha256sum --strict -c INDEPENDENT-BUILD-SHA256SUMS
+          )
+
+      - name: Upload the blind independent unsigned build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: independent-unsigned-build-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/independent-unsigned-build/
+          if-no-files-found: error
+          retention-days: 7
+
+  attest_independent_unsigned:
+    needs: [validate_source, build_independent_unsigned]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download the completed blind independent build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: independent-unsigned-build-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/independent-unsigned-build
+
+      - name: Strictly verify the immutable blind-build artifact
+        env:
+          VERSION: ${{ needs.validate_source.outputs.version }}
+        run: |
+          ARTIFACT="$RUNNER_TEMP/independent-unsigned-build"
+          printf '%s\n' \
+            INDEPENDENT-BUILD-SHA256SUMS \
+            RELEASE-NOTES.md \
+            "clench-$VERSION-independent-unsigned.apk" \
+            "clench-$VERSION-sbom.cdx.json" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-independent-inputs"
+          find "$ARTIFACT" -mindepth 1 -maxdepth 1 -printf '%f\n' \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-independent-inputs"
+          /usr/bin/cmp "$RUNNER_TEMP/expected-independent-inputs" \
+            "$RUNNER_TEMP/actual-independent-inputs"
+          test "$(find "$ARTIFACT" -mindepth 1 -maxdepth 1 \
+            ! -type f -print -quit)" = ""
+          printf '%s\n' \
+            RELEASE-NOTES.md \
+            "clench-$VERSION-independent-unsigned.apk" \
+            "clench-$VERSION-sbom.cdx.json" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-independent-checksums"
+          awk '
+            !/^[0-9a-f]{64}  [A-Za-z0-9._-]+$/ { exit 1 }
+            { print $2 }
+          ' "$ARTIFACT/INDEPENDENT-BUILD-SHA256SUMS" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-independent-checksums"
+          /usr/bin/cmp "$RUNNER_TEMP/expected-independent-checksums" \
+            "$RUNNER_TEMP/actual-independent-checksums"
+          (
+            cd "$ARTIFACT"
+            /usr/bin/sha256sum --strict -c INDEPENDENT-BUILD-SHA256SUMS
+          )
+
+      - name: Attest the verified blind independent unsigned build
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: ${{ runner.temp }}/independent-unsigned-build/clench-${{ needs.validate_source.outputs.version }}-independent-unsigned.apk
+
+  verify_unsigned:
+    needs: [validate_source, build_unsigned, build_independent_unsigned, attest_independent_unsigned]
+    runs-on: ubuntu-24.04
+    outputs:
+      approved_raw_sha256: ${{ steps.raw_compare.outputs.approved_raw_sha256 }}
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - name: Set up JDK 21 for pinned Android verification tools
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Download the original no-secrets build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: unsigned-release-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/original-unsigned-release
+
+      - name: Download the blind independent unsigned build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: independent-unsigned-build-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/independent-unsigned-build
+
+      - name: Prove raw reproducibility with core tools before APK parsing
+        id: raw_compare
+        env:
+          VERSION: ${{ needs.validate_source.outputs.version }}
+        run: |
+          printf '%s\n' BUILD-SHA256SUMS RELEASE-NOTES.md \
+            "clench-$VERSION-sbom.cdx.json" "clench-$VERSION-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-original-inputs"
+          find "$RUNNER_TEMP/original-unsigned-release" -mindepth 1 -maxdepth 1 \
+            -printf '%f\n' | LC_ALL=C sort > "$RUNNER_TEMP/actual-original-inputs"
+          /usr/bin/cmp "$RUNNER_TEMP/expected-original-inputs" \
+            "$RUNNER_TEMP/actual-original-inputs"
+          printf '%s\n' INDEPENDENT-BUILD-SHA256SUMS RELEASE-NOTES.md \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-independent-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-independent-inputs"
+          find "$RUNNER_TEMP/independent-unsigned-build" -mindepth 1 -maxdepth 1 \
+            -printf '%f\n' | LC_ALL=C sort > "$RUNNER_TEMP/actual-independent-inputs"
+          /usr/bin/cmp "$RUNNER_TEMP/expected-independent-inputs" \
+            "$RUNNER_TEMP/actual-independent-inputs"
+          for directory in original-unsigned-release independent-unsigned-build; do
+            test "$(find "$RUNNER_TEMP/$directory" -mindepth 1 -maxdepth 1 \
+              ! -type f -print -quit)" = ""
+          done
+          (
+            cd "$RUNNER_TEMP/original-unsigned-release"
+            /usr/bin/sha256sum --strict -c BUILD-SHA256SUMS
+          )
+          (
+            cd "$RUNNER_TEMP/independent-unsigned-build"
+            /usr/bin/sha256sum --strict -c INDEPENDENT-BUILD-SHA256SUMS
+          )
+          ORIGINAL="$RUNNER_TEMP/original-unsigned-release/clench-$VERSION-unsigned.apk"
+          INDEPENDENT="$RUNNER_TEMP/independent-unsigned-build/clench-$VERSION-independent-unsigned.apk"
+          /usr/bin/cmp "$ORIGINAL" "$INDEPENDENT"
+          /usr/bin/cmp "$RUNNER_TEMP/original-unsigned-release/RELEASE-NOTES.md" \
+            "$RUNNER_TEMP/independent-unsigned-build/RELEASE-NOTES.md"
+          /usr/bin/cmp "$RUNNER_TEMP/original-unsigned-release/clench-$VERSION-sbom.cdx.json" \
+            "$RUNNER_TEMP/independent-unsigned-build/clench-$VERSION-sbom.cdx.json"
+          RAW_SHA256="$(/usr/bin/sha256sum "$ORIGINAL" | awk '{print $1}')"
+          test "$RAW_SHA256" = \
+            "$(/usr/bin/sha256sum "$INDEPENDENT" | awk '{print $1}')"
+          test "$(grep -Ec '^[0-9a-f]{64}$' <<< "$RAW_SHA256")" = 1
+          echo "approved_raw_sha256=$RAW_SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Verify blind-build provenance before approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
+        run: |
+          gh attestation verify \
+            "$RUNNER_TEMP/independent-unsigned-build/clench-$VERSION-independent-unsigned.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-digest "$SOURCE_COMMIT" \
+            --source-ref refs/heads/master \
+            --deny-self-hosted-runners
+
+      - name: Validate unsigned APK metadata and create the approval artifact
+        env:
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
+          APPROVED_RAW_SHA256: ${{ steps.raw_compare.outputs.approved_raw_sha256 }}
+        run: |
+          ORIGINAL="$RUNNER_TEMP/original-unsigned-release/clench-$VERSION-unsigned.apk"
+          INDEPENDENT="$RUNNER_TEMP/independent-unsigned-build/clench-$VERSION-independent-unsigned.apk"
+          APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
+          APKSIGNER_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/lib/apksigner.jar"
+          APKSIGNER_SHADOW_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner.jar"
+          AAPT="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/aapt"
+          test -x "$APKSIGNER" && test -f "$APKSIGNER_JAR"
+          test ! -e "$APKSIGNER_SHADOW_JAR" && test -x "$AAPT"
+          test "$(sha256sum "$APKSIGNER" | awk '{print $1}')" = "$EXPECTED_APKSIGNER_SHA256"
+          test "$(sha256sum "$APKSIGNER_JAR" | awk '{print $1}')" = "$EXPECTED_APKSIGNER_JAR_SHA256"
+          test "$(sha256sum "$AAPT" | awk '{print $1}')" = "$EXPECTED_AAPT_SHA256"
+          for apk in "$ORIGINAL" "$INDEPENDENT"; do
+            if "$APKSIGNER" verify "$apk" >/dev/null 2>&1; then
+              echo "Reproducibility input unexpectedly contains a signature." >&2
+              exit 1
+            fi
+            BADGING="$("$AAPT" dump badging "$apk")"
+            PACKAGE_LINE="${BADGING%%$'\n'*}"
+            grep -Fq "package: name='net.clench.wallet'" <<< "$PACKAGE_LINE"
+            grep -Fq "versionCode='$VERSION_CODE'" <<< "$PACKAGE_LINE"
+            grep -Fq "versionName='$VERSION'" <<< "$PACKAGE_LINE"
+          done
+          APPROVED="$RUNNER_TEMP/verified-unsigned-release"
+          mkdir -p "$APPROVED"
+          cp "$INDEPENDENT" "$APPROVED/"
+          cp "$RUNNER_TEMP/independent-unsigned-build/clench-$VERSION-sbom.cdx.json" "$APPROVED/"
+          cp "$RUNNER_TEMP/independent-unsigned-build/RELEASE-NOTES.md" "$APPROVED/"
+          {
+            echo "versionName=$VERSION"
+            echo "versionCode=$VERSION_CODE"
+            echo "sourceCommit=$SOURCE_COMMIT"
+            echo "signerInputUnsignedSha256=$APPROVED_RAW_SHA256"
+            echo "independentUnsignedSha256=$APPROVED_RAW_SHA256"
+            echo "rawUnsignedByteIdentical=true"
+          } > "$APPROVED/UNSIGNED-APPROVAL.txt"
+          (
+            cd "$APPROVED"
+            sha256sum "clench-$VERSION-independent-unsigned.apk" \
+              "clench-$VERSION-sbom.cdx.json" RELEASE-NOTES.md \
+              UNSIGNED-APPROVAL.txt > VERIFIED-UNSIGNED-SHA256SUMS
+            sha256sum --strict -c VERIFIED-UNSIGNED-SHA256SUMS
+          )
+
+      - name: Upload only the pre-sign verified unsigned build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-unsigned-release-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/verified-unsigned-release/
+          if-no-files-found: error
+          retention-days: 7
+
+  build_post_sign_unsigned:
+    needs: validate_source
+    runs-on: ubuntu-24.04
+    env:
+      GRADLE_USER_HOME: ${{ runner.temp }}/gradle-post-sign-independent
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the approved source for a second blind independent build
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate_source.outputs.source_commit }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate Gradle wrapper JAR
+        uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up a second isolated Gradle cache
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+        with:
+          cache-disabled: true
+
+      - name: Build a second independent APK before receiving release artifacts
+        env:
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
+          CLENCH_REQUIRE_NO_LOCAL_SIGNING_MATERIAL: 1
+          ACTIONS_RUNTIME_TOKEN: ''
+          ACTIONS_RESULTS_URL: ''
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
+          ACTIONS_ID_TOKEN_REQUEST_URL: ''
+          GH_TOKEN: ''
+          GITHUB_TOKEN: ''
+        run: |
+          scripts/release/verify-release-controls.py
+          OUTPUT="$RUNNER_TEMP/post-sign-unsigned-build"
+          mkdir -p "$OUTPUT"
+          scripts/release/rebuild-unsigned.sh \
+            "$OUTPUT/clench-$VERSION-independent-unsigned.apk"
+          APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
+          APKSIGNER_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/lib/apksigner.jar"
+          APKSIGNER_SHADOW_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner.jar"
+          AAPT="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/aapt"
+          test -x "$APKSIGNER" && test -f "$APKSIGNER_JAR"
+          test ! -e "$APKSIGNER_SHADOW_JAR" && test -x "$AAPT"
+          test "$(sha256sum "$APKSIGNER" | awk '{print $1}')" = "$EXPECTED_APKSIGNER_SHA256"
+          test "$(sha256sum "$APKSIGNER_JAR" | awk '{print $1}')" = "$EXPECTED_APKSIGNER_JAR_SHA256"
+          test "$(sha256sum "$AAPT" | awk '{print $1}')" = "$EXPECTED_AAPT_SHA256"
+          APK="$OUTPUT/clench-$VERSION-independent-unsigned.apk"
+          if "$APKSIGNER" verify "$APK" >/dev/null 2>&1; then
+            echo "Second independent build unexpectedly produced a signed APK." >&2
+            exit 1
+          fi
+          BADGING="$("$AAPT" dump badging "$APK")"
+          PACKAGE_LINE="${BADGING%%$'\n'*}"
+          grep -Fq "package: name='net.clench.wallet'" <<< "$PACKAGE_LINE"
+          grep -Fq "versionCode='$VERSION_CODE'" <<< "$PACKAGE_LINE"
+          grep -Fq "versionName='$VERSION'" <<< "$PACKAGE_LINE"
+          (
+            cd "$OUTPUT"
+            sha256sum "clench-$VERSION-independent-unsigned.apk" \
+              > POST-SIGN-BUILD-SHA256SUMS
+            sha256sum --strict -c POST-SIGN-BUILD-SHA256SUMS
+          )
+
+      - name: Upload the second blind independent unsigned build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: post-sign-unsigned-build-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/post-sign-unsigned-build/
+          if-no-files-found: error
+          retention-days: 7
+
+  attest_post_sign_unsigned:
+    needs: [validate_source, build_post_sign_unsigned]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download the completed second blind build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: post-sign-unsigned-build-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/post-sign-unsigned-build
+
+      - name: Strictly verify the immutable second blind-build artifact
+        env:
+          VERSION: ${{ needs.validate_source.outputs.version }}
+        run: |
+          ARTIFACT="$RUNNER_TEMP/post-sign-unsigned-build"
+          printf '%s\n' \
+            POST-SIGN-BUILD-SHA256SUMS \
+            "clench-$VERSION-independent-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-post-sign-inputs"
+          find "$ARTIFACT" -mindepth 1 -maxdepth 1 -printf '%f\n' \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-post-sign-inputs"
+          /usr/bin/cmp "$RUNNER_TEMP/expected-post-sign-inputs" \
+            "$RUNNER_TEMP/actual-post-sign-inputs"
+          test "$(find "$ARTIFACT" -mindepth 1 -maxdepth 1 \
+            ! -type f -print -quit)" = ""
+          printf '%s\n' "clench-$VERSION-independent-unsigned.apk" \
+            > "$RUNNER_TEMP/expected-post-sign-checksums"
+          awk '
+            !/^[0-9a-f]{64}  [A-Za-z0-9._-]+$/ { exit 1 }
+            { print $2 }
+          ' "$ARTIFACT/POST-SIGN-BUILD-SHA256SUMS" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-post-sign-checksums"
+          /usr/bin/cmp "$RUNNER_TEMP/expected-post-sign-checksums" \
+            "$RUNNER_TEMP/actual-post-sign-checksums"
+          (
+            cd "$ARTIFACT"
+            /usr/bin/sha256sum --strict -c POST-SIGN-BUILD-SHA256SUMS
+          )
+
+      - name: Attest the verified second blind independent unsigned build
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: ${{ runner.temp }}/post-sign-unsigned-build/clench-${{ needs.validate_source.outputs.version }}-independent-unsigned.apk
+
   sign_release:
-    needs: [validate_source, build_unsigned]
+    needs: [validate_source, verify_unsigned]
     runs-on: ubuntu-24.04
     environment: release-signing
     permissions:
@@ -172,38 +605,119 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - name: Download only the approved unsigned build
+      - name: Download the first no-secrets unsigned build
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: unsigned-release-${{ needs.validate_source.outputs.version }}
-          path: ${{ runner.temp }}/unsigned-release
+          path: ${{ runner.temp }}/original-unsigned-release
 
-      - name: Verify the isolated signer input and pinned apksigner
+      - name: Download only the pre-sign verified unsigned build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-unsigned-release-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/verified-unsigned-release
+
+      - name: Verify the isolated signer input without parsing APK contents
         env:
           VERSION: ${{ needs.validate_source.outputs.version }}
+          VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
+          APPROVED_RAW_SHA256: ${{ needs.verify_unsigned.outputs.approved_raw_sha256 }}
         run: |
           printf '%s\n' \
             BUILD-SHA256SUMS \
             RELEASE-NOTES.md \
             "clench-$VERSION-sbom.cdx.json" \
             "clench-$VERSION-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-original-inputs"
+          find "$RUNNER_TEMP/original-unsigned-release" -mindepth 1 -maxdepth 1 \
+            -printf '%f\n' | LC_ALL=C sort > "$RUNNER_TEMP/actual-original-inputs"
+          /usr/bin/cmp "$RUNNER_TEMP/expected-original-inputs" \
+            "$RUNNER_TEMP/actual-original-inputs"
+          printf '%s\n' \
+            RELEASE-NOTES.md \
+            UNSIGNED-APPROVAL.txt \
+            VERIFIED-UNSIGNED-SHA256SUMS \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-independent-unsigned.apk" \
             | LC_ALL=C sort > "$RUNNER_TEMP/expected-signer-inputs"
-          find "$RUNNER_TEMP/unsigned-release" -mindepth 1 -maxdepth 1 \
+          find "$RUNNER_TEMP/verified-unsigned-release" -mindepth 1 -maxdepth 1 \
             -printf '%f\n' | LC_ALL=C sort > "$RUNNER_TEMP/actual-signer-inputs"
-          cmp "$RUNNER_TEMP/expected-signer-inputs" "$RUNNER_TEMP/actual-signer-inputs"
+          /usr/bin/cmp "$RUNNER_TEMP/expected-signer-inputs" \
+            "$RUNNER_TEMP/actual-signer-inputs"
+          for file in \
+            RELEASE-NOTES.md \
+            UNSIGNED-APPROVAL.txt \
+            VERIFIED-UNSIGNED-SHA256SUMS \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-independent-unsigned.apk"; do
+            test -f "$RUNNER_TEMP/verified-unsigned-release/$file"
+            test ! -L "$RUNNER_TEMP/verified-unsigned-release/$file"
+          done
+          for file in \
+            BUILD-SHA256SUMS \
+            RELEASE-NOTES.md \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-unsigned.apk"; do
+            test -f "$RUNNER_TEMP/original-unsigned-release/$file"
+            test ! -L "$RUNNER_TEMP/original-unsigned-release/$file"
+          done
+          printf '%s\n' \
+            RELEASE-NOTES.md \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-original-checksum-files"
+          awk '
+            !/^[0-9a-f]{64}  [A-Za-z0-9._-]+$/ { exit 1 }
+            { print $2 }
+          ' "$RUNNER_TEMP/original-unsigned-release/BUILD-SHA256SUMS" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-original-checksum-files"
+          /usr/bin/cmp "$RUNNER_TEMP/expected-original-checksum-files" \
+            "$RUNNER_TEMP/actual-original-checksum-files"
+          printf '%s\n' \
+            RELEASE-NOTES.md \
+            UNSIGNED-APPROVAL.txt \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-independent-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-approved-checksum-files"
+          awk '
+            !/^[0-9a-f]{64}  [A-Za-z0-9._-]+$/ { exit 1 }
+            { print $2 }
+          ' "$RUNNER_TEMP/verified-unsigned-release/VERIFIED-UNSIGNED-SHA256SUMS" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-approved-checksum-files"
+          /usr/bin/cmp "$RUNNER_TEMP/expected-approved-checksum-files" \
+            "$RUNNER_TEMP/actual-approved-checksum-files"
           (
-            cd "$RUNNER_TEMP/unsigned-release"
-            sha256sum --strict -c BUILD-SHA256SUMS
+            cd "$RUNNER_TEMP/original-unsigned-release"
+            /usr/bin/sha256sum --strict -c BUILD-SHA256SUMS
+          )
+          (
+            cd "$RUNNER_TEMP/verified-unsigned-release"
+            /usr/bin/sha256sum --strict -c VERIFIED-UNSIGNED-SHA256SUMS
           )
 
-          APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
-          APKSIGNER_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/lib/apksigner.jar"
-          test -x "$APKSIGNER"
-          test -f "$APKSIGNER_JAR"
-          test "$(sha256sum "$APKSIGNER" | awk '{print $1}')" = \
-            "$EXPECTED_APKSIGNER_SHA256"
-          test "$(sha256sum "$APKSIGNER_JAR" | awk '{print $1}')" = \
-            "$EXPECTED_APKSIGNER_JAR_SHA256"
+          ORIGINAL_APK="$RUNNER_TEMP/original-unsigned-release/clench-$VERSION-unsigned.apk"
+          INDEPENDENT_APK="$RUNNER_TEMP/verified-unsigned-release/clench-$VERSION-independent-unsigned.apk"
+          /usr/bin/cmp "$ORIGINAL_APK" "$INDEPENDENT_APK"
+          RAW_SHA256="$(/usr/bin/sha256sum "$ORIGINAL_APK" | /usr/bin/awk '{print $1}')"
+          test "$RAW_SHA256" = \
+            "$(/usr/bin/sha256sum "$INDEPENDENT_APK" | /usr/bin/awk '{print $1}')"
+          test "$RAW_SHA256" = "$APPROVED_RAW_SHA256"
+          {
+            echo "versionName=$VERSION"
+            echo "versionCode=$VERSION_CODE"
+            echo "sourceCommit=$SOURCE_COMMIT"
+            echo "signerInputUnsignedSha256=$RAW_SHA256"
+            echo "independentUnsignedSha256=$RAW_SHA256"
+            echo "rawUnsignedByteIdentical=true"
+          } > "$RUNNER_TEMP/expected-unsigned-approval"
+          /usr/bin/cmp "$RUNNER_TEMP/expected-unsigned-approval" \
+            "$RUNNER_TEMP/verified-unsigned-release/UNSIGNED-APPROVAL.txt"
+          /usr/bin/cmp "$RUNNER_TEMP/original-unsigned-release/RELEASE-NOTES.md" \
+            "$RUNNER_TEMP/verified-unsigned-release/RELEASE-NOTES.md"
+          /usr/bin/cmp \
+            "$RUNNER_TEMP/original-unsigned-release/clench-$VERSION-sbom.cdx.json" \
+            "$RUNNER_TEMP/verified-unsigned-release/clench-$VERSION-sbom.cdx.json"
 
       - name: Require release signing secrets
         env:
@@ -220,6 +734,7 @@ jobs:
       - name: Sign the prebuilt digest with no source checkout
         env:
           VERSION: ${{ needs.validate_source.outputs.version }}
+          APPROVED_RAW_SHA256: ${{ needs.verify_unsigned.outputs.approved_raw_sha256 }}
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
@@ -227,22 +742,64 @@ jobs:
         run: |
           umask 077
           mkdir -p "$RUNNER_TEMP/clench-release" "$RUNNER_TEMP/signed-release"
+          KEYSTORE="$RUNNER_TEMP/clench-release/release.keystore"
+          cleanup_signing_material() {
+            if command -v shred >/dev/null 2>&1; then
+              shred -u "$KEYSTORE" 2>/dev/null || true
+            fi
+            rm -f "$KEYSTORE"
+          }
+          trap cleanup_signing_material EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          ORIGINAL_APK="$RUNNER_TEMP/original-unsigned-release/clench-$VERSION-unsigned.apk"
+          INDEPENDENT_APK="$RUNNER_TEMP/verified-unsigned-release/clench-$VERSION-independent-unsigned.apk"
+          test -f "$ORIGINAL_APK"
+          test ! -L "$ORIGINAL_APK"
+          test -f "$INDEPENDENT_APK"
+          test ! -L "$INDEPENDENT_APK"
+          test "$(/usr/bin/grep -Ec '^[0-9a-f]{64}$' \
+            <<< "$APPROVED_RAW_SHA256")" = 1
+          /usr/bin/cmp "$ORIGINAL_APK" "$INDEPENDENT_APK"
+          test "$(/usr/bin/sha256sum "$ORIGINAL_APK" | /usr/bin/awk '{print $1}')" = \
+            "$APPROVED_RAW_SHA256"
+          test "$(/usr/bin/sha256sum "$INDEPENDENT_APK" | /usr/bin/awk '{print $1}')" = \
+            "$APPROVED_RAW_SHA256"
+          APKSIGNER=/usr/local/lib/android/sdk/build-tools/35.0.0/apksigner
+          APKSIGNER_JAR=/usr/local/lib/android/sdk/build-tools/35.0.0/lib/apksigner.jar
+          APKSIGNER_SHADOW_JAR=/usr/local/lib/android/sdk/build-tools/35.0.0/apksigner.jar
+          test -x "$APKSIGNER"
+          test -f "$APKSIGNER_JAR"
+          test ! -e "$APKSIGNER_SHADOW_JAR"
+          test "$(/usr/bin/sha256sum "$APKSIGNER" | /usr/bin/awk '{print $1}')" = \
+            b47549e373b895ce6ca620d0c7887e674d9615ffa837a86ac601dcfd04adb0f0
+          test "$(/usr/bin/sha256sum "$APKSIGNER_JAR" | /usr/bin/awk '{print $1}')" = \
+            00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7
           printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode \
-            > "$RUNNER_TEMP/clench-release/release.keystore"
-          APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
+            > "$KEYSTORE"
           "$APKSIGNER" sign \
+            --v1-signing-enabled false \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
             --v4-signing-enabled false \
-            --ks "$RUNNER_TEMP/clench-release/release.keystore" \
+            --verity-enabled false \
+            --min-sdk-version 26 \
+            --alignment-preserved false \
+            --lib-page-alignment 16384 \
+            --ks "$KEYSTORE" \
             --ks-key-alias "$RELEASE_KEY_ALIAS" \
             --ks-pass env:RELEASE_KEYSTORE_PASSWORD \
             --key-pass env:RELEASE_KEY_PASSWORD \
             --out "$RUNNER_TEMP/signed-release/clench-$VERSION-release.apk" \
-            "$RUNNER_TEMP/unsigned-release/clench-$VERSION-unsigned.apk"
+            "$ORIGINAL_APK"
           test ! -e "$RUNNER_TEMP/signed-release/clench-$VERSION-release.apk.idsig"
-          cp "$RUNNER_TEMP/unsigned-release/clench-$VERSION-sbom.cdx.json" \
+          cp "$RUNNER_TEMP/verified-unsigned-release/clench-$VERSION-sbom.cdx.json" \
             "$RUNNER_TEMP/signed-release/"
-          cp "$RUNNER_TEMP/unsigned-release/RELEASE-NOTES.md" \
+          cp "$RUNNER_TEMP/verified-unsigned-release/RELEASE-NOTES.md" \
             "$RUNNER_TEMP/signed-release/"
+          cleanup_signing_material
+          trap - EXIT INT TERM
+          test ! -e "$KEYSTORE"
 
       - name: Destroy signing material
         if: always()
@@ -258,11 +815,23 @@ jobs:
           VERSION: ${{ needs.validate_source.outputs.version }}
         run: |
           APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
-          REPORT="$("$APKSIGNER" verify --verbose --print-certs \
+          REPORT="$("$APKSIGNER" verify --min-sdk-version 26 --verbose --print-certs \
             "$RUNNER_TEMP/signed-release/clench-$VERSION-release.apk")"
           printf '%s\n' "$REPORT"
+          grep -Fq 'Verified using v1 scheme (JAR signing): false' <<< "$REPORT"
           grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$REPORT"
+          grep -Fq 'Verified using v3 scheme (APK Signature Scheme v3): true' <<< "$REPORT"
+          grep -Fq 'Verified using v3.1 scheme (APK Signature Scheme v3.1): false' <<< "$REPORT"
+          grep -Fq 'Verified using v4 scheme (APK Signature Scheme v4): false' <<< "$REPORT"
+          grep -Fq 'Verified for SourceStamp: false' <<< "$REPORT"
           grep -Fq 'Number of signers: 1' <<< "$REPORT"
+          ZIP_ENTRIES="$(unzip -Z1 \
+            "$RUNNER_TEMP/signed-release/clench-$VERSION-release.apk")"
+          if grep -Eiq '^META-INF/(MANIFEST\.MF|[^/]+\.(SF|RSA|DSA|EC))$' \
+            <<< "$ZIP_ENTRIES"; then
+            echo "Release APK unexpectedly contains v1 signature records." >&2
+            exit 1
+          fi
           SIGNER_SHA256="$(awk -F': ' '/certificate SHA-256 digest/ {print tolower($NF); exit}' <<< "$REPORT")"
           test "$SIGNER_SHA256" = "$EXPECTED_RELEASE_SIGNER_SHA256"
 
@@ -286,29 +855,25 @@ jobs:
           retention-days: 7
 
   verify_release:
-    needs: [validate_source, build_unsigned, sign_release]
+    needs: [validate_source, verify_unsigned, build_post_sign_unsigned, attest_post_sign_unsigned, sign_release]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      attestations: read
+      attestations: write
+      id-token: write
     steps:
       - name: Check out the approved release source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ needs.validate_source.outputs.source_commit }}
           fetch-depth: 0
-
-      - name: Validate Gradle wrapper JAR
-        uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+          persist-credentials: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           java-version: '21'
           distribution: 'temurin'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
 
       - name: Require a clean checkout with no signing material
         env:
@@ -320,6 +885,181 @@ jobs:
         with:
           name: signed-release-${{ needs.validate_source.outputs.version }}
           path: ${{ runner.temp }}/release-artifacts
+
+      - name: Download the first no-secrets unsigned build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: unsigned-release-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/original-unsigned-release
+
+      - name: Download the pre-sign verified signer input
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-unsigned-release-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/verified-unsigned-release
+
+      - name: Download the second blind independent unsigned build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: post-sign-unsigned-build-${{ needs.validate_source.outputs.version }}
+          path: ${{ runner.temp }}/post-sign-unsigned-build
+
+      - name: Verify second blind-build provenance before comparison
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
+        run: |
+          gh attestation verify \
+            "$RUNNER_TEMP/post-sign-unsigned-build/clench-$VERSION-independent-unsigned.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-digest "$SOURCE_COMMIT" \
+            --source-ref refs/heads/master \
+            --deny-self-hosted-runners
+
+      - name: Verify and bind the original no-secrets signer input
+        env:
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
+        run: |
+          printf '%s\n' \
+            RELEASE-NOTES.md \
+            "clench-$VERSION-release.apk" \
+            "clench-$VERSION-sbom.cdx.json" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-signed-inputs"
+          find "$RUNNER_TEMP/release-artifacts" \
+            -mindepth 1 -maxdepth 1 -printf '%f\n' \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-signed-inputs"
+          cmp "$RUNNER_TEMP/expected-signed-inputs" \
+            "$RUNNER_TEMP/actual-signed-inputs"
+          for file in \
+            RELEASE-NOTES.md \
+            "clench-$VERSION-release.apk" \
+            "clench-$VERSION-sbom.cdx.json"; do
+            test -f "$RUNNER_TEMP/release-artifacts/$file"
+            test ! -L "$RUNNER_TEMP/release-artifacts/$file"
+          done
+          printf '%s\n' \
+            BUILD-SHA256SUMS \
+            RELEASE-NOTES.md \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-original-inputs"
+          find "$RUNNER_TEMP/original-unsigned-release" \
+            -mindepth 1 -maxdepth 1 -printf '%f\n' \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-original-inputs"
+          cmp "$RUNNER_TEMP/expected-original-inputs" \
+            "$RUNNER_TEMP/actual-original-inputs"
+          for file in \
+            BUILD-SHA256SUMS \
+            RELEASE-NOTES.md \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-unsigned.apk"; do
+            test -f "$RUNNER_TEMP/original-unsigned-release/$file"
+            test ! -L "$RUNNER_TEMP/original-unsigned-release/$file"
+          done
+          printf '%s\n' \
+            RELEASE-NOTES.md \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-original-checksum-files"
+          awk '
+            !/^[0-9a-f]{64}  [A-Za-z0-9._-]+$/ { exit 1 }
+            { print $2 }
+          ' "$RUNNER_TEMP/original-unsigned-release/BUILD-SHA256SUMS" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-original-checksum-files"
+          cmp "$RUNNER_TEMP/expected-original-checksum-files" \
+            "$RUNNER_TEMP/actual-original-checksum-files"
+          printf '%s\n' \
+            RELEASE-NOTES.md \
+            UNSIGNED-APPROVAL.txt \
+            VERIFIED-UNSIGNED-SHA256SUMS \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-independent-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-unsigned-inputs"
+          find "$RUNNER_TEMP/verified-unsigned-release" \
+            -mindepth 1 -maxdepth 1 -printf '%f\n' \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-unsigned-inputs"
+          cmp "$RUNNER_TEMP/expected-unsigned-inputs" \
+            "$RUNNER_TEMP/actual-unsigned-inputs"
+          for file in \
+            RELEASE-NOTES.md \
+            UNSIGNED-APPROVAL.txt \
+            VERIFIED-UNSIGNED-SHA256SUMS \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-independent-unsigned.apk"; do
+            test -f "$RUNNER_TEMP/verified-unsigned-release/$file"
+            test ! -L "$RUNNER_TEMP/verified-unsigned-release/$file"
+          done
+          printf '%s\n' \
+            RELEASE-NOTES.md \
+            UNSIGNED-APPROVAL.txt \
+            "clench-$VERSION-sbom.cdx.json" \
+            "clench-$VERSION-independent-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-approved-checksum-files"
+          awk '
+            !/^[0-9a-f]{64}  [A-Za-z0-9._-]+$/ { exit 1 }
+            { print $2 }
+          ' "$RUNNER_TEMP/verified-unsigned-release/VERIFIED-UNSIGNED-SHA256SUMS" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-approved-checksum-files"
+          cmp "$RUNNER_TEMP/expected-approved-checksum-files" \
+            "$RUNNER_TEMP/actual-approved-checksum-files"
+          (
+            cd "$RUNNER_TEMP/original-unsigned-release"
+            sha256sum --strict -c BUILD-SHA256SUMS
+          )
+          (
+            cd "$RUNNER_TEMP/verified-unsigned-release"
+            sha256sum --strict -c VERIFIED-UNSIGNED-SHA256SUMS
+          )
+          ORIGINAL_APK="$RUNNER_TEMP/original-unsigned-release/clench-$VERSION-unsigned.apk"
+          INDEPENDENT_APK="$RUNNER_TEMP/verified-unsigned-release/clench-$VERSION-independent-unsigned.apk"
+          cmp "$ORIGINAL_APK" "$INDEPENDENT_APK"
+          RAW_SHA256="$(sha256sum "$ORIGINAL_APK" | awk '{print $1}')"
+          test "$RAW_SHA256" = "$(sha256sum "$INDEPENDENT_APK" | awk '{print $1}')"
+          {
+            echo "versionName=$VERSION"
+            echo "versionCode=$VERSION_CODE"
+            echo "sourceCommit=$SOURCE_COMMIT"
+            echo "signerInputUnsignedSha256=$RAW_SHA256"
+            echo "independentUnsignedSha256=$RAW_SHA256"
+            echo "rawUnsignedByteIdentical=true"
+          } > "$RUNNER_TEMP/expected-unsigned-approval"
+          cmp "$RUNNER_TEMP/expected-unsigned-approval" \
+            "$RUNNER_TEMP/verified-unsigned-release/UNSIGNED-APPROVAL.txt"
+          cmp "$RUNNER_TEMP/verified-unsigned-release/RELEASE-NOTES.md" \
+            "$RUNNER_TEMP/release-artifacts/RELEASE-NOTES.md"
+          cmp "$RUNNER_TEMP/verified-unsigned-release/clench-$VERSION-sbom.cdx.json" \
+            "$RUNNER_TEMP/release-artifacts/clench-$VERSION-sbom.cdx.json"
+          printf '%s\n' POST-SIGN-BUILD-SHA256SUMS \
+            "clench-$VERSION-independent-unsigned.apk" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-post-sign-inputs"
+          find "$RUNNER_TEMP/post-sign-unsigned-build" -mindepth 1 -maxdepth 1 \
+            -printf '%f\n' | LC_ALL=C sort > "$RUNNER_TEMP/actual-post-sign-inputs"
+          cmp "$RUNNER_TEMP/expected-post-sign-inputs" \
+            "$RUNNER_TEMP/actual-post-sign-inputs"
+          test -f "$RUNNER_TEMP/post-sign-unsigned-build/POST-SIGN-BUILD-SHA256SUMS"
+          test ! -L "$RUNNER_TEMP/post-sign-unsigned-build/POST-SIGN-BUILD-SHA256SUMS"
+          test -f "$RUNNER_TEMP/post-sign-unsigned-build/clench-$VERSION-independent-unsigned.apk"
+          test ! -L "$RUNNER_TEMP/post-sign-unsigned-build/clench-$VERSION-independent-unsigned.apk"
+          (
+            cd "$RUNNER_TEMP/post-sign-unsigned-build"
+            sha256sum --strict -c POST-SIGN-BUILD-SHA256SUMS
+          )
+          POST_SIGN_APK="$RUNNER_TEMP/post-sign-unsigned-build/clench-$VERSION-independent-unsigned.apk"
+          cmp "$ORIGINAL_APK" "$POST_SIGN_APK"
+          cp "$RUNNER_TEMP/original-unsigned-release/BUILD-SHA256SUMS" \
+            "$RUNNER_TEMP/release-artifacts/ORIGINAL-UNSIGNED-BUILD-SHA256SUMS"
+          cp "$RUNNER_TEMP/verified-unsigned-release/VERIFIED-UNSIGNED-SHA256SUMS" \
+            "$RUNNER_TEMP/release-artifacts/VERIFIED-UNSIGNED-SHA256SUMS"
+          cp "$RUNNER_TEMP/verified-unsigned-release/UNSIGNED-APPROVAL.txt" \
+            "$RUNNER_TEMP/release-artifacts/UNSIGNED-APPROVAL.txt"
+          cp "$RUNNER_TEMP/post-sign-unsigned-build/POST-SIGN-BUILD-SHA256SUMS" \
+            "$RUNNER_TEMP/release-artifacts/POST-SIGN-UNSIGNED-BUILD-SHA256SUMS"
+          cp "$ORIGINAL_APK" \
+            "$RUNNER_TEMP/release-artifacts/clench-$VERSION-unsigned.apk"
 
       - name: Verify package, version, signer, SBOM, and source notes
         env:
@@ -335,13 +1075,34 @@ jobs:
             --version "$VERSION" --commit "$SOURCE_COMMIT"
           scripts/release/check-osv.py "$SBOM"
 
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f \
-            | LC_ALL=C sort -V | tail -1)"
-          AAPT="$(find "$ANDROID_HOME/build-tools" -name aapt -type f \
-            | LC_ALL=C sort -V | tail -1)"
-          REPORT="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
+          APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
+          APKSIGNER_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/lib/apksigner.jar"
+          APKSIGNER_SHADOW_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner.jar"
+          AAPT="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/aapt"
+          test -x "$APKSIGNER"
+          test -f "$APKSIGNER_JAR"
+          test ! -e "$APKSIGNER_SHADOW_JAR"
+          test -x "$AAPT"
+          test "$(sha256sum "$APKSIGNER" | awk '{print $1}')" = \
+            "$EXPECTED_APKSIGNER_SHA256"
+          test "$(sha256sum "$APKSIGNER_JAR" | awk '{print $1}')" = \
+            "$EXPECTED_APKSIGNER_JAR_SHA256"
+          test "$(sha256sum "$AAPT" | awk '{print $1}')" = \
+            "$EXPECTED_AAPT_SHA256"
+          REPORT="$("$APKSIGNER" verify --min-sdk-version 26 --verbose --print-certs "$APK")"
+          grep -Fq 'Verified using v1 scheme (JAR signing): false' <<< "$REPORT"
           grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$REPORT"
+          grep -Fq 'Verified using v3 scheme (APK Signature Scheme v3): true' <<< "$REPORT"
+          grep -Fq 'Verified using v3.1 scheme (APK Signature Scheme v3.1): false' <<< "$REPORT"
+          grep -Fq 'Verified using v4 scheme (APK Signature Scheme v4): false' <<< "$REPORT"
+          grep -Fq 'Verified for SourceStamp: false' <<< "$REPORT"
           grep -Fq 'Number of signers: 1' <<< "$REPORT"
+          ZIP_ENTRIES="$(unzip -Z1 "$APK")"
+          if grep -Eiq '^META-INF/(MANIFEST\.MF|[^/]+\.(SF|RSA|DSA|EC))$' \
+            <<< "$ZIP_ENTRIES"; then
+            echo "Release APK unexpectedly contains v1 signature records." >&2
+            exit 1
+          fi
           SIGNER_SHA256="$(awk -F': ' '/certificate SHA-256 digest/ {print tolower($NF); exit}' <<< "$REPORT")"
           test "$SIGNER_SHA256" = "$EXPECTED_RELEASE_SIGNER_SHA256"
           BADGING="$("$AAPT" dump badging "$APK")"
@@ -358,6 +1119,20 @@ jobs:
         run: |
           gh attestation verify \
             "$RUNNER_TEMP/release-artifacts/clench-$VERSION-release.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-digest "$SOURCE_COMMIT" \
+            --source-ref refs/heads/master \
+            --deny-self-hosted-runners
+
+      - name: Verify blind-build provenance for the published unsigned evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate_source.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
+        run: |
+          gh attestation verify \
+            "$RUNNER_TEMP/release-artifacts/clench-$VERSION-unsigned.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
             --source-digest "$SOURCE_COMMIT" \
@@ -410,9 +1185,10 @@ jobs:
             echo "provenanceSha256=$(sha256sum "$ARTIFACTS/PROVENANCE.intoto.jsonl" | awk '{print $1}')"
             echo "apkSignerCertsFollow"
           } > "$ARTIFACTS/RELEASE-MANIFEST.txt"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f \
-            | LC_ALL=C sort -V | tail -1)"
-          "$APKSIGNER" verify --verbose --print-certs \
+          APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
+          test "$(sha256sum "$APKSIGNER" | awk '{print $1}')" = \
+            "$EXPECTED_APKSIGNER_SHA256"
+          "$APKSIGNER" verify --min-sdk-version 26 --verbose --print-certs \
             "$ARTIFACTS/clench-$VERSION-release.apk" \
             | tee -a "$ARTIFACTS/RELEASE-MANIFEST.txt"
           (
@@ -422,22 +1198,26 @@ jobs:
               "clench-$VERSION-sbom.cdx.json" \
               PROVENANCE.intoto.jsonl \
               RELEASE-NOTES.md \
+              UNSIGNED-APPROVAL.txt \
+              ORIGINAL-UNSIGNED-BUILD-SHA256SUMS \
+              POST-SIGN-UNSIGNED-BUILD-SHA256SUMS \
+              VERIFIED-UNSIGNED-SHA256SUMS \
+              "clench-$VERSION-unsigned.apk" \
               > SHA256SUMS
             cp SHA256SUMS SHA256SUMS.txt
           )
-          scripts/release/verify-release-bundle.sh "$ARTIFACTS"
+          scripts/release/verify-release-bundle.sh "$ARTIFACTS" --pre-independent
 
-      - name: Independently rebuild and compare the unsigned APK payload
+      - name: Compare the second blind build with the signed APK payload
         env:
           VERSION: ${{ needs.validate_source.outputs.version }}
           VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
         run: |
-          scripts/release/rebuild-unsigned.sh \
-            "$RUNNER_TEMP/clench-$VERSION-independent-unsigned.apk"
           scripts/release/verify-independent-apk.sh \
             "$RUNNER_TEMP/release-artifacts" \
-            "$RUNNER_TEMP/clench-$VERSION-independent-unsigned.apk" \
-            "$RUNNER_TEMP/release-artifacts/INDEPENDENT-APK-VERIFICATION.json"
+            "$RUNNER_TEMP/post-sign-unsigned-build/clench-$VERSION-independent-unsigned.apk" \
+            "$RUNNER_TEMP/release-artifacts/INDEPENDENT-APK-VERIFICATION.json" \
+            "$RUNNER_TEMP/original-unsigned-release/clench-$VERSION-unsigned.apk"
 
       - name: Finalize and reverify the public evidence bundle
         env:
@@ -453,12 +1233,22 @@ jobs:
               "clench-$VERSION-sbom.cdx.json" \
               PROVENANCE.intoto.jsonl \
               RELEASE-NOTES.md \
+              UNSIGNED-APPROVAL.txt \
+              ORIGINAL-UNSIGNED-BUILD-SHA256SUMS \
+              POST-SIGN-UNSIGNED-BUILD-SHA256SUMS \
+              VERIFIED-UNSIGNED-SHA256SUMS \
+              "clench-$VERSION-unsigned.apk" \
               RELEASE-MANIFEST.txt \
               INDEPENDENT-APK-VERIFICATION.json \
               > SHA256SUMS
             cp SHA256SUMS SHA256SUMS.txt
           )
           scripts/release/verify-release-bundle.sh "$RUNNER_TEMP/release-artifacts"
+
+      - name: Attest the final no-secrets verification evidence
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: ${{ runner.temp }}/release-artifacts/*
 
       - name: Upload independently verified release bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -473,12 +1263,20 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      attestations: read
     steps:
       - name: Check out the trusted release gate
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ needs.validate_source.outputs.source_commit }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up JDK 21 for final publication verification
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
 
       - name: Reverify immutable source tag immediately before publication
         env:
@@ -504,11 +1302,31 @@ jobs:
           name: verified-release-${{ needs.validate_source.outputs.version }}
           path: release-artifacts
 
-      - name: Publish GitHub release without signing credentials
+      - name: Reverify the complete bundle and publish without signing credentials
         env:
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.validate_source.outputs.version }}
+          VERSION_CODE: ${{ needs.validate_source.outputs.version_code }}
           RELEASE_TAG: ${{ needs.validate_source.outputs.source_tag }}
+          SOURCE_COMMIT: ${{ needs.validate_source.outputs.source_commit }}
         run: |
+          for evidence in \
+            "release-artifacts/clench-$VERSION-release.apk" \
+            "release-artifacts/clench-$VERSION-unsigned.apk" \
+            "release-artifacts/clench-$VERSION-sbom.cdx.json" \
+            release-artifacts/INDEPENDENT-APK-VERIFICATION.json \
+            release-artifacts/UNSIGNED-APPROVAL.txt \
+            release-artifacts/ORIGINAL-UNSIGNED-BUILD-SHA256SUMS \
+            release-artifacts/POST-SIGN-UNSIGNED-BUILD-SHA256SUMS \
+            release-artifacts/VERIFIED-UNSIGNED-SHA256SUMS; do
+            gh attestation verify "$evidence" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-digest "$SOURCE_COMMIT" \
+              --source-ref refs/heads/master \
+              --deny-self-hosted-runners
+          done
+          scripts/release/verify-release-bundle.sh release-artifacts
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             "release-artifacts/clench-$VERSION-release.apk" \
@@ -518,6 +1336,11 @@ jobs:
             "release-artifacts/clench-$VERSION-sbom.cdx.json" \
             release-artifacts/PROVENANCE.intoto.jsonl \
             release-artifacts/INDEPENDENT-APK-VERIFICATION.json \
+            release-artifacts/UNSIGNED-APPROVAL.txt \
+            release-artifacts/ORIGINAL-UNSIGNED-BUILD-SHA256SUMS \
+            release-artifacts/POST-SIGN-UNSIGNED-BUILD-SHA256SUMS \
+            release-artifacts/VERIFIED-UNSIGNED-SHA256SUMS \
+            "release-artifacts/clench-$VERSION-unsigned.apk" \
             release-artifacts/RELEASE-NOTES.md \
             --verify-tag \
             --latest \

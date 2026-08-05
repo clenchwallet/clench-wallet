@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import subprocess
@@ -36,6 +37,28 @@ FORBIDDEN_SIGNER_TRANSPORT_PATTERNS = (
     re.compile(r"\busb\b", re.IGNORECASE),
     re.compile(r"virtual\s+disk", re.IGNORECASE),
 )
+TOOLCHAIN_ENV_TO_PYTHON = {
+    "APKSIGNER_BUILD_TOOLS_VERSION": "APKSIGNER_BUILD_TOOLS_VERSION",
+    "EXPECTED_APKSIGNER_SHA256": "APKSIGNER_EXECUTABLE_SHA256",
+    "EXPECTED_APKSIGNER_JAR_SHA256": "APKSIGNER_JAR_SHA256",
+    "EXPECTED_AAPT_SHA256": "AAPT_SHA256",
+}
+
+
+def literal_assignments(path: Path) -> dict[str, object]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    assignments: dict[str, object] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
+            try:
+                assignments[node.targets[0].id] = ast.literal_eval(node.value)
+            except (ValueError, TypeError):
+                continue
+    return assignments
 
 
 def tracked_files() -> list[str]:
@@ -54,6 +77,449 @@ def job_blocks(workflow: str) -> dict[str, str]:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(jobs_text)
         blocks[match.group(1)] = jobs_text[match.start() : end]
     return blocks
+
+
+def named_step_blocks(job: str) -> dict[str, str]:
+    matches = list(re.finditer(r"(?m)^      - name: (.+?)\s*$", job))
+    blocks: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(job)
+        name = match.group(1)
+        if name in blocks:
+            raise SystemExit(f"Release workflow repeats a named step: {name}")
+        blocks[name] = job[match.start() : end]
+    return blocks
+
+
+def named_step_names(job: str) -> list[str]:
+    """Return named steps in execution order."""
+
+    return re.findall(r"(?m)^      - name: (.+?)\s*$", job)
+
+
+def job_needs(job: str) -> str | None:
+    match = re.search(r"(?m)^    needs:\s*(.+?)\s*$", job)
+    return match.group(1) if match else None
+
+
+def job_permissions(job: str) -> dict[str, str]:
+    """Parse the job-level permissions mapping, excluding step-level text."""
+
+    match = re.search(
+        r"(?m)^    permissions:\s*$\n"
+        r"((?:^      [A-Za-z0-9_-]+:\s*[^\n]+\n)+)",
+        job,
+    )
+    if not match:
+        return {}
+    permissions: dict[str, str] = {}
+    for key, value in re.findall(
+        r"(?m)^      ([A-Za-z0-9_-]+):\s*([^\s#]+)", match.group(1)
+    ):
+        permissions[key] = value
+    return permissions
+
+
+def require_text(source: str, required: str, message: str) -> None:
+    if required not in source:
+        raise SystemExit(message)
+
+
+def verify_release_workflow(workflow: str) -> None:
+    """Validate release.yml security boundaries without reading or mutating files.
+
+    Keeping this check pure lets the hostile self-test exercise workflow mutations
+    in memory, so a negative test can never transiently rewrite the tracked release
+    workflow.
+    """
+
+    blocks = job_blocks(workflow)
+    required_jobs = {
+        "validate_source",
+        "build_unsigned",
+        "build_independent_unsigned",
+        "attest_independent_unsigned",
+        "verify_unsigned",
+        "build_post_sign_unsigned",
+        "attest_post_sign_unsigned",
+        "sign_release",
+        "verify_release",
+        "publish",
+    }
+    if set(blocks) != required_jobs:
+        raise SystemExit(
+            "Release workflow must contain exactly the required isolated jobs"
+        )
+
+    for job_name, block in blocks.items():
+        if re.search(r"(?m)^      - (?!name:\s)", block):
+            raise SystemExit(
+                f"Release job {job_name} contains an unnamed top-level step"
+            )
+
+    expected_permissions = {
+        "validate_source": {"contents": "read"},
+        "build_unsigned": {"contents": "read"},
+        "build_independent_unsigned": {"contents": "read"},
+        "attest_independent_unsigned": {
+            "contents": "read",
+            "id-token": "write",
+            "attestations": "write",
+        },
+        "verify_unsigned": {"contents": "read", "attestations": "read"},
+        "build_post_sign_unsigned": {"contents": "read"},
+        "attest_post_sign_unsigned": {
+            "contents": "read",
+            "id-token": "write",
+            "attestations": "write",
+        },
+        "sign_release": {
+            "contents": "read",
+            "id-token": "write",
+            "attestations": "write",
+        },
+        "verify_release": {
+            "contents": "read",
+            "id-token": "write",
+            "attestations": "write",
+        },
+        "publish": {"contents": "write", "attestations": "read"},
+    }
+    for job_name, expected in expected_permissions.items():
+        if job_permissions(blocks[job_name]) != expected:
+            raise SystemExit(f"Release job {job_name} has unsafe permissions")
+
+    strict_semver = (
+        '[[ ! "$RELEASE_TAG" =~ '
+        '^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.'
+        '(0|[1-9][0-9]*)$ ]]'
+    )
+    require_text(
+        blocks["validate_source"],
+        strict_semver,
+        "Release source gate must reject semantic-version leading zeros",
+    )
+
+    expected_needs = {
+        "build_unsigned": "validate_source",
+        "build_independent_unsigned": "validate_source",
+        "attest_independent_unsigned": (
+            "[validate_source, build_independent_unsigned]"
+        ),
+        "verify_unsigned": (
+            "[validate_source, build_unsigned, build_independent_unsigned, "
+            "attest_independent_unsigned]"
+        ),
+        "build_post_sign_unsigned": "validate_source",
+        "attest_post_sign_unsigned": (
+            "[validate_source, build_post_sign_unsigned]"
+        ),
+        "sign_release": "[validate_source, verify_unsigned]",
+        "verify_release": (
+            "[validate_source, verify_unsigned, build_post_sign_unsigned, "
+            "attest_post_sign_unsigned, sign_release]"
+        ),
+        "publish": "[validate_source, verify_release]",
+    }
+    for job_name, expected in expected_needs.items():
+        if job_needs(blocks[job_name]) != expected:
+            raise SystemExit(
+                f"Release job {job_name} has an unsafe dependency edge"
+            )
+
+    for job_name in ("build_independent_unsigned", "build_post_sign_unsigned"):
+        block = blocks[job_name]
+        if job_permissions(block) != {"contents": "read"}:
+            raise SystemExit(
+                f"{job_name} must have only contents: read permission"
+            )
+        require_text(
+            block,
+            "persist-credentials: false",
+            f"{job_name} must not persist checkout credentials",
+        )
+        if "actions/download-artifact@" in block:
+            raise SystemExit(
+                f"{job_name} must not download expected release artifacts"
+            )
+        for cleared in (
+            "ACTIONS_RUNTIME_TOKEN: ''",
+            "ACTIONS_RESULTS_URL: ''",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''",
+            "ACTIONS_ID_TOKEN_REQUEST_URL: ''",
+            "GH_TOKEN: ''",
+            "GITHUB_TOKEN: ''",
+        ):
+            require_text(
+                block,
+                cleared,
+                f"{job_name} does not clear blind-build credential: {cleared}",
+            )
+
+    attestors = {
+        "attest_independent_unsigned": (
+            "${{ runner.temp }}/independent-unsigned-build/"
+            "clench-${{ needs.validate_source.outputs.version }}-"
+            "independent-unsigned.apk"
+        ),
+        "attest_post_sign_unsigned": (
+            "${{ runner.temp }}/post-sign-unsigned-build/"
+            "clench-${{ needs.validate_source.outputs.version }}-"
+            "independent-unsigned.apk"
+        ),
+    }
+    for job_name, subject in attestors.items():
+        block = blocks[job_name]
+        if job_permissions(block) != {
+            "contents": "read",
+            "id-token": "write",
+            "attestations": "write",
+        }:
+            raise SystemExit(f"{job_name} has unsafe attestor permissions")
+        for forbidden in (
+            "actions/checkout@",
+            "gradle/actions/",
+            "./gradlew",
+            "scripts/",
+            "rebuild-unsigned.sh",
+        ):
+            if forbidden in block:
+                raise SystemExit(
+                    f"{job_name} must not check out or execute release source"
+                )
+        if block.count("actions/attest-build-provenance@") != 1:
+            raise SystemExit(f"{job_name} must attest exactly one blind APK")
+        require_text(
+            block,
+            f"subject-path: {subject}",
+            f"{job_name} does not attest the exact blind APK subject",
+        )
+
+    verifier = blocks["verify_unsigned"]
+    require_text(
+        verifier,
+        "approved_raw_sha256: ${{ steps.raw_compare.outputs.approved_raw_sha256 }}",
+        "verify_unsigned does not expose the immutable approved raw digest",
+    )
+    verifier_steps = named_step_blocks(verifier)
+    verifier_order = named_step_names(verifier)
+    raw_name = "Prove raw reproducibility with core tools before APK parsing"
+    attestation_name = "Verify blind-build provenance before approval"
+    parser_name = "Validate unsigned APK metadata and create the approval artifact"
+    for step_name in (raw_name, attestation_name, parser_name):
+        if step_name not in verifier_steps:
+            raise SystemExit(f"verify_unsigned is missing required step: {step_name}")
+    if not (
+        verifier_order.index(raw_name)
+        < verifier_order.index(attestation_name)
+        < verifier_order.index(parser_name)
+    ):
+        raise SystemExit(
+            "verify_unsigned must compare raw APKs, verify B attestation, then parse"
+        )
+    raw_step = verifier_steps[raw_name]
+    require_text(
+        raw_step,
+        "id: raw_compare",
+        "Raw reproducibility step is not the immutable output producer",
+    )
+    require_text(
+        raw_step,
+        'echo "approved_raw_sha256=$RAW_SHA256" >> "$GITHUB_OUTPUT"',
+        "Raw reproducibility step does not emit approved_raw_sha256",
+    )
+    attestation_step = verifier_steps[attestation_name]
+    for required in (
+        "gh attestation verify",
+        '"$RUNNER_TEMP/independent-unsigned-build/clench-$VERSION-independent-unsigned.apk"',
+        '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"',
+        '--source-digest "$SOURCE_COMMIT"',
+        "--source-ref refs/heads/master",
+        "--deny-self-hosted-runners",
+    ):
+        require_text(
+            attestation_step,
+            required,
+            "Blind-build attestation is not fully verified before approval",
+        )
+
+    signer = blocks["sign_release"]
+    signer_steps = named_step_blocks(signer)
+    signer_order = named_step_names(signer)
+    expected_signer_order = [
+        "Download the first no-secrets unsigned build",
+        "Download only the pre-sign verified unsigned build",
+        "Verify the isolated signer input without parsing APK contents",
+        "Require release signing secrets",
+        "Sign the prebuilt digest with no source checkout",
+        "Destroy signing material",
+        "Verify signer continuity after key destruction",
+        "Attest signed APK provenance",
+        "Attest signed APK SBOM",
+        "Upload the minimally signed release inputs",
+    ]
+    if signer_order != expected_signer_order:
+        raise SystemExit("Isolated signer must contain the exact ordered step list")
+    precheck_name = "Verify the isolated signer input without parsing APK contents"
+    sign_name = "Sign the prebuilt digest with no source checkout"
+    destroy_name = "Destroy signing material"
+    for step_name in (precheck_name, sign_name, destroy_name):
+        if step_name not in signer_steps:
+            raise SystemExit(f"Isolated signer is missing required step: {step_name}")
+    precheck = signer_steps[precheck_name]
+    for forbidden in (
+        "apksigner",
+        "aapt",
+        "dump badging",
+        "unzip",
+        "zipinfo",
+        "compare-apk-payloads",
+        "scripts/",
+    ):
+        if forbidden.lower() in precheck.lower():
+            raise SystemExit(
+                "Signer precheck must not parse attacker-controlled APK contents"
+            )
+    require_text(
+        precheck,
+        "APPROVED_RAW_SHA256: ${{ needs.verify_unsigned.outputs.approved_raw_sha256 }}",
+        "Signer precheck is not bound to the immutable approved raw digest",
+    )
+
+    signing = signer_steps[sign_name]
+    require_text(
+        signing,
+        "APPROVED_RAW_SHA256: ${{ needs.verify_unsigned.outputs.approved_raw_sha256 }}",
+        "Signing step is not bound to the immutable approved raw digest",
+    )
+    for apk_name in ("ORIGINAL_APK", "INDEPENDENT_APK"):
+        pattern = re.compile(
+            rf'/usr/bin/sha256sum "\${apk_name}".*?=\s*\\?\n?\s*'
+            r'"\$APPROVED_RAW_SHA256"',
+            re.DOTALL,
+        )
+        if not pattern.search(signing):
+            raise SystemExit(
+                f"Signing step does not bind {apk_name} to immutable approval"
+            )
+    for required in (
+        '/usr/bin/cmp "$ORIGINAL_APK" "$INDEPENDENT_APK"',
+        "/usr/bin/sha256sum",
+        "/usr/bin/awk",
+        "/usr/bin/grep",
+        "APKSIGNER=/usr/local/lib/android/sdk/build-tools/35.0.0/apksigner",
+        "APKSIGNER_JAR=/usr/local/lib/android/sdk/build-tools/35.0.0/lib/apksigner.jar",
+        "APKSIGNER_SHADOW_JAR=/usr/local/lib/android/sdk/build-tools/35.0.0/apksigner.jar",
+        "b47549e373b895ce6ca620d0c7887e674d9615ffa837a86ac601dcfd04adb0f0",
+        "00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7",
+        "cleanup_signing_material()",
+        "trap cleanup_signing_material EXIT",
+        "cleanup_signing_material",
+        "trap - EXIT INT TERM",
+        'test ! -e "$KEYSTORE"',
+    ):
+        require_text(
+            signing,
+            required,
+            f"Signing step is missing point-of-use control: {required}",
+        )
+
+    sign_index = signer_order.index(sign_name)
+    if sign_index + 1 >= len(signer_order) or signer_order[sign_index + 1] != destroy_name:
+        raise SystemExit(
+            "Destroy signing material must be the immediately adjacent named step"
+        )
+    require_text(
+        signer_steps[destroy_name],
+        "if: always()",
+        "Signing material destruction is not unconditional",
+    )
+
+    release_verifier = blocks["verify_release"]
+    release_steps = named_step_blocks(release_verifier)
+    c_attestation_name = "Verify second blind-build provenance before comparison"
+    require_text(
+        release_verifier,
+        "attest_post_sign_unsigned",
+        "Post-sign verifier does not wait for C attestation",
+    )
+    if c_attestation_name not in release_steps:
+        raise SystemExit("Post-sign verifier does not verify C attestation")
+    for required in (
+        "gh attestation verify",
+        '"$RUNNER_TEMP/post-sign-unsigned-build/clench-$VERSION-independent-unsigned.apk"',
+        '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"',
+        '--source-digest "$SOURCE_COMMIT"',
+        "--source-ref refs/heads/master",
+        "--deny-self-hosted-runners",
+    ):
+        require_text(
+            release_steps[c_attestation_name],
+            required,
+            "Post-sign verifier does not fully verify C attestation",
+        )
+
+    publisher = blocks["publish"]
+    publish_name = "Reverify the complete bundle and publish without signing credentials"
+    publish_steps = named_step_blocks(publisher)
+    publish_order = named_step_names(publisher)
+    expected_publish_order = [
+        "Check out the trusted release gate",
+        "Set up JDK 21 for final publication verification",
+        "Reverify immutable source tag immediately before publication",
+        "Download verified release bundle",
+        publish_name,
+    ]
+    if publish_order != expected_publish_order:
+        raise SystemExit("Publisher must contain the exact ordered step list")
+    publish_step = publish_steps[publish_name]
+    loop_match = re.search(
+        r"for evidence in \\\n(?P<subjects>.*?)\s*; do\n"
+        r"(?P<body>.*?)^\s*done\s*$",
+        publish_step,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not loop_match:
+        raise SystemExit("Publication does not use a bounded evidence attestation loop")
+    required_evidence = {
+        '"release-artifacts/clench-$VERSION-release.apk"',
+        '"release-artifacts/clench-$VERSION-unsigned.apk"',
+        '"release-artifacts/clench-$VERSION-sbom.cdx.json"',
+        "release-artifacts/INDEPENDENT-APK-VERIFICATION.json",
+        "release-artifacts/UNSIGNED-APPROVAL.txt",
+        "release-artifacts/ORIGINAL-UNSIGNED-BUILD-SHA256SUMS",
+        "release-artifacts/POST-SIGN-UNSIGNED-BUILD-SHA256SUMS",
+        "release-artifacts/VERIFIED-UNSIGNED-SHA256SUMS",
+    }
+    loop_subjects = {
+        line.strip().removesuffix(" \\")
+        for line in loop_match.group("subjects").splitlines()
+        if line.strip()
+    }
+    if loop_subjects != required_evidence:
+        raise SystemExit("Publication does not attest the exact required evidence set")
+    loop_body = loop_match.group("body")
+    for required in (
+        'gh attestation verify "$evidence"',
+        '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"',
+        '--source-digest "$SOURCE_COMMIT"',
+        "--source-ref refs/heads/master",
+        "--deny-self-hosted-runners",
+    ):
+        require_text(
+            loop_body,
+            required,
+            "Publication evidence attestation verification is incomplete",
+        )
+    immediate_publish = (
+        "scripts/release/verify-release-bundle.sh release-artifacts\n"
+        '          gh release create "$RELEASE_TAG"'
+    )
+    require_text(
+        publish_step,
+        immediate_publish,
+        "Publication must fully verify the bundle immediately before release creation",
+    )
 
 
 def verify_hardware_transport_policy() -> None:
@@ -256,18 +722,33 @@ def main() -> None:
             )
 
     workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+    verify_release_workflow(workflow)
     blocks = job_blocks(workflow)
     required_jobs = {
         "validate_source",
         "build_unsigned",
+        "build_independent_unsigned",
+        "attest_independent_unsigned",
+        "verify_unsigned",
+        "build_post_sign_unsigned",
+        "attest_post_sign_unsigned",
         "sign_release",
         "verify_release",
         "publish",
     }
-    if not required_jobs.issubset(blocks):
-        raise SystemExit("Release workflow is missing required isolated jobs")
+    if set(blocks) != required_jobs:
+        raise SystemExit(
+            "Release workflow must contain exactly the required isolated jobs"
+        )
     if "workflow_dispatch:" not in workflow:
         raise SystemExit("Release workflow must be dispatched from protected master")
+    if (
+        '[[ ! "$RELEASE_TAG" =~ '
+        '^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.'
+        '(0|[1-9][0-9]*)$ ]]'
+        not in workflow
+    ):
+        raise SystemExit("Release source gate does not enforce strict semantic tags")
     if re.search(r"(?m)^\s*push:\s*$", workflow):
         raise SystemExit("Release workflow must not execute tag-controlled workflow code")
     if workflow.count("scripts/release/check-osv.py") < 2:
@@ -276,9 +757,26 @@ def main() -> None:
         raise SystemExit("Release build does not exercise hostile OSV-gate tests")
     if "environment: release-signing" not in blocks["sign_release"]:
         raise SystemExit("Signing job is not bound to the protected release environment")
-    if workflow.count("gradle/actions/wrapper-validation@") < 2:
-        raise SystemExit("Release build and independent verifier do not validate the wrapper JAR")
-    for job in ("validate_source", "build_unsigned", "verify_release", "publish"):
+    for job in (
+        "build_unsigned",
+        "build_independent_unsigned",
+        "build_post_sign_unsigned",
+    ):
+        if blocks[job].count("gradle/actions/wrapper-validation@") != 1:
+            raise SystemExit(
+                f"{job} must validate the wrapper JAR exactly once"
+            )
+    for job in (
+        "validate_source",
+        "build_unsigned",
+        "build_independent_unsigned",
+        "attest_independent_unsigned",
+        "verify_unsigned",
+        "build_post_sign_unsigned",
+        "attest_post_sign_unsigned",
+        "verify_release",
+        "publish",
+    ):
         if "environment: release-signing" in blocks[job]:
             raise SystemExit(f"{job} must not inherit the signing environment")
 
@@ -294,6 +792,21 @@ def main() -> None:
             raise SystemExit(f"Release source gate is missing: {required_gate}")
 
     signer = blocks["sign_release"]
+    signer_steps = named_step_blocks(signer)
+    required_signer_steps = {
+        "Download the first no-secrets unsigned build",
+        "Download only the pre-sign verified unsigned build",
+        "Verify the isolated signer input without parsing APK contents",
+        "Require release signing secrets",
+        "Sign the prebuilt digest with no source checkout",
+        "Destroy signing material",
+        "Verify signer continuity after key destruction",
+        "Attest signed APK provenance",
+        "Attest signed APK SBOM",
+        "Upload the minimally signed release inputs",
+    }
+    if not required_signer_steps.issubset(signer_steps):
+        raise SystemExit("Isolated signer is missing a required named step")
     for forbidden in ("actions/checkout@", "./gradlew", "keystore.properties"):
         if forbidden in signer:
             raise SystemExit(f"Isolated signer must not receive source/build input: {forbidden}")
@@ -302,21 +815,282 @@ def main() -> None:
     for required_global_control in (
         "EXPECTED_APKSIGNER_SHA256",
         "EXPECTED_APKSIGNER_JAR_SHA256",
+        "EXPECTED_AAPT_SHA256",
+        "APKSIGNER_SHADOW_JAR",
     ):
         if required_global_control not in workflow:
             raise SystemExit(
                 f"Release workflow is missing pinned signer control: "
                 f"{required_global_control}"
             )
+    workflow_env: dict[str, str] = {}
+    for name in TOOLCHAIN_ENV_TO_PYTHON:
+        match = re.search(rf"(?m)^  {re.escape(name)}: ([^\s]+)$", workflow)
+        if not match:
+            raise SystemExit(f"Release workflow does not define {name} exactly once")
+        workflow_env[name] = match.group(1)
+    comparator_assignments = literal_assignments(
+        Path("scripts/release/compare-apk-payloads.py")
+    )
+    validator_assignments = literal_assignments(
+        Path("scripts/release/validate-independent-report.py")
+    )
+    for env_name, python_name in TOOLCHAIN_ENV_TO_PYTHON.items():
+        if comparator_assignments.get(python_name) != workflow_env[env_name]:
+            raise SystemExit(
+                "compare-apk-payloads.py "
+                f"{python_name} does not match workflow {env_name}"
+            )
+    validator_toolchain = validator_assignments.get("EXPECTED_TOOLCHAIN")
+    expected_validator_toolchain = {
+        "aaptSha256": workflow_env["EXPECTED_AAPT_SHA256"],
+        "apksignerBuildToolsVersion": workflow_env[
+            "APKSIGNER_BUILD_TOOLS_VERSION"
+        ],
+        "apksignerExecutableSha256": workflow_env[
+            "EXPECTED_APKSIGNER_SHA256"
+        ],
+        "apksignerJarSha256": workflow_env[
+            "EXPECTED_APKSIGNER_JAR_SHA256"
+        ],
+    }
+    if validator_toolchain != expected_validator_toolchain:
+        raise SystemExit(
+            "validate-independent-report.py toolchain does not match workflow pins"
+        )
+    for name_pair in (
+        ("COMPARISON_POLICY", "COMPARISON_POLICY"),
+        ("SIGNING_PROFILE", "EXPECTED_SIGNING_PROFILE"),
+        ("VERIFICATION_PROFILE", "EXPECTED_VERIFICATION_PROFILE"),
+        ("SIGNING_BLOCK_POLICY", "EXPECTED_SIGNING_BLOCK_POLICY"),
+    ):
+        if comparator_assignments.get(name_pair[0]) != validator_assignments.get(
+            name_pair[1]
+        ):
+            raise SystemExit(
+                "Independent APK report producer and validator disagree on "
+                f"{name_pair[0]}"
+            )
+    signer_input_step = signer_steps[
+        "Verify the isolated signer input without parsing APK contents"
+    ]
     for required_signer_control in (
         "sha256sum --strict -c BUILD-SHA256SUMS",
-        "Sign the prebuilt digest with no source checkout",
+        "sha256sum --strict -c VERIFIED-UNSIGNED-SHA256SUMS",
+        'cmp "$ORIGINAL_APK" "$INDEPENDENT_APK"',
+        "rawUnsignedByteIdentical=true",
+    ):
+        if required_signer_control not in signer_input_step:
+            raise SystemExit(
+                "Isolated signer input step is missing a pinned-input control: "
+                f"{required_signer_control}"
+            )
+    signing_step = signer_steps["Sign the prebuilt digest with no source checkout"]
+    for required_signer_control in (
+        '/usr/bin/cmp "$ORIGINAL_APK" "$INDEPENDENT_APK"',
+        "APPROVED_RAW_SHA256: ${{ needs.verify_unsigned.outputs.approved_raw_sha256 }}",
+        "/usr/bin/sha256sum",
+        "/usr/bin/awk",
+        "APKSIGNER=/usr/local/lib/android/sdk/build-tools/35.0.0/apksigner",
+        "APKSIGNER_JAR=/usr/local/lib/android/sdk/build-tools/35.0.0/lib/apksigner.jar",
+        "APKSIGNER_SHADOW_JAR",
+        "b47549e373b895ce6ca620d0c7887e674d9615ffa837a86ac601dcfd04adb0f0",
+        "00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7",
+        "trap cleanup_signing_material EXIT",
+        'test ! -e "$KEYSTORE"',
+        "--v1-signing-enabled false",
+        "--v2-signing-enabled true",
+        "--v3-signing-enabled true",
         "--v4-signing-enabled false",
+        "--verity-enabled false",
+        "--min-sdk-version 26",
+        "--alignment-preserved false",
+        "--lib-page-alignment 16384",
         'test ! -e "$RUNNER_TEMP/signed-release/clench-$VERSION-release.apk.idsig"',
     ):
-        if required_signer_control not in signer:
+        if required_signer_control not in signing_step:
             raise SystemExit(
-                f"Isolated signer is missing pinned-input control: {required_signer_control}"
+                "Isolated signing step is missing a point-of-use control: "
+                f"{required_signer_control}"
+            )
+    destroy_step = signer_steps["Destroy signing material"]
+    if "if: always()" not in destroy_step:
+        raise SystemExit("Signing material destruction is not unconditional")
+
+    independent_verifier = Path(
+        "scripts/release/verify-independent-apk.sh"
+    ).read_text(encoding="utf-8")
+    for required_normalization_control in (
+        "EXPECTED_APKSIGNER_SHA256",
+        "EXPECTED_APKSIGNER_JAR_SHA256",
+        "EXPECTED_AAPT_SHA256",
+        "APKSIGNER_SHADOW_JAR",
+        "keytool",
+        "-keysize 4096",
+        "--v1-signing-enabled false",
+        "--v2-signing-enabled true",
+        "--v3-signing-enabled true",
+        "--v4-signing-enabled false",
+        "--verity-enabled false",
+        "--min-sdk-version 26",
+        "--alignment-preserved false",
+        "--lib-page-alignment 16384",
+        'test ! -e "$NORMALIZED_APK.idsig"',
+        'test ! -e "$EPHEMERAL_KEYSTORE"',
+        "--independent-unsigned",
+        "--signer-input-unsigned",
+        "SIGNER_INPUT_UNSIGNED",
+        "SIGNER_INPUT_SHA256_BEFORE",
+        "INDEPENDENT_SHA256_BEFORE",
+        "apksigner-v2-v3-ephemeral-rsa4096",
+    ):
+        if required_normalization_control not in independent_verifier:
+            raise SystemExit(
+                "Independent verifier is missing apksigner normalization control: "
+                f"{required_normalization_control}"
+            )
+
+    pre_sign_verifier = blocks["verify_unsigned"]
+    if "needs: validate_source" not in blocks["build_unsigned"]:
+        raise SystemExit("Unsigned builder is not gated on validated source")
+    blind_builder = blocks["build_independent_unsigned"]
+    post_sign_builder = blocks["build_post_sign_unsigned"]
+    for job_name, block, gradle_home in (
+        (
+            "build_independent_unsigned",
+            blind_builder,
+            "gradle-pre-sign-independent",
+        ),
+        (
+            "build_post_sign_unsigned",
+            post_sign_builder,
+            "gradle-post-sign-independent",
+        ),
+    ):
+        if "needs: validate_source" not in block:
+            raise SystemExit(f"{job_name} is not bound only to validated source")
+        if "actions/download-artifact@" in block:
+            raise SystemExit(f"{job_name} receives expected artifacts before building")
+        for cleared_token in (
+            "ACTIONS_RUNTIME_TOKEN: ''",
+            "ACTIONS_RESULTS_URL: ''",
+            "GH_TOKEN: ''",
+            "GITHUB_TOKEN: ''",
+        ):
+            if cleared_token not in block:
+                raise SystemExit(
+                    f"{job_name} does not clear artifact/API credentials: "
+                    f"{cleared_token}"
+                )
+        if f"GRADLE_USER_HOME: ${{{{ runner.temp }}}}/{gradle_home}" not in block:
+            raise SystemExit(f"{job_name} lacks a distinct Gradle user home")
+        if "cache-disabled: true" not in block:
+            raise SystemExit(f"{job_name} may restore an untrusted build cache")
+        if "scripts/release/rebuild-unsigned.sh" not in block:
+            raise SystemExit(f"{job_name} does not run the pinned independent build")
+    if (
+        "needs: [validate_source, build_unsigned, build_independent_unsigned, attest_independent_unsigned]"
+        not in pre_sign_verifier
+    ):
+        raise SystemExit("Pre-sign verifier is not gated on both blind builds")
+    for required_raw_identity_control in (
+        "Prove raw reproducibility with core tools before APK parsing",
+        "Download the original no-secrets build",
+        "sha256sum --strict -c BUILD-SHA256SUMS",
+        'cmp "$ORIGINAL" "$INDEPENDENT"',
+        "rawUnsignedByteIdentical=true",
+        "verified-unsigned-release-$",
+    ):
+        if required_raw_identity_control not in pre_sign_verifier:
+            raise SystemExit(
+                "Pre-sign verifier is missing raw reproducibility control: "
+                f"{required_raw_identity_control}"
+            )
+    if "needs: [validate_source, verify_unsigned]" not in signer:
+        raise SystemExit("Release signer is not gated on pre-sign reproducibility")
+    verifier_job = blocks["verify_release"]
+    if (
+        "needs: [validate_source, verify_unsigned, build_post_sign_unsigned, attest_post_sign_unsigned, sign_release]"
+        not in verifier_job
+    ):
+        raise SystemExit(
+            "Post-sign verifier is not gated on both blind builds and signing"
+        )
+    for required_post_sign_control in (
+        "Download the pre-sign verified signer input",
+        "Verify and bind the original no-secrets signer input",
+        "ORIGINAL-UNSIGNED-BUILD-SHA256SUMS",
+        "VERIFIED-UNSIGNED-SHA256SUMS",
+        "POST-SIGN-UNSIGNED-BUILD-SHA256SUMS",
+        "UNSIGNED-APPROVAL.txt",
+        "verified-unsigned-release/clench-$VERSION-independent-unsigned.apk",
+        'scripts/release/verify-release-bundle.sh "$ARTIFACTS" --pre-independent',
+        'scripts/release/verify-release-bundle.sh "$RUNNER_TEMP/release-artifacts"',
+    ):
+        if required_post_sign_control not in verifier_job:
+            raise SystemExit(
+                "Post-sign verifier is missing evidence control: "
+                f"{required_post_sign_control}"
+            )
+    if "scripts/release/rebuild-unsigned.sh" in verifier_job:
+        raise SystemExit("Post-sign verifier must consume a previously blind rebuild")
+    rebuild_script = Path(
+        "scripts/release/rebuild-unsigned.sh"
+    ).read_text(encoding="utf-8")
+    if "--no-build-cache" not in rebuild_script:
+        raise SystemExit("Independent rebuild script does not disable Gradle build caching")
+    bundle_verifier = Path(
+        "scripts/release/verify-release-bundle.sh"
+    ).read_text(encoding="utf-8")
+    for path, source in (
+        (Path("scripts/release/rebuild-unsigned.sh"), rebuild_script),
+        (Path("scripts/release/verify-independent-apk.sh"), independent_verifier),
+        (Path("scripts/release/verify-release-bundle.sh"), bundle_verifier),
+    ):
+        for forbidden_override in (
+            '${APKSIGNER:-',
+            '${AAPT:-',
+            '${KEYTOOL:-',
+        ):
+            if forbidden_override in source:
+                raise SystemExit(
+                    f"{path} permits a verification-tool path override: "
+                    f"{forbidden_override}"
+                )
+    for required_bundle_control in (
+        'MODE="${2:-final}"',
+        'test -f "$INDEPENDENT_REPORT"',
+        'test ! -L "$INDEPENDENT_REPORT"',
+        "ORIGINAL-UNSIGNED-BUILD-SHA256SUMS",
+        "VERIFIED-UNSIGNED-SHA256SUMS",
+        "UNSIGNED-APPROVAL.txt",
+        "POST-SIGN-UNSIGNED-BUILD-SHA256SUMS",
+        "signerInputUnsignedApkSha256",
+        "independentUnsignedApkSha256",
+        "EXPECTED_AAPT_SHA256",
+        "APKSIGNER_SHADOW_JAR",
+        "--min-sdk-version 26",
+        "Verified using v1 scheme (JAR signing): false",
+        "Verified using v3 scheme (APK Signature Scheme v3): true",
+        "Verified using v4 scheme (APK Signature Scheme v4): false",
+    ):
+        if required_bundle_control not in bundle_verifier:
+            raise SystemExit(
+                "Release bundle verifier is missing a final evidence control: "
+                f"{required_bundle_control}"
+            )
+    for required_public_evidence in (
+        "release-artifacts/ORIGINAL-UNSIGNED-BUILD-SHA256SUMS",
+        "release-artifacts/VERIFIED-UNSIGNED-SHA256SUMS",
+        "release-artifacts/POST-SIGN-UNSIGNED-BUILD-SHA256SUMS",
+        "release-artifacts/UNSIGNED-APPROVAL.txt",
+        'release-artifacts/clench-$VERSION-unsigned.apk',
+        "INDEPENDENT-APK-VERIFICATION.json",
+    ):
+        if required_public_evidence not in blocks["publish"]:
+            raise SystemExit(
+                "Publication omits reproducibility evidence: "
+                f"{required_public_evidence}"
             )
 
     for secret in RELEASE_SECRET_NAMES:
@@ -327,15 +1101,37 @@ def main() -> None:
             if job != "sign_release" and reference in block:
                 raise SystemExit(f"{secret} leaked into non-signing job {job}")
 
+    first_download_offset = signer.find(
+        "name: Download the first no-secrets unsigned build"
+    )
+    second_download_offset = signer.find(
+        "name: Download only the pre-sign verified unsigned build"
+    )
     destroy_offset = signer.find("name: Destroy signing material")
+    input_verification_offset = signer.find(
+        "name: Verify the isolated signer input without parsing APK contents"
+    )
+    secret_offset = signer.find("name: Require release signing secrets")
     sign_offset = signer.find("name: Sign the prebuilt digest with no source checkout")
     verify_offset = signer.find("name: Verify signer continuity after key destruction")
     attest_offset = signer.find("name: Attest signed APK provenance")
     upload_offset = signer.find("name: Upload the minimally signed release inputs")
-    if not (0 <= sign_offset < destroy_offset < verify_offset < attest_offset < upload_offset):
+    if not (
+        0
+        <= first_download_offset
+        < second_download_offset
+        < input_verification_offset
+        < secret_offset
+        < sign_offset
+        < destroy_offset
+        < verify_offset
+        < attest_offset
+        < upload_offset
+    ):
         raise SystemExit(
-            "Signing material is not destroyed immediately after signing and before "
-            "verification, attestation, or artifact upload"
+            "Signer input is not verified before secret access, or signing material "
+            "is not destroyed immediately after signing and before verification, "
+            "attestation, or artifact upload"
         )
     if "needs: [validate_source, verify_release]" not in blocks["publish"]:
         raise SystemExit("Publication is not gated on the no-secrets verification job")
@@ -354,6 +1150,12 @@ def main() -> None:
         raise SystemExit("Published SBOM is not compared with the verified attestation")
     if "name: Finalize and reverify the public evidence bundle" not in blocks["verify_release"]:
         raise SystemExit("Independent verification evidence is not checksummed and reverified")
+    if "name: Attest the final no-secrets verification evidence" not in blocks["verify_release"]:
+        raise SystemExit("Final no-secrets evidence is not publicly attested")
+    if "Verify blind-build provenance for the published unsigned evidence" not in blocks["verify_release"]:
+        raise SystemExit("Published unsigned evidence is not bound to a blind build attestation")
+    if "Reverify the complete bundle and publish without signing credentials" not in blocks["publish"]:
+        raise SystemExit("Publication does not reverify no-secrets evidence attestations")
     for job, block in blocks.items():
         if "runs-on: ubuntu-24.04" not in block:
             raise SystemExit(f"{job} is not pinned to the release runner image")

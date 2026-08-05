@@ -22,7 +22,8 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-./gradlew --no-daemon --dependency-verification=strict clean assembleRelease
+./gradlew --no-daemon --no-build-cache --dependency-verification=strict \
+  clean assembleRelease
 
 mapfile -t APK_CANDIDATES < <(
   find app/build/outputs/apk/release \
@@ -44,8 +45,25 @@ if grep -Fq "generate_error_reason:" <<< "$VERSION_CONTROL_INFO" ||
   exit 1
 fi
 
-APKSIGNER="${APKSIGNER:-$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | LC_ALL=C sort -V | tail -1)}"
+for name in \
+  APKSIGNER_BUILD_TOOLS_VERSION \
+  EXPECTED_APKSIGNER_SHA256 \
+  EXPECTED_APKSIGNER_JAR_SHA256; do
+  if [[ -z "${!name:-}" ]]; then
+    printf 'Required environment variable is empty: %s\n' "$name" >&2
+    exit 1
+  fi
+done
+APKSIGNER="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner"
+APKSIGNER_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/lib/apksigner.jar"
+APKSIGNER_SHADOW_JAR="$ANDROID_HOME/build-tools/$APKSIGNER_BUILD_TOOLS_VERSION/apksigner.jar"
 test -x "$APKSIGNER"
+test -f "$APKSIGNER_JAR"
+test ! -e "$APKSIGNER_SHADOW_JAR"
+test "$(sha256sum "$APKSIGNER" | awk '{print $1}')" = \
+  "$EXPECTED_APKSIGNER_SHA256"
+test "$(sha256sum "$APKSIGNER_JAR" | awk '{print $1}')" = \
+  "$EXPECTED_APKSIGNER_JAR_SHA256"
 if "$APKSIGNER" verify "$APK" >/dev/null 2>&1; then
   echo "Independent rebuild unexpectedly produced a signed APK." >&2
   exit 1
