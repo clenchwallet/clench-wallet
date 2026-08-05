@@ -299,13 +299,22 @@ def main() -> None:
             raise SystemExit(f"Isolated signer must not receive source/build input: {forbidden}")
     if re.search(r"(?m)^\s+scripts/", signer):
         raise SystemExit("Isolated signer must not execute tag-controlled repository scripts")
-    for required_signer_control in (
+    for required_global_control in (
         "EXPECTED_APKSIGNER_SHA256",
         "EXPECTED_APKSIGNER_JAR_SHA256",
+    ):
+        if required_global_control not in workflow:
+            raise SystemExit(
+                f"Release workflow is missing pinned signer control: "
+                f"{required_global_control}"
+            )
+    for required_signer_control in (
         "sha256sum --strict -c BUILD-SHA256SUMS",
         "Sign the prebuilt digest with no source checkout",
+        "--v4-signing-enabled false",
+        'test ! -e "$RUNNER_TEMP/signed-release/clench-$VERSION-release.apk.idsig"',
     ):
-        if required_signer_control not in workflow:
+        if required_signer_control not in signer:
             raise SystemExit(
                 f"Isolated signer is missing pinned-input control: {required_signer_control}"
             )

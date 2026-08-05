@@ -114,7 +114,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 
 | Version | Highlights |
 | --- | --- |
-| 0.3.24 | Hardens seed entropy, external-signer sighash validation, seed-screen capture protection, PIN/authentication, Electrum/Tor transport, hostile QR/NFC/file imports, TAPSIGNER setup checks, exact dependency auditing, and isolated release signing. |
+| 0.3.25 | Hardens seed entropy, external-signer sighash validation, seed-screen capture protection, PIN/authentication, Electrum/Tor transport, hostile QR/NFC/file imports, TAPSIGNER setup checks, exact dependency auditing, and isolated release signing; explicitly excludes unused APK v4 sidecars from the verified release bundle. |
 | 0.3.23 | Removes unused Bluetooth permissions and stale USB/Bluetooth/Virtual Disk signer claims, enforces QR/NFC/user-selected-file transports, verifies TAPSIGNER setup chain-code use, and documents the exact SATSCARD/TAPSIGNER compatible-wallet listing gates. |
 | 0.3.22 | Added hostile protocol/property testing, reproducible-build and provenance evidence, stronger PSBT/QR/NFC/multisig/fee/storage boundaries, and an independently verified signed release. Hardware-wallet signing remains a QR/NFC/file PSBT round trip; direct TAPSIGNER payment signing is not yet implemented. |
 | 0.3.21 | Fixed Clench phone-signer multisig creation, prevented unavailable OS authentication from blocking signing, showed estimated final multisig PSBT size and fee rate, and improved F-Droid “Bitcoin wallet” discovery metadata. |

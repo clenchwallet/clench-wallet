@@ -4,7 +4,7 @@ Clench uses two independent no-secrets builds and a source-free signing step:
 
 1. `validate_source` runs the trusted workflow from protected `master`, verifies the tag against the pinned SSH key, and requires the tag to equal current protected `master`.
 2. `build_unsigned` tests the approved source and produces a checksummed unsigned APK and deterministic SBOM without signing credentials.
-3. The protected `sign_release` job checks out no source and executes no Gradle or repository script. It verifies the unsigned inputs and pinned `apksigner`, signs the prebuilt APK, and destroys the temporary keystore immediately.
+3. The protected `sign_release` job checks out no source and executes no Gradle or repository script. It verifies the unsigned inputs and pinned `apksigner`, signs the prebuilt APK with detached v4/`.idsig` generation explicitly disabled, asserts no sidecar exists, and destroys the temporary keystore immediately.
 4. A separate `verify_release` runner checks out the immutable commit already approved by the signed-tag gate, with no signing material, strictly rebuilds the unsigned APK, and compares every ZIP payload entry with the signed APK.
 
 Only the APK signing block and actual v1 `META-INF/MANIFEST.MF` plus
