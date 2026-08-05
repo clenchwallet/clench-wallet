@@ -1,0 +1,7 @@
+Security hardening release:
+
+- Uses explicit Android OS entropy for new seeds and rejects weak external-signer signature policies.
+- Strengthens authentication, secure screens, lifecycle cleanup, Electrum TLS/Tor, backups, and hostile NFC/QR/file handling.
+- Strengthens TAPSIGNER setup proof binding; direct TAPSIGNER payment signing remains unavailable.
+- Keeps hardware-wallet transport to QR, intentional NFC taps, or user-selected files—never USB or Bluetooth data connections.
+- Tightens isolated release signing and explicitly prevents unused APK v4 sidecar files from entering the release bundle.
