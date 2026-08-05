@@ -4,7 +4,14 @@ Do not install a Clench production APK until its source, signer, evidence bundle
 
 ## 1. Verify the source tag
 
+Treat the established fingerprint below as an out-of-band trust anchor; obtain
+it from a previously authenticated Clench release or maintainer channel. The
+allowed-signers file extracted from the candidate tag supplies Git's identity
+mapping, but it is accepted only when verification reports this fixed external
+fingerprint.
+
 ```bash
+set -euo pipefail
 TAG=vX.Y.Z
 git fetch --tags origin
 test "$(git cat-file -t "refs/tags/$TAG")" = tag
@@ -44,6 +51,7 @@ must match the release manifest and every attestation source digest.
 The release workflow also verifies `RELEASE-NOTES.md` internally against the tagged source.
 
 ```bash
+set -euo pipefail
 sha256sum -c SHA256SUMS
 cmp SHA256SUMS SHA256SUMS.txt
 ```
@@ -51,6 +59,7 @@ cmp SHA256SUMS SHA256SUMS.txt
 ## 3. Verify APK signature continuity
 
 ```bash
+set -euo pipefail
 apksigner verify --verbose --print-certs clench-X.Y.Z-release.apk
 ```
 
@@ -73,7 +82,10 @@ This is the established Clench signer baseline. An unexpected signer is a hard f
 ## 4. Verify package and version
 
 ```bash
-aapt dump badging clench-X.Y.Z-release.apk | head -1
+set -euo pipefail
+BADGING="$(aapt dump badging clench-X.Y.Z-release.apk)"
+PACKAGE_LINE="${BADGING%%$'\n'*}"
+printf '%s\n' "$PACKAGE_LINE"
 ```
 
 Require package `net.clench.wallet`, version name `X.Y.Z`, and the version code in tagged `app/build.gradle.kts`.
@@ -83,6 +95,7 @@ Require package `net.clench.wallet`, version name `X.Y.Z`, and the version code 
 Build provenance:
 
 ```bash
+set -euo pipefail
 gh attestation verify clench-X.Y.Z-release.apk \
   --repo clenchwallet/clench-wallet \
   --signer-workflow clenchwallet/clench-wallet/.github/workflows/release.yml \
@@ -94,6 +107,7 @@ gh attestation verify clench-X.Y.Z-release.apk \
 CycloneDX SBOM:
 
 ```bash
+set -euo pipefail
 gh attestation verify clench-X.Y.Z-release.apk \
   --repo clenchwallet/clench-wallet \
   --predicate-type https://cyclonedx.org/bom \
@@ -120,6 +134,7 @@ and GitHub-hosted runner policy.
 From the signed source checkout, place the release workflow's pre-publication bundle in `release-artifacts/`, then run:
 
 ```bash
+set -euo pipefail
 VERSION=X.Y.Z \
 VERSION_CODE=EXPECTED_CODE \
 RELEASE_TAG=vX.Y.Z \
@@ -147,6 +162,7 @@ copy is then normalized with the pinned production `apksigner` policy and must
 match every production-signed APK ZIP entry with no exclusions:
 
 ```bash
+set -euo pipefail
 APKSIGNER_BUILD_TOOLS_VERSION=PINNED_BUILD_TOOLS_VERSION \
 EXPECTED_APKSIGNER_SHA256=PINNED_APKSIGNER_LAUNCHER_SHA256 \
 EXPECTED_APKSIGNER_JAR_SHA256=PINNED_APKSIGNER_JAR_SHA256 \
