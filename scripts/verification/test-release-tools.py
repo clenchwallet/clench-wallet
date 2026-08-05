@@ -774,6 +774,25 @@ def test_workflow_control_mutations() -> None:
         "must not persist checkout credentials",
     )
 
+    job_level_runner_context = (
+        "    runs-on: ubuntu-24.04\n"
+        "    env:\n"
+        "      GRADLE_USER_HOME: ${{ runner.temp }}/unsafe-job-scope\n"
+    )
+    expect_workflow_failure(
+        controls,
+        replace_once_in_job(
+            workflow,
+            controls,
+            "build_independent_unsigned",
+            "    runs-on: ubuntu-24.04\n",
+            job_level_runner_context,
+            label="job-level-runner-context",
+        ),
+        "job-level-runner-context",
+        "uses runner context before runner assignment",
+    )
+
     expect_workflow_failure(
         controls,
         replace_once_in_job(
