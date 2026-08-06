@@ -1,6 +1,7 @@
 package net.clench.wallet.ui.viewmodel
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import net.clench.wallet.data.repository.SensitiveWalletOperationBarrier
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
 import org.bitcoindevkit.KeychainKind
@@ -11,12 +12,19 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SweepDescriptorFactoryTest {
+    private val operationBarrier = SensitiveWalletOperationBarrier()
 
     @Test
     fun accountZeroMatchesBdkStandardDescriptors() {
         withRootKey { key ->
             SweepSeedScriptType.entries.forEach { type ->
-                val actual = SweepDescriptorFactory.create(key, Network.BITCOIN, type, 0u)
+                val actual = SweepDescriptorFactory.create(
+                    key,
+                    Network.BITCOIN,
+                    type,
+                    0u,
+                    operationBarrier
+                )
                 val expected = when (type) {
                     SweepSeedScriptType.LEGACY ->
                         Descriptor.newBip44(key, KeychainKind.EXTERNAL, Network.BITCOIN) to
@@ -51,13 +59,15 @@ class SweepDescriptorFactoryTest {
                 key,
                 Network.BITCOIN,
                 SweepSeedScriptType.NATIVE_SEGWIT,
-                0u
+                0u,
+                operationBarrier
             )
             val accountOne = SweepDescriptorFactory.create(
                 key,
                 Network.BITCOIN,
                 SweepSeedScriptType.NATIVE_SEGWIT,
-                1u
+                1u,
+                operationBarrier
             )
             try {
                 val zeroAddress = accountZero.first.deriveAddress(0u, Network.BITCOIN).toString()
@@ -82,7 +92,12 @@ class SweepDescriptorFactoryTest {
         ).value
 
         SweepWifScriptType.entries.forEach { type ->
-            val descriptors = SweepWifDescriptorFactory.create(wif, Network.TESTNET, type)
+            val descriptors = SweepWifDescriptorFactory.create(
+                wif,
+                Network.TESTNET,
+                type,
+                operationBarrier
+            )
             try {
                 check(descriptors.first.toString() != descriptors.second.toString())
                 check(!descriptors.second.toString().contains(wif))

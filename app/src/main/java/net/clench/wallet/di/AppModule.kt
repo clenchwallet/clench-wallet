@@ -10,6 +10,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import net.clench.wallet.data.local.ClenchDatabase
 import net.clench.wallet.data.local.KeystoreManager
+import net.clench.wallet.data.local.SqlCipherDatabasePreflight
 import net.clench.wallet.data.local.dao.TransactionDao
 import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
@@ -23,7 +24,6 @@ import net.clench.wallet.security.SecureRandomWalletEntropySource
 import net.clench.wallet.security.BdkWalletMnemonicFactory
 import net.clench.wallet.security.WalletEntropySource
 import net.clench.wallet.security.WalletMnemonicFactory
-import net.zetetic.database.sqlcipher.SQLiteDatabase
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import javax.inject.Singleton
 
@@ -51,39 +51,15 @@ object DatabaseModule {
             if (dbFile.exists()) {
                 try {
                     val dbKey = keystoreManager.getOrCreateDatabaseKey()
-                    try {
-                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Verifying encrypted DB...")
-                        val testDb = SQLiteDatabase.openDatabase(
-                            dbFile.absolutePath,
-                            dbKey,
-                            null,
-                            SQLiteDatabase.OPEN_READONLY,
-                            null
-                        )
-                        try {
-                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Encrypted DB verified OK")
-                        } finally {
-                            testDb.close()
-                        }
-                    } finally {
-                        // The verification database is closed, so SQLCipher no longer needs this
-                        // caller-owned key buffer. Wipe it on both success and failure.
-                        dbKey.fill(0)
-                    }
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Verifying encrypted DB...")
+                    SqlCipherDatabasePreflight.verifyExisting(dbFile, dbKey)
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("ClenchDB", "Encrypted DB verified OK")
                 } catch (e: Exception) {
                     // [S-2] SECURITY: in release builds, fail-closed rather than destructively
                     // deleting the database on verification failure. An unreadable encrypted DB
                     // should surface as a recovery-required state, not silently delete wallet data.
-                    if (isDebug) {
-                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("ClenchDB", "DB verification FAILED in debug — deleting (${e.javaClass.simpleName})")
-                        dbFile.delete()
-                        context.getDatabasePath("clench.db-journal").delete()
-                        context.getDatabasePath("clench.db-shm").delete()
-                        context.getDatabasePath("clench.db-wal").delete()
-                    } else {
-                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("ClenchDB", "DB verification FAILED in release — failing closed.")
-                        throw e
-                    }
+                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("ClenchDB", "DB verification FAILED in release — failing closed.")
+                    throw e
                 }
             }
         }

@@ -1,0 +1,191 @@
+name: Android instrumentation
+
+on:
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'app/build.gradle.kts'
+      - 'app/gradle.lockfile'
+      - 'gradle/verification-metadata.xml'
+      - 'app/schemas/**'
+      - 'app/src/main/java/net/clench/wallet/data/local/**'
+      - 'app/src/main/java/net/clench/wallet/data/repository/SensitiveWalletOperationBarrier.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/viewmodel/SweepViewModel.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/viewmodel/WifPrivateKeyParser.kt'
+      - 'app/src/androidTest/**'
+      - '.github/workflows/android-instrumentation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migration-and-descriptor-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate Gradle wrapper JAR
+        uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+
+      - name: Install Android emulator image
+        run: |
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          AVDMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager"
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/android-avd"
+          test -x "$SDKMANAGER"
+          test -x "$AVDMANAGER"
+          mkdir -p "$ANDROID_AVD_HOME"
+          "$SDKMANAGER" --install \
+            'platform-tools' \
+            'emulator' \
+            'system-images;android-35;google_apis;x86_64'
+          echo no | "$AVDMANAGER" create avd \
+            --force \
+            --name clench-ci \
+            --package 'system-images;android-35;google_apis;x86_64'
+          test -f "$ANDROID_AVD_HOME/clench-ci.ini"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/emulator" >> "$GITHUB_PATH"
+
+      - name: Start KVM-backed emulator
+        run: |
+          test -e /dev/kvm
+          sudo chmod 0666 /dev/kvm
+          nohup emulator \
+            -avd clench-ci \
+            -no-window \
+            -no-audio \
+            -no-boot-anim \
+            -no-snapshot \
+            -gpu swiftshader_indirect \
+            > "$RUNNER_TEMP/clench-emulator.log" 2>&1 &
+
+          timeout 90 adb wait-for-device
+          timeout 300 bash -c '
+            until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = "1" ]; do
+              sleep 5
+            done
+          '
+          timeout 60 bash -c '
+            until adb shell service check package 2>/dev/null | grep -q "found"; do
+              sleep 2
+            done
+          '
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+          adb shell cmd package list packages > "$RUNNER_TEMP/android-packages.txt"
+          test -s "$RUNNER_TEMP/android-packages.txt"
+          head -n 1 "$RUNNER_TEMP/android-packages.txt"
+
+      - name: Run migration and descriptor instrumentation tests
+        run: |
+          ./gradlew \
+            --no-daemon \
+            --dependency-verification=strict \
+            :app:connectedDebugAndroidTest \
+            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest
+
+      - name: Require actual instrumentation results
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+          import xml.etree.ElementTree as ET
+
+          reports = list(
+              Path('app/build/outputs/androidTest-results/connected/debug').glob('TEST-*.xml')
+          )
+          if not reports:
+              raise SystemExit('No instrumentation XML result was produced')
+
+          expected = {
+              (
+                  'net.clench.wallet.data.local.ClenchDatabaseMigrationTest',
+                  'migrate12To13CreatesAndValidatesSignerVaultSchema',
+              ),
+              (
+                  'net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest',
+                  'encryptedDatabaseRoundTripsWalletWithProductionOpenHelper',
+              ),
+              (
+                  'net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest',
+                  'productionPreflightRejectsCorruptionWithoutMutatingWalletFile',
+              ),
+              (
+                  'net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest',
+                  'accountZeroMatchesBdkStandardDescriptors',
+              ),
+              (
+                  'net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest',
+                  'accountOneDerivesDifferentAddresses',
+              ),
+              (
+                  'net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest',
+                  'wifDescriptorsUseAValidDistinctNonSpendableChangeDescriptor',
+              ),
+          }
+          actual = set()
+          failures = errors = skipped = 0
+          for report in reports:
+              root = ET.parse(report).getroot()
+              for case in root.iter('testcase'):
+                  actual.add((case.attrib.get('classname', ''), case.attrib.get('name', '')))
+                  failures += len(case.findall('failure'))
+                  errors += len(case.findall('error'))
+                  skipped += len(case.findall('skipped'))
+
+          print({
+              'tests': len(actual),
+              'failures': failures,
+              'errors': errors,
+              'skipped': skipped,
+              'actual': sorted(actual),
+          })
+          if actual != expected or failures != 0 or errors != 0 or skipped != 0:
+              raise SystemExit('Expected the exact six named instrumentation tests to pass')
+          PY
+
+      - name: Collect emulator diagnostics
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/android-instrumentation-diagnostics"
+          adb devices -l \
+            > "$RUNNER_TEMP/android-instrumentation-diagnostics/devices.txt" \
+            2>&1 || true
+          timeout 30 adb shell getprop \
+            > "$RUNNER_TEMP/android-instrumentation-diagnostics/properties.txt" \
+            2>&1 || true
+          timeout 30 adb logcat -d \
+            > "$RUNNER_TEMP/android-instrumentation-diagnostics/logcat.txt" \
+            2>&1 || true
+
+      - name: Upload emulator diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-instrumentation-diagnostics
+          path: |
+            ${{ runner.temp }}/clench-emulator.log
+            ${{ runner.temp }}/android-instrumentation-diagnostics/
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
+          if-no-files-found: warn
+          retention-days: 3
