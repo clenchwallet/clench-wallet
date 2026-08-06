@@ -1,9 +1,10 @@
 # BDK 2 to BDK 3 persisted-wallet upgrade gate
 
 This harness proves that an exact BDK Android 2.3.1 Clench debug APK can create a
-production-shaped, unfunded Testnet3 wallet and that an exact BDK Android 3.0.0 APK can replace
-it with `adb install -r`, load the same Room row and BDK SQLite file, and preserve public wallet
-identity across two separate BDK 3 instrumentation processes.
+production-shaped Testnet3 wallet with deterministic, synthetic offline graph state and that an
+exact BDK Android 3.0.0 APK can replace it with `adb install -r`, load the same Room row and BDK
+SQLite file through Clench's production repository, and preserve public wallet identity and graph
+state across two separate BDK 3 instrumentation processes.
 
 The default source pair is:
 
@@ -24,8 +25,8 @@ gate refuses an upgrade candidate that omits protected-main history.
 3. Builds both debug app/test APK pairs under strict Gradle dependency verification using one
    newly generated, disposable debug certificate.
 4. Refuses to operate unless `ADB_SERIAL` points to an emulator (`ro.kernel.qemu=1`) and the caller
-   explicitly authorizes clearing only `net.clench.wallet.debug`. It also refuses to replace a
-   pre-existing instrumentation test package.
+   explicitly authorizes clearing only `net.clench.wallet.debug`. It requires healthy Android
+   package/settings/activity services and refuses to replace either pre-existing debug package.
 5. Installs the BDK 2 app, clears the dedicated debug package, and runs the seeder.
 6. The seeder derives BIP-84 descriptors from the public BIP-39 `abandon ... about` test vector,
    converts them to public descriptors, destroys every secret native wrapper, and only then creates
@@ -33,19 +34,31 @@ gate refuses an upgrade candidate that omits protected-main history.
    - a real production-named `wallet_<uuid>.db` BDK SQLite file;
    - the matching public, watch-only Room row so cold-start orphan cleanup follows the production
      path; and
+   - one deterministic, unconfirmed 50,000-sat synthetic output to its first public receive
+     script, created entirely offline from a fake previous outpoint; and
    - app-private public comparison evidence.
 7. Removes the test APK containing the public test mnemonic, then installs the BDK 3 app with
-   `adb install -r` and verifies that Android preserved the database and evidence files.
-8. Loads and validates the wallet with BDK 3, force-stops the target/test packages, then loads and
-   validates it again in a different process (PID inequality is required).
+   `adb install -r`. It fingerprints the BDK SQLite file immediately before and after replacement
+   and requires exact equality before BDK 3 is allowed to load it.
+8. Loads and validates the wallet first through `BdkBitcoinRepository`'s production Room/network/
+   descriptor/persister/cache path and then through an independent native inspection. It force-
+   stops the target/test packages and repeats both paths in a different process (PID inequality is
+   required).
 9. Requires exact identity for Room/native public descriptors, Testnet3 network, three receive
-   addresses, two change addresses, derivation indices, zero balance, empty history, and empty UTXO
-   set. Any migration staged by the first BDK 3 load is persisted before the second restart.
-10. Exports only hashes, counts, versions, commit IDs, APK hashes, strict-build logs, the disposable
-    certificate hash, and emulator metadata. It never exports the raw SQLite file, mnemonic,
-    descriptors, or addresses. Both dedicated debug packages are uninstalled on exit.
+   addresses, two change addresses, derivation and next-unused indices, the exact synthetic txid,
+   unconfirmed position/last-seen time, one UTXO/outpoint/script hash, pending/total balance, and
+   the Testnet3 genesis checkpoint. Any migration staged by the first BDK 3 load is persisted before
+   the second restart.
+10. Exports only public synthetic txid/outpoint/checkpoint data, hashes, counts, versions, commit
+    IDs, APK hashes, strict-build logs, the disposable certificate hash, and emulator metadata. It
+    never exports the raw SQLite file, mnemonic, descriptors, or addresses. Both dedicated debug
+    packages are uninstalled on every post-preflight exit, including partial install failures.
 
 ## Run
+
+The protected `Android instrumentation` workflow runs this gate on a KVM-backed API 35 emulator,
+uploads the public evidence bundle, and then runs the exact seven migration/persistence/descriptor
+instrumentation tests on the same clean emulator. This is the authoritative PR gate.
 
 Start a dedicated emulator separately, then run from a clean harness worktree:
 
@@ -67,8 +80,8 @@ export CLENCH_BDK_UPGRADE_MAX_WORKERS=2
 
 The default evidence directory is `build/reports/bdk2-bdk3-inplace-upgrade/`. The safe result is
 `bdk2-to-bdk3-result.properties`; `gate-manifest.properties` binds it to both exact commits, all
-four APK hashes, the safe-result hash, both Gradle logs, both lockfiles, both dependency-verification
-metadata files, and the disposable signer.
+four APK hashes, the safe-result hash, the identical before/after-install database hashes, both
+Gradle logs, both lockfiles, both dependency-verification metadata files, and the disposable signer.
 
 ## Security boundaries
 
@@ -90,11 +103,11 @@ metadata files, and the disposable signer.
 
 ## Remaining limitations
 
-- The fixture has deliberately unsynced, zero-value local state, so this proves identity for zero
-  balance and empty transaction/UTXO history without consulting any chain service. It does **not**
-  assert anything about activity at the public test-vector addresses, or prove migration of a
-  non-empty transaction graph, checkpoints, labels, frozen outputs, or spend state. A separate
-  synthetic-chain fixture is needed for that without relying on live funds.
+- The fixture remains fully offline and carries one non-empty unconfirmed transaction/UTXO graph,
+  pending balance, and the genesis checkpoint. It does **not** assert anything about public-chain
+  activity at the test-vector addresses or prove a non-genesis checkpoint, confirmed anchor,
+  competing/spending transaction graph, labels, frozen outputs, or spend state. Those require a
+  richer synthetic-chain fixture or a separately authorized Testnet3 lifecycle.
 - This is a debug-package Android upgrade. Room is unencrypted in debug builds, so this does not
   replace the existing SQLCipher release/storage-corruption gates.
 - It proves BDK persistence on the emulator ABI used for the run. It does not replace a real

@@ -41,11 +41,20 @@ export GIT_NO_REPLACE_OBJECTS=1
   fail "set CLENCH_BDK_UPGRADE_ALLOW_EMULATOR_RESET=YES to authorize clearing only $TARGET_PACKAGE on a dedicated emulator"
 [[ -n "${ADB_SERIAL:-}" ]] || fail "ADB_SERIAL must name a dedicated Android emulator"
 
-readonly SOURCE_ROOT="$(git rev-parse --show-toplevel)"
-[[ -z "$(git -C "$SOURCE_ROOT" status --porcelain=v1 --untracked-files=all)" ]] ||
+SOURCE_ROOT="$(git rev-parse --show-toplevel)" || fail "could not resolve source root"
+[[ -n "$SOURCE_ROOT" && -d "$SOURCE_ROOT" ]] || fail "resolved source root is invalid"
+readonly SOURCE_ROOT
+SOURCE_STATUS="$(git -C "$SOURCE_ROOT" status --porcelain=v1 --untracked-files=all)" ||
+  fail "could not inspect source worktree status"
+[[ -z "$SOURCE_STATUS" ]] ||
   fail "source worktree must be clean"
-readonly GIT_COMMON_DIR="$(git -C "$SOURCE_ROOT" rev-parse --path-format=absolute --git-common-dir)"
-[[ -z "$(git -C "$SOURCE_ROOT" for-each-ref --format='%(refname)' refs/replace/)" ]] ||
+GIT_COMMON_DIR="$(git -C "$SOURCE_ROOT" rev-parse --path-format=absolute --git-common-dir)" ||
+  fail "could not resolve Git common directory"
+[[ -n "$GIT_COMMON_DIR" && -d "$GIT_COMMON_DIR" ]] || fail "resolved Git common directory is invalid"
+readonly GIT_COMMON_DIR
+REPLACE_REFS="$(git -C "$SOURCE_ROOT" for-each-ref --format='%(refname)' refs/replace/)" ||
+  fail "could not inspect source replacement refs"
+[[ -z "$REPLACE_REFS" ]] ||
   fail "source repository contains forbidden replace refs"
 [[ ! -s "$GIT_COMMON_DIR/info/grafts" ]] ||
   fail "source repository contains a forbidden legacy graft file"
@@ -55,8 +64,11 @@ readonly BDK2_FIXTURE="$HARNESS_ROOT/fixtures/bdk2/Bdk2PersistedWalletSeederTest
 readonly BDK3_FIXTURE="$HARNESS_ROOT/fixtures/bdk3/Bdk3PersistedWalletVerifierTest.kt"
 [[ -f "$BDK2_FIXTURE" && -f "$BDK3_FIXTURE" ]] || fail "test-only fixture sources are missing"
 
-readonly BDK2_COMMIT="$(git -C "$SOURCE_ROOT" rev-parse "${CLENCH_BDK2_COMMIT:-$DEFAULT_BDK2_COMMIT}^{commit}")"
-readonly BDK3_COMMIT="$(git -C "$SOURCE_ROOT" rev-parse "${CLENCH_BDK3_COMMIT:-$DEFAULT_BDK3_COMMIT}^{commit}")"
+BDK2_COMMIT="$(git -C "$SOURCE_ROOT" rev-parse "${CLENCH_BDK2_COMMIT:-$DEFAULT_BDK2_COMMIT}^{commit}")" ||
+  fail "could not resolve exact BDK2 producer commit"
+BDK3_COMMIT="$(git -C "$SOURCE_ROOT" rev-parse "${CLENCH_BDK3_COMMIT:-$DEFAULT_BDK3_COMMIT}^{commit}")" ||
+  fail "could not resolve exact BDK3 consumer commit"
+readonly BDK2_COMMIT BDK3_COMMIT
 [[ "$BDK2_COMMIT" != "$BDK3_COMMIT" ]] || fail "producer and consumer commits must differ"
 git -C "$SOURCE_ROOT" merge-base --is-ancestor "$BDK2_COMMIT" "$BDK3_COMMIT" ||
   fail "BDK3 consumer must descend from the exact protected BDK2 producer"
@@ -74,7 +86,11 @@ require_bdk_version() {
 require_bdk_version "$BDK2_COMMIT" "$EXPECTED_BDK2_VERSION"
 require_bdk_version "$BDK3_COMMIT" "$EXPECTED_BDK3_VERSION"
 
-readonly WORK_ROOT="$(mktemp -d /tmp/clench-bdk-upgrade.XXXXXX)"
+WORK_ROOT="$(mktemp -d /tmp/clench-bdk-upgrade.XXXXXX)" ||
+  fail "could not create isolated upgrade work directory"
+[[ "$WORK_ROOT" == /tmp/clench-bdk-upgrade.* && -d "$WORK_ROOT" ]] ||
+  fail "isolated upgrade work directory is outside the permitted path"
+readonly WORK_ROOT
 readonly BDK2_TREE="$WORK_ROOT/bdk2"
 readonly BDK3_TREE="$WORK_ROOT/bdk3"
 readonly HARNESS_ANDROID_USER_HOME="$WORK_ROOT/android-user-home"
@@ -82,11 +98,27 @@ DEVICE_TOUCHED=0
 WORKTREES_ADDED=0
 cleanup() {
   local status=$?
+  local cleanup_failed=0
+  local package_name package_path
   trap - EXIT INT TERM
   set +e
   if [[ "$DEVICE_TOUCHED" == "1" ]]; then
-    adb -s "$ADB_SERIAL" uninstall "$TEST_PACKAGE" >/dev/null 2>&1
-    adb -s "$ADB_SERIAL" uninstall "$TARGET_PACKAGE" >/dev/null 2>&1
+    for package_name in "$TEST_PACKAGE" "$TARGET_PACKAGE"; do
+      package_path="$(adb -s "$ADB_SERIAL" shell pm path "$package_name" 2>/dev/null | tr -d '\r')"
+      if [[ $? -ne 0 ]]; then
+        printf 'BDK upgrade gate: cleanup could not query package: %s\n' "$package_name" >&2
+        cleanup_failed=1
+        continue
+      fi
+      if [[ -n "$package_path" ]]; then
+        adb -s "$ADB_SERIAL" uninstall "$package_name" >/dev/null 2>&1
+        package_path="$(adb -s "$ADB_SERIAL" shell pm path "$package_name" 2>/dev/null | tr -d '\r')"
+        if [[ $? -ne 0 || -n "$package_path" ]]; then
+          printf 'BDK upgrade gate: cleanup failed to remove package: %s\n' "$package_name" >&2
+          cleanup_failed=1
+        fi
+      fi
+    done
   fi
   if [[ "$WORKTREES_ADDED" == "1" ]]; then
     git -C "$SOURCE_ROOT" worktree remove --force "$BDK2_TREE" >/dev/null 2>&1
@@ -95,6 +127,9 @@ cleanup() {
   case "$WORK_ROOT" in
     /tmp/clench-bdk-upgrade.*) rm -rf -- "$WORK_ROOT" ;;
   esac
+  if [[ "$status" -eq 0 && "$cleanup_failed" -ne 0 ]]; then
+    status=1
+  fi
   exit "$status"
 }
 trap cleanup EXIT INT TERM
@@ -122,8 +157,12 @@ WORKTREES_ADDED=1
 git -C "$SOURCE_ROOT" worktree add --quiet --detach "$BDK2_TREE" "$BDK2_COMMIT"
 git -C "$SOURCE_ROOT" worktree add --quiet --detach "$BDK3_TREE" "$BDK3_COMMIT"
 
-[[ -z "$(git -C "$BDK2_TREE" status --porcelain=v1 --untracked-files=all)" ]] || fail "BDK2 checkout is not clean"
-[[ -z "$(git -C "$BDK3_TREE" status --porcelain=v1 --untracked-files=all)" ]] || fail "BDK3 checkout is not clean"
+BDK2_TREE_STATUS="$(git -C "$BDK2_TREE" status --porcelain=v1 --untracked-files=all)" ||
+  fail "could not inspect BDK2 checkout status"
+BDK3_TREE_STATUS="$(git -C "$BDK3_TREE" status --porcelain=v1 --untracked-files=all)" ||
+  fail "could not inspect BDK3 checkout status"
+[[ -z "$BDK2_TREE_STATUS" ]] || fail "BDK2 checkout is not clean"
+[[ -z "$BDK3_TREE_STATUS" ]] || fail "BDK3 checkout is not clean"
 
 readonly TEST_SOURCE_REL="app/src/androidTest/java/net/clench/wallet/verification/bdkupgrade"
 install -D -m 0600 "$BDK2_FIXTURE" "$BDK2_TREE/$TEST_SOURCE_REL/Bdk2PersistedWalletSeederTest.kt"
@@ -153,15 +192,16 @@ keytool -genkeypair -noprompt \
   -dname "CN=Clench BDK Upgrade Test, OU=Instrumentation, O=Clench Test Fixture, C=XX" \
   -keyalg RSA -keysize 3072 -validity 30 >/dev/null 2>&1
 
-readonly DISPOSABLE_CERT_DIGEST="$(
+DISPOSABLE_CERT_DIGEST="$(
   keytool -exportcert \
     -keystore "$HARNESS_ANDROID_USER_HOME/debug.keystore" \
     -storepass android \
     -alias androiddebugkey |
     sha256sum | awk '{print $1}'
-)"
+)" || fail "could not fingerprint the disposable test certificate"
 [[ "$DISPOSABLE_CERT_DIGEST" =~ ^[0-9a-f]{64}$ ]] ||
   fail "could not fingerprint the disposable test certificate"
+readonly DISPOSABLE_CERT_DIGEST
 
 GRADLE_ARGS=(
   --no-daemon
@@ -211,28 +251,52 @@ certificate_digest() {
     sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1
 }
 
-[[ "$(apk_package "$BDK2_APK")" == "$TARGET_PACKAGE" ]] || fail "unexpected BDK2 package"
-[[ "$(apk_package "$BDK3_APK")" == "$TARGET_PACKAGE" ]] || fail "unexpected BDK3 package"
-[[ "$(apk_package "$BDK2_TEST_APK")" == "$TEST_PACKAGE" ]] || fail "unexpected BDK2 test package"
-[[ "$(apk_package "$BDK3_TEST_APK")" == "$TEST_PACKAGE" ]] || fail "unexpected BDK3 test package"
-[[ "$(apk_target_package "$BDK2_TEST_APK")" == "$TARGET_PACKAGE" ]] || fail "BDK2 test APK targets the wrong app"
-[[ "$(apk_target_package "$BDK3_TEST_APK")" == "$TARGET_PACKAGE" ]] || fail "BDK3 test APK targets the wrong app"
+BDK2_PACKAGE="$(apk_package "$BDK2_APK")" || fail "could not inspect BDK2 package"
+BDK3_PACKAGE="$(apk_package "$BDK3_APK")" || fail "could not inspect BDK3 package"
+BDK2_TEST_PACKAGE="$(apk_package "$BDK2_TEST_APK")" || fail "could not inspect BDK2 test package"
+BDK3_TEST_PACKAGE="$(apk_package "$BDK3_TEST_APK")" || fail "could not inspect BDK3 test package"
+BDK2_TARGET_PACKAGE="$(apk_target_package "$BDK2_TEST_APK")" || fail "could not inspect BDK2 target package"
+BDK3_TARGET_PACKAGE="$(apk_target_package "$BDK3_TEST_APK")" || fail "could not inspect BDK3 target package"
+[[ "$BDK2_PACKAGE" == "$TARGET_PACKAGE" ]] || fail "unexpected BDK2 package"
+[[ "$BDK3_PACKAGE" == "$TARGET_PACKAGE" ]] || fail "unexpected BDK3 package"
+[[ "$BDK2_TEST_PACKAGE" == "$TEST_PACKAGE" ]] || fail "unexpected BDK2 test package"
+[[ "$BDK3_TEST_PACKAGE" == "$TEST_PACKAGE" ]] || fail "unexpected BDK3 test package"
+[[ "$BDK2_TARGET_PACKAGE" == "$TARGET_PACKAGE" ]] || fail "BDK2 test APK targets the wrong app"
+[[ "$BDK3_TARGET_PACKAGE" == "$TARGET_PACKAGE" ]] || fail "BDK3 test APK targets the wrong app"
 
-readonly SIGNER_DIGEST="$(certificate_digest "$BDK2_APK")"
+SIGNER_DIGEST="$(certificate_digest "$BDK2_APK")" || fail "could not inspect BDK2 APK signer"
 [[ "$SIGNER_DIGEST" =~ ^[0-9a-f]{64}$ ]] || fail "could not determine disposable signer digest"
+readonly SIGNER_DIGEST
 [[ "$SIGNER_DIGEST" == "$DISPOSABLE_CERT_DIGEST" ]] ||
   fail "debug APK was not signed by the freshly generated disposable certificate"
 for apk in "$BDK2_TEST_APK" "$BDK3_APK" "$BDK3_TEST_APK"; do
-  [[ "$(certificate_digest "$apk")" == "$SIGNER_DIGEST" ]] ||
+  APK_CERTIFICATE_DIGEST="$(certificate_digest "$apk")" || fail "could not inspect APK signer: $apk"
+  [[ "$APK_CERTIFICATE_DIGEST" == "$SIGNER_DIGEST" ]] ||
     fail "APK signer mismatch would invalidate install-in-place evidence"
 done
 
 adb -s "$ADB_SERIAL" wait-for-device
-[[ "$(adb -s "$ADB_SERIAL" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] ||
+QEMU_PROPERTY="$(adb -s "$ADB_SERIAL" shell getprop ro.kernel.qemu | tr -d '\r')" ||
+  fail "could not determine whether ADB target is an emulator"
+BOOT_COMPLETED="$(adb -s "$ADB_SERIAL" shell getprop sys.boot_completed | tr -d '\r')" ||
+  fail "could not read emulator boot state"
+[[ "$QEMU_PROPERTY" == "1" ]] ||
   fail "refusing to clear or install on a non-emulator Android device"
-[[ -z "$(adb -s "$ADB_SERIAL" shell pm path "$TARGET_PACKAGE" | tr -d '\r')" ]] ||
+[[ "$BOOT_COMPLETED" == "1" ]] ||
+  fail "dedicated emulator has not completed boot"
+for service_name in package settings activity; do
+  service_status="$(adb -s "$ADB_SERIAL" shell service check "$service_name" 2>&1 | tr -d '\r')" ||
+    fail "could not query emulator service: $service_name"
+  [[ "$service_status" == "Service $service_name: found" ]] ||
+    fail "required emulator service is unavailable: $service_name"
+done
+TARGET_PACKAGE_PATH="$(adb -s "$ADB_SERIAL" shell pm path "$TARGET_PACKAGE" | tr -d '\r')" ||
+  fail "could not query target package state"
+TEST_PACKAGE_PATH="$(adb -s "$ADB_SERIAL" shell pm path "$TEST_PACKAGE" | tr -d '\r')" ||
+  fail "could not query instrumentation package state"
+[[ -z "$TARGET_PACKAGE_PATH" ]] ||
   fail "refusing to replace a pre-existing target package: $TARGET_PACKAGE"
-[[ -z "$(adb -s "$ADB_SERIAL" shell pm path "$TEST_PACKAGE" | tr -d '\r')" ]] ||
+[[ -z "$TEST_PACKAGE_PATH" ]] ||
   fail "refusing to replace a pre-existing instrumentation test package: $TEST_PACKAGE"
 
 run_instrumentation_test() {
@@ -254,9 +318,29 @@ assert_target_file() {
     fail "preserved target-app file missing: $1"
 }
 
-adb -s "$ADB_SERIAL" install -r "$BDK2_APK" >/dev/null
+target_file_sha256() {
+  local relative_path="$1"
+  adb -s "$ADB_SERIAL" exec-out run-as "$TARGET_PACKAGE" cat "$relative_path" |
+    sha256sum | awk '{print $1}'
+}
+
+sha256_file() {
+  local path="$1"
+  local output digest
+  [[ -f "$path" ]] || return 1
+  output="$(sha256sum -- "$path")" || return 1
+  digest="${output%% *}"
+  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+  printf '%s\n' "$digest"
+}
+
+# Preflight proved both package names absent on a dedicated emulator. Mark device cleanup active
+# before install because adb can return a transport error after PackageManager has made changes.
 DEVICE_TOUCHED=1
-[[ "$(adb -s "$ADB_SERIAL" shell pm clear "$TARGET_PACKAGE" | tr -d '\r')" == "Success" ]] ||
+adb -s "$ADB_SERIAL" install -r "$BDK2_APK" >/dev/null
+PACKAGE_CLEAR_RESULT="$(adb -s "$ADB_SERIAL" shell pm clear "$TARGET_PACKAGE" | tr -d '\r')" ||
+  fail "could not reset dedicated debug package"
+[[ "$PACKAGE_CLEAR_RESULT" == "Success" ]] ||
   fail "could not reset dedicated debug package"
 adb -s "$ADB_SERIAL" install -r "$BDK2_TEST_APK" >/dev/null
 run_instrumentation_test "$SEEDER_CLASS" "bdk2-seed"
@@ -266,9 +350,19 @@ assert_target_file "no_backup/$PUBLIC_EVIDENCE"
 # Remove the only APK containing the public non-production mnemonic before installing BDK3.
 adb -s "$ADB_SERIAL" uninstall "$TEST_PACKAGE" >/dev/null
 adb -s "$ADB_SERIAL" shell am force-stop "$TARGET_PACKAGE"
+BDK2_DATABASE_SHA256_BEFORE_INSTALL="$(target_file_sha256 "databases/$DATABASE_NAME")" ||
+  fail "could not read the BDK2 database before APK replacement"
+[[ "$BDK2_DATABASE_SHA256_BEFORE_INSTALL" =~ ^[0-9a-f]{64}$ ]] ||
+  fail "could not fingerprint the BDK2 database before APK replacement"
+readonly BDK2_DATABASE_SHA256_BEFORE_INSTALL
 adb -s "$ADB_SERIAL" install -r "$BDK3_APK" >/dev/null
 assert_target_file "databases/$DATABASE_NAME"
 assert_target_file "no_backup/$PUBLIC_EVIDENCE"
+BDK2_DATABASE_SHA256_AFTER_INSTALL="$(target_file_sha256 "databases/$DATABASE_NAME")" ||
+  fail "could not read the BDK2 database after APK replacement"
+[[ "$BDK2_DATABASE_SHA256_AFTER_INSTALL" == "$BDK2_DATABASE_SHA256_BEFORE_INSTALL" ]] ||
+  fail "adb install -r changed the persisted BDK2 database before BDK3 loaded it"
+readonly BDK2_DATABASE_SHA256_AFTER_INSTALL
 adb -s "$ADB_SERIAL" install -r "$BDK3_TEST_APK" >/dev/null
 
 run_instrumentation_test "$PHASE_ONE_CLASS" "bdk3-phase-one"
@@ -295,54 +389,102 @@ def require(condition: bool, message: str) -> None:
 require(all("=" in line for line in lines), "malformed upgrade evidence line")
 evidence = dict(line.split("=", 1) for line in lines)
 expected_keys = {
-    "balance.total_sat", "consumer.bdk", "database.file_preserved",
+    "balance.confirmed_sat", "balance.total_sat", "balance.trusted_pending_sat",
+    "balance.untrusted_pending_sat", "checkpoint.hash", "checkpoint.height",
+    "consumer.bdk", "database.load_verified",
     "external.addresses.sha256", "external.descriptor.sha256", "external.last_index",
-    "fixture.version", "history.transaction_count", "in_place_upgrade_verified",
+    "fixture.version", "history.last_seen", "history.position",
+    "history.transaction_count", "history.txid", "in_place_upgrade_verified",
     "internal.addresses.sha256", "internal.descriptor.sha256", "internal.last_index",
-    "network", "process_restart_verified", "producer.bdk", "result",
-    "room.metadata_preserved", "unspent.count",
+    "network", "next_unused.external_address.sha256", "next_unused.external_index",
+    "process_restart_verified", "producer.bdk", "production.load_verified", "result",
+    "room.metadata_preserved", "unspent.count", "unspent.outpoint",
+    "unspent.script_sha256", "unspent.value_sat",
 }
 require(set(evidence) == expected_keys, "upgrade evidence keys do not match the exact contract")
 require(evidence["result"] == "PASS", "upgrade evidence did not report PASS")
-require(evidence["fixture.version"] == "1", "unexpected upgrade fixture version")
+require(evidence["fixture.version"] == "2", "unexpected upgrade fixture version")
 require(evidence["producer.bdk"] == "2.3.1", "unexpected producer BDK version")
 require(evidence["consumer.bdk"] == "3.0.0", "unexpected consumer BDK version")
 require(evidence["network"] == "testnet", "unexpected upgrade network")
-require(evidence["balance.total_sat"] == "0", "fixture balance is not zero")
-require(evidence["history.transaction_count"] == "0", "fixture history is not empty")
-require(evidence["unspent.count"] == "0", "fixture UTXO set is not empty")
+require(evidence["balance.confirmed_sat"] == "0", "fixture confirmed balance changed")
+require(evidence["balance.trusted_pending_sat"] == "0", "fixture trusted-pending balance changed")
+require(evidence["balance.untrusted_pending_sat"] == "50000", "fixture pending balance changed")
+require(evidence["balance.total_sat"] == "50000", "fixture total balance changed")
+require(evidence["history.transaction_count"] == "1", "fixture transaction graph is incomplete")
+require(bool(re.fullmatch(r"[0-9a-f]{64}", evidence["history.txid"])), "invalid fixture txid")
+require(evidence["history.position"] == "unconfirmed", "fixture confirmation state changed")
+require(evidence["history.last_seen"] == "1700000326", "fixture last-seen time changed")
+require(evidence["unspent.count"] == "1", "fixture UTXO set is incomplete")
+require(evidence["unspent.outpoint"] == evidence["history.txid"] + ":0", "fixture outpoint mismatch")
+require(evidence["unspent.value_sat"] == "50000", "fixture UTXO value changed")
+require(evidence["checkpoint.height"] == "0", "fixture checkpoint height changed")
+require(
+    evidence["checkpoint.hash"] ==
+    "000000000933ea01ad0ee984209779baae8c49c9c4766772abf10f7687df4f2",
+    "fixture checkpoint hash changed",
+)
 require(evidence["external.last_index"] == "2", "unexpected external derivation index")
 require(evidence["internal.last_index"] == "1", "unexpected internal derivation index")
 for key in (
-    "database.file_preserved", "in_place_upgrade_verified",
-    "process_restart_verified", "room.metadata_preserved",
+    "database.load_verified", "in_place_upgrade_verified", "process_restart_verified",
+    "production.load_verified", "room.metadata_preserved",
 ):
     require(evidence[key] == "true", f"upgrade proof is false: {key}")
 for key in (
     "external.addresses.sha256", "external.descriptor.sha256",
     "internal.addresses.sha256", "internal.descriptor.sha256",
+    "next_unused.external_address.sha256", "unspent.script_sha256",
 ):
     require(bool(re.fullmatch(r"[0-9a-f]{64}", evidence[key])), f"invalid digest: {key}")
 PY
+
+BDK2_APK_SHA256="$(sha256_file "$BDK2_APK")" || fail "could not hash BDK2 APK evidence"
+BDK3_APK_SHA256="$(sha256_file "$BDK3_APK")" || fail "could not hash BDK3 APK evidence"
+BDK2_TEST_APK_SHA256="$(sha256_file "$BDK2_TEST_APK")" || fail "could not hash BDK2 test APK evidence"
+BDK3_TEST_APK_SHA256="$(sha256_file "$BDK3_TEST_APK")" || fail "could not hash BDK3 test APK evidence"
+UPGRADE_RESULT_SHA256="$(sha256_file "$EVIDENCE_DIR/$SAFE_RESULT")" || fail "could not hash upgrade result evidence"
+BDK2_GRADLE_LOG_SHA256="$(sha256_file "$EVIDENCE_DIR/bdk2.gradle.txt")" || fail "could not hash BDK2 build log evidence"
+BDK3_GRADLE_LOG_SHA256="$(sha256_file "$EVIDENCE_DIR/bdk3.gradle.txt")" || fail "could not hash BDK3 build log evidence"
+BDK2_LOCKFILE_SHA256="$(sha256_file "$BDK2_TREE/app/gradle.lockfile")" || fail "could not hash BDK2 lockfile evidence"
+BDK3_LOCKFILE_SHA256="$(sha256_file "$BDK3_TREE/app/gradle.lockfile")" || fail "could not hash BDK3 lockfile evidence"
+BDK2_VERIFICATION_METADATA_SHA256="$(sha256_file "$BDK2_TREE/gradle/verification-metadata.xml")" ||
+  fail "could not hash BDK2 verification metadata evidence"
+BDK3_VERIFICATION_METADATA_SHA256="$(sha256_file "$BDK3_TREE/gradle/verification-metadata.xml")" ||
+  fail "could not hash BDK3 verification metadata evidence"
+EMULATOR_SDK="$(adb -s "$ADB_SERIAL" shell getprop ro.build.version.sdk | tr -d '\r')" ||
+  fail "could not read emulator SDK evidence"
+EMULATOR_ABI="$(adb -s "$ADB_SERIAL" shell getprop ro.product.cpu.abi | tr -d '\r')" ||
+  fail "could not read emulator ABI evidence"
+[[ "$EMULATOR_SDK" =~ ^[0-9]+$ ]] || fail "emulator SDK evidence is invalid"
+[[ "$EMULATOR_ABI" =~ ^[A-Za-z0-9._-]+$ ]] || fail "emulator ABI evidence is invalid"
+readonly BDK2_APK_SHA256 BDK3_APK_SHA256 BDK2_TEST_APK_SHA256 BDK3_TEST_APK_SHA256
+readonly UPGRADE_RESULT_SHA256 BDK2_GRADLE_LOG_SHA256 BDK3_GRADLE_LOG_SHA256
+readonly BDK2_LOCKFILE_SHA256 BDK3_LOCKFILE_SHA256
+readonly BDK2_VERIFICATION_METADATA_SHA256 BDK3_VERIFICATION_METADATA_SHA256
+readonly EMULATOR_SDK EMULATOR_ABI
 
 {
   printf 'result=PASS\n'
   printf 'bdk2.commit=%s\n' "$BDK2_COMMIT"
   printf 'bdk3.commit=%s\n' "$BDK3_COMMIT"
-  printf 'bdk2.apk.sha256=%s\n' "$(sha256sum "$BDK2_APK" | awk '{print $1}')"
-  printf 'bdk3.apk.sha256=%s\n' "$(sha256sum "$BDK3_APK" | awk '{print $1}')"
-  printf 'bdk2.test_apk.sha256=%s\n' "$(sha256sum "$BDK2_TEST_APK" | awk '{print $1}')"
-  printf 'bdk3.test_apk.sha256=%s\n' "$(sha256sum "$BDK3_TEST_APK" | awk '{print $1}')"
-  printf 'upgrade_result.sha256=%s\n' "$(sha256sum "$EVIDENCE_DIR/$SAFE_RESULT" | awk '{print $1}')"
-  printf 'bdk2.gradle_log.sha256=%s\n' "$(sha256sum "$EVIDENCE_DIR/bdk2.gradle.txt" | awk '{print $1}')"
-  printf 'bdk3.gradle_log.sha256=%s\n' "$(sha256sum "$EVIDENCE_DIR/bdk3.gradle.txt" | awk '{print $1}')"
-  printf 'bdk2.lockfile.sha256=%s\n' "$(sha256sum "$BDK2_TREE/app/gradle.lockfile" | awk '{print $1}')"
-  printf 'bdk3.lockfile.sha256=%s\n' "$(sha256sum "$BDK3_TREE/app/gradle.lockfile" | awk '{print $1}')"
-  printf 'bdk2.verification_metadata.sha256=%s\n' "$(sha256sum "$BDK2_TREE/gradle/verification-metadata.xml" | awk '{print $1}')"
-  printf 'bdk3.verification_metadata.sha256=%s\n' "$(sha256sum "$BDK3_TREE/gradle/verification-metadata.xml" | awk '{print $1}')"
+  printf 'bdk2.apk.sha256=%s\n' "$BDK2_APK_SHA256"
+  printf 'bdk3.apk.sha256=%s\n' "$BDK3_APK_SHA256"
+  printf 'bdk2.test_apk.sha256=%s\n' "$BDK2_TEST_APK_SHA256"
+  printf 'bdk3.test_apk.sha256=%s\n' "$BDK3_TEST_APK_SHA256"
+  printf 'upgrade_result.sha256=%s\n' "$UPGRADE_RESULT_SHA256"
+  printf 'bdk2.database_before_install.sha256=%s\n' "$BDK2_DATABASE_SHA256_BEFORE_INSTALL"
+  printf 'bdk2.database_after_install.sha256=%s\n' "$BDK2_DATABASE_SHA256_AFTER_INSTALL"
+  printf 'database.install_preserved=true\n'
+  printf 'bdk2.gradle_log.sha256=%s\n' "$BDK2_GRADLE_LOG_SHA256"
+  printf 'bdk3.gradle_log.sha256=%s\n' "$BDK3_GRADLE_LOG_SHA256"
+  printf 'bdk2.lockfile.sha256=%s\n' "$BDK2_LOCKFILE_SHA256"
+  printf 'bdk3.lockfile.sha256=%s\n' "$BDK3_LOCKFILE_SHA256"
+  printf 'bdk2.verification_metadata.sha256=%s\n' "$BDK2_VERIFICATION_METADATA_SHA256"
+  printf 'bdk3.verification_metadata.sha256=%s\n' "$BDK3_VERIFICATION_METADATA_SHA256"
   printf 'disposable_signer.sha256=%s\n' "$SIGNER_DIGEST"
-  printf 'emulator.sdk=%s\n' "$(adb -s "$ADB_SERIAL" shell getprop ro.build.version.sdk | tr -d '\r')"
-  printf 'emulator.abi=%s\n' "$(adb -s "$ADB_SERIAL" shell getprop ro.product.cpu.abi | tr -d '\r')"
+  printf 'emulator.sdk=%s\n' "$EMULATOR_SDK"
+  printf 'emulator.abi=%s\n' "$EMULATOR_ABI"
   printf 'target.package=%s\n' "$TARGET_PACKAGE"
   printf 'test.package=%s\n' "$TEST_PACKAGE"
   printf 'installation.mode=adb-install-r\n'

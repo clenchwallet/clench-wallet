@@ -3,20 +3,25 @@ package net.clench.wallet.verification.bdkupgrade
 import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.Properties
 import kotlinx.coroutines.runBlocking
 import net.clench.wallet.ClenchApplication
 import net.clench.wallet.data.local.entity.WalletEntity
 import org.bitcoindevkit.AddressInfo
 import org.bitcoindevkit.Balance
+import org.bitcoindevkit.ChainPosition
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
 import org.bitcoindevkit.KeychainKind
 import org.bitcoindevkit.Mnemonic
 import org.bitcoindevkit.Network
 import org.bitcoindevkit.Persister
+import org.bitcoindevkit.Transaction
+import org.bitcoindevkit.UnconfirmedTx
 import org.bitcoindevkit.Wallet
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -101,7 +106,7 @@ class Bdk2PersistedWalletSeederTest {
         var wallet: Wallet? = null
         val externalAddresses = mutableListOf<String>()
         val internalAddresses = mutableListOf<String>()
-        try {
+        val expected = try {
             external = Descriptor(descriptors.external, Network.TESTNET)
             internal = Descriptor(descriptors.internal, Network.TESTNET)
             persister = Persister.newSqlite(database.absolutePath)
@@ -112,17 +117,31 @@ class Bdk2PersistedWalletSeederTest {
             internal = null
 
             repeat(EXTERNAL_ADDRESS_COUNT) {
-                val addressInfo = wallet.revealNextAddress(KeychainKind.EXTERNAL)
-                externalAddresses += addressInfo.address.toString()
-                addressInfo.destroy()
+                var addressInfo: AddressInfo? = null
+                try {
+                    addressInfo = wallet.revealNextAddress(KeychainKind.EXTERNAL)
+                    externalAddresses += addressInfo.address.toString()
+                } finally {
+                    addressInfo?.destroy()
+                }
             }
             repeat(INTERNAL_ADDRESS_COUNT) {
-                val addressInfo = wallet.revealNextAddress(KeychainKind.INTERNAL)
-                internalAddresses += addressInfo.address.toString()
-                addressInfo.destroy()
+                var addressInfo: AddressInfo? = null
+                try {
+                    addressInfo = wallet.revealNextAddress(KeychainKind.INTERNAL)
+                    internalAddresses += addressInfo.address.toString()
+                } finally {
+                    addressInfo?.destroy()
+                }
             }
+
+            applyDeterministicOfflineTransaction(wallet, externalAddresses.first())
             wallet.persist(persister)
             require(database.isFile && database.length() > 0L) { "BDK fixture database missing" }
+
+            val expected = observeWallet(wallet, descriptors, externalAddresses, internalAddresses)
+            requireDeterministicFixture(expected)
+            expected
         } finally {
             closeAllOrFail(
                 { wallet?.close() },
@@ -131,18 +150,6 @@ class Bdk2PersistedWalletSeederTest {
                 { external?.close() }
             )
         }
-
-        val expected = PublicWalletEvidence(
-            externalDescriptor = descriptors.external,
-            internalDescriptor = descriptors.internal,
-            externalAddresses = externalAddresses,
-            internalAddresses = internalAddresses,
-            externalLastIndex = (EXTERNAL_ADDRESS_COUNT - 1).toUInt(),
-            internalLastIndex = (INTERNAL_ADDRESS_COUNT - 1).toUInt(),
-            totalBalanceSat = 0L,
-            transactionCount = 0,
-            unspentCount = 0
-        )
         verifyBdk2Reload(database, expected)
         return expected
     }
@@ -187,9 +194,200 @@ class Bdk2PersistedWalletSeederTest {
             requirePeekedAddress(wallet, KeychainKind.INTERNAL, index, expectedAddress)
         }
 
-        requireSame(expected.totalBalanceSat, totalBalanceSat(wallet), "balance")
-        requireSame(expected.transactionCount, transactionCount(wallet), "transaction history")
-        requireSame(expected.unspentCount, unspentCount(wallet), "unspent outputs")
+        val actual = observeWallet(
+            wallet = wallet,
+            descriptors = PublicDescriptors(expected.externalDescriptor, expected.internalDescriptor),
+            externalAddresses = expected.externalAddresses,
+            internalAddresses = expected.internalAddresses
+        )
+        requireSame(expected, actual, "persisted public wallet state")
+    }
+
+    private fun applyDeterministicOfflineTransaction(wallet: Wallet, receivingAddress: String) {
+        var address: org.bitcoindevkit.Address? = null
+        var script: org.bitcoindevkit.Script? = null
+        var transaction: Transaction? = null
+        var update: UnconfirmedTx? = null
+        try {
+            address = org.bitcoindevkit.Address(receivingAddress, Network.TESTNET)
+            script = address.scriptPubkey()
+            transaction = Transaction(buildFundingTransaction(script.toBytes()))
+            update = UnconfirmedTx(transaction, FIXTURE_LAST_SEEN)
+            transaction = null // Ownership moved into the recursively disposable update record.
+            wallet.applyUnconfirmedTxs(listOf(update))
+        } finally {
+            closeAllOrFail(
+                { update?.destroy() },
+                { transaction?.close() },
+                { script?.close() },
+                { address?.close() }
+            )
+        }
+    }
+
+    private fun buildFundingTransaction(scriptPubkey: ByteArray): ByteArray {
+        require(scriptPubkey.isNotEmpty() && scriptPubkey.size < 0xfd) {
+            "Unexpected fixture script length"
+        }
+        return ByteArrayOutputStream().use { output ->
+            output.write(intToLittleEndian(2)) // transaction version
+            output.write(1) // one input
+            output.write(ByteArray(32) { 0x11.toByte() }) // deterministic, nonexistent previous txid
+            output.write(intToLittleEndian(1)) // previous output index
+            output.write(0) // empty scriptSig
+            output.write(byteArrayOf(0xff.toByte(), 0xff.toByte(), 0xff.toByte(), 0xff.toByte()))
+            output.write(1) // one output
+            output.write(longToLittleEndian(FIXTURE_VALUE_SAT))
+            output.write(scriptPubkey.size)
+            output.write(scriptPubkey)
+            output.write(intToLittleEndian(0)) // lock time
+            output.toByteArray()
+        }
+    }
+
+    private fun intToLittleEndian(value: Int): ByteArray = ByteArray(4) { index ->
+        ((value ushr (index * 8)) and 0xff).toByte()
+    }
+
+    private fun longToLittleEndian(value: Long): ByteArray = ByteArray(8) { index ->
+        ((value ushr (index * 8)) and 0xff).toByte()
+    }
+
+    private fun observeWallet(
+        wallet: Wallet,
+        descriptors: PublicDescriptors,
+        externalAddresses: List<String>,
+        internalAddresses: List<String>
+    ): PublicWalletEvidence {
+        val balance = balanceEvidence(wallet)
+        val transaction = transactionEvidence(wallet)
+        val output = outputEvidence(wallet)
+        val checkpoint = checkpointEvidence(wallet)
+        val nextUnused = nextUnusedExternalAddress(wallet)
+        return PublicWalletEvidence(
+            externalDescriptor = descriptors.external,
+            internalDescriptor = descriptors.internal,
+            externalAddresses = externalAddresses,
+            internalAddresses = internalAddresses,
+            externalLastIndex = (EXTERNAL_ADDRESS_COUNT - 1).toUInt(),
+            internalLastIndex = (INTERNAL_ADDRESS_COUNT - 1).toUInt(),
+            nextUnusedExternalIndex = nextUnused.index,
+            nextUnusedExternalAddress = nextUnused.address,
+            confirmedBalanceSat = balance.confirmed,
+            trustedPendingBalanceSat = balance.trustedPending,
+            untrustedPendingBalanceSat = balance.untrustedPending,
+            totalBalanceSat = balance.total,
+            transactionCount = transaction.count,
+            transactionTxid = transaction.txid,
+            transactionPosition = transaction.position,
+            transactionLastSeen = transaction.lastSeen,
+            unspentCount = output.count,
+            unspentOutpoint = output.outpoint,
+            unspentValueSat = output.valueSat,
+            unspentScriptSha256 = output.scriptSha256,
+            checkpointHeight = checkpoint.height,
+            checkpointHash = checkpoint.hash
+        )
+    }
+
+    private fun balanceEvidence(wallet: Wallet): BalanceEvidence {
+        var balance: Balance? = null
+        return try {
+            balance = wallet.balance()
+            BalanceEvidence(
+                confirmed = balance.confirmed.toSat().toLong(),
+                trustedPending = balance.trustedPending.toSat().toLong(),
+                untrustedPending = balance.untrustedPending.toSat().toLong(),
+                total = balance.total.toSat().toLong()
+            )
+        } finally {
+            balance?.destroy()
+        }
+    }
+
+    private fun transactionEvidence(wallet: Wallet): TransactionEvidence {
+        val transactions = wallet.transactions()
+        return try {
+            require(transactions.size == 1) { "Fixture must contain exactly one transaction" }
+            val canonical = transactions.single()
+            var txid: org.bitcoindevkit.Txid? = null
+            try {
+                txid = canonical.transaction.computeTxid()
+                val position = canonical.chainPosition as? ChainPosition.Unconfirmed
+                    ?: throw AssertionError("Fixture transaction must be unconfirmed")
+                val lastSeen = position.timestamp
+                    ?: throw AssertionError("Fixture transaction missing last-seen timestamp")
+                TransactionEvidence(
+                    count = transactions.size,
+                    txid = txid.toString(),
+                    position = UNCONFIRMED,
+                    lastSeen = lastSeen
+                )
+            } finally {
+                txid?.close()
+            }
+        } finally {
+            transactions.forEach { it.destroy() }
+        }
+    }
+
+    private fun outputEvidence(wallet: Wallet): OutputEvidence {
+        val outputs = wallet.listUnspent()
+        return try {
+            require(outputs.size == 1) { "Fixture must contain exactly one unspent output" }
+            val output = outputs.single()
+            val position = output.chainPosition as? ChainPosition.Unconfirmed
+                ?: throw AssertionError("Fixture output must be unconfirmed")
+            val lastSeen = position.timestamp
+                ?: throw AssertionError("Fixture output missing last-seen timestamp")
+            requireSame(FIXTURE_LAST_SEEN, lastSeen, "unspent output last-seen timestamp")
+            requireSame(KeychainKind.EXTERNAL, output.keychain, "unspent output keychain")
+            requireSame(0u, output.derivationIndex, "unspent output derivation index")
+            require(!output.isSpent) { "Fixture output unexpectedly spent" }
+            OutputEvidence(
+                count = outputs.size,
+                outpoint = "${output.outpoint.txid}:${output.outpoint.vout}",
+                valueSat = output.txout.value.toSat().toLong(),
+                scriptSha256 = sha256(output.txout.scriptPubkey.toBytes())
+            )
+        } finally {
+            outputs.forEach { it.destroy() }
+        }
+    }
+
+    private fun checkpointEvidence(wallet: Wallet): CheckpointEvidence {
+        var checkpoint: org.bitcoindevkit.BlockId? = null
+        return try {
+            checkpoint = wallet.latestCheckpoint()
+            CheckpointEvidence(checkpoint.height, checkpoint.hash.toString())
+        } finally {
+            checkpoint?.destroy()
+        }
+    }
+
+    private fun nextUnusedExternalAddress(wallet: Wallet): DerivedAddress {
+        var addressInfo: AddressInfo? = null
+        return try {
+            addressInfo = wallet.nextUnusedAddress(KeychainKind.EXTERNAL)
+            DerivedAddress(addressInfo.index, addressInfo.address.toString())
+        } finally {
+            addressInfo?.destroy()
+        }
+    }
+
+    private fun requireDeterministicFixture(evidence: PublicWalletEvidence) {
+        requireSame(0L, evidence.confirmedBalanceSat, "confirmed balance")
+        requireSame(0L, evidence.trustedPendingBalanceSat, "trusted-pending balance")
+        requireSame(FIXTURE_VALUE_SAT, evidence.untrustedPendingBalanceSat, "untrusted-pending balance")
+        requireSame(FIXTURE_VALUE_SAT, evidence.totalBalanceSat, "total balance")
+        requireSame(1, evidence.transactionCount, "transaction count")
+        requireSame(UNCONFIRMED, evidence.transactionPosition, "transaction position")
+        requireSame(FIXTURE_LAST_SEEN, evidence.transactionLastSeen, "transaction last-seen")
+        requireSame(1, evidence.unspentCount, "unspent count")
+        requireSame("${evidence.transactionTxid}:0", evidence.unspentOutpoint, "unspent outpoint")
+        requireSame(FIXTURE_VALUE_SAT, evidence.unspentValueSat, "unspent value")
+        requireSame(0u, evidence.checkpointHeight, "latest checkpoint height")
+        requireSame(TESTNET_GENESIS_HASH, evidence.checkpointHash, "latest checkpoint hash")
     }
 
     private fun requirePeekedAddress(
@@ -207,34 +405,6 @@ class Bdk2PersistedWalletSeederTest {
         }
     }
 
-    private fun totalBalanceSat(wallet: Wallet): Long {
-        var balance: Balance? = null
-        return try {
-            balance = wallet.balance()
-            balance.total.toSat().toLong()
-        } finally {
-            balance?.destroy()
-        }
-    }
-
-    private fun transactionCount(wallet: Wallet): Int {
-        val transactions = wallet.transactions()
-        return try {
-            transactions.size
-        } finally {
-            transactions.forEach { it.destroy() }
-        }
-    }
-
-    private fun unspentCount(wallet: Wallet): Int {
-        val outputs = wallet.listUnspent()
-        return try {
-            outputs.size
-        } finally {
-            outputs.forEach { it.destroy() }
-        }
-    }
-
     private fun writeEvidenceAtomically(context: Context, evidence: PublicWalletEvidence) {
         val properties = Properties().apply {
             setProperty("fixture_version", FIXTURE_VERSION)
@@ -248,9 +418,22 @@ class Bdk2PersistedWalletSeederTest {
             setProperty("internal_addresses", evidence.internalAddresses.joinToString(","))
             setProperty("external_last_index", evidence.externalLastIndex.toString())
             setProperty("internal_last_index", evidence.internalLastIndex.toString())
+            setProperty("next_unused_external_index", evidence.nextUnusedExternalIndex.toString())
+            setProperty("next_unused_external_address", evidence.nextUnusedExternalAddress)
+            setProperty("balance_confirmed_sat", evidence.confirmedBalanceSat.toString())
+            setProperty("balance_trusted_pending_sat", evidence.trustedPendingBalanceSat.toString())
+            setProperty("balance_untrusted_pending_sat", evidence.untrustedPendingBalanceSat.toString())
             setProperty("balance_total_sat", evidence.totalBalanceSat.toString())
             setProperty("transaction_count", evidence.transactionCount.toString())
+            setProperty("transaction_txid", evidence.transactionTxid)
+            setProperty("transaction_position", evidence.transactionPosition)
+            setProperty("transaction_last_seen", evidence.transactionLastSeen.toString())
             setProperty("unspent_count", evidence.unspentCount.toString())
+            setProperty("unspent_outpoint", evidence.unspentOutpoint)
+            setProperty("unspent_value_sat", evidence.unspentValueSat.toString())
+            setProperty("unspent_script_sha256", evidence.unspentScriptSha256)
+            setProperty("checkpoint_height", evidence.checkpointHeight.toString())
+            setProperty("checkpoint_hash", evidence.checkpointHash)
         }
         require(properties.stringPropertyNames() == EVIDENCE_KEYS) { "Unexpected fixture evidence schema" }
 
@@ -311,14 +494,56 @@ class Bdk2PersistedWalletSeederTest {
         val internalAddresses: List<String>,
         val externalLastIndex: UInt,
         val internalLastIndex: UInt,
+        val nextUnusedExternalIndex: UInt,
+        val nextUnusedExternalAddress: String,
+        val confirmedBalanceSat: Long,
+        val trustedPendingBalanceSat: Long,
+        val untrustedPendingBalanceSat: Long,
         val totalBalanceSat: Long,
         val transactionCount: Int,
-        val unspentCount: Int
+        val transactionTxid: String,
+        val transactionPosition: String,
+        val transactionLastSeen: ULong,
+        val unspentCount: Int,
+        val unspentOutpoint: String,
+        val unspentValueSat: Long,
+        val unspentScriptSha256: String,
+        val checkpointHeight: UInt,
+        val checkpointHash: String
     )
+
+    private data class BalanceEvidence(
+        val confirmed: Long,
+        val trustedPending: Long,
+        val untrustedPending: Long,
+        val total: Long
+    )
+
+    private data class TransactionEvidence(
+        val count: Int,
+        val txid: String,
+        val position: String,
+        val lastSeen: ULong
+    )
+
+    private data class OutputEvidence(
+        val count: Int,
+        val outpoint: String,
+        val valueSat: Long,
+        val scriptSha256: String
+    )
+
+    private data class CheckpointEvidence(val height: UInt, val hash: String)
+    private data class DerivedAddress(val index: UInt, val address: String)
+
+    private fun sha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {
+            "%02x".format(it.toInt() and 0xff)
+        }
 
     private companion object {
         const val TARGET_PACKAGE = "net.clench.wallet.debug"
-        const val FIXTURE_VERSION = "1"
+        const val FIXTURE_VERSION = "2"
         const val PRODUCER_BDK = "2.3.1"
         const val TESTNET = "testnet"
         const val WALLET_ID = "00000000-0000-4000-8000-000000000326"
@@ -328,6 +553,11 @@ class Bdk2PersistedWalletSeederTest {
         const val RESULT_FILE = "bdk2-to-bdk3-result.properties"
         const val EXTERNAL_ADDRESS_COUNT = 3
         const val INTERNAL_ADDRESS_COUNT = 2
+        const val FIXTURE_VALUE_SAT = 50_000L
+        val FIXTURE_LAST_SEEN = 1_700_000_326uL
+        const val UNCONFIRMED = "unconfirmed"
+        const val TESTNET_GENESIS_HASH =
+            "000000000933ea01ad0ee984209779baae8c49c9c4766772abf10f7687df4f2"
 
         // Public BIP-39 test vector. NEVER USE THIS MNEMONIC WITH REAL FUNDS.
         const val PUBLIC_NON_PRODUCTION_TEST_MNEMONIC =
@@ -346,9 +576,22 @@ class Bdk2PersistedWalletSeederTest {
             "internal_addresses",
             "external_last_index",
             "internal_last_index",
+            "next_unused_external_index",
+            "next_unused_external_address",
+            "balance_confirmed_sat",
+            "balance_trusted_pending_sat",
+            "balance_untrusted_pending_sat",
             "balance_total_sat",
             "transaction_count",
-            "unspent_count"
+            "transaction_txid",
+            "transaction_position",
+            "transaction_last_seen",
+            "unspent_count",
+            "unspent_outpoint",
+            "unspent_value_sat",
+            "unspent_script_sha256",
+            "checkpoint_height",
+            "checkpoint_hash"
         )
     }
 }
