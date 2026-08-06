@@ -775,6 +775,9 @@ def main() -> None:
         "CLENCH_BDK_UPGRADE_ALLOW_EMULATOR_RESET: YES",
         "scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh",
         "bdk2-to-bdk3-upgrade-evidence",
+        "EXPECTED_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}",
+        "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+        'test "$(git rev-parse --verify HEAD^{commit})" = "$EXPECTED_SOURCE_COMMIT"',
     ):
         if required_contract not in instrumentation_workflow:
             raise SystemExit(
@@ -793,8 +796,9 @@ def main() -> None:
         "--dependency-verification=strict",
         "dump xmltree",
         "HARNESS_ANDROID_USER_HOME",
-        'pm path "$TARGET_PACKAGE"',
-        'pm path "$TEST_PACKAGE"',
+        "query_installed_packages()",
+        "package_is_installed()",
+        "cmd package list packages",
         'service check "$service_name"',
         '== "Service $service_name: found"',
         "upgrade_result.sha256",
@@ -823,11 +827,12 @@ def main() -> None:
         raise SystemExit(
             "BDK in-place upgrade cleanup must activate before the first adb install"
         )
-    for package_state_assignment in (
-        'TARGET_PACKAGE_PATH="$(adb -s "$ADB_SERIAL" shell pm path "$TARGET_PACKAGE"',
-        'TEST_PACKAGE_PATH="$(adb -s "$ADB_SERIAL" shell pm path "$TEST_PACKAGE"',
+    for package_state_control in (
+        'INSTALLED_PACKAGES="$(query_installed_packages)"',
+        'if package_is_installed "$INSTALLED_PACKAGES" "$TARGET_PACKAGE"',
+        'if package_is_installed "$INSTALLED_PACKAGES" "$TEST_PACKAGE"',
     ):
-        if package_state_assignment not in bdk_upgrade_runner:
+        if package_state_control not in bdk_upgrade_runner:
             raise SystemExit(
                 "BDK in-place upgrade preflight can ignore PackageManager failure"
             )

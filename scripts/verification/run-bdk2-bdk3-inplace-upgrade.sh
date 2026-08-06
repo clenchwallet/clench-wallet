@@ -34,6 +34,24 @@ require_command keytool
 require_command python3
 require_command sha256sum
 
+query_installed_packages() {
+  local package_listing
+  package_listing="$(adb -s "$ADB_SERIAL" shell cmd package list packages 2>/dev/null | tr -d '\r')" ||
+    return 1
+  [[ "$package_listing" == *"package:"* ]] || return 1
+  printf '%s\n' "$package_listing"
+}
+
+package_is_installed() {
+  local package_listing="$1"
+  local package_name="$2"
+  local package_line
+  while IFS= read -r package_line; do
+    [[ "$package_line" == "package:$package_name" ]] && return 0
+  done <<<"$package_listing"
+  return 1
+}
+
 # Exact-commit evidence must never honor local object substitution.
 export GIT_NO_REPLACE_OBJECTS=1
 
@@ -99,26 +117,35 @@ WORKTREES_ADDED=0
 cleanup() {
   local status=$?
   local cleanup_failed=0
-  local package_name package_path
+  local installed_packages package_name
   trap - EXIT INT TERM
   set +e
   if [[ "$DEVICE_TOUCHED" == "1" ]]; then
-    for package_name in "$TEST_PACKAGE" "$TARGET_PACKAGE"; do
-      package_path="$(adb -s "$ADB_SERIAL" shell pm path "$package_name" 2>/dev/null | tr -d '\r')"
-      if [[ $? -ne 0 ]]; then
-        printf 'BDK upgrade gate: cleanup could not query package: %s\n' "$package_name" >&2
-        cleanup_failed=1
-        continue
-      fi
-      if [[ -n "$package_path" ]]; then
-        adb -s "$ADB_SERIAL" uninstall "$package_name" >/dev/null 2>&1
-        package_path="$(adb -s "$ADB_SERIAL" shell pm path "$package_name" 2>/dev/null | tr -d '\r')"
-        if [[ $? -ne 0 || -n "$package_path" ]]; then
-          printf 'BDK upgrade gate: cleanup failed to remove package: %s\n' "$package_name" >&2
-          cleanup_failed=1
+    installed_packages="$(query_installed_packages)"
+    if [[ $? -ne 0 ]]; then
+      printf 'BDK upgrade gate: cleanup could not query installed packages\n' >&2
+      cleanup_failed=1
+    else
+      for package_name in "$TEST_PACKAGE" "$TARGET_PACKAGE"; do
+        if package_is_installed "$installed_packages" "$package_name"; then
+          if ! adb -s "$ADB_SERIAL" uninstall "$package_name" >/dev/null 2>&1; then
+            printf 'BDK upgrade gate: cleanup failed to uninstall package: %s\n' "$package_name" >&2
+            cleanup_failed=1
+            continue
+          fi
+          installed_packages="$(query_installed_packages)"
+          if [[ $? -ne 0 ]]; then
+            printf 'BDK upgrade gate: cleanup could not re-query installed packages\n' >&2
+            cleanup_failed=1
+            break
+          fi
+          if package_is_installed "$installed_packages" "$package_name"; then
+            printf 'BDK upgrade gate: cleanup failed to remove package: %s\n' "$package_name" >&2
+            cleanup_failed=1
+          fi
         fi
-      fi
-    done
+      done
+    fi
   fi
   if [[ "$WORKTREES_ADDED" == "1" ]]; then
     git -C "$SOURCE_ROOT" worktree remove --force "$BDK2_TREE" >/dev/null 2>&1
@@ -290,14 +317,15 @@ for service_name in package settings activity; do
   [[ "$service_status" == "Service $service_name: found" ]] ||
     fail "required emulator service is unavailable: $service_name"
 done
-TARGET_PACKAGE_PATH="$(adb -s "$ADB_SERIAL" shell pm path "$TARGET_PACKAGE" | tr -d '\r')" ||
-  fail "could not query target package state"
-TEST_PACKAGE_PATH="$(adb -s "$ADB_SERIAL" shell pm path "$TEST_PACKAGE" | tr -d '\r')" ||
-  fail "could not query instrumentation package state"
-[[ -z "$TARGET_PACKAGE_PATH" ]] ||
+INSTALLED_PACKAGES="$(query_installed_packages)" ||
+  fail "could not query installed package state"
+readonly INSTALLED_PACKAGES
+if package_is_installed "$INSTALLED_PACKAGES" "$TARGET_PACKAGE"; then
   fail "refusing to replace a pre-existing target package: $TARGET_PACKAGE"
-[[ -z "$TEST_PACKAGE_PATH" ]] ||
+fi
+if package_is_installed "$INSTALLED_PACKAGES" "$TEST_PACKAGE"; then
   fail "refusing to replace a pre-existing instrumentation test package: $TEST_PACKAGE"
+fi
 
 run_instrumentation_test() {
   local class_name="$1"

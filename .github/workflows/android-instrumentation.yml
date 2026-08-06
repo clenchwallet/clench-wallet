@@ -36,11 +36,13 @@ jobs:
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      EXPECTED_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Validate Gradle wrapper JAR
         uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
@@ -115,7 +117,7 @@ jobs:
           CLENCH_BDK_UPGRADE_EVIDENCE_DIR: build/reports/bdk2-bdk3-inplace-upgrade
           CLENCH_BDK_UPGRADE_MAX_WORKERS: '2'
         run: |
-          test "$(git rev-parse --verify HEAD^{commit})" = "$GITHUB_SHA"
+          test "$(git rev-parse --verify HEAD^{commit})" = "$EXPECTED_SOURCE_COMMIT"
           scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh
 
       - name: Run migration, BDK persistence, and descriptor instrumentation tests
