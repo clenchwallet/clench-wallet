@@ -23,6 +23,9 @@ jobs:
   migration-and-descriptor-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -41,14 +44,20 @@ jobs:
 
       - name: Install Android emulator image
         run: |
-          sdkmanager --install \
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          AVDMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager"
+          test -x "$SDKMANAGER"
+          test -x "$AVDMANAGER"
+          "$SDKMANAGER" --install \
             'platform-tools' \
             'emulator' \
             'system-images;android-35;google_apis;x86_64'
-          echo no | avdmanager create avd \
+          echo no | "$AVDMANAGER" create avd \
             --force \
             --name clench-ci \
             --package 'system-images;android-35;google_apis;x86_64'
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/emulator" >> "$GITHUB_PATH"
 
       - name: Start KVM-backed emulator
         run: |
