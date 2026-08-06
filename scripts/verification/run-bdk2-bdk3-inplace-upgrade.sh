@@ -447,9 +447,11 @@ require(evidence["unspent.count"] == "1", "fixture UTXO set is incomplete")
 require(evidence["unspent.outpoint"] == evidence["history.txid"] + ":0", "fixture outpoint mismatch")
 require(evidence["unspent.value_sat"] == "50000", "fixture UTXO value changed")
 require(evidence["checkpoint.height"] == "0", "fixture checkpoint height changed")
+testnet3_genesis_hash = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
+require(bool(re.fullmatch(r"[0-9a-f]{64}", testnet3_genesis_hash)), "invalid expected Testnet3 genesis hash")
+require(bool(re.fullmatch(r"[0-9a-f]{64}", evidence["checkpoint.hash"])), "invalid fixture checkpoint hash")
 require(
-    evidence["checkpoint.hash"] ==
-    "000000000933ea01ad0ee984209779baae8c49c9c4766772abf10f7687df4f2",
+    evidence["checkpoint.hash"] == testnet3_genesis_hash,
     "fixture checkpoint hash changed",
 )
 require(evidence["external.last_index"] == "2", "unexpected external derivation index")

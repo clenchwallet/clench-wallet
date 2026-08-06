@@ -376,6 +376,9 @@ class Bdk2PersistedWalletSeederTest {
     }
 
     private fun requireDeterministicFixture(evidence: PublicWalletEvidence) {
+        require(Regex("^[0-9a-f]{64}$").matches(TESTNET_GENESIS_HASH)) {
+            "Invalid expected Testnet3 genesis hash"
+        }
         requireSame(0L, evidence.confirmedBalanceSat, "confirmed balance")
         requireSame(0L, evidence.trustedPendingBalanceSat, "trusted-pending balance")
         requireSame(FIXTURE_VALUE_SAT, evidence.untrustedPendingBalanceSat, "untrusted-pending balance")
@@ -557,7 +560,7 @@ class Bdk2PersistedWalletSeederTest {
         val FIXTURE_LAST_SEEN = 1_700_000_326uL
         const val UNCONFIRMED = "unconfirmed"
         const val TESTNET_GENESIS_HASH =
-            "000000000933ea01ad0ee984209779baae8c49c9c4766772abf10f7687df4f2"
+            "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
 
         // Public BIP-39 test vector. NEVER USE THIS MNEMONIC WITH REAL FUNDS.
         const val PUBLIC_NON_PRODUCTION_TEST_MNEMONIC =

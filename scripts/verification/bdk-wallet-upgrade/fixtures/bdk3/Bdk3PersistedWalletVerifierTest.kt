@@ -151,6 +151,12 @@ private object Bdk3UpgradeVerifier {
         require(Regex("^[0-9a-f]{64}$").matches(evidence.unspentScriptSha256)) {
             "Invalid fixture script digest"
         }
+        require(Regex("^[0-9a-f]{64}$").matches(TESTNET_GENESIS_HASH)) {
+            "Invalid expected Testnet3 genesis hash"
+        }
+        require(Regex("^[0-9a-f]{64}$").matches(evidence.checkpointHash)) {
+            "Invalid fixture checkpoint hash"
+        }
         requireSame(0u, evidence.checkpointHeight, "fixture checkpoint height")
         requireSame(TESTNET_GENESIS_HASH, evidence.checkpointHash, "fixture checkpoint hash")
         requirePublicDescriptor(evidence.externalDescriptor)
@@ -547,7 +553,7 @@ private object Bdk3UpgradeVerifier {
     private val FIXTURE_LAST_SEEN = 1_700_000_326uL
     private const val UNCONFIRMED = "unconfirmed"
     private const val TESTNET_GENESIS_HASH =
-        "000000000933ea01ad0ee984209779baae8c49c9c4766772abf10f7687df4f2"
+        "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
     private const val MAX_EVIDENCE_BYTES = 64 * 1024L
 
     private val PRIVATE_DESCRIPTOR_MARKERS = listOf("xprv", "tprv", "yprv", "zprv", "uprv", "vprv")

@@ -788,6 +788,26 @@ def main() -> None:
     bdk_upgrade_runner = Path(
         "scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh"
     ).read_text(encoding="utf-8")
+    testnet3_genesis_hash = (
+        "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
+    )
+    if not re.fullmatch(r"[0-9a-f]{64}", testnet3_genesis_hash):
+        raise SystemExit("Release-control verifier has an invalid Testnet3 genesis hash")
+    for fixture_path in (
+        "scripts/verification/bdk-wallet-upgrade/fixtures/bdk2/"
+        "Bdk2PersistedWalletSeederTest.kt",
+        "scripts/verification/bdk-wallet-upgrade/fixtures/bdk3/"
+        "Bdk3PersistedWalletVerifierTest.kt",
+    ):
+        fixture_source = Path(fixture_path).read_text(encoding="utf-8")
+        if fixture_source.count(testnet3_genesis_hash) != 1:
+            raise SystemExit(
+                f"BDK upgrade fixture lacks canonical Testnet3 genesis hash: {fixture_path}"
+            )
+    if bdk_upgrade_runner.count(testnet3_genesis_hash) != 1:
+        raise SystemExit(
+            "BDK in-place upgrade evidence validator lacks canonical Testnet3 genesis hash"
+        )
     for required_control in (
         "GIT_NO_REPLACE_OBJECTS=1",
         "refs/replace/",
@@ -799,6 +819,7 @@ def main() -> None:
         "query_installed_packages()",
         "package_is_installed()",
         "cmd package list packages",
+        're.fullmatch(r"[0-9a-f]{64}", evidence["checkpoint.hash"])',
         'service check "$service_name"',
         '== "Service $service_name: found"',
         "upgrade_result.sha256",
