@@ -34,6 +34,9 @@ require_command keytool
 require_command python3
 require_command sha256sum
 
+# Exact-commit evidence must never honor local object substitution.
+export GIT_NO_REPLACE_OBJECTS=1
+
 [[ "${CLENCH_BDK_UPGRADE_ALLOW_EMULATOR_RESET:-}" == "YES" ]] ||
   fail "set CLENCH_BDK_UPGRADE_ALLOW_EMULATOR_RESET=YES to authorize clearing only $TARGET_PACKAGE on a dedicated emulator"
 [[ -n "${ADB_SERIAL:-}" ]] || fail "ADB_SERIAL must name a dedicated Android emulator"
@@ -41,6 +44,11 @@ require_command sha256sum
 readonly SOURCE_ROOT="$(git rev-parse --show-toplevel)"
 [[ -z "$(git -C "$SOURCE_ROOT" status --porcelain=v1 --untracked-files=all)" ]] ||
   fail "source worktree must be clean"
+readonly GIT_COMMON_DIR="$(git -C "$SOURCE_ROOT" rev-parse --path-format=absolute --git-common-dir)"
+[[ -z "$(git -C "$SOURCE_ROOT" for-each-ref --format='%(refname)' refs/replace/)" ]] ||
+  fail "source repository contains forbidden replace refs"
+[[ ! -s "$GIT_COMMON_DIR/info/grafts" ]] ||
+  fail "source repository contains a forbidden legacy graft file"
 
 readonly HARNESS_ROOT="$SOURCE_ROOT/scripts/verification/bdk-wallet-upgrade"
 readonly BDK2_FIXTURE="$HARNESS_ROOT/fixtures/bdk2/Bdk2PersistedWalletSeederTest.kt"
@@ -69,7 +77,7 @@ require_bdk_version "$BDK3_COMMIT" "$EXPECTED_BDK3_VERSION"
 readonly WORK_ROOT="$(mktemp -d -t clench-bdk-upgrade.XXXXXX)"
 readonly BDK2_TREE="$WORK_ROOT/bdk2"
 readonly BDK3_TREE="$WORK_ROOT/bdk3"
-readonly ANDROID_USER_HOME="$WORK_ROOT/android-user-home"
+readonly HARNESS_ANDROID_USER_HOME="$WORK_ROOT/android-user-home"
 DEVICE_TOUCHED=0
 WORKTREES_ADDED=0
 cleanup() {
@@ -78,7 +86,7 @@ cleanup() {
   set +e
   if [[ "$DEVICE_TOUCHED" == "1" ]]; then
     adb -s "$ADB_SERIAL" uninstall "$TEST_PACKAGE" >/dev/null 2>&1
-    adb -s "$ADB_SERIAL" shell pm clear "$TARGET_PACKAGE" >/dev/null 2>&1
+    adb -s "$ADB_SERIAL" uninstall "$TARGET_PACKAGE" >/dev/null 2>&1
   fi
   if [[ "$WORKTREES_ADDED" == "1" ]]; then
     git -C "$SOURCE_ROOT" worktree remove --force "$BDK2_TREE" >/dev/null 2>&1
@@ -102,7 +110,7 @@ readonly EVIDENCE_DIR="${CLENCH_BDK_UPGRADE_EVIDENCE_DIR:-$SOURCE_ROOT/build/rep
 if [[ -d "$EVIDENCE_DIR" ]] && find "$EVIDENCE_DIR" -mindepth 1 -print -quit | grep -q .; then
   fail "evidence directory must be absent or empty: $EVIDENCE_DIR"
 fi
-mkdir -p "$EVIDENCE_DIR" "$ANDROID_USER_HOME"
+mkdir -p "$EVIDENCE_DIR" "$HARNESS_ANDROID_USER_HOME"
 
 # Mark cleanup active before the first add so a partial worktree setup cannot leave Git metadata
 # behind if the second add fails.
@@ -134,7 +142,7 @@ fi
 # A disposable, test-only debug signer is shared by both exact-source builds solely so Android
 # permits adb install -r to replace BDK2 with BDK3 without clearing target-app data.
 keytool -genkeypair -noprompt \
-  -keystore "$ANDROID_USER_HOME/debug.keystore" \
+  -keystore "$HARNESS_ANDROID_USER_HOME/debug.keystore" \
   -storepass android \
   -alias androiddebugkey \
   -keypass android \
@@ -143,7 +151,7 @@ keytool -genkeypair -noprompt \
 
 readonly DISPOSABLE_CERT_DIGEST="$(
   keytool -exportcert \
-    -keystore "$ANDROID_USER_HOME/debug.keystore" \
+    -keystore "$HARNESS_ANDROID_USER_HOME/debug.keystore" \
     -storepass android \
     -alias androiddebugkey |
     sha256sum | awk '{print $1}'
@@ -166,7 +174,7 @@ build_test_pair() {
   local tree="$1"
   (
     cd "$tree"
-    ANDROID_USER_HOME="$ANDROID_USER_HOME" \
+    ANDROID_USER_HOME="$HARNESS_ANDROID_USER_HOME" \
       ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest "${GRADLE_ARGS[@]}"
   )
 }
@@ -188,8 +196,8 @@ apk_package() {
 }
 
 apk_target_package() {
-  "$AAPT" dump badging "$1" |
-    sed -n "s/^instrumentation:.*targetPackage='\([^']*\)'.*/\1/p" | head -n 1
+  "$AAPT" dump xmltree "$1" AndroidManifest.xml |
+    sed -n 's/.*android:targetPackage[^=]*="\([^"]*\)".*/\1/p' | head -n 1
 }
 
 certificate_digest() {
@@ -216,6 +224,8 @@ done
 adb -s "$ADB_SERIAL" wait-for-device
 [[ "$(adb -s "$ADB_SERIAL" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] ||
   fail "refusing to clear or install on a non-emulator Android device"
+[[ -z "$(adb -s "$ADB_SERIAL" shell pm path "$TARGET_PACKAGE" | tr -d '\r')" ]] ||
+  fail "refusing to replace a pre-existing target package: $TARGET_PACKAGE"
 [[ -z "$(adb -s "$ADB_SERIAL" shell pm path "$TEST_PACKAGE" | tr -d '\r')" ]] ||
   fail "refusing to replace a pre-existing instrumentation test package: $TEST_PACKAGE"
 
@@ -271,7 +281,12 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
-assert all("=" in line for line in lines)
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise SystemExit(message)
+
+require(all("=" in line for line in lines), "malformed upgrade evidence line")
 evidence = dict(line.split("=", 1) for line in lines)
 expected_keys = {
     "balance.total_sat", "consumer.bdk", "database.file_preserved",
@@ -281,27 +296,27 @@ expected_keys = {
     "network", "process_restart_verified", "producer.bdk", "result",
     "room.metadata_preserved", "unspent.count",
 }
-assert set(evidence) == expected_keys
-assert evidence["result"] == "PASS"
-assert evidence["fixture.version"] == "1"
-assert evidence["producer.bdk"] == "2.3.1"
-assert evidence["consumer.bdk"] == "3.0.0"
-assert evidence["network"] == "testnet"
-assert evidence["balance.total_sat"] == "0"
-assert evidence["history.transaction_count"] == "0"
-assert evidence["unspent.count"] == "0"
-assert evidence["external.last_index"] == "2"
-assert evidence["internal.last_index"] == "1"
+require(set(evidence) == expected_keys, "upgrade evidence keys do not match the exact contract")
+require(evidence["result"] == "PASS", "upgrade evidence did not report PASS")
+require(evidence["fixture.version"] == "1", "unexpected upgrade fixture version")
+require(evidence["producer.bdk"] == "2.3.1", "unexpected producer BDK version")
+require(evidence["consumer.bdk"] == "3.0.0", "unexpected consumer BDK version")
+require(evidence["network"] == "testnet", "unexpected upgrade network")
+require(evidence["balance.total_sat"] == "0", "fixture balance is not zero")
+require(evidence["history.transaction_count"] == "0", "fixture history is not empty")
+require(evidence["unspent.count"] == "0", "fixture UTXO set is not empty")
+require(evidence["external.last_index"] == "2", "unexpected external derivation index")
+require(evidence["internal.last_index"] == "1", "unexpected internal derivation index")
 for key in (
     "database.file_preserved", "in_place_upgrade_verified",
     "process_restart_verified", "room.metadata_preserved",
 ):
-    assert evidence[key] == "true"
+    require(evidence[key] == "true", f"upgrade proof is false: {key}")
 for key in (
     "external.addresses.sha256", "external.descriptor.sha256",
     "internal.addresses.sha256", "internal.descriptor.sha256",
 ):
-    assert re.fullmatch(r"[0-9a-f]{64}", evidence[key])
+    require(bool(re.fullmatch(r"[0-9a-f]{64}", evidence[key])), f"invalid digest: {key}")
 PY
 
 {
@@ -312,6 +327,7 @@ PY
   printf 'bdk3.apk.sha256=%s\n' "$(sha256sum "$BDK3_APK" | awk '{print $1}')"
   printf 'bdk2.test_apk.sha256=%s\n' "$(sha256sum "$BDK2_TEST_APK" | awk '{print $1}')"
   printf 'bdk3.test_apk.sha256=%s\n' "$(sha256sum "$BDK3_TEST_APK" | awk '{print $1}')"
+  printf 'upgrade_result.sha256=%s\n' "$(sha256sum "$EVIDENCE_DIR/$SAFE_RESULT" | awk '{print $1}')"
   printf 'disposable_signer.sha256=%s\n' "$SIGNER_DIGEST"
   printf 'emulator.sdk=%s\n' "$(adb -s "$ADB_SERIAL" shell getprop ro.build.version.sdk | tr -d '\r')"
   printf 'emulator.abi=%s\n' "$(adb -s "$ADB_SERIAL" shell getprop ro.product.cpu.abi | tr -d '\r')"
