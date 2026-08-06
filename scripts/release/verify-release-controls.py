@@ -749,6 +749,19 @@ def main() -> None:
     instrumentation_workflow = Path(
         ".github/workflows/android-instrumentation.yml"
     ).read_text(encoding="utf-8")
+    for required_path in (
+        "gradle/libs.versions.toml",
+        "app/src/main/java/net/clench/wallet/data/backup/ClenchStateBackupManager.kt",
+        "app/src/main/java/net/clench/wallet/data/repository/BdkBitcoinRepository.kt",
+        "app/src/main/java/net/clench/wallet/domain/model/BdkNetworkKind.kt",
+        "app/src/main/java/net/clench/wallet/domain/model/ScriptType.kt",
+        "app/src/main/java/net/clench/wallet/ui/viewmodel/ImportWalletViewModel.kt",
+    ):
+        if required_path not in instrumentation_workflow:
+            raise SystemExit(
+                "Android instrumentation path filter omits BDK-sensitive source: "
+                f"{required_path}"
+            )
     for required_contract in (
         "net.clench.wallet.data.repository.BdkWalletPersistenceTest",
         "sqliteWalletReloadsExactRevealedTestnetAddresses",
