@@ -746,6 +746,20 @@ def main() -> None:
     if "scripts/verification/test-hostile-fuzz-runner.py" not in android_workflow:
         raise SystemExit("Android CI does not exercise hostile fuzz runner self-tests")
 
+    instrumentation_workflow = Path(
+        ".github/workflows/android-instrumentation.yml"
+    ).read_text(encoding="utf-8")
+    for required_contract in (
+        "net.clench.wallet.data.repository.BdkWalletPersistenceTest",
+        "sqliteWalletReloadsExactRevealedTestnetAddresses",
+        "Expected the exact seven named instrumentation tests to pass",
+    ):
+        if required_contract not in instrumentation_workflow:
+            raise SystemExit(
+                f"Android instrumentation lacks BDK persistence contract: "
+                f"{required_contract}"
+            )
+
     workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     verify_release_workflow(workflow)
     blocks = job_blocks(workflow)

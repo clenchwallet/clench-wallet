@@ -54,8 +54,7 @@ class BdkWalletPersistenceTest {
         var change: Descriptor? = null
         var persister: Persister? = null
         var wallet: Wallet? = null
-        var receive: AddressInfo? = null
-        var changeAddress: AddressInfo? = null
+        val revealedAddresses = mutableListOf<AddressInfo>()
 
         try {
             mnemonic = Mnemonic.fromString(TEST_MNEMONIC)
@@ -79,40 +78,62 @@ class BdkWalletPersistenceTest {
             persister = Persister.newSqlite(testDatabase.absolutePath)
             wallet = Wallet(external, change, Network.TESTNET, persister)
 
-            closeOrFail(
+            val descriptorCleanup = listOfNotNull(
                 nativeCloseAction(change) { it.close() },
                 nativeCloseAction(external) { it.close() },
                 nativeCloseAction(secretKey) { it.destroy() },
                 nativeCloseAction(mnemonic) { it.destroy() }
             )
+            // Ownership moves to the barrier before any close starts. If one sibling close fails,
+            // the finally block must never retry another wrapper that was already closed.
             change = null
             external = null
             secretKey = null
             mnemonic = null
+            closeOrFail(descriptorCleanup)
 
-            receive = wallet.revealNextAddress(KeychainKind.EXTERNAL)
-            changeAddress = wallet.revealNextAddress(KeychainKind.INTERNAL)
-            wallet.persist(persister)
+            val receiveAddresses = revealAddresses(
+                wallet,
+                KeychainKind.EXTERNAL,
+                revealedAddresses
+            )
+            val changeAddresses = revealAddresses(
+                wallet,
+                KeychainKind.INTERNAL,
+                revealedAddresses
+            )
+            assertTrue(wallet.persist(persister))
+            assertTrue(testDatabase.isFile)
+            assertTrue(testDatabase.length() > 0L)
 
             return PersistedAddresses(
                 externalDescriptor = externalPublic,
                 changeDescriptor = changePublic,
-                receiveIndex = receive.index,
-                receiveAddress = receive.address.toString(),
-                changeIndex = changeAddress.index,
-                changeAddress = changeAddress.address.toString()
+                receiveAddresses = receiveAddresses,
+                changeAddresses = changeAddresses
             )
         } finally {
-            closeOrFail(
-                nativeCloseAction(changeAddress) { it.destroy() },
-                nativeCloseAction(receive) { it.destroy() },
-                nativeCloseAction(wallet) { it.close() },
-                nativeCloseAction(persister) { it.close() },
-                nativeCloseAction(change) { it.close() },
-                nativeCloseAction(external) { it.close() },
-                nativeCloseAction(secretKey) { it.destroy() },
-                nativeCloseAction(mnemonic) { it.destroy() }
-            )
+            val cleanup = buildList {
+                revealedAddresses.asReversed().forEach { addressInfo ->
+                    add(checkNotNull(nativeCloseAction(addressInfo) { it.destroy() }))
+                }
+                listOfNotNull(
+                    nativeCloseAction(wallet) { it.close() },
+                    nativeCloseAction(persister) { it.close() },
+                    nativeCloseAction(change) { it.close() },
+                    nativeCloseAction(external) { it.close() },
+                    nativeCloseAction(secretKey) { it.destroy() },
+                    nativeCloseAction(mnemonic) { it.destroy() }
+                ).forEach(::add)
+            }
+            revealedAddresses.clear()
+            wallet = null
+            persister = null
+            change = null
+            external = null
+            secretKey = null
+            mnemonic = null
+            closeOrFail(cleanup)
         }
     }
 
@@ -121,8 +142,7 @@ class BdkWalletPersistenceTest {
         var change: Descriptor? = null
         var persister: Persister? = null
         var wallet: Wallet? = null
-        var receive: AddressInfo? = null
-        var changeAddress: AddressInfo? = null
+        val derivedAddresses = mutableListOf<AddressInfo>()
 
         try {
             external = Descriptor(persisted.externalDescriptor, Network.TESTNET.toNetworkKind())
@@ -130,33 +150,84 @@ class BdkWalletPersistenceTest {
             persister = Persister.newSqlite(testDatabase.absolutePath)
             wallet = Wallet.load(external, change, persister)
 
-            closeOrFail(
+            val descriptorCleanup = listOfNotNull(
                 nativeCloseAction(change) { it.close() },
                 nativeCloseAction(external) { it.close() }
             )
             change = null
             external = null
-
-            receive = wallet.peekAddress(KeychainKind.EXTERNAL, persisted.receiveIndex)
-            changeAddress = wallet.peekAddress(KeychainKind.INTERNAL, persisted.changeIndex)
+            closeOrFail(descriptorCleanup)
 
             assertEquals(Network.TESTNET, wallet.network())
-            assertEquals(persisted.receiveAddress, receive.address.toString())
-            assertEquals(persisted.changeAddress, changeAddress.address.toString())
-        } finally {
-            closeOrFail(
-                nativeCloseAction(changeAddress) { it.destroy() },
-                nativeCloseAction(receive) { it.destroy() },
-                nativeCloseAction(wallet) { it.close() },
-                nativeCloseAction(persister) { it.close() },
-                nativeCloseAction(change) { it.close() },
-                nativeCloseAction(external) { it.close() }
+            assertReloadedKeychain(
+                wallet,
+                KeychainKind.EXTERNAL,
+                persisted.receiveAddresses,
+                derivedAddresses
             )
+            assertReloadedKeychain(
+                wallet,
+                KeychainKind.INTERNAL,
+                persisted.changeAddresses,
+                derivedAddresses
+            )
+        } finally {
+            val cleanup = buildList {
+                derivedAddresses.asReversed().forEach { addressInfo ->
+                    add(checkNotNull(nativeCloseAction(addressInfo) { it.destroy() }))
+                }
+                listOfNotNull(
+                    nativeCloseAction(wallet) { it.close() },
+                    nativeCloseAction(persister) { it.close() },
+                    nativeCloseAction(change) { it.close() },
+                    nativeCloseAction(external) { it.close() }
+                ).forEach(::add)
+            }
+            derivedAddresses.clear()
+            wallet = null
+            persister = null
+            change = null
+            external = null
+            closeOrFail(cleanup)
         }
     }
 
-    private fun closeOrFail(vararg actions: NativeWalletResourceCleanup.CloseAction?) {
-        operationBarrier.closeNativeResourcesOrFail(actions.filterNotNull())
+    private fun revealAddresses(
+        wallet: Wallet,
+        keychain: KeychainKind,
+        ownedAddresses: MutableList<AddressInfo>
+    ): List<DerivedAddress> {
+        val addresses = List(REVEALED_ADDRESSES_PER_KEYCHAIN) {
+            wallet.revealNextAddress(keychain).also(ownedAddresses::add).let { addressInfo ->
+                DerivedAddress(addressInfo.index, addressInfo.address.toString())
+            }
+        }
+        assertEquals(addresses.first().index + 1u, addresses.last().index)
+        assertTrue(addresses.first().address != addresses.last().address)
+        return addresses
+    }
+
+    private fun assertReloadedKeychain(
+        wallet: Wallet,
+        keychain: KeychainKind,
+        persisted: List<DerivedAddress>,
+        ownedAddresses: MutableList<AddressInfo>
+    ) {
+        val last = persisted.last()
+        assertEquals(last.index, wallet.derivationIndex(keychain))
+        persisted.forEach { expected ->
+            val actual = wallet.peekAddress(keychain, expected.index)
+                .also(ownedAddresses::add)
+            assertEquals(expected.address, actual.address.toString())
+        }
+
+        val next = wallet.revealNextAddress(keychain).also(ownedAddresses::add)
+        assertEquals(last.index + 1u, next.index)
+        assertTrue(next.address.toString() != last.address)
+    }
+
+    private fun closeOrFail(actions: Collection<NativeWalletResourceCleanup.CloseAction>) {
+        operationBarrier.closeNativeResourcesOrFail(actions)
     }
 
     private fun deleteTestDatabase() {
@@ -172,14 +243,18 @@ class BdkWalletPersistenceTest {
     private data class PersistedAddresses(
         val externalDescriptor: String,
         val changeDescriptor: String,
-        val receiveIndex: UInt,
-        val receiveAddress: String,
-        val changeIndex: UInt,
-        val changeAddress: String
+        val receiveAddresses: List<DerivedAddress>,
+        val changeAddresses: List<DerivedAddress>
+    )
+
+    private data class DerivedAddress(
+        val index: UInt,
+        val address: String
     )
 
     private companion object {
         const val TEST_DATABASE = "bdk3-wallet-persistence"
+        const val REVEALED_ADDRESSES_PER_KEYCHAIN = 2
         const val TEST_MNEMONIC =
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
     }
