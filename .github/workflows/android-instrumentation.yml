@@ -46,8 +46,10 @@ jobs:
         run: |
           SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           AVDMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager"
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/android-avd"
           test -x "$SDKMANAGER"
           test -x "$AVDMANAGER"
+          mkdir -p "$ANDROID_AVD_HOME"
           "$SDKMANAGER" --install \
             'platform-tools' \
             'emulator' \
@@ -56,6 +58,8 @@ jobs:
             --force \
             --name clench-ci \
             --package 'system-images;android-35;google_apis;x86_64'
+          test -f "$ANDROID_AVD_HOME/clench-ci.ini"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_SDK_ROOT/emulator" >> "$GITHUB_PATH"
 
