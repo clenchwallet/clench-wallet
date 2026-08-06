@@ -1,6 +1,6 @@
 # Clench Wallet
 
-A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](https://bitcoindevkit.org/) (Bitcoin Dev Kit) 2.3.1.
+A Bitcoin-only, non-custodial on-chain wallet for Android. Built with [BDK](https://bitcoindevkit.org/) (Bitcoin Dev Kit) 3.0.0.
 
 The static source for [clench.net](https://clench.net/) is in [`website/`](website/).
 
@@ -99,7 +99,7 @@ Release trust docs:
 
 ## Architecture
 
-- **BDK 2.3.1** — Bitcoin Dev Kit for wallet operations, transaction building, and Electrum sync
+- **BDK 3.0.0** — Bitcoin Dev Kit for wallet operations, transaction building, and Electrum sync
 - **Jetpack Compose** — Modern declarative UI
 - **Room + SQLCipher** — Encrypted app state. BDK's sandboxed per-wallet files
   contain public descriptors, scripts, and transaction metadata, not seeds or

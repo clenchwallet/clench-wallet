@@ -74,6 +74,7 @@ jobs:
         run: |
           scripts/release/verify-release-controls.py
           python3 -B scripts/verification/test-release-tools.py
+          python3 -B scripts/verification/test-hostile-fuzz-runner.py
           mkdir -p build/verification
           scripts/release/generate-sbom.py \
             --commit "$GITHUB_SHA" \

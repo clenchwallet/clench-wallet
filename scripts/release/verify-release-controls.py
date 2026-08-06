@@ -729,6 +729,23 @@ def main() -> None:
                 f"{required_wrapper_lane}"
             )
 
+    hostile_runner = Path("scripts/verification/run-hostile-fuzz.sh").read_text(
+        encoding="utf-8"
+    )
+    for required_control in (
+        "--no-build-cache",
+        "--rerun-tasks",
+        "HostileFuzzExecutionContractTest",
+        "CLENCH_HOSTILE_FUZZ_EXECUTED",
+    ):
+        if required_control not in hostile_runner:
+            raise SystemExit(
+                f"Hostile fuzz runner lacks execution control: {required_control}"
+            )
+    android_workflow = Path(".github/workflows/android.yml").read_text(encoding="utf-8")
+    if "scripts/verification/test-hostile-fuzz-runner.py" not in android_workflow:
+        raise SystemExit("Android CI does not exercise hostile fuzz runner self-tests")
+
     workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     verify_release_workflow(workflow)
     blocks = job_blocks(workflow)

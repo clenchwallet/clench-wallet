@@ -42,7 +42,7 @@ enum class ScriptType(
     companion object {
         /**
          * Create a BDK Descriptor for the given script type.
-         * Uses BDK 1.1.0 factory methods: newBip84, newBip49, newBip44, newBip86.
+         * Uses BDK 3.0.0 factory methods: newBip84, newBip49, newBip44, newBip86.
          */
         fun createDescriptor(
             secretKey: DescriptorSecretKey,

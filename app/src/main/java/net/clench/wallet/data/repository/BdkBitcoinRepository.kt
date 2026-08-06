@@ -141,7 +141,7 @@ internal object MultisigPsbtVsizeEstimator {
 /**
  * BDK-backed implementation of BitcoinRepository.
  *
- * Uses BDK Android 1.1.0 for all Bitcoin operations:
+ * Uses BDK Android 3.0.0 for all Bitcoin operations:
  *   - Mnemonic generation and restoration
  *   - BIP84 descriptor derivation (wpkh native segwit)
  *   - SQLite wallet persistence
@@ -1601,7 +1601,7 @@ class BdkBitcoinRepository @Inject constructor(
         val recipientAddress = org.bitcoindevkit.Address(toAddress, network)
         val feeRate = validatedFeeRate(feeRateSatPerVbyte)
 
-        // BDK 2.x: TxBuilder is immutable — every method returns a NEW builder.
+        // BDK TxBuilder is immutable — every method returns a NEW builder.
         // Must capture return values or chain calls. Never call methods without reassignment.
         val walletEntity = walletDao.getById(walletId)
         val isPassphraseWallet = walletEntity?.hasPassphrase == true
@@ -1648,7 +1648,7 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         // If specific UTXOs were selected (coin control), restrict to only those UTXOs
-        // Must reassign builder since TxBuilder is immutable in BDK 2.x
+        // Must reassign builder because TxBuilder is immutable.
         if (amountSat != null && selectedOutpoints.isNotEmpty()) {
             for (op in selectedOutpoints) {
                 val parts = op.split(":")
@@ -1701,7 +1701,7 @@ class BdkBitcoinRepository @Inject constructor(
             throw IllegalStateException("Cannot broadcast in offline mode")
         }
 
-        // Parse transaction from hex bytes — BDK 2.x takes ByteArray
+        // Parse transaction from hex bytes — BDK takes ByteArray.
         val txBytes = txHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         val tx = Transaction(txBytes)
 
@@ -2377,7 +2377,7 @@ class BdkBitcoinRepository @Inject constructor(
         val walletEntity = walletDao.getById(walletId)
         val isWatchOnly = walletEntity?.isWatchOnly == true
 
-        // BDK 2.x: TxBuilder is immutable — every method returns a NEW builder.
+        // BDK TxBuilder is immutable — every method returns a NEW builder.
         // Keep this branch structure in sync with buildTransaction(): selected-UTXO
         // drains must drain only the selected inputs, not start from drainWallet().
         var builder = when {
@@ -2539,7 +2539,7 @@ class BdkBitcoinRepository @Inject constructor(
         val network = activeNetwork()
         val feeRate = validatedFeeRate(feeRateSatPerVbyte)
 
-        // Chain multiple addRecipient() calls — BDK 2.x TxBuilder is immutable
+        // Chain multiple addRecipient() calls because BDK TxBuilder is immutable.
         var builder = TxBuilder().feeRate(feeRate)
         for (r in recipients) {
             val addr = org.bitcoindevkit.Address(r.address, network)
