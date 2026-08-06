@@ -159,7 +159,7 @@ dependencies {
     testImplementation("io.mockk:mockk:1.14.9")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
-    androidTestImplementation("androidx.room:room-testing:2.7.2")
+    androidTestImplementation("androidx.room:room-testing:2.8.4")
 
     // CameraX for QR scanning
     implementation(libs.androidx.camera.core)
