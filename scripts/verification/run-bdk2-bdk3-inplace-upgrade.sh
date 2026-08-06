@@ -74,7 +74,7 @@ require_bdk_version() {
 require_bdk_version "$BDK2_COMMIT" "$EXPECTED_BDK2_VERSION"
 require_bdk_version "$BDK3_COMMIT" "$EXPECTED_BDK3_VERSION"
 
-readonly WORK_ROOT="$(mktemp -d -t clench-bdk-upgrade.XXXXXX)"
+readonly WORK_ROOT="$(mktemp -d /tmp/clench-bdk-upgrade.XXXXXX)"
 readonly BDK2_TREE="$WORK_ROOT/bdk2"
 readonly BDK3_TREE="$WORK_ROOT/bdk3"
 readonly HARNESS_ANDROID_USER_HOME="$WORK_ROOT/android-user-home"
@@ -106,7 +106,11 @@ readonly AAPT="$SDK_ROOT/build-tools/$BUILD_TOOLS_VERSION/aapt"
 readonly APKSIGNER="$SDK_ROOT/build-tools/$BUILD_TOOLS_VERSION/apksigner"
 [[ -x "$AAPT" && -x "$APKSIGNER" ]] || fail "pinned Android Build Tools $BUILD_TOOLS_VERSION are unavailable"
 
-readonly EVIDENCE_DIR="${CLENCH_BDK_UPGRADE_EVIDENCE_DIR:-$SOURCE_ROOT/build/reports/bdk2-bdk3-inplace-upgrade}"
+EVIDENCE_DIR="${CLENCH_BDK_UPGRADE_EVIDENCE_DIR:-$SOURCE_ROOT/build/reports/bdk2-bdk3-inplace-upgrade}"
+if [[ "$EVIDENCE_DIR" != /* ]]; then
+  EVIDENCE_DIR="$SOURCE_ROOT/$EVIDENCE_DIR"
+fi
+readonly EVIDENCE_DIR
 if [[ -d "$EVIDENCE_DIR" ]] && find "$EVIDENCE_DIR" -mindepth 1 -print -quit | grep -q .; then
   fail "evidence directory must be absent or empty: $EVIDENCE_DIR"
 fi
@@ -172,15 +176,17 @@ fi
 
 build_test_pair() {
   local tree="$1"
+  local label="$2"
   (
     cd "$tree"
     ANDROID_USER_HOME="$HARNESS_ANDROID_USER_HOME" \
-      ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest "${GRADLE_ARGS[@]}"
+      ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest "${GRADLE_ARGS[@]}" \
+      2>&1 | tee "$EVIDENCE_DIR/$label.gradle.txt"
   )
 }
 
-build_test_pair "$BDK2_TREE"
-build_test_pair "$BDK3_TREE"
+build_test_pair "$BDK2_TREE" bdk2
+build_test_pair "$BDK3_TREE" bdk3
 
 readonly BDK2_APK="$BDK2_TREE/app/build/outputs/apk/debug/app-debug.apk"
 readonly BDK2_TEST_APK="$BDK2_TREE/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
@@ -328,6 +334,12 @@ PY
   printf 'bdk2.test_apk.sha256=%s\n' "$(sha256sum "$BDK2_TEST_APK" | awk '{print $1}')"
   printf 'bdk3.test_apk.sha256=%s\n' "$(sha256sum "$BDK3_TEST_APK" | awk '{print $1}')"
   printf 'upgrade_result.sha256=%s\n' "$(sha256sum "$EVIDENCE_DIR/$SAFE_RESULT" | awk '{print $1}')"
+  printf 'bdk2.gradle_log.sha256=%s\n' "$(sha256sum "$EVIDENCE_DIR/bdk2.gradle.txt" | awk '{print $1}')"
+  printf 'bdk3.gradle_log.sha256=%s\n' "$(sha256sum "$EVIDENCE_DIR/bdk3.gradle.txt" | awk '{print $1}')"
+  printf 'bdk2.lockfile.sha256=%s\n' "$(sha256sum "$BDK2_TREE/app/gradle.lockfile" | awk '{print $1}')"
+  printf 'bdk3.lockfile.sha256=%s\n' "$(sha256sum "$BDK3_TREE/app/gradle.lockfile" | awk '{print $1}')"
+  printf 'bdk2.verification_metadata.sha256=%s\n' "$(sha256sum "$BDK2_TREE/gradle/verification-metadata.xml" | awk '{print $1}')"
+  printf 'bdk3.verification_metadata.sha256=%s\n' "$(sha256sum "$BDK3_TREE/gradle/verification-metadata.xml" | awk '{print $1}')"
   printf 'disposable_signer.sha256=%s\n' "$SIGNER_DIGEST"
   printf 'emulator.sdk=%s\n' "$(adb -s "$ADB_SERIAL" shell getprop ro.build.version.sdk | tr -d '\r')"
   printf 'emulator.abi=%s\n' "$(adb -s "$ADB_SERIAL" shell getprop ro.product.cpu.abi | tr -d '\r')"

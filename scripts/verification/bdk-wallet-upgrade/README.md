@@ -41,9 +41,9 @@ gate refuses an upgrade candidate that omits protected-main history.
 9. Requires exact identity for Room/native public descriptors, Testnet3 network, three receive
    addresses, two change addresses, derivation indices, zero balance, empty history, and empty UTXO
    set. Any migration staged by the first BDK 3 load is persisted before the second restart.
-10. Exports only hashes, counts, versions, commit IDs, APK hashes, the disposable certificate hash,
-     and emulator metadata. It never exports the raw SQLite file, mnemonic, descriptors, or
-     addresses. Both dedicated debug packages are uninstalled on exit.
+10. Exports only hashes, counts, versions, commit IDs, APK hashes, strict-build logs, the disposable
+    certificate hash, and emulator metadata. It never exports the raw SQLite file, mnemonic,
+    descriptors, or addresses. Both dedicated debug packages are uninstalled on exit.
 
 ## Run
 
@@ -67,7 +67,8 @@ export CLENCH_BDK_UPGRADE_MAX_WORKERS=2
 
 The default evidence directory is `build/reports/bdk2-bdk3-inplace-upgrade/`. The safe result is
 `bdk2-to-bdk3-result.properties`; `gate-manifest.properties` binds it to both exact commits, all
-four APK hashes, the safe-result hash, and the disposable signer.
+four APK hashes, the safe-result hash, both Gradle logs, both lockfiles, both dependency-verification
+metadata files, and the disposable signer.
 
 ## Security boundaries
 
@@ -81,6 +82,8 @@ four APK hashes, the safe-result hash, and the disposable signer.
   after explicit opt-in.
 - A fresh 30-day debug certificate is generated outside both source trees. No production release
   key, keystore properties, GitHub secret, or signing control is read or modified.
+- Temporary worktrees and the disposable key are forced under a validated `/tmp` prefix and removed
+  by the exit/signal trap.
 - No Bitcoin server, faucet, testnet peer, broadcast endpoint, or funded transaction is used.
 - Assertion failures name only the failed field; they do not interpolate descriptors, addresses,
   or evidence values into instrumentation logs.

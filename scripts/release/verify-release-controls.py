@@ -773,6 +773,38 @@ def main() -> None:
                 f"{required_contract}"
             )
 
+    bdk_upgrade_runner = Path(
+        "scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh"
+    ).read_text(encoding="utf-8")
+    for required_control in (
+        "GIT_NO_REPLACE_OBJECTS=1",
+        "refs/replace/",
+        "info/grafts",
+        "merge-base --is-ancestor",
+        "--dependency-verification=strict",
+        "dump xmltree",
+        "HARNESS_ANDROID_USER_HOME",
+        'pm path "$TARGET_PACKAGE"',
+        'pm path "$TEST_PACKAGE"',
+        'uninstall "$TARGET_PACKAGE"',
+        "upgrade_result.sha256",
+        "bdk2.gradle_log.sha256",
+        "bdk3.gradle_log.sha256",
+        "bdk2.lockfile.sha256",
+        "bdk3.lockfile.sha256",
+        "bdk2.verification_metadata.sha256",
+        "bdk3.verification_metadata.sha256",
+        "mktemp -d /tmp/clench-bdk-upgrade.XXXXXX",
+    ):
+        if required_control not in bdk_upgrade_runner:
+            raise SystemExit(
+                f"BDK in-place upgrade gate lacks fail-closed control: {required_control}"
+            )
+    if re.search(r"(?m)^\s*assert\s+", bdk_upgrade_runner):
+        raise SystemExit(
+            "BDK in-place upgrade evidence must not rely on optimizable Python assertions"
+        )
+
     workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     verify_release_workflow(workflow)
     blocks = job_blocks(workflow)
