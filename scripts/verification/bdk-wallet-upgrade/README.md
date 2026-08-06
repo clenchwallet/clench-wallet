@@ -23,7 +23,8 @@ contain its own hash.
 3. Builds both debug app/test APK pairs under strict Gradle dependency verification using one
    newly generated, disposable debug certificate.
 4. Refuses to operate unless `ADB_SERIAL` points to an emulator (`ro.kernel.qemu=1`) and the caller
-   explicitly authorizes clearing only `net.clench.wallet.debug`.
+   explicitly authorizes clearing only `net.clench.wallet.debug`. It also refuses to replace a
+   pre-existing instrumentation test package.
 5. Installs the BDK 2 app, clears the dedicated debug package, and runs the seeder.
 6. The seeder derives BIP-84 descriptors from the public BIP-39 `abandon ... about` test vector,
    converts them to public descriptors, destroys every secret native wrapper, and only then creates
@@ -84,10 +85,11 @@ four APK hashes, and the disposable signer.
 
 ## Remaining limitations
 
-- The fixture is deliberately unfunded, so this proves identity for zero balance and empty
-  transaction/UTXO history. It does **not** prove migration of a non-empty transaction graph,
-  checkpoints, labels, frozen outputs, or spend state. A separate synthetic-chain fixture is needed
-  for that without relying on live funds.
+- The fixture has deliberately unsynced, zero-value local state, so this proves identity for zero
+  balance and empty transaction/UTXO history without consulting any chain service. It does **not**
+  assert anything about activity at the public test-vector addresses, or prove migration of a
+  non-empty transaction graph, checkpoints, labels, frozen outputs, or spend state. A separate
+  synthetic-chain fixture is needed for that without relying on live funds.
 - This is a debug-package Android upgrade. Room is unencrypted in debug builds, so this does not
   replace the existing SQLCipher release/storage-corruption gates.
 - It proves BDK persistence on the emulator ABI used for the run. It does not replace a real

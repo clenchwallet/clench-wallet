@@ -214,6 +214,8 @@ done
 adb -s "$ADB_SERIAL" wait-for-device
 [[ "$(adb -s "$ADB_SERIAL" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] ||
   fail "refusing to clear or install on a non-emulator Android device"
+[[ -z "$(adb -s "$ADB_SERIAL" shell pm path "$TEST_PACKAGE" | tr -d '\r')" ]] ||
+  fail "refusing to replace a pre-existing instrumentation test package: $TEST_PACKAGE"
 
 run_instrumentation_test() {
   local class_name="$1"
