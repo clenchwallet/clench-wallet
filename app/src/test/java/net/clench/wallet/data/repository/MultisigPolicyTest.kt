@@ -8,6 +8,8 @@ class MultisigPolicyTest {
 
     @Test
     fun `generated account wildcard is removed before descriptor branches are appended`() {
+        assertEquals("tpubAccount", MultisigAccountKeyPolicy.normalizeGeneratedAccountKey("tpubAccount"))
+        assertEquals("tprvAccount", MultisigAccountKeyPolicy.normalizeGeneratedAccountKey(" tprvAccount "))
         assertEquals("tpubAccount", MultisigAccountKeyPolicy.normalizeGeneratedAccountKey("tpubAccount/*"))
         assertEquals("tpubAccount", MultisigAccountKeyPolicy.normalizeGeneratedAccountKey("tpubAccount/**"))
         assertEquals("tpubAccount", MultisigAccountKeyPolicy.normalizeGeneratedAccountKey("tpubAccount/0/*"))
@@ -15,7 +17,7 @@ class MultisigPolicyTest {
         assertEquals("tprvAccount", MultisigAccountKeyPolicy.normalizeGeneratedAccountKey(" tprvAccount/* "))
         assertEquals(
             "tpubAccount/0/*",
-            MultisigAccountKeyPolicy.normalizeGeneratedAccountKey("tpubAccount/*") + "/0/*"
+            MultisigAccountKeyPolicy.normalizeGeneratedAccountKey("tpubAccount") + "/0/*"
         )
     }
 

@@ -11,6 +11,7 @@ import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.local.entity.UtxoMetadataEntity
 import net.clench.wallet.data.local.entity.WalletEntity
 import net.clench.wallet.data.repository.MultisigDescriptorSafety
+import net.clench.wallet.domain.model.toNetworkKind
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -256,7 +257,7 @@ class ClenchStateBackupManager @Inject constructor(
         require(!containsPrivateKeyMaterial(descriptor)) {
             "Backup contains a private descriptor. Clench state backups must be watch-only."
         }
-        val parsed = runCatching { Descriptor(descriptor, network) }
+        val parsed = runCatching { Descriptor(descriptor, network.toNetworkKind()) }
             .getOrElse { throw IllegalArgumentException("Backup contains an invalid $label descriptor.", it) }
         try {
             // BDK structurally separates secret and public descriptor material. This catches

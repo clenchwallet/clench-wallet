@@ -51,10 +51,10 @@ enum class ScriptType(
             network: Network
         ): Descriptor {
             return when (scriptType) {
-                NATIVE_SEGWIT -> Descriptor.newBip84(secretKey, keychain, network)
-                NESTED_SEGWIT -> Descriptor.newBip49(secretKey, keychain, network)
-                LEGACY -> Descriptor.newBip44(secretKey, keychain, network)
-                TAPROOT -> Descriptor.newBip86(secretKey, keychain, network)
+                NATIVE_SEGWIT -> Descriptor.newBip84(secretKey, keychain, network.toNetworkKind())
+                NESTED_SEGWIT -> Descriptor.newBip49(secretKey, keychain, network.toNetworkKind())
+                LEGACY -> Descriptor.newBip44(secretKey, keychain, network.toNetworkKind())
+                TAPROOT -> Descriptor.newBip86(secretKey, keychain, network.toNetworkKind())
             }
         }
 

@@ -19,6 +19,7 @@ import net.clench.wallet.data.repository.SensitiveWalletOperationBarrier
 import net.clench.wallet.data.repository.nativeCloseAction
 import net.clench.wallet.domain.model.ElectrumConfig
 import net.clench.wallet.domain.model.FeeEstimates
+import net.clench.wallet.domain.model.toNetworkKind
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.domain.repository.BuiltTransactionReview
 import net.clench.wallet.domain.repository.TransactionReviewOutput
@@ -38,6 +39,17 @@ import javax.inject.Inject
 
 enum class SweepSeedScriptType { LEGACY, NESTED_SEGWIT, NATIVE_SEGWIT, TAPROOT }
 enum class SweepWifScriptType { LEGACY, NESTED_SEGWIT, NATIVE_SEGWIT }
+
+internal object SweepAccountKeyPolicy {
+    fun appendBranchAndWildcard(accountKey: String, branch: Int): String {
+        require(branch == 0 || branch == 1) { "Descriptor branch must be external (0) or change (1)" }
+        val normalized = accountKey.trim().removeSuffix("/*")
+        require(normalized.isNotEmpty() && '*' !in normalized) {
+            "Account key must not contain a wildcard before its branch"
+        }
+        return "$normalized/$branch/*"
+    }
+}
 
 internal object SweepDescriptorFactory {
     fun create(
@@ -63,19 +75,19 @@ internal object SweepDescriptorFactory {
         try {
             val derivedAccountKey = key.derive(accountPath)
             accountKey = derivedAccountKey
-            val accountKeyText = derivedAccountKey.toString().removeSuffix("/*")
+            val accountKeyText = derivedAccountKey.toString()
             fun descriptor(branch: Int): Descriptor {
-                // BDK's derived secret key string already carries the master fingerprint
-                // and origin path plus a wildcard. Replace that wildcard with the standard
-                // external/change branch and address wildcard.
-                val derivedKey = "$accountKeyText/$branch/*"
+                // BDK 3 derived keys carry the master fingerprint and origin path but no
+                // implicit wildcard. Remove a legacy wildcard if present, then append the
+                // standard external/change branch and an explicit address wildcard.
+                val derivedKey = SweepAccountKeyPolicy.appendBranchAndWildcard(accountKeyText, branch)
                 val expression = when (type) {
                     SweepSeedScriptType.LEGACY -> "pkh($derivedKey)"
                     SweepSeedScriptType.NESTED_SEGWIT -> "sh(wpkh($derivedKey))"
                     SweepSeedScriptType.NATIVE_SEGWIT -> "wpkh($derivedKey)"
                     SweepSeedScriptType.TAPROOT -> "tr($derivedKey)"
                 }
-                return Descriptor(expression, network)
+                return Descriptor(expression, network.toNetworkKind())
             }
             external = descriptor(0)
             internal = descriptor(1)
@@ -114,11 +126,11 @@ internal object SweepWifDescriptorFactory {
             SweepWifScriptType.NESTED_SEGWIT -> "sh(wpkh($wif))"
             SweepWifScriptType.NATIVE_SEGWIT -> "wpkh($wif)"
         }
-        val external = Descriptor(externalExpression, network)
+        val external = Descriptor(externalExpression, network.toNetworkKind())
         return try {
             // A single WIF has no change branch. BIP341's secp256k1 NUMS point has
             // no known private key and gives BDK a distinct, valid descriptor.
-            external to Descriptor("wpkh($NUMS_PUBLIC_KEY)", network)
+            external to Descriptor("wpkh($NUMS_PUBLIC_KEY)", network.toNetworkKind())
         } catch (e: Throwable) {
             operationBarrier.closeNativeResourcesOrFail(
                 listOfNotNull(nativeCloseAction(external) { it.close() })
@@ -709,7 +721,11 @@ class SweepViewModel @Inject constructor(
             // BDK constructors require immutable strings. Keep them expression-local; mutable
             // caller copies are wiped immediately at API entry and again when this lease ends.
             mnemonic = Mnemonic.fromString(String(mnemonicWords))
-            secretKey = DescriptorSecretKey(network, mnemonic, passphrase?.let(::String).orEmpty())
+            secretKey = DescriptorSecretKey(
+                network.toNetworkKind(),
+                mnemonic,
+                passphrase?.let(::String).orEmpty()
+            )
             val descriptors = SweepDescriptorFactory.create(
                 secretKey,
                 network,

@@ -26,6 +26,7 @@ import net.clench.wallet.domain.model.FeeEstimates
 import net.clench.wallet.domain.model.TxDirection
 import net.clench.wallet.domain.model.WalletBalance
 import net.clench.wallet.domain.model.WalletData
+import net.clench.wallet.domain.model.toNetworkKind
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.domain.repository.BuiltTransactionReview
 import net.clench.wallet.domain.repository.GeneratedMultisigPhoneSigner
@@ -569,7 +570,7 @@ class BdkBitcoinRepository @Inject constructor(
                 walletMnemonicGenerator.generate(wordCount)
             }
             val walletMnemonicWords = mnemonicWords ?: mnemonic.toString().split(" ")
-            secretKey = DescriptorSecretKey(network, mnemonic, passphrase ?: "")
+            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonic, passphrase ?: "")
             descriptors = createDescriptorPair(
                 createExternal = {
                     ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
@@ -667,7 +668,7 @@ class BdkBitcoinRepository @Inject constructor(
         var descriptors: Pair<Descriptor, Descriptor>? = null
         try {
             mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
-            secretKey = DescriptorSecretKey(network, mnemonicObj, passphrase ?: "")
+            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonicObj, passphrase ?: "")
             descriptors = createDescriptorPair(
                 createExternal = {
                     ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
@@ -778,8 +779,8 @@ class BdkBitcoinRepository @Inject constructor(
         }
         var descriptors: Pair<Descriptor, Descriptor>? = try {
             createDescriptorPair(
-                createExternal = { Descriptor(externalDescriptorStr, network) },
-                createChange = { Descriptor(changeDescriptorStr, network) }
+                createExternal = { Descriptor(externalDescriptorStr, network.toNetworkKind()) },
+                createChange = { Descriptor(changeDescriptorStr, network.toNetworkKind()) }
             )
         } catch (e: Exception) {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "importWatchOnly: descriptor invalid")
@@ -885,7 +886,7 @@ class BdkBitcoinRepository @Inject constructor(
         try {
             mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
             val passphraseValue = passphrase.orEmpty()
-            secretKey = DescriptorSecretKey(network, mnemonicObj, passphraseValue)
+            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonicObj, passphraseValue)
             val scriptType = ScriptType.fromDescriptor(walletEntity.descriptor)
             descriptors = createDescriptorPair(
                 createExternal = {
@@ -970,8 +971,8 @@ class BdkBitcoinRepository @Inject constructor(
         val network = activeNetwork()
         var descriptors: Pair<Descriptor, Descriptor>? = try {
             createDescriptorPair(
-                createExternal = { Descriptor(externalDescriptorStr, network) },
-                createChange = { Descriptor(changeDescriptorStr, network) }
+                createExternal = { Descriptor(externalDescriptorStr, network.toNetworkKind()) },
+                createChange = { Descriptor(changeDescriptorStr, network.toNetworkKind()) }
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid private descriptor. Please check the format and try again.\n\nDetails: ${e.message}")
@@ -1386,8 +1387,8 @@ class BdkBitcoinRepository @Inject constructor(
                     stateTransaction.quarantineOriginals()
 
                     val descriptors = createDescriptorPair(
-                        createExternal = { Descriptor(walletEntity.descriptor, network) },
-                        createChange = { Descriptor(walletEntity.changeDescriptor, network) }
+                        createExternal = { Descriptor(walletEntity.descriptor, network.toNetworkKind()) },
+                        createChange = { Descriptor(walletEntity.changeDescriptor, network.toNetworkKind()) }
                     )
                     stateTransaction.markReplacementStateStarted()
                     replacementEntry = createWalletEntryFromDescriptors(
@@ -3184,8 +3185,8 @@ class BdkBitcoinRepository @Inject constructor(
             walletEntity.changeDescriptor
         }
         val descriptors = createDescriptorPair(
-            createExternal = { Descriptor(externalDescriptorStr, network) },
-            createChange = { Descriptor(changeDescriptorStr, network) }
+            createExternal = { Descriptor(externalDescriptorStr, network.toNetworkKind()) },
+            createChange = { Descriptor(changeDescriptorStr, network.toNetworkKind()) }
         )
 
         // Passphrase wallets are ALWAYS in-memory only — never load from disk.
@@ -3721,8 +3722,8 @@ class BdkBitcoinRepository @Inject constructor(
         try {
         publicDescriptors = try {
             createDescriptorPair(
-                createExternal = { Descriptor(externalDescriptorStr, network) },
-                createChange = { Descriptor(changeDescriptorStr, network) }
+                createExternal = { Descriptor(externalDescriptorStr, network.toNetworkKind()) },
+                createChange = { Descriptor(changeDescriptorStr, network.toNetworkKind()) }
             )
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid multisig descriptor: ${e.message}")
@@ -3730,8 +3731,8 @@ class BdkBitcoinRepository @Inject constructor(
         if (signingExternalDescriptorStr != null && signingChangeDescriptorStr != null) {
             signingDescriptors = try {
                 createDescriptorPair(
-                    createExternal = { Descriptor(signingExternalDescriptorStr, network) },
-                    createChange = { Descriptor(signingChangeDescriptorStr, network) }
+                    createExternal = { Descriptor(signingExternalDescriptorStr, network.toNetworkKind()) },
+                    createChange = { Descriptor(signingChangeDescriptorStr, network.toNetworkKind()) }
                 )
             } catch (e: Exception) {
                 throw IllegalArgumentException("Invalid phone-signer descriptor: ${e.message}")
@@ -3829,7 +3830,7 @@ class BdkBitcoinRepository @Inject constructor(
         var rootPublicKey: org.bitcoindevkit.DescriptorPublicKey? = null
         try {
             mnemonic = walletMnemonicGenerator.generate(24)
-            rootSecretKey = DescriptorSecretKey(network, mnemonic, "")
+            rootSecretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonic, "")
             accountPath = DerivationPath(derivationPath)
             accountSecretKey = checkNotNull(rootSecretKey).derive(checkNotNull(accountPath))
             accountPublicKey = accountSecretKey.asPublic()
@@ -3879,8 +3880,8 @@ class BdkBitcoinRepository @Inject constructor(
             ?: throw IllegalStateException("No Clench phone signer change keys are stored for this wallet")
         val network = if (walletEntity.network == "testnet") Network.TESTNET else Network.BITCOIN
         val descriptors = createDescriptorPair(
-            createExternal = { Descriptor(externalSecret, network) },
-            createChange = { Descriptor(changeSecret, network) }
+            createExternal = { Descriptor(externalSecret, network.toNetworkKind()) },
+            createChange = { Descriptor(changeSecret, network.toNetworkKind()) }
         )
         val entry = createWalletEntryFromDescriptors(
             descriptors = descriptors,
@@ -4114,7 +4115,7 @@ class BdkBitcoinRepository @Inject constructor(
         var descriptors: Pair<Descriptor, Descriptor>? = null
         try {
             mnemonic = Mnemonic.fromString(mnemonicStr)
-            secretKey = DescriptorSecretKey(network, mnemonic, passphrase)
+            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonic, passphrase)
             descriptors = createDescriptorPair(
                 createExternal = {
                     ScriptType.createDescriptor(
@@ -4249,7 +4250,7 @@ class BdkBitcoinRepository @Inject constructor(
             mnemonic = parsedMnemonic
             val network = if (walletEntity.network == "testnet") Network.TESTNET else Network.BITCOIN
             
-            val derivedSecretKey = DescriptorSecretKey(network, parsedMnemonic, passphrase)
+            val derivedSecretKey = DescriptorSecretKey(network.toNetworkKind(), parsedMnemonic, passphrase)
             secretKey = derivedSecretKey
             val scriptType = ScriptType.fromDescriptor(walletEntity.descriptor)
             val derivedDescriptor = ScriptType.createDescriptor(derivedSecretKey, scriptType, KeychainKind.EXTERNAL, network)
