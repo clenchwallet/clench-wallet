@@ -13,7 +13,8 @@ The default source pair is:
 Override either with `CLENCH_BDK2_COMMIT` or `CLENCH_BDK3_COMMIT` when validating the exact head
 of a rebased replacement PR. The script verifies the resolved BDK versions before building and
 records both resolved commit IDs in the result manifest. `HEAD` is used because a commit cannot
-contain its own hash.
+contain its own hash. The consumer must be a Git descendant of the exact protected producer; the
+gate refuses an upgrade candidate that omits protected-main history.
 
 ## What the gate does
 

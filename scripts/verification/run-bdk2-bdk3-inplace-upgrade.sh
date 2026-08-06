@@ -50,6 +50,8 @@ readonly BDK3_FIXTURE="$HARNESS_ROOT/fixtures/bdk3/Bdk3PersistedWalletVerifierTe
 readonly BDK2_COMMIT="$(git -C "$SOURCE_ROOT" rev-parse "${CLENCH_BDK2_COMMIT:-$DEFAULT_BDK2_COMMIT}^{commit}")"
 readonly BDK3_COMMIT="$(git -C "$SOURCE_ROOT" rev-parse "${CLENCH_BDK3_COMMIT:-$DEFAULT_BDK3_COMMIT}^{commit}")"
 [[ "$BDK2_COMMIT" != "$BDK3_COMMIT" ]] || fail "producer and consumer commits must differ"
+git -C "$SOURCE_ROOT" merge-base --is-ancestor "$BDK2_COMMIT" "$BDK3_COMMIT" ||
+  fail "BDK3 consumer must descend from the exact protected BDK2 producer"
 
 require_bdk_version() {
   local commit="$1"
