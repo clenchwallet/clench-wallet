@@ -126,6 +126,7 @@ dependencies {
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
+    implementation(platform(libs.kotlinx.serialization.bom))
 
     // Encrypted storage
     implementation(libs.security.crypto)
@@ -159,7 +160,7 @@ dependencies {
     testImplementation("io.mockk:mockk:1.14.9")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
-    androidTestImplementation("androidx.room:room-testing:2.8.4")
+    androidTestImplementation("androidx.room:room-testing:${libs.versions.room.get()}")
 
     // CameraX for QR scanning
     implementation(libs.androidx.camera.core)

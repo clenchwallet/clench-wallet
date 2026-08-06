@@ -100,7 +100,7 @@ jobs:
             --no-daemon \
             --dependency-verification=strict \
             :app:connectedDebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest
+            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest
 
       - name: Require actual instrumentation results
         if: always()
@@ -120,6 +120,14 @@ jobs:
               (
                   'net.clench.wallet.data.local.ClenchDatabaseMigrationTest',
                   'migrate12To13CreatesAndValidatesSignerVaultSchema',
+              ),
+              (
+                  'net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest',
+                  'encryptedDatabaseRoundTripsWalletWithProductionOpenHelper',
+              ),
+              (
+                  'net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest',
+                  'productionPreflightRejectsCorruptionWithoutMutatingWalletFile',
               ),
               (
                   'net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest',
@@ -152,7 +160,7 @@ jobs:
               'actual': sorted(actual),
           })
           if actual != expected or failures != 0 or errors != 0 or skipped != 0:
-              raise SystemExit('Expected the exact four named instrumentation tests to pass')
+              raise SystemExit('Expected the exact six named instrumentation tests to pass')
           PY
 
       - name: Collect emulator diagnostics
