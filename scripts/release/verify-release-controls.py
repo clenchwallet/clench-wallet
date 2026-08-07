@@ -729,6 +729,184 @@ def main() -> None:
                 f"{required_wrapper_lane}"
             )
 
+    hostile_runner = Path("scripts/verification/run-hostile-fuzz.sh").read_text(
+        encoding="utf-8"
+    )
+    for required_control in (
+        "--no-build-cache",
+        "--rerun-tasks",
+        "HostileFuzzExecutionContractTest",
+        "CLENCH_HOSTILE_FUZZ_EXECUTED",
+    ):
+        if required_control not in hostile_runner:
+            raise SystemExit(
+                f"Hostile fuzz runner lacks execution control: {required_control}"
+            )
+    android_workflow = Path(".github/workflows/android.yml").read_text(encoding="utf-8")
+    if "scripts/verification/test-hostile-fuzz-runner.py" not in android_workflow:
+        raise SystemExit("Android CI does not exercise hostile fuzz runner self-tests")
+
+    instrumentation_workflow = Path(
+        ".github/workflows/android-instrumentation.yml"
+    ).read_text(encoding="utf-8")
+    for required_path in (
+        "gradle/libs.versions.toml",
+        "app/src/main/java/net/clench/wallet/ClenchApplication.kt",
+        "app/src/main/java/net/clench/wallet/data/backup/ClenchStateBackupManager.kt",
+        "app/src/main/java/net/clench/wallet/data/repository/BdkBitcoinRepository.kt",
+        "app/src/main/java/net/clench/wallet/domain/model/BdkNetworkKind.kt",
+        "app/src/main/java/net/clench/wallet/domain/model/ScriptType.kt",
+        "app/src/main/java/net/clench/wallet/ui/viewmodel/ImportWalletViewModel.kt",
+        "scripts/verification/bdk-wallet-upgrade/**",
+        "scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh",
+    ):
+        if required_path not in instrumentation_workflow:
+            raise SystemExit(
+                "Android instrumentation path filter omits BDK-sensitive source: "
+                f"{required_path}"
+            )
+    for required_contract in (
+        "net.clench.wallet.data.repository.BdkWalletPersistenceTest",
+        "sqliteWalletReloadsExactRevealedTestnetAddresses",
+        "Expected the exact seven named instrumentation tests to pass",
+        "fetch-depth: 0",
+        "test -e /dev/kvm",
+        "Prove exact BDK 2.3.1 to 3.0.0 persisted-wallet upgrade",
+        "CLENCH_BDK_UPGRADE_ALLOW_EMULATOR_RESET: YES",
+        "scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh",
+        "bdk2-to-bdk3-upgrade-evidence",
+        "EXPECTED_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}",
+        "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+        'test "$(git rev-parse --verify HEAD^{commit})" = "$EXPECTED_SOURCE_COMMIT"',
+    ):
+        if required_contract not in instrumentation_workflow:
+            raise SystemExit(
+                f"Android instrumentation lacks BDK persistence contract: "
+                f"{required_contract}"
+            )
+
+    bdk_upgrade_runner = Path(
+        "scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh"
+    ).read_text(encoding="utf-8")
+    testnet3_genesis_hash = (
+        "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
+    )
+    if not re.fullmatch(r"[0-9a-f]{64}", testnet3_genesis_hash):
+        raise SystemExit("Release-control verifier has an invalid Testnet3 genesis hash")
+    for fixture_path in (
+        "scripts/verification/bdk-wallet-upgrade/fixtures/bdk2/"
+        "Bdk2PersistedWalletSeederTest.kt",
+        "scripts/verification/bdk-wallet-upgrade/fixtures/bdk3/"
+        "Bdk3PersistedWalletVerifierTest.kt",
+    ):
+        fixture_source = Path(fixture_path).read_text(encoding="utf-8")
+        if fixture_source.count(testnet3_genesis_hash) != 1:
+            raise SystemExit(
+                f"BDK upgrade fixture lacks canonical Testnet3 genesis hash: {fixture_path}"
+            )
+    if bdk_upgrade_runner.count(testnet3_genesis_hash) != 1:
+        raise SystemExit(
+            "BDK in-place upgrade evidence validator lacks canonical Testnet3 genesis hash"
+        )
+    for required_control in (
+        "GIT_NO_REPLACE_OBJECTS=1",
+        "refs/replace/",
+        "info/grafts",
+        "merge-base --is-ancestor",
+        "--dependency-verification=strict",
+        "dump xmltree",
+        "HARNESS_ANDROID_USER_HOME",
+        "query_installed_packages()",
+        "package_is_installed()",
+        "cmd package list packages",
+        're.fullmatch(r"[0-9a-f]{64}", evidence["checkpoint.hash"])',
+        'service check "$service_name"',
+        '== "Service $service_name: found"',
+        "upgrade_result.sha256",
+        "bdk2.database_before_install.sha256",
+        "bdk2.database_after_install.sha256",
+        "database.install_preserved=true",
+        "bdk2.gradle_log.sha256",
+        "bdk3.gradle_log.sha256",
+        "bdk2.lockfile.sha256",
+        "bdk3.lockfile.sha256",
+        "bdk2.verification_metadata.sha256",
+        "bdk3.verification_metadata.sha256",
+        "mktemp -d /tmp/clench-bdk-upgrade.XXXXXX",
+        "sha256_file()",
+        "UPGRADE_RESULT_SHA256",
+        "cleanup_failed",
+        'uninstall "$package_name"',
+    ):
+        if required_control not in bdk_upgrade_runner:
+            raise SystemExit(
+                f"BDK in-place upgrade gate lacks fail-closed control: {required_control}"
+            )
+    if bdk_upgrade_runner.index("DEVICE_TOUCHED=1") > bdk_upgrade_runner.index(
+        'install -r "$BDK2_APK"'
+    ):
+        raise SystemExit(
+            "BDK in-place upgrade cleanup must activate before the first adb install"
+        )
+    for package_state_control in (
+        'INSTALLED_PACKAGES="$(query_installed_packages)"',
+        'if package_is_installed "$INSTALLED_PACKAGES" "$TARGET_PACKAGE"',
+        'if package_is_installed "$INSTALLED_PACKAGES" "$TEST_PACKAGE"',
+    ):
+        if package_state_control not in bdk_upgrade_runner:
+            raise SystemExit(
+                "BDK in-place upgrade preflight can ignore PackageManager failure"
+            )
+    if re.search(r"(?m)^\s*assert\s+", bdk_upgrade_runner):
+        raise SystemExit(
+            "BDK in-place upgrade evidence must not rely on optimizable Python assertions"
+        )
+    if re.search(r'(?m)^readonly\s+[A-Za-z0-9_]+="\$\(', bdk_upgrade_runner):
+        raise SystemExit(
+            "BDK in-place upgrade gate masks command-substitution failures with readonly"
+        )
+    if re.search(r"(?m)^\s*\[\[[^\n]*\$\(", bdk_upgrade_runner):
+        raise SystemExit(
+            "BDK in-place upgrade gate masks command-substitution failures inside [[ ]]"
+        )
+    if re.search(r"printf[^\n]*\$\(sha256sum", bdk_upgrade_runner):
+        raise SystemExit(
+            "BDK in-place upgrade manifest masks checksum failures inside printf"
+        )
+
+    bdk2_upgrade_fixture = Path(
+        "scripts/verification/bdk-wallet-upgrade/fixtures/bdk2/"
+        "Bdk2PersistedWalletSeederTest.kt"
+    ).read_text(encoding="utf-8")
+    bdk3_upgrade_fixture = Path(
+        "scripts/verification/bdk-wallet-upgrade/fixtures/bdk3/"
+        "Bdk3PersistedWalletVerifierTest.kt"
+    ).read_text(encoding="utf-8")
+    for required_graph_control in (
+        "applyUnconfirmedTxs",
+        "FIXTURE_VALUE_SAT = 50_000L",
+        "transaction_txid",
+        "unspent_outpoint",
+        "checkpoint_hash",
+    ):
+        if required_graph_control not in bdk2_upgrade_fixture:
+            raise SystemExit(
+                "BDK2 upgrade fixture lacks non-empty offline graph control: "
+                f"{required_graph_control}"
+            )
+    for required_production_control in (
+        "bitcoinRepository.getBalance",
+        "bitcoinRepository.getLastAddress",
+        "completeSensitiveSessionEviction",
+        "production.load_verified",
+        "wallet.checkpoints()",
+    ):
+        if required_production_control not in bdk3_upgrade_fixture:
+            raise SystemExit(
+                "BDK3 upgrade fixture bypasses production/persisted state control: "
+                f"{required_production_control}"
+            )
+
     workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     verify_release_workflow(workflow)
     blocks = job_blocks(workflow)

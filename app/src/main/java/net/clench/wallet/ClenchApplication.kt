@@ -7,6 +7,7 @@ import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
 import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.dao.WalletDao
+import net.clench.wallet.data.repository.BdkBitcoinRepository
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
@@ -23,6 +24,7 @@ class ClenchApplication : Application() {
     @Inject lateinit var keystoreManager: KeystoreManager
     @Inject lateinit var walletDao: WalletDao
     @Inject lateinit var appProcessSecurityCoordinator: AppProcessSecurityCoordinator
+    @Inject internal lateinit var bitcoinRepository: BdkBitcoinRepository
 
     // [S-4] Gate sensitive debug logging in release builds.
     private val logSensitive: Boolean

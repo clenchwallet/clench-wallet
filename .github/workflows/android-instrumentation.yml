@@ -6,13 +6,23 @@ on:
     paths:
       - 'app/build.gradle.kts'
       - 'app/gradle.lockfile'
+      - 'gradle/libs.versions.toml'
       - 'gradle/verification-metadata.xml'
       - 'app/schemas/**'
+      - 'app/src/main/java/net/clench/wallet/ClenchApplication.kt'
       - 'app/src/main/java/net/clench/wallet/data/local/**'
+      - 'app/src/main/java/net/clench/wallet/data/backup/ClenchStateBackupManager.kt'
+      - 'app/src/main/java/net/clench/wallet/data/repository/BdkBitcoinRepository.kt'
       - 'app/src/main/java/net/clench/wallet/data/repository/SensitiveWalletOperationBarrier.kt'
+      - 'app/src/main/java/net/clench/wallet/domain/model/BdkNetworkKind.kt'
+      - 'app/src/main/java/net/clench/wallet/domain/model/ScriptType.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/viewmodel/ImportWalletViewModel.kt'
       - 'app/src/main/java/net/clench/wallet/ui/viewmodel/SweepViewModel.kt'
       - 'app/src/main/java/net/clench/wallet/ui/viewmodel/WifPrivateKeyParser.kt'
       - 'app/src/androidTest/**'
+      - 'scripts/verification/bdk-wallet-upgrade/**'
+      - 'scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh'
+      - 'scripts/release/verify-release-controls.py'
       - '.github/workflows/android-instrumentation.yml'
   workflow_dispatch:
 
@@ -22,13 +32,17 @@ permissions:
 jobs:
   migration-and-descriptor-tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 60
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      EXPECTED_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Validate Gradle wrapper JAR
         uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
@@ -83,8 +97,10 @@ jobs:
             done
           '
           timeout 60 bash -c '
-            until adb shell service check package 2>/dev/null | grep -q "found"; do
-              sleep 2
+            for service_name in package settings activity; do
+              until [ "$(adb shell service check "$service_name" 2>/dev/null | tr -d "\r")" = "Service $service_name: found" ]; do
+                sleep 2
+              done
             done
           '
           adb shell settings put global window_animation_scale 0
@@ -94,13 +110,23 @@ jobs:
           test -s "$RUNNER_TEMP/android-packages.txt"
           head -n 1 "$RUNNER_TEMP/android-packages.txt"
 
-      - name: Run migration and descriptor instrumentation tests
+      - name: Prove exact BDK 2.3.1 to 3.0.0 persisted-wallet upgrade
+        env:
+          ADB_SERIAL: emulator-5554
+          CLENCH_BDK_UPGRADE_ALLOW_EMULATOR_RESET: YES
+          CLENCH_BDK_UPGRADE_EVIDENCE_DIR: build/reports/bdk2-bdk3-inplace-upgrade
+          CLENCH_BDK_UPGRADE_MAX_WORKERS: '2'
+        run: |
+          test "$(git rev-parse --verify HEAD^{commit})" = "$EXPECTED_SOURCE_COMMIT"
+          scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh
+
+      - name: Run migration, BDK persistence, and descriptor instrumentation tests
         run: |
           ./gradlew \
             --no-daemon \
             --dependency-verification=strict \
             :app:connectedDebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest
+            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.data.repository.BdkWalletPersistenceTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest
 
       - name: Require actual instrumentation results
         if: always()
@@ -128,6 +154,10 @@ jobs:
               (
                   'net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest',
                   'productionPreflightRejectsCorruptionWithoutMutatingWalletFile',
+              ),
+              (
+                  'net.clench.wallet.data.repository.BdkWalletPersistenceTest',
+                  'sqliteWalletReloadsExactRevealedTestnetAddresses',
               ),
               (
                   'net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest',
@@ -160,8 +190,17 @@ jobs:
               'actual': sorted(actual),
           })
           if actual != expected or failures != 0 or errors != 0 or skipped != 0:
-              raise SystemExit('Expected the exact six named instrumentation tests to pass')
+              raise SystemExit('Expected the exact seven named instrumentation tests to pass')
           PY
+
+      - name: Upload BDK cross-version evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bdk2-to-bdk3-upgrade-evidence
+          path: build/reports/bdk2-bdk3-inplace-upgrade/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Collect emulator diagnostics
         if: failure()

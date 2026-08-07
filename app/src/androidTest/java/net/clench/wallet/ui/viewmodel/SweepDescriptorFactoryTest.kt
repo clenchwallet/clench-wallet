@@ -2,6 +2,7 @@ package net.clench.wallet.ui.viewmodel
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import net.clench.wallet.data.repository.SensitiveWalletOperationBarrier
+import net.clench.wallet.domain.model.toNetworkKind
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
 import org.bitcoindevkit.KeychainKind
@@ -27,21 +28,23 @@ class SweepDescriptorFactoryTest {
                 )
                 val expected = when (type) {
                     SweepSeedScriptType.LEGACY ->
-                        Descriptor.newBip44(key, KeychainKind.EXTERNAL, Network.BITCOIN) to
-                            Descriptor.newBip44(key, KeychainKind.INTERNAL, Network.BITCOIN)
+                        Descriptor.newBip44(key, KeychainKind.EXTERNAL, Network.BITCOIN.toNetworkKind()) to
+                            Descriptor.newBip44(key, KeychainKind.INTERNAL, Network.BITCOIN.toNetworkKind())
                     SweepSeedScriptType.NESTED_SEGWIT ->
-                        Descriptor.newBip49(key, KeychainKind.EXTERNAL, Network.BITCOIN) to
-                            Descriptor.newBip49(key, KeychainKind.INTERNAL, Network.BITCOIN)
+                        Descriptor.newBip49(key, KeychainKind.EXTERNAL, Network.BITCOIN.toNetworkKind()) to
+                            Descriptor.newBip49(key, KeychainKind.INTERNAL, Network.BITCOIN.toNetworkKind())
                     SweepSeedScriptType.NATIVE_SEGWIT ->
-                        Descriptor.newBip84(key, KeychainKind.EXTERNAL, Network.BITCOIN) to
-                            Descriptor.newBip84(key, KeychainKind.INTERNAL, Network.BITCOIN)
+                        Descriptor.newBip84(key, KeychainKind.EXTERNAL, Network.BITCOIN.toNetworkKind()) to
+                            Descriptor.newBip84(key, KeychainKind.INTERNAL, Network.BITCOIN.toNetworkKind())
                     SweepSeedScriptType.TAPROOT ->
-                        Descriptor.newBip86(key, KeychainKind.EXTERNAL, Network.BITCOIN) to
-                            Descriptor.newBip86(key, KeychainKind.INTERNAL, Network.BITCOIN)
+                        Descriptor.newBip86(key, KeychainKind.EXTERNAL, Network.BITCOIN.toNetworkKind()) to
+                            Descriptor.newBip86(key, KeychainKind.INTERNAL, Network.BITCOIN.toNetworkKind())
                 }
                 try {
                     check(actual.first.toString() == expected.first.toString())
                     check(actual.second.toString() == expected.second.toString())
+                    check(actual.first.hasWildcard())
+                    check(actual.second.hasWildcard())
                 } finally {
                     actual.first.close()
                     actual.second.close()
@@ -70,8 +73,8 @@ class SweepDescriptorFactoryTest {
                 operationBarrier
             )
             try {
-                val zeroAddress = accountZero.first.deriveAddress(0u, Network.BITCOIN).toString()
-                val oneAddress = accountOne.first.deriveAddress(0u, Network.BITCOIN).toString()
+                val zeroAddress = deriveAddress(accountZero.first, Network.BITCOIN)
+                val oneAddress = deriveAddress(accountOne.first, Network.BITCOIN)
                 check(zeroAddress != oneAddress)
             } finally {
                 accountZero.first.close()
@@ -101,7 +104,7 @@ class SweepDescriptorFactoryTest {
             try {
                 check(descriptors.first.toString() != descriptors.second.toString())
                 check(!descriptors.second.toString().contains(wif))
-                descriptors.second.deriveAddress(0u, Network.TESTNET)
+                deriveAddress(descriptors.second, Network.TESTNET)
             } finally {
                 descriptors.first.close()
                 descriptors.second.close()
@@ -114,12 +117,22 @@ class SweepDescriptorFactoryTest {
         val mnemonic = Mnemonic.fromString(
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         )
-        val key = DescriptorSecretKey(Network.BITCOIN, mnemonic, "")
+        val key = DescriptorSecretKey(Network.BITCOIN.toNetworkKind(), mnemonic, "")
         try {
+            check('*' !in key.toString())
             block(key)
         } finally {
             key.destroy()
             mnemonic.destroy()
+        }
+    }
+
+    private fun deriveAddress(descriptor: Descriptor, network: Network): String {
+        val address = descriptor.deriveAddress(0u, network)
+        return try {
+            address.toString()
+        } finally {
+            address.close()
         }
     }
 }

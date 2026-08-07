@@ -13,6 +13,7 @@ import net.clench.wallet.data.repository.WalletCacheEvictionInProgressException
 import net.clench.wallet.data.repository.WalletCacheRestartRequiredException
 import net.clench.wallet.data.repository.nativeCloseAction
 import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.domain.model.toNetworkKind
 import net.clench.wallet.ui.components.BcUrFramePolicy
 import net.clench.wallet.ui.components.HardwareWalletQrPayloadDecoder
 import net.clench.wallet.ui.components.MultisigWalletConfigParser
@@ -361,9 +362,13 @@ class ImportWalletViewModel @Inject constructor(
             val parsedMnemonic = Mnemonic.fromString(words.joinToString(" "))
             mnemonicObj = parsedMnemonic
             val network = Network.BITCOIN
-            val derivedSecretKey = DescriptorSecretKey(network, parsedMnemonic, state.passphrase)
+            val derivedSecretKey = DescriptorSecretKey(network.toNetworkKind(), parsedMnemonic, state.passphrase)
             secretKey = derivedSecretKey
-            val derivedDescriptor = Descriptor.newBip84(derivedSecretKey, KeychainKind.EXTERNAL, network)
+            val derivedDescriptor = Descriptor.newBip84(
+                derivedSecretKey,
+                KeychainKind.EXTERNAL,
+                network.toNetworkKind()
+            )
             descriptor = derivedDescriptor
             val descriptorStr = derivedDescriptor.toString()
 
