@@ -53,6 +53,20 @@ class HardwareWalletPsbtViewModel @Inject constructor(
     private val sessionGeneration = AtomicLong(0L)
     private var activeSession: SigningSession? = null
     private val signingOperationActive = AtomicBoolean(false)
+    private val tapsignerOperationGeneration = AtomicLong(0L)
+
+    class TapsignerSigningToken internal constructor(
+        internal val operationId: Long,
+        val psbtBase64: String
+    )
+
+    private data class ReservedTapsignerOperation(
+        val operationId: Long,
+        val session: SigningSession,
+        val currentPsbtBase64: String
+    )
+
+    private var reservedTapsignerOperation: ReservedTapsignerOperation? = null
 
     private fun isActiveSession(session: SigningSession): Boolean = synchronized(sessionLock) {
         activeSession === session && activeSession?.generation == session.generation
@@ -237,6 +251,88 @@ class HardwareWalletPsbtViewModel @Inject constructor(
         _uiState.value = UiState(error = message)
     }
 
+    /** Reserve the active reviewed PSBT while the screen performs authenticated NFC signing. */
+    fun beginTapsignerSigning(walletId: String): TapsignerSigningToken? = synchronized(sessionLock) {
+        val current = _uiState.value
+        val session = activeSession
+        if (walletId.isBlank() || walletId != current.walletId || session?.walletId != walletId) {
+            _uiState.update { it.copy(error = "Security: TAPSIGNER request does not belong to the active wallet") }
+            return@synchronized null
+        }
+        if (current.deviceType != "TAPSIGNER") {
+            _uiState.update { it.copy(error = "Select TAPSIGNER before starting NFC signing") }
+            return@synchronized null
+        }
+        if (!current.reviewAcknowledged || current.transactionReview == null) {
+            _uiState.update { it.copy(error = "Review and approve the unsigned transaction before TAPSIGNER signing") }
+            return@synchronized null
+        }
+        if (current.requiresHighFeeConfirmation && !current.highFeeAcknowledged) {
+            _uiState.update { it.copy(error = "Acknowledge the high fee before TAPSIGNER signing") }
+            return@synchronized null
+        }
+        if (current.psbtBase64.isBlank() || session.unsignedPsbtBase64.isBlank()) {
+            _uiState.update { it.copy(error = "No PSBT is loaded") }
+            return@synchronized null
+        }
+        if (!signingOperationActive.compareAndSet(false, true)) {
+            _uiState.update { it.copy(error = "A signer operation is already in progress") }
+            return@synchronized null
+        }
+        val operationId = tapsignerOperationGeneration.incrementAndGet()
+        reservedTapsignerOperation = ReservedTapsignerOperation(
+            operationId = operationId,
+            session = session,
+            currentPsbtBase64 = current.psbtBase64
+        )
+        _uiState.update { it.copy(error = null) }
+        TapsignerSigningToken(operationId, current.psbtBase64)
+    }
+
+    /** Release an NFC reservation without accepting any signer material. */
+    fun cancelTapsignerSigning(token: TapsignerSigningToken) {
+        synchronized(sessionLock) {
+            val reserved = reservedTapsignerOperation
+            if (reserved?.operationId == token.operationId) {
+                reservedTapsignerOperation = null
+                signingOperationActive.set(false)
+            }
+        }
+    }
+
+    /** Consume exactly one result for the reserved session and PSBT snapshot. */
+    fun completeTapsignerSigning(
+        token: TapsignerSigningToken,
+        signedPsbtPayload: String
+    ): Boolean {
+        val operation = synchronized(sessionLock) {
+            val reserved = reservedTapsignerOperation
+            if (reserved == null || reserved.operationId != token.operationId) {
+                _uiState.update { it.copy(error = "Security: stale TAPSIGNER NFC result was discarded") }
+                return false
+            }
+            if (
+                reserved.currentPsbtBase64 != token.psbtBase64 ||
+                activeSession !== reserved.session ||
+                _uiState.value.psbtBase64 != reserved.currentPsbtBase64
+            ) {
+                // The callback belongs to the reserved operation, but its bound
+                // session or PSBT snapshot is no longer valid. Release that
+                // reservation so the user can start a fresh signing attempt.
+                // A callback for a different operation ID must never release a
+                // newer reservation, which is why that case returns above.
+                reservedTapsignerOperation = null
+                signingOperationActive.set(false)
+                _uiState.update { it.copy(error = "Security: stale TAPSIGNER NFC result was discarded") }
+                return false
+            }
+            reservedTapsignerOperation = null
+            Triple(reserved.session, reserved.currentPsbtBase64, signedPsbtPayload)
+        }
+        launchSignedPsbtMerge(operation.first, operation.second, operation.third)
+        return true
+    }
+
     /**
      * Called when signer data is received from the hardware wallet (via QR, NFC, or file).
      * Merge it into the current PSBT and only enable broadcast after the policy finalizes.
@@ -264,7 +360,14 @@ class HardwareWalletPsbtViewModel @Inject constructor(
             session to current.psbtBase64
         }
         val (session, currentPsbtBase64) = operation
+        launchSignedPsbtMerge(session, currentPsbtBase64, signedPsbtPayload)
+    }
 
+    private fun launchSignedPsbtMerge(
+        session: SigningSession,
+        currentPsbtBase64: String,
+        signedPsbtPayload: String
+    ) {
         viewModelScope.launch {
             updateIfActive(session) {
                 it.copy(

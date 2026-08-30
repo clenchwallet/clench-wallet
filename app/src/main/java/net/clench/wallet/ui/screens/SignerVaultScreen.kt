@@ -11,10 +11,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -52,8 +52,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import net.clench.wallet.data.local.entity.SavedSignerEntity
@@ -66,6 +64,9 @@ import net.clench.wallet.ui.components.NfcDispatch
 import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.TapsignerNfcReader
+import net.clench.wallet.ui.components.TapsignerPinInput
+import net.clench.wallet.ui.components.isValidTapsignerPin
+import net.clench.wallet.ui.components.rememberImeDismissAction
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.SignerVaultViewModel
 import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
@@ -84,6 +85,7 @@ fun SignerVaultScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val dismissIme = rememberImeDismissAction()
     val activity = context as? Activity
     val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
     val clipboardManager = LocalClipboardManager.current
@@ -174,7 +176,11 @@ fun SignerVaultScreen(
                 }
                 return
             } else if (uiState.scriptType == SignerAccountKeyParser.SCRIPT_SINGLE_SIG_NATIVE_SEGWIT) {
-                TapsignerNfcReader.readAccountXpub(tag, cvc)
+                TapsignerNfcReader.readAccountXpub(
+                    tag = tag,
+                    cvc = cvc,
+                    expectedIsTestnet = uiState.isTestnet
+                )
             } else {
                 TapsignerNfcReader.readMultisigAccountXpub(
                     tag = tag,
@@ -221,9 +227,9 @@ fun SignerVaultScreen(
                 nfcError = "NFC is off in Android settings"
                 return
             }
-            cvc != null && cvc.size !in 6..32 -> {
+            cvc != null && !isValidTapsignerPin(cvc) -> {
                 cvc.fill('0')
-                nfcError = "Enter the TAPSIGNER PIN"
+                nfcError = "Enter a valid TAPSIGNER PIN"
                 return
             }
         }
@@ -344,6 +350,7 @@ fun SignerVaultScreen(
                 navigationIcon = {
                     IconButton(
                         onClick = {
+                            dismissIme()
                             if (showAddSigner) {
                                 stopNfcReader(clearPin = true)
                                 showAddSigner = false
@@ -373,7 +380,8 @@ fun SignerVaultScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .imePadding(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -493,6 +501,7 @@ private fun AddSignerCard(
     onCancelNfc: () -> Unit,
     onSave: () -> Unit
 ) {
+    val dismissIme = rememberImeDismissAction()
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -517,11 +526,20 @@ private fun AddSignerCard(
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onChooseDevice, modifier = Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = {
+                        dismissIme()
+                        onChooseDevice()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
                     Text(selectedDevice?.displayName ?: "Choose Device")
                 }
                 if (selectedDevice != null) {
-                    TextButton(onClick = onClearDevice) { Text("Clear") }
+                    TextButton(onClick = {
+                        dismissIme()
+                        onClearDevice()
+                    }) { Text("Clear") }
                 }
             }
             if (selectedDevice == HardwareWalletType.TAPSIGNER) {
@@ -556,13 +574,22 @@ private fun AddSignerCard(
                 modifier = Modifier.fillMaxWidth(),
                 trailingIcon = {
                     Row {
-                        IconButton(onClick = onLoadFile) {
+                        IconButton(onClick = {
+                            dismissIme()
+                            onLoadFile()
+                        }) {
                             Icon(Icons.Default.UploadFile, contentDescription = "Load file")
                         }
-                        IconButton(onClick = onPaste) {
+                        IconButton(onClick = {
+                            dismissIme()
+                            onPaste()
+                        }) {
                             Icon(Icons.Default.ContentPaste, contentDescription = "Paste")
                         }
-                        IconButton(onClick = onScanQr) {
+                        IconButton(onClick = {
+                            dismissIme()
+                            onScanQr()
+                        }) {
                             Icon(Icons.Default.QrCodeScanner, contentDescription = "Scan QR")
                         }
                     }
@@ -585,7 +612,13 @@ private fun AddSignerCard(
                     modifier = Modifier.weight(2f)
                 )
             }
-            Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = {
+                    dismissIme()
+                    onSave()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text("Save Signer")
             }
         }
@@ -605,6 +638,7 @@ private fun TapsignerSignerControls(
     onImport: () -> Unit,
     onCancel: () -> Unit
 ) {
+    val dismissIme = rememberImeDismissAction()
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -619,25 +653,27 @@ private fun TapsignerSignerControls(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            OutlinedTextField(
+            TapsignerPinInput(
                 value = pinInput,
                 onValueChange = onPinChanged,
-                label = { Text("TAPSIGNER PIN") },
-                supportingText = { Text("If unchanged, use the Starting PIN Code printed on the card.") },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                singleLine = true,
+                supportingText = "If unchanged, use the Starting PIN Code printed on the card.",
                 modifier = Modifier.fillMaxWidth()
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
-                    onClick = onReadStatus,
+                    onClick = {
+                        dismissIme()
+                        onReadStatus()
+                    },
                     enabled = !readerActive,
                     modifier = Modifier.weight(1f)
                 ) { Text("Read Status") }
                 Button(
-                    onClick = onImport,
-                    enabled = !readerActive && pinInput.length in 6..32,
+                    onClick = {
+                        dismissIme()
+                        onImport()
+                    },
+                    enabled = !readerActive && isValidTapsignerPin(pinInput),
                     modifier = Modifier.weight(1f)
                 ) { Text("Import") }
             }

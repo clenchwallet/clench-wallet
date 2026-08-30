@@ -14,14 +14,15 @@ Hardware-wallet features:
 - Clench does not communicate with signing devices over USB or Bluetooth. A signer may still use USB for power.
 - Work with QR-based signers such as SeedSigner, Keystone, Foundation Passport, and Blockstream Jade.
 - Work with Coldcard Q, Coldcard Mk4, and Coldcard Mk5 transfer paths.
-- Check Tapsigner NFC Tap Protocol status.
+- Check TAPSIGNER NFC Tap Protocol status.
 - Sweep SATSCARD active slots with certificate verification and explicit CVC-authenticated unseal confirmation.
-- TAPSIGNER setup, verification, xpub import, multisig policy import, and encrypted backup are available; direct payment signing is a temporary software limitation.
+- Set up, verify, import, and back up TAPSIGNER cards, and directly sign single-signature BIP84 native-SegWit payments with complete in-app review and returned-signature verification.
+- TAPSIGNER payment signing does not support Taproot, legacy, nested SegWit, or multisig cosigner inputs.
 - Require explicit broadcast confirmation after hardware-wallet signing.
 
 Security and privacy features:
 - Encrypt keys with Android Keystore.
-- Encrypt the local wallet database with SQLCipher.
+- Encrypt the Room application database with SQLCipher. BDK public wallet-state files rely on the Android app sandbox and device encryption.
 - Protect wallet access with PIN and biometric authentication where available.
 - Validate signed PSBTs and finalized transactions before broadcast.
 - Avoid analytics, advertising SDKs, Firebase, Google Play Services, crash reporting services, and account sign-in.

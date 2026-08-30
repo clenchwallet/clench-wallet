@@ -41,8 +41,8 @@ count greater than that case index.
 | Animated QR / BBQr | Random binary round trips, shuffled frames, mixed streams, conflicting duplicates, bad encodings/indexes/alignment, arbitrary text | Reassemble exactly one bounded canonical stream or fail closed |
 | Coldcard NFC / NDEF | Mocked binary PSBT/transaction, checksum, duplicate-record, excessive-record, and oversized-record messages | Accept one bounded structurally valid signing payload; reject ambiguous payloads and missing, duplicate, or mismatched integrity evidence |
 | NFC / APDU transport | Deterministic interrupted-response simulator plus arbitrary response corpus | Truncated or oversized responses never enter protocol state; retry begins from fresh state |
-| SATSCARD | Deterministic status/read/certs/dump responses plus duplicate-key, wrong-type, recursive, indefinite, and semantically hostile CBOR | Enforce one canonical depth-bounded CBOR root and bounded signatures, keys, nonces, chain, slots, address, and delays |
-| TAPSIGNER | Deterministic status/wait/xpub responses plus duplicate-key, wrong-type, recursive, indefinite, and semantically hostile CBOR | Enforce one canonical depth-bounded CBOR root and bounded path, xpub, nonce, slot, backup count, and delays |
+| SATSCARD | Deterministic status/read/certs/dump responses plus duplicate-key, wrong-type, recursive, malformed-indefinite, and semantically hostile CBOR | Enforce one break-aware, depth-bounded CBOR root and bounded signatures, keys, nonces, chain, slots, address, and delays |
+| TAPSIGNER | Deterministic status/wait/derive/xpub/sign responses; production-card derive transcripts; documented-profile rejection; indefinite CBOR; BIP-143 vectors; path/key/signature substitution; Android BDK descriptor preflight | Enforce bounded CBOR and card continuity; bind the BIP-84 account through the master transcript plus encrypted child proof; accept only owned PSBT-v0 P2WPKH `SIGHASH_ALL` inputs and verified low-S signatures; preserve the reviewed transaction |
 | Multisig | Generated M-of-N descriptors, invalid thresholds, excessive signer sets, duplicate origins/branches, arbitrary descriptor text | Each policy has 2–20 independent public signers and a threshold inside the signer set |
 | Storage corruption | Bounded import overflow, quarantine namespace attacks, corrupt-state rollback fixtures | Never consume unbounded storage input; preserve or restore the original state on failure |
 | Fee attacks | Generated absolute/relative fees, threshold boundaries, negative/non-finite/overflow metadata | Invalid metadata or policy excess is blocked; warning/rejection thresholds are monotonic |
@@ -92,3 +92,12 @@ The Coinkite simulator validates Clench's APDU framing, CBOR parsing, bounds, re
 - Coldcard, SeedSigner, Keystone, Passport, or Jade interoperability.
 
 Those are physical gates, recorded separately rather than converted into automated claims.
+
+The v0.3.27 record includes one real-card, one-input Mainnet payment performed
+with an identified debug candidate. It established useful compatibility for
+that card/device/build and confirmed that broadcast remained explicit. It does
+not turn simulator or instrumentation results into physical passes, and it
+does not establish the final signed v0.3.27 APK, multi-input behavior, the
+keyboard follow-up, hostile PIN/NFC cases, or other card/Android firmware. See
+[`physical-hardware-gates-v0.3.27.md`](../qa/physical-hardware-gates-v0.3.27.md)
+for the exact evidence boundary.

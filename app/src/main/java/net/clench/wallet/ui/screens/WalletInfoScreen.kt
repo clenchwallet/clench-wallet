@@ -39,8 +39,11 @@ import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrCodeImage
 import net.clench.wallet.ui.components.TapsignerAccountXpubResult
 import net.clench.wallet.ui.components.TapsignerNfcReader
+import net.clench.wallet.ui.components.TapsignerPinInput
 import net.clench.wallet.ui.components.WalletFingerprint
 import net.clench.wallet.ui.components.SecureBip39WordEntry
+import net.clench.wallet.ui.components.isValidTapsignerPin
+import net.clench.wallet.ui.components.rememberImeDismissAction
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.PhoneSigner
 import net.clench.wallet.ui.util.SecureWindowEffect
@@ -89,6 +92,7 @@ fun WalletInfoScreen(
             uiState.preferredHardwareWallet == HardwareWalletType.TAPSIGNER.name
         )
     val context = LocalContext.current
+    val dismissIme = rememberImeDismissAction()
     val activity = context as? Activity
     val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
     var showQrDialog by remember { mutableStateOf(false) }
@@ -191,7 +195,11 @@ fun WalletInfoScreen(
                 }
                 TapsignerWalletNfcAction.VERIFY_CARD -> {
                     val readerCvc = cvc ?: error("Enter the TAPSIGNER PIN before verifying this card")
-                    val result = TapsignerNfcReader.readAccountXpub(tag, readerCvc)
+                    val result = TapsignerNfcReader.readAccountXpub(
+                        tag = tag,
+                        cvc = readerCvc,
+                        expectedIsTestnet = uiState.network == "testnet"
+                    )
                     val matchResult = buildTapsignerCardMatchResult(result, uiState)
                     hostActivity.runOnUiThread {
                         tapsignerCardMatch = matchResult
@@ -270,8 +278,8 @@ fun WalletInfoScreen(
             tapsignerNfcError = "NFC is off in Android settings"
             return
         }
-        if (action != TapsignerWalletNfcAction.REFRESH_STATUS && tapsignerPinInput.length !in 6..32) {
-            tapsignerNfcError = "Enter the TAPSIGNER PIN"
+        if (action != TapsignerWalletNfcAction.REFRESH_STATUS && !isValidTapsignerPin(tapsignerPinInput)) {
+            tapsignerNfcError = "Enter a valid TAPSIGNER PIN"
             return
         }
 
@@ -467,7 +475,10 @@ fun WalletInfoScreen(
             TopAppBar(
                 title = { Text(uiState.walletName.ifEmpty { "Wallet Info" }) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        dismissIme()
+                        onBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
@@ -484,6 +495,7 @@ fun WalletInfoScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    .imePadding()
                     .padding(16.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -617,7 +629,7 @@ fun WalletInfoScreen(
                         onRefreshStatus = { startTapsignerNfcReader(TapsignerWalletNfcAction.REFRESH_STATUS) },
                         onVerifyCard = { startTapsignerNfcReader(TapsignerWalletNfcAction.VERIFY_CARD) },
                         onRequestBackup = {
-                            if (tapsignerPinInput.length !in 6..32) {
+                            if (!isValidTapsignerPin(tapsignerPinInput)) {
                                 tapsignerNfcError = if (tapsignerPendingBackupUri == null) {
                                     "Enter the TAPSIGNER PIN"
                                 } else {
@@ -635,9 +647,15 @@ fun WalletInfoScreen(
                         uiState = uiState,
                         expandedXpub = expandedXpub,
                         copied = uiState.copied,
-                        onToggleXpub = { expandedXpub = !expandedXpub },
+                        onToggleXpub = {
+                            dismissIme()
+                            expandedXpub = !expandedXpub
+                        },
                         onCopyXpub = { viewModel.copyToClipboard(uiState.accountXpub, "Account Public Key") },
-                        onShowQr = { showQrDialog = true }
+                        onShowQr = {
+                            dismissIme()
+                            showQrDialog = true
+                        }
                     )
                 } else {
                     // ─── Hardware Wallet Info ───
@@ -787,6 +805,7 @@ fun WalletInfoScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
                                 onClick = {
+                                    dismissIme()
                                     if (!pickerHost.launchPicker(
                                             PickerRequest.WalletLabelImport(walletId)
                                         )
@@ -797,7 +816,10 @@ fun WalletInfoScreen(
                                 modifier = Modifier.weight(1f)
                             ) { Text("Import Labels") }
                             Button(
-                                onClick = { viewModel.exportLabels() },
+                                onClick = {
+                                    dismissIme()
+                                    viewModel.exportLabels()
+                                },
                                 modifier = Modifier.weight(1f)
                             ) { Text("Export Labels") }
                         }
@@ -820,13 +842,19 @@ fun WalletInfoScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton(onClick = { expandedXpub = !expandedXpub }) {
+                                TextButton(onClick = {
+                                    dismissIme()
+                                    expandedXpub = !expandedXpub
+                                }) {
                                     Text(if (expandedXpub) "Collapse" else "Expand")
                                 }
                                 TextButton(onClick = {
                                     viewModel.copyToClipboard(uiState.accountXpub, "Public Key")
                                 }) { Text(if (uiState.copied) "Copied ✓" else "Copy") }
-                                TextButton(onClick = { showQrDialog = true }) {
+                                TextButton(onClick = {
+                                    dismissIme()
+                                    showQrDialog = true
+                                }) {
                                     Text("Show QR")
                                 }
                             }
@@ -911,7 +939,10 @@ fun WalletInfoScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("View Addresses", style = MaterialTheme.typography.titleSmall)
-                        Button(onClick = onViewAddresses) { Text("View Addresses →") }
+                        Button(onClick = {
+                            dismissIme()
+                            onViewAddresses()
+                        }) { Text("View Addresses →") }
                     }
                 }
 
@@ -919,14 +950,20 @@ fun WalletInfoScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!isTapsignerWallet) {
                         Button(
-                            onClick = onBackup,
+                            onClick = {
+                                dismissIme()
+                                onBackup()
+                            },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("Backup & Export") }
                     }
                     val showDescriptorExport = uiState.isMultisig || uiState.isWatchOnly
                     if (showDescriptorExport) {
                         OutlinedButton(
-                            onClick = { viewModel.exportWalletDescriptorBackup() },
+                            onClick = {
+                                dismissIme()
+                                viewModel.exportWalletDescriptorBackup()
+                            },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
@@ -990,6 +1027,7 @@ private fun TapsignerSignerCard(
     onVerifyCard: () -> Unit,
     onRequestBackup: () -> Unit
 ) {
+    val dismissIme = rememberImeDismissAction()
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
@@ -1062,32 +1100,35 @@ private fun TapsignerSignerCard(
                 }
             }
 
-            OutlinedTextField(
+            TapsignerPinInput(
                 value = pinInput,
                 onValueChange = onPinChange,
-                label = { Text("TAPSIGNER PIN") },
-                supportingText = {
-                    Text("Use the current PIN. If unchanged, this is the Starting PIN Code printed on the card. Do not enter the AES backup key.")
-                },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                supportingText = "Use the current PIN. If unchanged, use the Starting PIN Code printed on the card—not the AES backup key.",
                 modifier = Modifier.fillMaxWidth()
             )
 
             OutlinedButton(
-                onClick = onRefreshStatus,
+                onClick = {
+                    dismissIme()
+                    onRefreshStatus()
+                },
                 enabled = !nfcReaderActive,
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Tap to Refresh Card Status") }
             Button(
-                onClick = onVerifyCard,
-                enabled = !nfcReaderActive,
+                onClick = {
+                    dismissIme()
+                    onVerifyCard()
+                },
+                enabled = !nfcReaderActive && isValidTapsignerPin(pinInput),
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Verify Card Matches Wallet") }
             OutlinedButton(
-                onClick = onRequestBackup,
-                enabled = !nfcReaderActive,
+                onClick = {
+                    dismissIme()
+                    onRequestBackup()
+                },
+                enabled = !nfcReaderActive && isValidTapsignerPin(pinInput),
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Save Encrypted TAPSIGNER Backup") }
 
@@ -1420,8 +1461,11 @@ private fun buildTapsignerCardMatchResult(
         problems += "path expected m/$expectedPath but card returned m/$actualPath"
     }
 
-    val descriptorContainsXpub = uiState.descriptor.contains(result.xpub) ||
-        uiState.changeDescriptor.contains(result.xpub)
+    val descriptorContainsXpub = descriptorContainsTapsignerAccountXpub(
+        descriptor = uiState.descriptor,
+        changeDescriptor = uiState.changeDescriptor,
+        result = result
+    )
     if (!descriptorContainsXpub) {
         problems += "card account xpub is not in this wallet descriptor"
     }
@@ -1439,6 +1483,16 @@ private fun buildTapsignerCardMatchResult(
             message = problems.joinToString(separator = "; "),
             verifiedAt = now
         )
+    }
+}
+
+internal fun descriptorContainsTapsignerAccountXpub(
+    descriptor: String,
+    changeDescriptor: String,
+    result: TapsignerAccountXpubResult
+): Boolean {
+    return sequenceOf(result.xpub, result.cardReturnedXpub).any { candidate ->
+        descriptor.contains(candidate) || changeDescriptor.contains(candidate)
     }
 }
 

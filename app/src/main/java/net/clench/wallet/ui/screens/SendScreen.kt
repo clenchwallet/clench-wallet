@@ -18,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -30,6 +29,7 @@ import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.TransactionReviewCard
 import net.clench.wallet.ui.components.FeeSafetySummary
+import net.clench.wallet.ui.components.rememberImeDismissAction
 import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.AmountUnit
@@ -69,13 +69,13 @@ fun SendScreen(
         null
     }
 
-    val focusManager = LocalFocusManager.current
+    val dismissIme = rememberImeDismissAction()
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { scanned ->
             // Pass full BIP-21 URI to setAddress — it handles pj= and amount parsing
             viewModel.setAddress(scanned)
             // Dismiss keyboard after scan fills the address
-            focusManager.clearFocus()
+            dismissIme()
         }
     }
 
@@ -137,6 +137,7 @@ fun SendScreen(
         HardwareWalletPickerSheet(
             onDismiss = { showHardwareWalletPicker = false },
             onDeviceSelected = { deviceType ->
+                dismissIme()
                 showHardwareWalletPicker = false
                 viewModel.createPsbt { psbtBase64 ->
                     // Store PSBT in memory before navigating (avoids leaking via nav route args)
@@ -152,7 +153,10 @@ fun SendScreen(
             TopAppBar(
                 title = { Text(if (uiState.isWatchOnly) "Create PSBT" else "Send Bitcoin") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        dismissIme()
+                        onBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
@@ -648,7 +652,12 @@ fun SendScreen(
             if (uiState.isWatchOnly) {
                 // Watch-only wallet: show sheet to choose signing method
                 Button(
-                    onClick = { if (viewModel.validatePsbtInputs()) showWatchOnlySheet = true },
+                    onClick = {
+                        if (viewModel.validatePsbtInputs()) {
+                            dismissIme()
+                            showWatchOnlySheet = true
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !uiState.isLoading
                 ) {
@@ -754,6 +763,7 @@ fun SendScreen(
             } else {
                 Button(
                     onClick = {
+                        dismissIme()
                         // R7-7: Only show biometric if the setting is enabled
                         if (uiState.biometricForSendEnabled && fragmentActivity != null && BiometricHelper.canAuthenticate(context)) {
                             BiometricHelper.authenticate(
@@ -795,11 +805,13 @@ fun SendScreen(
         WatchOnlySendSheet(
             onDismiss = { showWatchOnlySheet = false },
             onHardwareWallet = {
+                dismissIme()
                 showWatchOnlySheet = false
                 showHardwareWalletPicker = true
             },
             onHardwareWalletDirect = { deviceType ->
                 // Preferred device selected — skip picker, go straight to PSBT
+                dismissIme()
                 showWatchOnlySheet = false
                 viewModel.createPsbt { psbtBase64 ->
                     viewModel.storePsbtForNavigation(walletId, psbtBase64, deviceType.name)
@@ -807,6 +819,7 @@ fun SendScreen(
                 }
             },
             onPhoneSigner = {
+                dismissIme()
                 showWatchOnlySheet = false
                 viewModel.createPsbt { psbtBase64 ->
                     viewModel.storePsbtForNavigation(walletId, psbtBase64, net.clench.wallet.domain.model.PhoneSigner.DEVICE_TYPE)

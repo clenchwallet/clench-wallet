@@ -125,22 +125,44 @@ class CoinkiteProtocolHostileTest {
     }
 
     @Test
-    fun `recursive and indefinite CBOR containers are rejected before decoding`() {
+    fun `recursive and malformed indefinite CBOR are rejected before decoding`() {
         val deeplyNested = ByteArray(20) { 0x81.toByte() } +
             byteArrayOf(0xA0.toByte(), 0x90.toByte(), 0x00)
-        val indefiniteMap = byteArrayOf(
+        val unterminatedMap = byteArrayOf(
             0xBF.toByte(),
             0x63, 0x76, 0x65, 0x72,
             0x63, 0x6F, 0x6E, 0x65,
+            0x90.toByte(), 0x00
+        )
+        val mapEndingAfterKey = byteArrayOf(
+            0xBF.toByte(),
+            0x63, 0x76, 0x65, 0x72,
             0xFF.toByte(),
             0x90.toByte(), 0x00
         )
+        val textWithByteStringChunk = byteArrayOf(
+            0xBF.toByte(),
+            0x63, 0x76, 0x65, 0x72,
+            0x7F, 0x41, 0x31, 0xFF.toByte(),
+            0xFF.toByte(),
+            0x90.toByte(), 0x00
+        )
+        val bareBreak = byteArrayOf(0xFF.toByte(), 0x90.toByte(), 0x00)
 
         assertThrows(IllegalStateException::class.java) {
             TapsignerTapProtocol.parseStatusResponse(deeplyNested)
         }
         assertThrows(IllegalStateException::class.java) {
-            TapsignerTapProtocol.parseStatusResponse(indefiniteMap)
+            TapsignerTapProtocol.parseStatusResponse(unterminatedMap)
+        }
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerTapProtocol.parseStatusResponse(mapEndingAfterKey)
+        }
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerTapProtocol.parseStatusResponse(textWithByteStringChunk)
+        }
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerTapProtocol.parseStatusResponse(bareBreak)
         }
     }
 

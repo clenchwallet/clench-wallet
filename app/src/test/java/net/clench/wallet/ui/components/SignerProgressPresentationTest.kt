@@ -33,7 +33,7 @@ class SignerProgressPresentationTest {
     fun `device guidance distinguishes screenless signer guardrail`() {
         assertTrue(
             SignerProgressPresentation.transferDetail(HardwareWalletType.TAPSIGNER)
-                .contains("unavailable")
+                .contains("screenless")
         )
         assertTrue(
             SignerProgressPresentation.transferDetail(HardwareWalletType.COLDCARD_Q)

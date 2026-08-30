@@ -1,11 +1,11 @@
 # Clench Wallet Manual Test Plan
 
-For the v0.3.26 candidate, use the detailed row definitions in
+For the v0.3.27 candidate, use the detailed baseline row definitions in
 [`physical-hardware-gates-v0.3.24.md`](physical-hardware-gates-v0.3.24.md),
-record exact v0.3.26 evidence in
-[`physical-hardware-gates-v0.3.26.md`](physical-hardware-gates-v0.3.26.md),
+record exact v0.3.27 evidence and the limited debug-candidate TAPSIGNER result in
+[`physical-hardware-gates-v0.3.27.md`](physical-hardware-gates-v0.3.27.md),
 and record the ship decision in
-[`v0.3.26-release-gate.md`](v0.3.26-release-gate.md). Automated simulator
+[`v0.3.27-release-gate.md`](v0.3.27-release-gate.md). Automated simulator
 results must not be recorded as physical-device passes.
 
 ## Goal
@@ -280,21 +280,84 @@ Use this checklist for release candidates and for changes that touch wallet stat
 **Expected**
 - Clench uses ISO-DEP Tap Protocol status, not Coldcard NDEF
 - Firmware/path/backup status appears when the card responds
-- Clench does not claim xpub import is complete from NFC
-- User can still paste an xpub or descriptor exported from a trusted Tapsigner coordinator
+- Valid indefinite-length CBOR from a real card is accepted within the same
+  byte, depth, item-count, duplicate-key, and single-root bounds
+- The card/app network must match before authenticated import
+- Authenticated derive, encrypted child-`0/0` proof, account-xpub binding, and
+  local BDK descriptor preflight complete before the watch-only wallet is saved
+- A failed proof, network/path mismatch, or invalid xpub produces a clear error
+  and no wallet
 
-### H2. PSBT signing flow guardrail
+### H2. Direct single-signature payment signing
+**Precondition:** imported TAPSIGNER Mainnet or Testnet BIP-84 wallet with a
+small disposable UTXO and a destination address controlled by the tester
+
 **Steps**
-1. Select Tapsigner as the signing device for a watch-only wallet
-2. Build a PSBT
-3. Open the Tapsigner signing screen
-4. Read Tapsigner NFC status
+1. Build a one-input PSBT-v0 native-SegWit payment with a small amount and
+   ordinary fee
+2. Select TAPSIGNER as the signing device
+3. Compare every recipient, amount, change output, fee, fee rate, and input on
+   the screen before entering the PIN
+4. Enter the PIN only on the phone and hold the same TAPSIGNER against the phone
+   until Clench reports that every input is signed
+5. Compare the ready-to-broadcast transaction with the reviewed transaction
+6. Confirm that broadcast is still a separate action; broadcast only if the
+   disposable test explicitly authorizes it
 
 **Expected**
-- Clench displays the Tapsigner-specific screenless-signer warning
-- NFC status read succeeds or shows a clear NFC error
-- No QR, file, Coldcard NDEF, or fake signed-PSBT flow is offered
-- Direct signing stays blocked until CVC-authenticated Tap Protocol signing is implemented
+- Clench explains that TAPSIGNER is screenless and that the in-app review is
+  the transaction confirmation
+- Only PSBT-v0 P2WPKH inputs below the authenticated BIP-84 account path and
+  ECDSA `SIGHASH_ALL` are accepted
+- The returned public key and low-S signature verify for each expected input
+- Only verified partial signatures are copied into the original reviewed PSBT
+- Recipient, amount, change, fee, version, locktime, and sequences are
+  unchanged after merge and finalization
+- The transaction never auto-broadcasts after the NFC tap
+- Taproot, legacy, nested-SegWit, P2WSH/multisig, conflicting subpaths, already
+  signed inputs, and unexpected sighash policies fail before broadcast
+
+### H2a. Multi-input and interruption behavior
+**Steps**
+1. Repeat H2 with two or more eligible P2WPKH inputs from the same authenticated
+   account
+2. Remove the card during a signing attempt, cancel, leave the screen, and then
+   retry from a freshly reviewed transaction
+3. Present a different TAPSIGNER or change the wallet network/path where a safe
+   disposable setup permits it
+
+**Expected**
+- One intentional NFC field session signs every eligible input, with per-input
+  ownership, digest, returned-key, and signature verification
+- Removal, cancel, backgrounding, or navigation clears the transient PIN and
+  single-use signing token
+- A retry starts from fresh card status and transaction review
+- Wrong card, network, path, or account material fails closed without importing
+  a signature
+
+### H2b. TAPSIGNER PIN keyboard
+**Steps**
+1. Focus each TAPSIGNER PIN field in setup/import/signing flows
+2. Confirm the masked numeric keypad is the default
+3. Select the explicit legacy letters-and-symbols option and return to numeric
+   mode
+4. Use IME Done, start an NFC action, cancel, navigate Back, change signer, and
+   leave the screen
+
+**Expected**
+- Current numeric PINs can be entered without the full keyboard
+- The legacy fallback accepts printable non-space ASCII for older cards that
+  retain an alphanumeric PIN
+- PIN length remains 6–32 characters and invalid spaces/control characters are
+  rejected
+- The keyboard is dismissed whenever it is no longer needed, and no PIN remains
+  in UI state after the operation ends
+
+### H2c. Unsupported TAPSIGNER operations
+**Expected**
+- Direct multisig-cosigner signing is not offered as supported
+- Clench does not claim to change a TAPSIGNER PIN
+- Public multisig policy import does not imply private signing capability
 
 ### H3. SATSCARD active-slot sweep
 **Steps**
