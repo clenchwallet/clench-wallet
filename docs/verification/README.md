@@ -102,3 +102,8 @@ does not establish the final signed v0.3.27 APK, multi-input behavior, the
 keyboard follow-up, hostile PIN/NFC cases, or other card/Android firmware. See
 [`physical-hardware-gates-v0.3.27.md`](../qa/physical-hardware-gates-v0.3.27.md)
 for the exact evidence boundary.
+
+The v0.3.28 release adds automated coverage for OneKey Pro, Krux, Specter DIY,
+additional QR encodings, and TAPSIGNER BIP-48/P2WSH multisig. Their physical
+rows remain `NOT RUN`; see
+[`physical-hardware-gates-v0.3.28.md`](../qa/physical-hardware-gates-v0.3.28.md).

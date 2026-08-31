@@ -54,6 +54,7 @@ This threat model covers Clench Wallet as a Bitcoin-only, non-custodial Android 
 | Silent database deletion | Release builds fail closed on database verification failure |
 | Address substitution | Address verification, hardware-wallet PSBT review, explicit broadcast confirmation |
 | Hardware-wallet auto-broadcast | Signed PSBT and finalized transaction returns require explicit broadcast |
+| Malicious QR/multipart payload | Typed and size-bounded UR/Base43 decoding, isolated multipart sessions, conflicting-stream rejection, and downstream PSBT/final-transaction policy validation |
 | Malicious Electrum server | User-controlled Electrum server, TLS pinning, Tor routing, transaction validation before broadcast |
 | Network privacy leak | Offline mode, Tor routing, opt-in price lookup, opt-in external fee fallback |
 | Tampered dependency | Dependency locking and Gradle dependency verification |
@@ -64,7 +65,9 @@ This threat model covers Clench Wallet as a Bitcoin-only, non-custodial Android 
 
 - Android Keystore and device screen lock are not fully compromised.
 - Users protect seed phrase backups outside the app.
-- Hardware wallets show trustworthy transaction details when used.
+- Screen-equipped hardware wallets show trustworthy transaction details when
+  used. TAPSIGNER is screenless, so the complete Clench phone review and an
+  intentional tap form its confirmation boundary.
 - Maintainers protect release keys and GitHub release credentials.
 - Users verify release artifacts for high-value wallets.
 
@@ -76,6 +79,11 @@ This threat model covers Clench Wallet as a Bitcoin-only, non-custodial Android 
 - Tor routing depends on a working SOCKS proxy such as Orbot.
 - First-use trust of the release signing certificate requires an out-of-band digest.
 - Reproducibility can be affected by Android build tools and signing-key differences.
+- A compromised phone can misrepresent the transaction shown before a
+  screenless TAPSIGNER tap; use an independently reviewed screen-equipped
+  cosigner for higher-assurance multisig.
+- New OneKey Pro, Krux, Specter DIY, camera-format, and TAPSIGNER multisig paths
+  have automated coverage but no recorded v0.3.28 physical-device acceptance.
 
 ## Review Triggers
 
