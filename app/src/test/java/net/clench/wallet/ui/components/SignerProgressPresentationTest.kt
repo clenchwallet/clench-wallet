@@ -40,4 +40,20 @@ class SignerProgressPresentationTest {
                 .contains("BBQr")
         )
     }
+
+    @Test
+    fun `new air gapped signer guidance names each QR and file flow`() {
+        assertTrue(
+            SignerProgressPresentation.transferDetail(HardwareWalletType.ONEKEY_PRO)
+                .contains("animated BC-UR")
+        )
+        assertTrue(
+            SignerProgressPresentation.transferDetail(HardwareWalletType.KRUX)
+                .contains("microSD")
+        )
+        assertTrue(
+            SignerProgressPresentation.transferDetail(HardwareWalletType.SPECTER_DIY)
+                .contains("Specter DIY")
+        )
+    }
 }

@@ -6,6 +6,8 @@ import java.security.MessageDigest
 import java.util.Base64
 import org.bouncycastle.asn1.ASN1EncodableVector
 import org.bouncycastle.asn1.ASN1Integer
+import org.bouncycastle.asn1.ASN1Primitive
+import org.bouncycastle.asn1.ASN1Sequence
 import org.bouncycastle.asn1.DERSequence
 import org.bouncycastle.asn1.sec.SECNamedCurves
 import org.bouncycastle.crypto.digests.RIPEMD160Digest
@@ -13,7 +15,8 @@ import org.bouncycastle.crypto.digests.RIPEMD160Digest
 /**
  * TAPSIGNER bridge for PSBT v0 native-SegWit inputs.
  *
- * The bridge deliberately supports only ECDSA SIGHASH_ALL for native P2WPKH.
+ * The bridge deliberately supports only ECDSA SIGHASH_ALL for native P2WPKH
+ * at BIP84 account zero and standard native P2WSH multisig at BIP48 account zero.
  * It parses the canonical PSBT without changing any existing fields,
  * prepares the exact BIP-143 digest for each input controlled by the current
  * TAPSIGNER account path, and inserts only verified partial signatures.
@@ -24,6 +27,10 @@ internal object TapsignerPsbtSigning {
     private const val hardenedFlag = 0x8000_0000L
     private const val sighashAll = 1L
     private val secp256k1Order = SECNamedCurves.getByName("secp256k1").n
+    private enum class SigningPolicy {
+        BIP84_P2WPKH,
+        BIP48_P2WSH_MULTISIG
+    }
 
     data class Request(
         val inputIndex: Int,
@@ -60,6 +67,7 @@ internal object TapsignerPsbtSigning {
         require(accountPath.size <= 8 && accountPath.all { it in hardenedFlag..0xffff_ffffL }) {
             "TAPSIGNER account path must contain only hardened components"
         }
+        val signingPolicy = signingPolicy(accountPath)
         val decoded = try {
             Base64.getDecoder().decode(psbtBase64.trim())
         } catch (_: IllegalArgumentException) {
@@ -81,6 +89,7 @@ internal object TapsignerPsbtSigning {
                     inputMap = inputMap,
                     inputIndex = inputIndex,
                     accountPath = accountPath,
+                    signingPolicy = signingPolicy,
                     hashPrevouts = hashPrevouts,
                     hashSequences = hashSequences,
                     hashOutputs = hashOutputs
@@ -105,33 +114,58 @@ internal object TapsignerPsbtSigning {
         val byInput = signatures.associateBy { it.inputIndex }
         require(byInput.size == signatures.size) { "TAPSIGNER returned duplicate input signatures" }
 
-        plan.requests.forEach { request ->
-            val signature = byInput[request.inputIndex]
-                ?: error("TAPSIGNER did not sign input ${request.inputIndex + 1}")
-            require(signature.pubkey.size == 33 &&
-                (signature.pubkey[0] == 0x02.toByte() || signature.pubkey[0] == 0x03.toByte())) {
-                "TAPSIGNER returned an invalid compressed public key"
-            }
-            if (request.candidatePubkeys.none { MessageDigest.isEqual(it, signature.pubkey) }) {
-                error("TAPSIGNER input ${request.inputIndex + 1} public key is not in this wallet policy")
-            }
-            if (!CoinkiteTapCardVerifier.verifyEcdsa(
-                    signature.pubkey,
-                    request.digest,
-                    signature.compactSignature
-                )) {
-                error("TAPSIGNER input ${request.inputIndex + 1} signature did not verify")
-            }
-            requireLowS(signature.compactSignature)
+        // Validate and encode every returned signature before mutating the parsed PSBT.
+        // A bad later input must not leave earlier inputs partially modified and poison a retry.
+        val staged = mutableListOf<StagedPartialSignature>()
+        try {
+            plan.requests.forEach { request ->
+                val signature = byInput[request.inputIndex]
+                    ?: error("TAPSIGNER did not sign input ${request.inputIndex + 1}")
+                require(signature.pubkey.size == 33 &&
+                    (signature.pubkey[0] == 0x02.toByte() || signature.pubkey[0] == 0x03.toByte())) {
+                    "TAPSIGNER returned an invalid compressed public key"
+                }
+                if (request.candidatePubkeys.none { MessageDigest.isEqual(it, signature.pubkey) }) {
+                    error("TAPSIGNER input ${request.inputIndex + 1} public key is not in this wallet policy")
+                }
+                if (!CoinkiteTapCardVerifier.verifyEcdsa(
+                        signature.pubkey,
+                        request.digest,
+                        signature.compactSignature
+                    )) {
+                    error("TAPSIGNER input ${request.inputIndex + 1} signature did not verify")
+                }
+                requireLowS(signature.compactSignature)
 
-            val inputMap = plan.parsed.inputs[request.inputIndex]
-            val partialSigKey = byteArrayOf(0x02) + signature.pubkey
-            if (inputMap.entries.any { MessageDigest.isEqual(it.key, partialSigKey) }) {
-                error("TAPSIGNER already signed input ${request.inputIndex + 1}")
+                val inputMap = plan.parsed.inputs[request.inputIndex]
+                val partialSigKey = byteArrayOf(0x02) + signature.pubkey
+                if (inputMap.entries.any { MessageDigest.isEqual(it.key, partialSigKey) }) {
+                    partialSigKey.fill(0)
+                    error("TAPSIGNER already signed input ${request.inputIndex + 1}")
+                }
+                val der = try {
+                    compactSignatureToDer(signature.compactSignature)
+                } catch (t: Throwable) {
+                    partialSigKey.fill(0)
+                    throw t
+                }
+                try {
+                    staged += StagedPartialSignature(
+                        inputMap = inputMap,
+                        key = partialSigKey,
+                        value = der + byteArrayOf(sighashAll.toByte())
+                    )
+                } finally {
+                    der.fill(0)
+                }
             }
-            val der = compactSignatureToDer(signature.compactSignature)
-            inputMap.entries += PsbtEntry(partialSigKey, der + byteArrayOf(sighashAll.toByte()))
-            der.fill(0)
+        } catch (t: Throwable) {
+            staged.forEach { it.clear() }
+            throw t
+        }
+
+        staged.forEach { pending ->
+            pending.inputMap.entries += PsbtEntry(pending.key, pending.value)
         }
 
         val serialized = plan.parsed.serialize()
@@ -167,89 +201,366 @@ internal object TapsignerPsbtSigning {
         inputMap: PsbtMap,
         inputIndex: Int,
         accountPath: List<Long>,
+        signingPolicy: SigningPolicy,
         hashPrevouts: ByteArray,
         hashSequences: ByteArray,
         hashOutputs: ByteArray
     ): Request {
-        require(inputMap.entries.none {
-            it.key.isNotEmpty() &&
-                (it.key[0] == 0x02.toByte() || it.key[0] == 0x07.toByte() || it.key[0] == 0x08.toByte())
-        }) {
-            "TAPSIGNER input ${inputIndex + 1} already contains signature or finalization data"
+        require(inputMap.entries.none { it.hasType(0x07) || it.hasType(0x08) }) {
+            "TAPSIGNER input ${inputIndex + 1} already contains finalization data"
         }
-        inputMap.singleValue(0x03)?.let { value ->
+        require(inputMap.entries.none { entry ->
+            entry.key.isNotEmpty() && (entry.key[0].toInt() and 0xff) in 0x13..0x18
+        }) {
+            "TAPSIGNER input ${inputIndex + 1} contains incompatible Taproot fields"
+        }
+        require(inputMap.entries.none { entry ->
+            entry.key.isNotEmpty() && (entry.key[0].toInt() and 0xff) in 0x0e..0x12
+        }) {
+            "TAPSIGNER signing requires PSBT v0 input fields"
+        }
+        require(inputMap.entries.none { it.hasType(0x04) }) {
+            "TAPSIGNER supports native SegWit only; redeem scripts are not allowed"
+        }
+        inputMap.strictSingleValue(0x03, "sighash type")?.let { value ->
             require(value.size == 4 && readUInt32Le(value, 0) == sighashAll) {
                 "TAPSIGNER supports only ECDSA SIGHASH_ALL"
             }
         }
-        val witnessUtxo = inputMap.singleValue(0x01)
+        val witnessUtxo = inputMap.strictSingleValue(0x01, "witness UTXO")
             ?: error("TAPSIGNER input ${inputIndex + 1} is missing witness UTXO data")
         val (amount, witnessProgram) = parseTxOut(witnessUtxo)
         val derivations = inputMap.entries.mapNotNull { entry ->
-            if (entry.key.size != 34 || entry.key[0] != 0x06.toByte()) return@mapNotNull null
+            if (!entry.hasType(0x06)) return@mapNotNull null
+            require(entry.key.size == 34) {
+                "PSBT input ${inputIndex + 1} contains a malformed BIP32 derivation key"
+            }
             val pubkey = entry.key.copyOfRange(1, 34)
             if (pubkey[0] != 0x02.toByte() && pubkey[0] != 0x03.toByte()) {
                 pubkey.fill(0)
                 error("PSBT input ${inputIndex + 1} contains an uncompressed derivation key")
             }
             val path = parseKeySourcePath(entry.value)
-            if (!path.startsWith(accountPath)) {
-                pubkey.fill(0)
-                return@mapNotNull null
-            }
-            val relative = path.drop(accountPath.size)
-            if (relative.size !in 0..2 || relative.any { it >= hardenedFlag }) {
-                pubkey.fill(0)
-                error("PSBT input ${inputIndex + 1} has an unsupported TAPSIGNER relative path")
-            }
-            Derivation(pubkey, relative)
+            Derivation(pubkey, path)
         }
         if (derivations.isEmpty()) {
             error("PSBT input ${inputIndex + 1} has no key below the active TAPSIGNER account path")
         }
-        val subpaths = derivations.map { it.subpath }.distinct()
-        if (subpaths.size != 1) {
-            derivations.forEach { it.pubkey.fill(0) }
-            error("PSBT input ${inputIndex + 1} has conflicting TAPSIGNER subpaths")
-        }
-
-        val (scriptCode, eligibleDerivations) = when {
-            witnessProgram.isP2wpkh() -> {
-                val keyHash = witnessProgram.copyOfRange(2, 22)
-                val matching = derivations.filter { hash160(it.pubkey).contentEquals(keyHash) }
-                keyHash.fill(0)
-                require(matching.size == 1) {
-                    "PSBT input ${inputIndex + 1} TAPSIGNER key does not match its P2WPKH output"
-                }
-                (byteArrayOf(0x76, 0xa9.toByte(), 0x14) +
-                    witnessProgram.copyOfRange(2, 22) +
-                    byteArrayOf(0x88.toByte(), 0xac.toByte())) to matching
+        val prepared = try {
+            when (signingPolicy) {
+                SigningPolicy.BIP84_P2WPKH -> prepareP2wpkhInput(
+                    inputMap = inputMap,
+                    inputIndex = inputIndex,
+                    witnessProgram = witnessProgram,
+                    accountPath = accountPath,
+                    derivations = derivations
+                )
+                SigningPolicy.BIP48_P2WSH_MULTISIG -> prepareP2wshMultisigInput(
+                    inputMap = inputMap,
+                    inputIndex = inputIndex,
+                    witnessProgram = witnessProgram,
+                    accountPath = accountPath,
+                    derivations = derivations
+                )
             }
-            else -> error("TAPSIGNER signing supports only native SegWit P2WPKH inputs")
+        } catch (t: Throwable) {
+            derivations.forEach { it.pubkey.fill(0) }
+            amount.fill(0)
+            witnessProgram.fill(0)
+            throw t
         }
-        derivations.filterNot { eligibleDerivations.contains(it) }.forEach { it.pubkey.fill(0) }
 
         val digest = try {
             computeBip143SighashAll(
                 parsed.transaction,
                 inputIndex,
-                scriptCode,
+                prepared.scriptCode,
                 amount,
                 hashPrevouts,
                 hashSequences,
                 hashOutputs
             )
         } finally {
-            scriptCode.fill(0)
+            prepared.scriptCode.fill(0)
             amount.fill(0)
             witnessProgram.fill(0)
+        }
+        try {
+            validateExistingPartialSignatures(
+                inputMap = inputMap,
+                inputIndex = inputIndex,
+                allowedPubkeys = prepared.allowedPartialSignaturePubkeys,
+                digest = digest,
+                allowExisting = signingPolicy == SigningPolicy.BIP48_P2WSH_MULTISIG
+            )
+            if (prepared.candidatePubkeys.size == 1) {
+                val cardCandidate = prepared.candidatePubkeys.single()
+                require(inputMap.entries.none { entry ->
+                    entry.hasType(0x02) && entry.key.size == 34 &&
+                        entry.key.indices.drop(1).all { keyIndex ->
+                            entry.key[keyIndex] == cardCandidate[keyIndex - 1]
+                        }
+                }) {
+                    "TAPSIGNER already signed input ${inputIndex + 1}"
+                }
+            }
+        } catch (t: Throwable) {
+            digest.fill(0)
+            prepared.candidatePubkeys.forEach { it.fill(0) }
+            throw t
+        } finally {
+            prepared.allowedPartialSignaturePubkeys.forEach { allowedPubkey ->
+                if (prepared.candidatePubkeys.none { candidate -> candidate === allowedPubkey }) {
+                    allowedPubkey.fill(0)
+                }
+            }
         }
         return Request(
             inputIndex = inputIndex,
             digest = digest,
-            subpath = subpaths.single(),
-            candidatePubkeys = eligibleDerivations.map { it.pubkey }
+            subpath = prepared.subpath,
+            candidatePubkeys = prepared.candidatePubkeys
         )
+    }
+
+    private fun signingPolicy(accountPath: List<Long>): SigningPolicy {
+        val unhardened = accountPath.map { it and hardenedFlag.inv() }
+        val coinTypeIsSupported = unhardened.getOrNull(1) == 0L || unhardened.getOrNull(1) == 1L
+        return when {
+            coinTypeIsSupported && unhardened == listOf(84L, unhardened[1], 0L) ->
+                SigningPolicy.BIP84_P2WPKH
+            coinTypeIsSupported && unhardened == listOf(48L, unhardened[1], 0L, 2L) ->
+                SigningPolicy.BIP48_P2WSH_MULTISIG
+            else -> error(
+                "TAPSIGNER signing supports only BIP84 account-0 or BIP48 " +
+                    "native-SegWit multisig account-0 paths on mainnet/testnet"
+            )
+        }
+    }
+
+    private fun prepareP2wpkhInput(
+        inputMap: PsbtMap,
+        inputIndex: Int,
+        witnessProgram: ByteArray,
+        accountPath: List<Long>,
+        derivations: List<Derivation>
+    ): PreparedPolicyInput {
+        require(witnessProgram.isP2wpkh()) {
+            "TAPSIGNER BIP84 signing supports only native SegWit P2WPKH inputs"
+        }
+        require(inputMap.strictSingleValue(0x05, "witness script") == null) {
+            "P2WPKH input ${inputIndex + 1} must not contain a witness script"
+        }
+        require(derivations.size == 1) {
+            "P2WPKH input ${inputIndex + 1} must contain exactly one BIP32 key origin"
+        }
+        val derivation = derivations.single()
+        val relative = requireBranchIndexPath(derivation.path, accountPath, inputIndex)
+        val keyHash = witnessProgram.copyOfRange(2, 22)
+        try {
+            require(MessageDigest.isEqual(hash160(derivation.pubkey), keyHash)) {
+                "PSBT input ${inputIndex + 1} TAPSIGNER key does not match its P2WPKH output"
+            }
+        } finally {
+            keyHash.fill(0)
+        }
+        return PreparedPolicyInput(
+            scriptCode = byteArrayOf(0x76, 0xa9.toByte(), 0x14) +
+                witnessProgram.copyOfRange(2, 22) +
+                byteArrayOf(0x88.toByte(), 0xac.toByte()),
+            candidatePubkeys = listOf(derivation.pubkey),
+            allowedPartialSignaturePubkeys = listOf(derivation.pubkey),
+            subpath = relative
+        )
+    }
+
+    private fun prepareP2wshMultisigInput(
+        inputMap: PsbtMap,
+        inputIndex: Int,
+        witnessProgram: ByteArray,
+        accountPath: List<Long>,
+        derivations: List<Derivation>
+    ): PreparedPolicyInput {
+        require(witnessProgram.isP2wsh()) {
+            "TAPSIGNER BIP48 signing supports only native SegWit P2WSH inputs"
+        }
+        val witnessScript = inputMap.strictSingleValue(0x05, "witness script")
+            ?: error("P2WSH input ${inputIndex + 1} is missing its witness script")
+        val witnessScriptHash = sha256(witnessScript)
+        try {
+            require(MessageDigest.isEqual(witnessScriptHash, witnessProgram.copyOfRange(2, 34))) {
+                "P2WSH input ${inputIndex + 1} witness script does not match its witness program"
+            }
+        } finally {
+            witnessScriptHash.fill(0)
+        }
+
+        val multisig = parseStandardMultisigWitnessScript(witnessScript, inputIndex)
+        try {
+            require(derivations.all { derivation ->
+                multisig.pubkeys.any { MessageDigest.isEqual(it, derivation.pubkey) }
+            }) {
+                "P2WSH input ${inputIndex + 1} has a BIP32 key origin outside its witness script"
+            }
+
+            // Other cosigners may legitimately use different accounts or origins. Select only
+            // derivations below the active card's BIP48 account; the authenticated card response
+            // must still return one of these exact witness-script keys.
+            val eligibleDerivations = derivations.filter { it.path.startsWith(accountPath) }
+            require(eligibleDerivations.isNotEmpty()) {
+                "P2WSH input ${inputIndex + 1} has no key below the active TAPSIGNER account path"
+            }
+            val relativePaths = eligibleDerivations.map { derivation ->
+                requireBranchIndexPath(derivation.path, accountPath, inputIndex)
+            }.distinct()
+            require(relativePaths.size == 1) {
+                "P2WSH input ${inputIndex + 1} has conflicting TAPSIGNER branch/index paths"
+            }
+            return PreparedPolicyInput(
+                scriptCode = witnessScript.copyOf(),
+                candidatePubkeys = eligibleDerivations.map { it.pubkey },
+                allowedPartialSignaturePubkeys = multisig.pubkeys.map { it.copyOf() },
+                subpath = relativePaths.single()
+            )
+        } finally {
+            multisig.pubkeys.forEach { it.fill(0) }
+        }
+    }
+
+    private fun requireBranchIndexPath(
+        fullPath: List<Long>,
+        accountPath: List<Long>,
+        inputIndex: Int
+    ): List<Long> {
+        require(fullPath.startsWith(accountPath)) {
+            "PSBT input ${inputIndex + 1} key origin is outside the active TAPSIGNER account path"
+        }
+        val relative = fullPath.drop(accountPath.size)
+        require(relative.size == 2 && relative[0] in 0L..1L && relative[1] < hardenedFlag) {
+            "PSBT input ${inputIndex + 1} requires an unhardened receive/change branch and index"
+        }
+        return relative
+    }
+
+    private fun validateExistingPartialSignatures(
+        inputMap: PsbtMap,
+        inputIndex: Int,
+        allowedPubkeys: List<ByteArray>,
+        digest: ByteArray,
+        allowExisting: Boolean
+    ) {
+        val partials = inputMap.entries.filter { it.hasType(0x02) }
+        require(allowExisting || partials.isEmpty()) {
+            "TAPSIGNER input ${inputIndex + 1} already contains a partial signature"
+        }
+        partials.forEach { entry ->
+            require(entry.key.size == 34 &&
+                (entry.key[1] == 0x02.toByte() || entry.key[1] == 0x03.toByte())) {
+                "PSBT input ${inputIndex + 1} contains a malformed partial-signature key"
+            }
+            val pubkey = entry.key.copyOfRange(1, 34)
+            require(allowedPubkeys.any { MessageDigest.isEqual(it, pubkey) }) {
+                pubkey.fill(0)
+                "PSBT input ${inputIndex + 1} contains a partial signature outside its wallet policy"
+            }
+            val compact = parseDerSighashAll(entry.value, inputIndex)
+            try {
+                requireLowS(compact)
+                require(CoinkiteTapCardVerifier.verifyEcdsa(pubkey, digest, compact)) {
+                    "PSBT input ${inputIndex + 1} contains an invalid existing partial signature"
+                }
+            } finally {
+                pubkey.fill(0)
+                compact.fill(0)
+            }
+        }
+    }
+
+    private fun parseDerSighashAll(value: ByteArray, inputIndex: Int): ByteArray {
+        require(value.size >= 9 && value.last() == sighashAll.toByte()) {
+            "PSBT input ${inputIndex + 1} existing signature must use SIGHASH_ALL"
+        }
+        val encoded = value.copyOfRange(0, value.size - 1)
+        try {
+            val primitive = try {
+                ASN1Primitive.fromByteArray(encoded)
+            } catch (_: Exception) {
+                null
+            }
+            require(primitive is ASN1Sequence && primitive.size() == 2 &&
+                MessageDigest.isEqual(primitive.encoded, encoded)) {
+                "PSBT input ${inputIndex + 1} contains a non-canonical DER signature"
+            }
+            val r = (primitive.getObjectAt(0) as? ASN1Integer)?.value
+            val s = (primitive.getObjectAt(1) as? ASN1Integer)?.value
+            require(r != null && s != null && r.signum() > 0 && s.signum() > 0 &&
+                r < secp256k1Order && s < secp256k1Order) {
+                "PSBT input ${inputIndex + 1} contains an out-of-range ECDSA signature"
+            }
+            return toFixed32(r) + toFixed32(s)
+        } finally {
+            encoded.fill(0)
+        }
+    }
+
+    private fun parseStandardMultisigWitnessScript(script: ByteArray, inputIndex: Int): StandardMultisig {
+        require(script.size >= 71) {
+            "P2WSH input ${inputIndex + 1} witness script is not standard multisig"
+        }
+        val threshold = decodeSmallInteger(script[0])
+            ?: error("P2WSH input ${inputIndex + 1} has a non-minimal multisig threshold")
+        val pubkeys = mutableListOf<ByteArray>()
+        var offset = 1
+        try {
+            while (offset < script.size - 2 && script[offset] == 0x21.toByte()) {
+                require(offset + 34 <= script.size - 2) {
+                    "P2WSH input ${inputIndex + 1} has a truncated multisig public key"
+                }
+                val pubkey = script.copyOfRange(offset + 1, offset + 34)
+                require(pubkey[0] == 0x02.toByte() || pubkey[0] == 0x03.toByte()) {
+                    pubkey.fill(0)
+                    "P2WSH input ${inputIndex + 1} contains an uncompressed multisig key"
+                }
+                pubkeys += pubkey
+                offset += 34
+            }
+            require(offset + 2 == script.size && script.last() == 0xae.toByte()) {
+                "P2WSH input ${inputIndex + 1} witness script is not standard CHECKMULTISIG"
+            }
+            val keyCount = decodeSmallInteger(script[offset])
+                ?: error("P2WSH input ${inputIndex + 1} has a non-minimal multisig key count")
+            require(keyCount == pubkeys.size && keyCount in 2..16 && threshold in 1..keyCount) {
+                "P2WSH input ${inputIndex + 1} has an invalid multisig threshold or key count"
+            }
+            require(pubkeys.indices.all { leftIndex ->
+                (leftIndex + 1 until pubkeys.size).none { rightIndex ->
+                    MessageDigest.isEqual(pubkeys[leftIndex], pubkeys[rightIndex])
+                }
+            }) {
+                "P2WSH input ${inputIndex + 1} contains duplicate multisig keys"
+            }
+            return StandardMultisig(threshold, pubkeys)
+        } catch (t: Throwable) {
+            pubkeys.forEach { it.fill(0) }
+            throw t
+        }
+    }
+
+    private fun decodeSmallInteger(opcode: Byte): Int? {
+        val value = opcode.toInt() and 0xff
+        return if (value in 0x51..0x60) value - 0x50 else null
+    }
+
+    private fun toFixed32(value: BigInteger): ByteArray {
+        val encoded = value.toByteArray()
+        return try {
+            require(encoded.size <= 33) { "ECDSA integer exceeds secp256k1 bounds" }
+            val sourceOffset = if (encoded.size == 33) 1 else 0
+            val count = encoded.size - sourceOffset
+            ByteArray(32).also { encoded.copyInto(it, 32 - count, sourceOffset, encoded.size) }
+        } finally {
+            encoded.fill(0)
+        }
     }
 
     private fun computeBip143SighashAll(
@@ -379,6 +690,9 @@ internal object TapsignerPsbtSigning {
     private fun ByteArray.isP2wpkh(): Boolean =
         size == 22 && this[0] == 0x00.toByte() && this[1] == 0x14.toByte()
 
+    private fun ByteArray.isP2wsh(): Boolean =
+        size == 34 && this[0] == 0x00.toByte() && this[1] == 0x20.toByte()
+
     private fun List<Long>.startsWith(prefix: List<Long>): Boolean =
         size >= prefix.size && prefix.indices.all { this[it] == prefix[it] }
 
@@ -501,6 +815,15 @@ internal object TapsignerPsbtSigning {
             return matches.singleOrNull()?.value
         }
 
+        fun strictSingleValue(type: Int, label: String): ByteArray? {
+            val matches = entries.filter { it.hasType(type) }
+            require(matches.all { it.key.size == 1 }) {
+                "PSBT map contains malformed $label key data"
+            }
+            require(matches.size <= 1) { "PSBT map contains duplicate $label fields" }
+            return matches.singleOrNull()?.value
+        }
+
         fun writeTo(out: ByteArrayOutputStream) {
             entries.forEach { entry ->
                 writeCompactSize(out, entry.key.size.toLong())
@@ -515,6 +838,9 @@ internal object TapsignerPsbtSigning {
     }
 
     internal data class PsbtEntry(val key: ByteArray, val value: ByteArray) {
+        fun hasType(type: Int): Boolean =
+            key.isNotEmpty() && (key[0].toInt() and 0xff) == type
+
         fun clear() {
             key.fill(0)
             value.fill(0)
@@ -542,5 +868,28 @@ internal object TapsignerPsbtSigning {
         }
     }
 
-    private data class Derivation(val pubkey: ByteArray, val subpath: List<Long>)
+    private data class Derivation(val pubkey: ByteArray, val path: List<Long>)
+
+    private data class PreparedPolicyInput(
+        val scriptCode: ByteArray,
+        val candidatePubkeys: List<ByteArray>,
+        val allowedPartialSignaturePubkeys: List<ByteArray>,
+        val subpath: List<Long>
+    )
+
+    private data class StandardMultisig(
+        val threshold: Int,
+        val pubkeys: List<ByteArray>
+    )
+
+    private data class StagedPartialSignature(
+        val inputMap: PsbtMap,
+        val key: ByteArray,
+        val value: ByteArray
+    ) {
+        fun clear() {
+            key.fill(0)
+            value.fill(0)
+        }
+    }
 }

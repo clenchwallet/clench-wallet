@@ -1377,8 +1377,7 @@ fun ImportWalletScreen(
 }
 
 private fun supportsHardwareImportFile(device: HardwareWalletType): Boolean {
-    return device.connectionMethod.contains("File") ||
-        device.connectionMethod.contains("SD")
+    return device.supportsFileTransfer
 }
 
 private fun isLikelyMultisigConfig(input: String): Boolean {
@@ -1415,6 +1414,9 @@ private fun getDeviceInstructions(device: HardwareWalletType): String {
         HardwareWalletType.COLDCARD_MK5 -> "On your Coldcard Mk5, export a descriptor or multisig wallet setup file to microSD, or transfer it with an intentional NFC tap. Clench accepts BIP-380 descriptors, BSMS descriptor records, and Coldcard multisig config text."
         HardwareWalletType.SEEDSIGNER -> "On your SeedSigner: Seeds → [Your Seed] → Export Xpub. Choose Native SegWit (BIP84) for single-sig, or Multisig (BIP48) for a cosigner export. SeedSigner displays an animated QR series for scanning."
         HardwareWalletType.KEYSTONE -> "On your Keystone, export a Sparrow-compatible wallet descriptor by QR or file. Clench accepts static/animated QR, UR account/output payloads, descriptors, and multisig wallet config text."
+        HardwareWalletType.ONEKEY_PRO -> "On your OneKey Pro, use its air-gapped Bitcoin QR export. Clench accepts BC-UR account/output descriptors and animated crypto-psbt QR without using USB or Bluetooth data."
+        HardwareWalletType.KRUX -> "On Krux, export the account or multisig descriptor by QR or microSD. Clench accepts BC-UR, BBQr, animated text, descriptors, and signer-export files."
+        HardwareWalletType.SPECTER_DIY -> "On Specter DIY, export the account or multisig descriptor by QR or microSD. Clench accepts BC-UR and Sparrow-compatible descriptor or PSBT data; no serial or USB data connection is used."
         HardwareWalletType.FOUNDATION_PASSPORT -> "On your Passport, export a wallet descriptor or account QR for a wallet such as Envoy/Sparrow. Clench accepts Passport UR account/output QR payloads, descriptors, and multisig wallet config text."
         HardwareWalletType.TAPSIGNER -> "Tap the card on this screen to read status. If it is not set up, Clench can initialize it after confirmation. To import or save an encrypted backup, enter your TAPSIGNER PIN, then tap NFC. If you never changed it, use the Starting PIN Code printed on the card. Do not enter the AES backup key."
         HardwareWalletType.JADE -> "On your Jade: Options → Wallet → Export Xpub. Jade displays the account xpub as an animated QR; scan it here."

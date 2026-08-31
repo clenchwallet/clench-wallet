@@ -31,6 +31,9 @@ internal object SignerProgressPresentation {
     fun transferDetail(device: HardwareWalletType): String = when (device) {
         HardwareWalletType.SEEDSIGNER -> "Scan Clench's animated PSBT QR, verify outputs on SeedSigner, then scan its signed PSBT QR back."
         HardwareWalletType.KEYSTONE -> "Scan the BC-UR PSBT or use a file, verify outputs on Keystone, then return the signed PSBT."
+        HardwareWalletType.ONEKEY_PRO -> "Scan the animated BC-UR PSBT, verify outputs on OneKey Pro, then scan its signed PSBT QR back."
+        HardwareWalletType.KRUX -> "Scan the BC-UR PSBT or use microSD, verify outputs on Krux, then return the signed PSBT."
+        HardwareWalletType.SPECTER_DIY -> "Scan the BC-UR PSBT or use microSD, verify outputs on Specter DIY, then return the signed PSBT."
         HardwareWalletType.FOUNDATION_PASSPORT -> "Scan the BC-UR PSBT or use microSD, verify outputs on Passport, then return the signed PSBT."
         HardwareWalletType.COLDCARD_Q -> "Use BBQr, NFC, or microSD; verify every output on Coldcard Q before returning the signed PSBT."
         HardwareWalletType.COLDCARD_MK4, HardwareWalletType.COLDCARD_MK5 ->

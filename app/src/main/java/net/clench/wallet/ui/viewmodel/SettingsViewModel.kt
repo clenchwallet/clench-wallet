@@ -542,10 +542,14 @@ class SettingsViewModel @Inject constructor(
             val label = when (hwWallet) {
                 "SEEDSIGNER" -> "SeedSigner"
                 "KEYSTONE" -> "Keystone"
+                "ONEKEY_PRO" -> "OneKey Pro"
+                "KRUX" -> "Krux"
+                "SPECTER_DIY" -> "Specter DIY"
                 "PASSPORT", "FOUNDATION_PASSPORT" -> "Foundation Passport"
                 "COLDCARD_Q" -> "Coldcard Q"
                 "COLDCARD_MK4" -> "Coldcard Mk4"
                 "COLDCARD_MK5" -> "Coldcard Mk5"
+                "TAPSIGNER" -> "TAPSIGNER"
                 "JADE" -> "Jade"
                 else -> "None"
             }

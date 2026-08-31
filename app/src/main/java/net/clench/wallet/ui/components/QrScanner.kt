@@ -21,6 +21,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.zxing.*
 import com.google.zxing.common.HybridBinarizer
+import com.sparrowwallet.hummingbird.LegacyURDecoder
 import com.sparrowwallet.hummingbird.ResultType
 import com.sparrowwallet.hummingbird.URDecoder
 import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
@@ -161,8 +162,9 @@ fun hasCameraAvailable(context: Context): Boolean {
 }
 
 /**
- * QR Scanner composable that handles static QR plus animated BC-UR, BBQr,
- * and p1ofN text QR sequences for hardware-wallet imports/signing.
+ * QR Scanner composable that handles static QR plus animated BC-UR v2,
+ * legacy UR v1, BBQr, and p1ofN text QR sequences for hardware-wallet
+ * imports/signing.
  * Requires CAMERA permission granted before showing.
  *
  * @param onError optional callback invoked when the camera fails to initialize
@@ -188,6 +190,9 @@ fun QrScanner(
     // BBQr accumulator for Coldcard Q animated frames
     val bbqrAccumulator = remember {
         BBQrSessionAccumulator(BBQrEncoder.MAX_FRAMES, maxDecodedChars)
+    }
+    val legacyUrAccumulator = remember {
+        LegacyUrSessionAccumulator(maxAnimatedFrames, maxDecodedChars)
     }
     var bbqrCollectedFrames by remember { mutableIntStateOf(0) }
     var bbqrTotalFrames by remember { mutableIntStateOf(0) }
@@ -384,37 +389,58 @@ fun QrScanner(
                                         }
                                     }
                                 } else if (lowerText.startsWith("ur:")) {
-                                    // BC-UR animated frame
-                                    try {
-                                        BcUrFramePolicy.requireSafeFrame(lowerText)
-                                        val decoder = urDecoder.get()
-                                        BcUrFramePolicy.requireStateCapacity(decoder.processedPartsCount)
-                                        decoder.receivePart(lowerText)
-                                        require(decoder.expectedPartCount <= BcUrFramePolicy.MAX_SEQUENCE_PARTS) {
-                                            "BC-UR sequence exceeds safety limit"
-                                        }
-                                        progress = decoder.estimatedPercentComplete.toFloat()
-
-                                        val decoderResult = decoder.result
-                                        if (decoderResult != null && decoderResult.type == ResultType.SUCCESS) {
-                                            val ur = decoderResult.ur
-                                            val decodedPayload = HardwareWalletQrPayloadDecoder.decodeUrPayload(ur)
-                                            if (!decodedPayload.isNullOrBlank()) {
-                                                deliverResult(decodedPayload)
+                                    if (LegacyURDecoder.isLegacyURFragment(lowerText)) {
+                                        try {
+                                            val frameProgress = legacyUrAccumulator.receive(lowerText)
+                                            progress = frameProgress.collectedFrames.toFloat() /
+                                                frameProgress.totalFrames.toFloat()
+                                            frameProgress.decodedUr?.let { ur ->
+                                                val decodedPayload = HardwareWalletQrPayloadDecoder.decodeUrPayload(ur)
+                                                if (!decodedPayload.isNullOrBlank()) {
+                                                    deliverResult(decodedPayload)
+                                                }
                                             }
+                                        } catch (t: Throwable) {
+                                            if (t.shouldRethrowForUiBoundary()) throw t
+                                            legacyUrAccumulator.reset()
+                                            progress = 0f
                                         }
-                                    } catch (t: Throwable) {
-                                        if (t.shouldRethrowForUiBoundary()) throw t
-                                        // Discard all fountain state after malformed, oversized, or
-                                        // deliberately state-exhausting input. A later valid stream starts cleanly.
-                                        urDecoder.set(URDecoder())
-                                        progress = 0f
+                                    } else {
+                                        // BC-UR v2 animated frame
+                                        try {
+                                            BcUrFramePolicy.requireSafeFrame(lowerText)
+                                            val decoder = urDecoder.get()
+                                            BcUrFramePolicy.requireStateCapacity(decoder.processedPartsCount)
+                                            decoder.receivePart(lowerText)
+                                            require(decoder.expectedPartCount <= BcUrFramePolicy.MAX_SEQUENCE_PARTS) {
+                                                "BC-UR sequence exceeds safety limit"
+                                            }
+                                            progress = decoder.estimatedPercentComplete.toFloat()
+
+                                            val decoderResult = decoder.result
+                                            if (decoderResult != null && decoderResult.type == ResultType.SUCCESS) {
+                                                val ur = decoderResult.ur
+                                                val decodedPayload = HardwareWalletQrPayloadDecoder.decodeUrPayload(ur)
+                                                if (!decodedPayload.isNullOrBlank()) {
+                                                    deliverResult(decodedPayload)
+                                                }
+                                            }
+                                        } catch (t: Throwable) {
+                                            if (t.shouldRethrowForUiBoundary()) throw t
+                                            // Discard all fountain state after malformed, oversized, or
+                                            // deliberately state-exhausting input. A later valid stream starts cleanly.
+                                            urDecoder.set(URDecoder())
+                                            progress = 0f
+                                        }
                                     }
                                 } else {
                                     // Static QR — check for SeedQR (Standard format) first,
-                                    // then fall through as raw text (xpub, descriptor, base64 PSBT, etc.)
+                                    // then normalize recognized Base43 PSBT/transaction payloads.
+                                    // Ordinary xpub, descriptor, Base64, and transaction text is unchanged.
                                     val decoded = decodeSeedQr(context, text, result.byteSegments())
-                                    deliverResult(decoded ?: text)
+                                    deliverResult(
+                                        decoded ?: HardwareWalletQrPayloadDecoder.normalizeStaticPayload(text)
+                                    )
                                 }
                             } catch (_: NotFoundException) {
                                 // No QR code found in this frame

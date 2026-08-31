@@ -21,6 +21,7 @@ import com.sparrowwallet.hummingbird.UREncoder
 import com.sparrowwallet.hummingbird.registry.CryptoPSBT
 import kotlinx.coroutines.delay
 import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.domain.model.PsbtQrFormat
 import net.clench.wallet.security.PsbtSafety
 
 private const val SEEDSIGNER_PSBT_UR_FRAGMENT_LEN = 120
@@ -68,12 +69,13 @@ internal fun psbtBytesToUrFrames(
  * - Coldcard Q: BBQr format (Base32/Hex per Coinkite BBQr)
  * - SeedSigner: low-density animated BC-UR (ur:crypto-psbt)
  * - Passport: medium-density animated BC-UR (ur:crypto-psbt)
- * - All others: BC-UR (ur:crypto-psbt)
+ * - Explicit crypto-psbt devices: BC-UR (ur:crypto-psbt)
+ * - Devices without a declared QR PSBT format: rejected
  */
 fun encodePsbtForDevice(psbtBase64: String, deviceType: HardwareWalletType): List<String> {
     PsbtSafety.inspectBase64(psbtBase64)
-    return when {
-        deviceType == HardwareWalletType.COLDCARD_Q -> {
+    return when (deviceType.psbtQrFormat) {
+        PsbtQrFormat.BBQR -> {
             val psbtBytes = Base64.decode(psbtBase64, Base64.DEFAULT)
             // Coldcard Q's scanner is more reliable with lower-density BBQr frames.
             // Smaller chunks create more frames, but each QR is easier for the Q to lock onto.
@@ -81,28 +83,36 @@ fun encodePsbtForDevice(psbtBase64: String, deviceType: HardwareWalletType): Lis
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BBQr", "Encoded ${psbtBytes.size} bytes into ${frames.size} frames, first frame header: ${frames.firstOrNull()?.take(20)}, frame len: ${frames.firstOrNull()?.length}")
             frames
         }
-        deviceType.requiresAnimatedPsbtUr() -> {
-            // SeedSigner itself uses 120-byte UR2 fragments for high-density PSBT QR.
-            // Passport can handle denser frames, but still avoids dense static PSBT QRs.
-            psbtToUrFrames(
-                psbtBase64,
-                maxFragmentLen = deviceType.psbtUrFragmentLen(),
-                allowSingleFrame = false
-            )
+        PsbtQrFormat.CRYPTO_PSBT_UR -> {
+            if (deviceType.requiresAnimatedPsbtUr()) {
+                // SeedSigner itself uses 120-byte UR2 fragments for high-density PSBT QR.
+                // Passport and OneKey Pro use animated QR flows and avoid a dense static QR.
+                psbtToUrFrames(
+                    psbtBase64,
+                    maxFragmentLen = deviceType.psbtUrFragmentLen(),
+                    allowSingleFrame = false
+                )
+            } else {
+                psbtToUrFrames(psbtBase64)
+            }
         }
-        else -> psbtToUrFrames(psbtBase64)
+        null -> throw IllegalArgumentException(
+            "${deviceType.displayName} does not support QR PSBT export"
+        )
     }
 }
 
 internal fun HardwareWalletType.requiresAnimatedPsbtUr(): Boolean {
     return this == HardwareWalletType.SEEDSIGNER ||
-        this == HardwareWalletType.FOUNDATION_PASSPORT
+        this == HardwareWalletType.FOUNDATION_PASSPORT ||
+        this == HardwareWalletType.ONEKEY_PRO
 }
 
 internal fun HardwareWalletType.psbtUrFragmentLen(): Int {
     return when (this) {
         HardwareWalletType.SEEDSIGNER -> SEEDSIGNER_PSBT_UR_FRAGMENT_LEN
-        HardwareWalletType.FOUNDATION_PASSPORT -> PASSPORT_PSBT_UR_FRAGMENT_LEN
+        HardwareWalletType.FOUNDATION_PASSPORT,
+        HardwareWalletType.ONEKEY_PRO -> PASSPORT_PSBT_UR_FRAGMENT_LEN
         else -> 500
     }
 }
@@ -112,7 +122,8 @@ internal fun HardwareWalletType.psbtQrFrameDelayMs(): Long {
         HardwareWalletType.COLDCARD_Q -> 250L
         HardwareWalletType.COLDCARD_MK4,
         HardwareWalletType.COLDCARD_MK5 -> 1000L
-        HardwareWalletType.FOUNDATION_PASSPORT -> 250L
+        HardwareWalletType.FOUNDATION_PASSPORT,
+        HardwareWalletType.ONEKEY_PRO -> 250L
         else -> 125L
     }
 }

@@ -523,11 +523,7 @@ fun HardwareWalletPsbtScreen(
     val isColdcardFileDevice = deviceType == HardwareWalletType.COLDCARD_Q ||
         deviceType == HardwareWalletType.COLDCARD_MK4 ||
         deviceType == HardwareWalletType.COLDCARD_MK5
-    val supportsFileTransfer = deviceType == HardwareWalletType.COLDCARD_Q ||
-        deviceType == HardwareWalletType.COLDCARD_MK4 ||
-        deviceType == HardwareWalletType.COLDCARD_MK5 ||
-        deviceType == HardwareWalletType.KEYSTONE ||
-        deviceType == HardwareWalletType.FOUNDATION_PASSPORT
+    val supportsFileTransfer = deviceType.supportsFileTransfer
     val outboundPsbtLabel = if (uiState.hasCollectedSignature) "partially signed PSBT" else "unsigned PSBT"
     val signedReturnLabel = if (uiState.hasCollectedSignature) "next signed PSBT" else "signed PSBT"
     val psbtFileName = "${walletId.take(8)}_${if (uiState.hasCollectedSignature) "partial" else "unsigned"}.psbt"
@@ -875,6 +871,38 @@ fun HardwareWalletPsbtScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
+            if (
+                deviceType == HardwareWalletType.ONEKEY_PRO ||
+                deviceType == HardwareWalletType.KRUX ||
+                deviceType == HardwareWalletType.SPECTER_DIY
+            ) {
+                val signingInstructions = when (deviceType) {
+                    HardwareWalletType.ONEKEY_PRO ->
+                        "Use OneKey Pro's air-gapped Bitcoin flow to scan the animated BC-UR crypto-psbt, review every output on the device, sign, and scan its signed PSBT back. Clench does not use USB or Bluetooth data."
+                    HardwareWalletType.KRUX ->
+                        "Scan the BC-UR crypto-psbt with Krux, review and sign, then scan the signed return into Clench. For large transactions, use the optional microSD file round trip below."
+                    HardwareWalletType.SPECTER_DIY ->
+                        "Scan the BC-UR crypto-psbt with Specter DIY, review and sign, then scan the signed return into Clench. The optional microSD file round trip is available without using serial or USB data."
+                    else -> error("Unexpected air-gapped signer")
+                }
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "${deviceType.displayName} signing steps",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            signingInstructions,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             if (deviceType == HardwareWalletType.FOUNDATION_PASSPORT) {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -1036,7 +1064,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Supports native-SegWit P2WPKH inputs using SIGHASH_ALL. Keep the card against the phone while Clench signs every input. The PIN is cleared as soon as NFC starts, and the signed PSBT still passes Clench's normal signature-only merge and final transaction checks.",
+                            "Supports PSBT-v0 native-SegWit BIP84 P2WPKH and BIP48 P2WSH multisig inputs using SIGHASH_ALL. Keep the card against the phone while Clench signs every eligible input. The PIN is cleared as soon as NFC starts, and the signed PSBT still passes Clench's normal signature-only merge and final transaction checks.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
@@ -1129,7 +1157,7 @@ fun HardwareWalletPsbtScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // QR-based flow (SeedSigner, Keystone, Passport, Coldcard Q, Jade)
+            // QR-based flow for every device with an explicit PSBT QR format.
             if (deviceType.supportsQr) {
                 // Step 1: Show PSBT as animated QR
                 Card(modifier = Modifier.fillMaxWidth()) {
