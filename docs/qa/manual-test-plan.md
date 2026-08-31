@@ -1,11 +1,13 @@
 # Clench Wallet Manual Test Plan
 
-For the v0.3.27 candidate, use the detailed baseline row definitions in
+For the v0.3.28 candidate, use the detailed baseline row definitions in
 [`physical-hardware-gates-v0.3.24.md`](physical-hardware-gates-v0.3.24.md),
-record exact v0.3.27 evidence and the limited debug-candidate TAPSIGNER result in
+retain the historical v0.3.27 TAPSIGNER result in
 [`physical-hardware-gates-v0.3.27.md`](physical-hardware-gates-v0.3.27.md),
-and record the ship decision in
-[`v0.3.27-release-gate.md`](v0.3.27-release-gate.md). Automated simulator
+record current evidence in
+[`physical-hardware-gates-v0.3.28.md`](physical-hardware-gates-v0.3.28.md), and
+record the ship decision in
+[`v0.3.28-release-gate.md`](v0.3.28-release-gate.md). Automated simulator
 results must not be recorded as physical-device passes.
 
 ## Goal
@@ -266,6 +268,37 @@ Use this checklist for release candidates and for changes that touch wallet stat
 - Signed return import does not auto-broadcast without explicit confirmation
 - Broadcast only happens after final output verification
 
+### G5. New air-gapped signer and QR compatibility paths
+**Precondition:** representative OneKey Pro, Krux, or Specter DIY hardware when
+available; otherwise use independent Sparrow-produced fixtures without marking
+the physical row as passed
+
+**Steps**
+1. Import the signer's descriptor or account export and verify network, script
+   type, fingerprint, derivation, and first receive address
+2. Export an unsigned PSBT as BC-UR v2 `crypto-psbt`; for Krux and Specter DIY,
+   also repeat through a user-selected microSD/file round trip
+3. Review every output and fee on the signer, return the signed PSBT, and
+   compare it with the transaction reviewed in Clench
+4. Scan representative signed-return fixtures using legacy UR v1, `ur:psbt`,
+   binary and text `ur:bytes`, and bounded Base43 where supported
+5. Reverse multipart order, interrupt and resume a stream, and present
+   conflicting or oversized fragments
+6. Confirm that finalized returns still require a separate broadcast action
+
+**Expected**
+- Only QR, intentional NFC, or user-selected file/removable-media transfers are
+  offered; Clench never opens a USB or Bluetooth signer data session
+- Multipart sessions accept valid out-of-order frames, reject conflicting or
+  oversized data, and never combine unrelated streams
+- Binary `ur:bytes` remains binary, Base43 is bounded, and valid PSBT/raw
+  transaction payloads normalize without changing the transaction
+- Single-key `crypto-output` imports preserve their declared script type
+- Signed-return validation detects changed recipients, amounts, fees, version,
+  locktime, sequences, and unexpected outputs
+- A fixture/oracle pass is recorded as automated evidence only; physical rows
+  require exact device, firmware, APK digest, Android/API, and result evidence
+
 ---
 
 ## H. Tapsigner NFC Tests
@@ -314,7 +347,7 @@ small disposable UTXO and a destination address controlled by the tester
 - Recipient, amount, change, fee, version, locktime, and sequences are
   unchanged after merge and finalization
 - The transaction never auto-broadcasts after the NFC tap
-- Taproot, legacy, nested-SegWit, P2WSH/multisig, conflicting subpaths, already
+- Taproot, legacy, nested-SegWit, P2WSH inputs, conflicting subpaths, already
   signed inputs, and unexpected sighash policies fail before broadcast
 
 ### H2a. Multi-input and interruption behavior
@@ -353,11 +386,41 @@ small disposable UTXO and a destination address controlled by the tester
 - The keyboard is dismissed whenever it is no longer needed, and no PIN remains
   in UI state after the operation ends
 
-### H2c. Unsupported TAPSIGNER operations
+### H2c. Direct native-SegWit multisig cosigner signing
+**Precondition:** disposable 2-of-N PSBT-v0 wallet with the TAPSIGNER enrolled
+at BIP-48 account zero and a small native-P2WSH UTXO
+
+**Steps**
+1. Build a standard `multi` or `sortedmulti` native-P2WSH payment and verify the
+   witness policy, recipient, amount, change, fee, fee rate, and every input
+2. Sign with TAPSIGNER both before and after another policy member; repeat with
+   mixed cosigner origins and a valid existing partial signature
+3. Repeat with multiple eligible receive/change inputs
+4. Try a wrong card, altered witness script, foreign key/path, invalid existing
+   partial signature, unsupported sighash, and a card interruption on a later
+   input
+5. Finalize with the threshold and compare version, locktime, ordered input
+   outpoints/sequences, and every output script/amount with the reviewed
+   proposal before any explicit broadcast
+
 **Expected**
-- Direct multisig-cosigner signing is not offered as supported
+- Only PSBT-v0, BIP-48 account-zero, native-P2WSH standard CHECKMULTISIG inputs
+  using ECDSA `SIGHASH_ALL` are eligible
+- Mixed origins are allowed only when every policy key/path and witness script
+  is consistent; all existing policy-member partial signatures verify
+- The card key and returned low-S signature match the selected policy member
+- Signature injection is atomic: a failure on any later input leaves every
+  input unchanged
+- Finalization preserves recipients, amounts, change, fees, version, locktime,
+  and sequences; broadcast remains a separate action
+
+### H2d. Unsupported TAPSIGNER operations
+**Expected**
 - Clench does not claim to change a TAPSIGNER PIN
-- Public multisig policy import does not imply private signing capability
+- Taproot, legacy, nested-SegWit, nonstandard P2WSH, other BIP-48 accounts, and
+  non-`SIGHASH_ALL` policies are not offered as supported
+- Public multisig policy import alone does not imply that the selected card is
+  an eligible private signing member
 
 ### H3. SATSCARD active-slot sweep
 **Steps**
@@ -602,8 +665,12 @@ small disposable UTXO and a destination address controlled by the tester
 ### L2. Signed release workflow
 **Steps**
 1. Review `.github/workflows/release.yml`
-2. Confirm it runs only for `v*` tags or explicit maintainer dispatch
-3. Confirm the tag is annotated and GitHub-verified, and matches `versionName`
+2. Confirm it runs only by explicit dispatch from protected `master`, with a
+   `v*` tag supplied as data
+3. Confirm the tag is annotated, passes `git verify-tag` against
+   `.github/release-signers.allowed`, matches `versionName`, and targets the
+   exact protected-master commit; GitHub's generic Verified label alone is not
+   sufficient
 4. Confirm the protected `release-signing` environment gates the signing job
 
 **Expected**
@@ -652,20 +719,23 @@ If time is limited, do these first:
 6. E1 Release logging spot check
 7. G1 Descriptor / BSMS round trip
 8. G4 Small PSBT drill
-9. H1 Tapsigner NFC status
-10. I1 CPFP child transaction
-11. I2 RBF cancel replacement
-12. I3 Raw transaction import and broadcast
-13. I4 Saved payees and address verification
-14. J1 Recovery wizard entry points
-15. J2 Clench state backup import
-16. J4 Descriptor and multisig config restore path
-17. K1 Electrum server health check
-18. K3 Certificate pinning UI
-19. K4 External fee and price lookup opt-ins
-20. L1 Debug CI does not publish releases
-21. L2 Signed release workflow
-22. L4 Verification, threat model, and audit path docs
+9. G5 New air-gapped signer and QR compatibility paths
+10. H1 TAPSIGNER NFC status
+11. H2 Direct single-signature payment signing regression
+12. H2c Direct native-SegWit multisig cosigner signing
+13. I1 CPFP child transaction
+14. I2 RBF cancel replacement
+15. I3 Raw transaction import and broadcast
+16. I4 Saved payees and address verification
+17. J1 Recovery wizard entry points
+18. J2 Clench state backup import
+19. J4 Descriptor and multisig config restore path
+20. K1 Electrum server health check
+21. K3 Certificate pinning UI
+22. K4 External fee and price lookup opt-ins
+23. L1 Debug CI does not publish releases
+24. L2 Signed release workflow
+25. L4 Verification, threat model, and audit path docs
 
 ---
 
@@ -681,3 +751,7 @@ I would consider this hardening pass safer to continue with only if:
 - recovery wizard restores only the intended data and users can verify addresses/fingerprints/policy before trusting recovered wallets
 - Electrum diagnostics, Tor routing, certificate pinning, and external lookup opt-ins behave as configured
 - production releases are tag-only signed artifacts with checksum/signature verification docs and no debug APK release publication
+- changed physical-hardware rows are either recorded against the exact APK or
+  remain exactly `NOT RUN` under the explicit v0.3.28 maintainer-authorized
+  deferral; fixture, simulator, emulator, and CI results are never inferred as
+  physical passes

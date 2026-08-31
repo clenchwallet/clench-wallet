@@ -1,0 +1,1 @@
+Adds unverified air-gapped protocol presets intended for OneKey Pro, Krux, and Specter DIY, plus TAPSIGNER BIP48 native-P2WSH multisig signing, legacy UR, ur:psbt, ur:bytes, and Base43 imports. Fixes the persisted TAPSIGNER settings label. New device/multisig paths have automated coverage; physical acceptance is NOT RUN.

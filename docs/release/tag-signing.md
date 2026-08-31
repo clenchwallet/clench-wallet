@@ -54,4 +54,10 @@ The workflow builds the unsigned APK without secrets. The protected signer downl
 
 ## Separation of keys
 
-The Git tag signing key proves source-tag authorship. The Android release keystore signs the APK and remains isolated in the protected `release-signing` environment. They are separate trust roots and must not be substituted for one another.
+The Git tag signing key proves source-tag authorship. The Android release
+keystore signs the APK; its runtime use remains isolated in the protected,
+source-free `release-signing` job. At v0.3.28 the four values are stored as
+repository-scoped GitHub secrets and referenced only by that gated job; moving
+or rotating them into environment scope remains a defense-in-depth follow-up.
+The two keys are separate trust roots and must not be substituted for one
+another.

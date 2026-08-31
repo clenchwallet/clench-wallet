@@ -14,10 +14,10 @@ The static source for [clench.net](https://clench.net/) is in [`website/`](websi
 - Testnet support
 
 ### Hardware Wallet Signing — Without USB or Bluetooth
-- **QR-based:** SeedSigner, Keystone, Foundation Passport, Blockstream Jade, OneKey Pro, Krux, and Specter DIY. Krux and Specter DIY also support a user-selected microSD/file PSBT round trip.
+- **QR-based:** SeedSigner, Keystone, Foundation Passport, and Blockstream Jade. v0.3.28 also adds physically unverified BC-UR v2 protocol presets intended for OneKey Pro, Krux, and Specter DIY; the Krux and Specter DIY presets include a user-selected microSD/file PSBT path.
 - **Coldcard Q:** BBQr QR, NFC, and file-based PSBT transfer
 - **Coldcard Mk4/Mk5:** NFC or user-selected file/microSD PSBT transfer
-- **TAPSIGNER:** Set up, import, verify, back up, and directly sign PSBT-v0 BIP-84 P2WPKH single-signature or standard BIP-48 native-SegWit P2WSH multisig inputs over NFC with `SIGHASH_ALL`. Clench reviews the complete payment before the tap, verifies returned and existing policy-member signatures, merges atomically, and never auto-broadcasts. Taproot, legacy, nested-SegWit, nonstandard P2WSH, other account paths, and PIN change are not supported.
+- **TAPSIGNER:** Set up, import, verify, back up, and directly sign PSBT-v0 BIP-84 P2WPKH single-signature or standard BIP-48 native-SegWit P2WSH multisig inputs over NFC with `SIGHASH_ALL`. Clench reviews the complete payment before the tap, verifies returned and existing policy-member signatures, merges atomically, and never auto-broadcasts. Physical acceptance of the new multisig path is not recorded. Taproot, legacy, nested-SegWit, nonstandard P2WSH, other account paths, and PIN change are not supported.
 - **SATSCARD:** NFC status plus certificate-verified, CVC-authenticated active-slot funding, unseal, and sweep. A sealed SATSCARD slot cannot sign, and Clench does not present SATSCARD as a general PSBT or multisig signer.
 - **Signed-return support:** signed PSBT import, plus finalized transaction returns where supported
 - Explicit broadcast confirmation after hardware-wallet signing
@@ -30,9 +30,10 @@ signer, review the transaction on that device. TAPSIGNER is screenless, so its
 transaction details must be reviewed carefully in Clench before entering the
 PIN and tapping the card.
 
-The OneKey Pro, Krux, Specter DIY, and TAPSIGNER multisig paths have automated
-coverage but still require recorded physical-device acceptance before release
-compatibility claims.
+The OneKey Pro, Krux, Specter DIY, and TAPSIGNER multisig paths introduced in
+v0.3.28 have automated coverage but not recorded physical-device acceptance.
+The release therefore makes no model/firmware compatibility claim for those
+new paths; see the v0.3.28 physical-evidence record.
 
 ### Privacy
 - **Tor support for Electrum** — route wallet sync traffic through a SOCKS5 proxy
@@ -99,10 +100,10 @@ Release trust docs:
 - [Signed-release verification](docs/release/signed-release-verification.md)
 - [Threat model](docs/security/threat-model.md)
 - [Security hardening](docs/security/security-hardening.md)
-- [v0.3.27 TAPSIGNER security review](docs/security/security-review-v0.3.27.md)
+- [v0.3.28 hardware-wallet and TAPSIGNER security review](docs/security/security-review-v0.3.28.md)
 - [Audit path](docs/security/audit-path.md)
-- [v0.3.27 Coinkite compatible-wallet listing-readiness assessment](docs/qa/coinkite-wallet-list-readiness.md)
-- [Post-v0.3.27 hardware development gates](docs/qa/post-v0.3.27-hardware-gates.md)
+- [v0.3.28 Coinkite compatible-wallet listing-readiness assessment](docs/qa/coinkite-wallet-list-readiness.md)
+- [v0.3.28 physical-hardware gates](docs/qa/physical-hardware-gates-v0.3.28.md)
 
 ## Architecture
 
@@ -128,6 +129,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 
 | Version | Highlights |
 | --- | --- |
+| 0.3.28 | Adds physically unverified air-gapped protocol presets intended for OneKey Pro, Krux, and Specter DIY; implements TAPSIGNER BIP-48 native-P2WSH multisig signing with physical acceptance still `NOT RUN`; adds legacy UR, `ur:psbt`, `ur:bytes`, and Base43 imports; and fixes the persisted TAPSIGNER settings label. |
 | 0.3.27 | Adds verified TAPSIGNER signing for single-signature BIP-84 native-SegWit payments, real-card CBOR/derive/xpub interoperability, numeric-first PIN entry with a legacy fallback, BDK Android 3.0 persisted-wallet migration proof, Room/SQLCipher instrumentation, and an updated Android/Kotlin build toolchain. |
 | 0.3.26 | Carries the v0.3.24 security hardening forward after two unpublished, fail-closed release attempts and adds a two-gate, three-build reproducibility proof: byte-identical unsigned builds, followed by deterministic `apksigner` packaging normalization and a no-exclusions comparison of every APK ZIP entry. |
 | 0.3.25 | Unpublished fail-closed candidate: disabled unused APK v4 sidecars, then stopped before publication when the independent verifier rejected a post-`apksigner` local-header alignment-metadata mismatch. |

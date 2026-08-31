@@ -12,12 +12,13 @@ Wallet features:
 Hardware-wallet features:
 - Exchange PSBTs by animated QR, BBQr, an intentional NFC tap, microSD/user-selected file import, or signed-return import where supported.
 - Clench does not communicate with signing devices over USB or Bluetooth. A signer may still use USB for power.
-- Work with QR-based signers such as SeedSigner, Keystone, Foundation Passport, and Blockstream Jade.
+- Work with QR-based signers such as SeedSigner, Keystone, Foundation Passport, and Blockstream Jade. v0.3.28 adds physically unverified protocol presets intended for OneKey Pro, Krux, and Specter DIY; the Krux and Specter DIY presets also include user-selected microSD/file transfer.
 - Work with Coldcard Q, Coldcard Mk4, and Coldcard Mk5 transfer paths.
 - Check TAPSIGNER NFC Tap Protocol status.
 - Sweep SATSCARD active slots with certificate verification and explicit CVC-authenticated unseal confirmation.
-- Set up, verify, import, and back up TAPSIGNER cards, and directly sign single-signature BIP84 native-SegWit payments with complete in-app review and returned-signature verification.
-- TAPSIGNER payment signing does not support Taproot, legacy, nested SegWit, or multisig cosigner inputs.
+- Set up, verify, import, and back up TAPSIGNER cards, and directly sign supported single-signature BIP84 native-SegWit or standard BIP48 native-P2WSH multisig inputs with complete in-app review and returned-signature verification.
+- TAPSIGNER payment signing does not support Taproot, legacy, nested SegWit, nonstandard P2WSH, other account paths, or PIN change.
+- The OneKey Pro, Krux, Specter DIY, and TAPSIGNER multisig paths have automated coverage but no recorded physical-device acceptance; no model/firmware compatibility claim is made for those new paths.
 - Require explicit broadcast confirmation after hardware-wallet signing.
 
 Security and privacy features:

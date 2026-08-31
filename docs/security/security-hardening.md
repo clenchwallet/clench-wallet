@@ -16,7 +16,16 @@ This document summarizes Clench Wallet's current security controls for reviewers
 - Hardware-wallet signed PSBT and finalized transaction returns require explicit user review before broadcast.
 - Raw transaction imports are previewed and require explicit broadcast confirmation.
 - Multisig wallet information presents each signer independently so users can verify cosigner fingerprints and policies.
-- Screenless signer flows are guarded where authenticated signing support is incomplete.
+- Direct TAPSIGNER signing is limited to PSBT-v0 BIP-84 account-zero P2WPKH or
+  BIP-48 account-zero standard native-P2WSH CHECKMULTISIG inputs using ECDSA
+  `SIGHASH_ALL`. Clench binds the witness policy and active-card path, verifies
+  existing policy-member and returned low-S signatures, merges atomically, and
+  revalidates the finalized transaction before a separate broadcast action.
+- TAPSIGNER is screenless. The complete phone review is its transaction-
+  confirmation boundary; a screen-equipped independent cosigner should review
+  higher-assurance multisig transactions.
+- Hardware-wallet QR inputs use typed, bounded decoding and isolated multipart
+  state before the existing PSBT/final-transaction policy checks.
 
 ## Privacy Controls
 
@@ -39,3 +48,7 @@ This document summarizes Clench Wallet's current security controls for reviewers
 - Android process memory cannot guarantee zeroization of all JVM `String` instances.
 - The biometric prompt is cryptographically verified, but the AndroidX encrypted-preferences master key used for wallet secrets is not itself a per-operation biometric key. A fully compromised/rooted runtime remains outside the protection guarantee.
 - New code touching seed handling, signing, recovery, networking, release signing, or dependency metadata requires the review gate in [audit-path.md](audit-path.md).
+- Android release credentials are currently repository-scoped GitHub secrets,
+  although the trusted workflow references them only in the approval-gated,
+  source-free signing job. Moving or rotating them to environment scope is a
+  release-governance defense-in-depth follow-up.
