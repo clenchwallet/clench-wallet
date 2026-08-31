@@ -7,14 +7,15 @@
   <meta name="description" content="Clench Wallet is a Bitcoin-only Android wallet for single-signature, multisig, watch-only wallets, hardware wallets, Tor, and your own Electrum server.">
   <meta name="theme-color" content="#0d0d0e">
   <meta property="og:title" content="Clench Wallet">
-  <meta property="og:description" content="Bitcoin-only wallet for Android. Available on F-Droid.">
+  <meta property="og:description" content="Bitcoin-only wallet for Android. Signed release v0.3.27, with F-Droid availability following its own build cadence.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://clench.net">
   <meta property="og:image" content="https://clench.net/og-image.png">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Clench Wallet">
-  <meta name="twitter:description" content="Bitcoin-only wallet for Android. Available on F-Droid.">
+  <meta name="twitter:description" content="Bitcoin-only wallet for Android. Signed release v0.3.27, with F-Droid availability following its own build cadence.">
   <meta name="twitter:image" content="https://clench.net/og-image.png">
+  <link rel="canonical" href="https://clench.net/">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/assets/site.css?v=20260719">
@@ -45,14 +46,14 @@
       <div class="hero-glow" aria-hidden="true"></div>
       <div class="shell hero-layout">
         <div class="hero-copy">
-          <div class="availability"><span aria-hidden="true"></span> Now on F-Droid · v0.3.21</div>
+          <div class="availability"><span aria-hidden="true"></span> Latest signed release · v0.3.27</div>
           <h1>A Bitcoin wallet<br>for Android.</h1>
           <p class="lead">Create a single-signature or multisig wallet, monitor cold storage with a watch-only wallet, and sign transactions with a hardware wallet.</p>
           <div class="hero-actions">
             <a class="fdroid-badge" href="https://f-droid.org/packages/net.clench.wallet/" aria-label="Get Clench Wallet on F-Droid">
               <img src="/assets/get-it-on-fdroid.svg" alt="Get it on F-Droid" width="564" height="168">
             </a>
-            <a class="text-action" href="https://github.com/clenchwallet/clench-wallet">View source <span aria-hidden="true">↗</span></a>
+            <a class="text-action" href="https://github.com/clenchwallet/clench-wallet/releases/tag/v0.3.27">Get signed v0.3.27 <span aria-hidden="true">↗</span></a>
           </div>
           <ul class="trust-row" aria-label="Release details">
             <li>Android 8+</li>
@@ -127,7 +128,7 @@
           <article class="feature">
             <span class="feature-number">02</span>
             <h3>Hardware wallets</h3>
-            <p>Move an unsigned transaction to SeedSigner, Keystone, Passport, Jade, or Coldcard, then bring the signature back over QR, NFC, SD card, or file.</p>
+            <p>Use SeedSigner, Keystone, Passport, Jade, or Coldcard over QR, NFC, SD card, or file. A TAPSIGNER can directly sign supported single-signature BIP-84 payments with an intentional NFC tap.</p>
           </article>
           <article class="feature">
             <span class="feature-number">03</span>
@@ -137,7 +138,7 @@
           <article class="feature">
             <span class="feature-number">04</span>
             <h3>Transaction tools</h3>
-            <p>Choose which coins to spend, freeze coins, pay multiple recipients, raise a fee with RBF, or use CPFP when a transaction is stuck.</p>
+            <p>Use coin control, BIP-329 labels, batch payments, RBF bump or cancel, CPFP, saved payees, raw transaction broadcast, and guided sweep or recovery flows.</p>
           </article>
         </div>
       </div>
@@ -147,23 +148,24 @@
       <div class="shell download-panel">
         <div class="download-copy">
           <p class="eyebrow">Android release</p>
-          <h2>Install Clench<br>from F-Droid.</h2>
-          <p>F-Droid rebuilds Clench from the published source and checks that it matches the APK signed by Clench. Install through F-Droid to receive update notifications.</p>
+          <h2>Get the signed<br>v0.3.27 release.</h2>
+          <p>Download the signed APK and its checksum, provenance, SBOM, and independent-build evidence from GitHub Releases. F-Droid follows its own build schedule and may show an older version temporarily.</p>
+          <a class="text-action" href="https://github.com/clenchwallet/clench-wallet/releases/tag/v0.3.27">Open signed release <span aria-hidden="true">↗</span></a>
           <a class="fdroid-badge" href="https://f-droid.org/packages/net.clench.wallet/" aria-label="Get Clench Wallet on F-Droid">
             <img loading="lazy" src="/assets/get-it-on-fdroid.svg" alt="Get it on F-Droid" width="564" height="168">
           </a>
         </div>
         <div class="install-card">
           <p class="install-label">Clench Wallet</p>
-          <p class="version">v0.3.21 <span>· Android 8+</span></p>
+          <p class="version">v0.3.27 <span>· Android 8+</span></p>
           <dl class="release-facts">
-            <div><dt>Build</dt><dd>Rebuilt and checked by F-Droid</dd></div>
-            <div><dt>Signing</dt><dd>Signed by Clench</dd></div>
-            <div><dt>Updates</dt><dd>Available through F-Droid</dd></div>
+            <div><dt>Build</dt><dd>Reproducible release evidence published</dd></div>
+            <div><dt>Signing</dt><dd>Established Clench APK signer</dd></div>
+            <div><dt>F-Droid</dt><dd>May follow after its independent build</dd></div>
           </dl>
           <details>
-            <summary>Prefer a manual APK?</summary>
-            <p>Download signed APKs, checksums, manifests, and release notes from <a href="https://github.com/clenchwallet/clench-wallet/releases/latest">GitHub Releases</a>.</p>
+            <summary>How do I verify the APK?</summary>
+            <p>Follow the source tag, checksum, signer-certificate, package/version, SBOM, and provenance steps in the <a href="https://github.com/clenchwallet/clench-wallet/blob/v0.3.27/docs/release/signed-release-verification.md">signed-release guide</a>.</p>
           </details>
         </div>
       </div>

@@ -30,12 +30,13 @@ Release documentation:
 - [Signed-release verification](signed-release-verification.md)
 - [Release tag signing](tag-signing.md)
 - [Verification laboratory](../verification/README.md)
-- [Current release gate](../qa/v0.3.26-release-gate.md)
-- [Current physical-hardware gates](../qa/physical-hardware-gates-v0.3.26.md)
+- [Current release gate](../qa/v0.3.27-release-gate.md)
+- [Current physical-hardware gates](../qa/physical-hardware-gates-v0.3.27.md)
 - [v0.3.22 release-key isolation review](../security/release-key-isolation-v0.3.22.md)
 
 Security review documentation:
 
+- [v0.3.27 TAPSIGNER security review](../security/security-review-v0.3.27.md)
 - [v0.3.24 security review (basis for v0.3.26)](../security/security-review-v0.3.24.md)
 - [Threat model](../security/threat-model.md)
 - [Security hardening](../security/security-hardening.md)

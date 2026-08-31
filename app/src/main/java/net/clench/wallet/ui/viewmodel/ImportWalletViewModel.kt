@@ -17,6 +17,8 @@ import net.clench.wallet.domain.model.toNetworkKind
 import net.clench.wallet.ui.components.BcUrFramePolicy
 import net.clench.wallet.ui.components.HardwareWalletQrPayloadDecoder
 import net.clench.wallet.ui.components.MultisigWalletConfigParser
+import net.clench.wallet.ui.components.TapsignerAccountXpubResult
+import net.clench.wallet.ui.components.TapsignerBdkImportPreflight
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
 import org.bitcoindevkit.KeychainKind
@@ -97,6 +99,16 @@ class ImportWalletViewModel @Inject constructor(
     fun setWalletName(name: String) = _uiState.update { it.copy(walletName = name) }
 
     fun setHardwareDeviceType(deviceType: String?) = _uiState.update { it.copy(hardwareDeviceType = deviceType) }
+
+    fun isTestnet(): Boolean = settingsManager.isTestnet()
+
+    /** Validate and normalize the authenticated NFC result under the native-operation lease. */
+    fun preflightTapsignerImport(result: TapsignerAccountXpubResult): String =
+        TapsignerBdkImportPreflight.validatedReceiveDescriptor(
+            originWrappedXpub = result.originWrappedXpub,
+            isTestnet = result.isTestnet,
+            operationBarrier = operationBarrier
+        )
 
     fun clearError() = _uiState.update { it.copy(error = null) }
 

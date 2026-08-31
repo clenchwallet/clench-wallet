@@ -57,8 +57,9 @@ gate refuses an upgrade candidate that omits protected-main history.
 ## Run
 
 The protected `Android instrumentation` workflow runs this gate on a KVM-backed API 35 emulator,
-uploads the public evidence bundle, and then runs the exact seven migration/persistence/descriptor
-instrumentation tests on the same clean emulator. This is the authoritative PR gate.
+uploads the public evidence bundle, and then runs the exact nine migration,
+persistence, descriptor, and TAPSIGNER-BDK instrumentation tests on the same
+clean emulator. This is the authoritative PR gate.
 
 Start a dedicated emulator separately, then run from a clean harness worktree:
 

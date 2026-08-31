@@ -28,9 +28,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,6 +40,9 @@ import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.TapsignerNfcReader
+import net.clench.wallet.ui.components.TapsignerPinInput
+import net.clench.wallet.ui.components.isValidTapsignerPin
+import net.clench.wallet.ui.components.rememberImeDismissAction
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.CreateMultisigViewModel
 import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
@@ -68,6 +68,7 @@ fun CreateMultisigScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val dismissIme = rememberImeDismissAction()
     val activity = context as? Activity
     val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
     // This route can hold local recovery words and TAPSIGNER CVC/PIN input.
@@ -203,15 +204,15 @@ fun CreateMultisigScreen(
                 tapsignerNfcErrors[signerIndex] = "NFC is off in Android settings"
                 return
             }
-            action != TapsignerMultisigNfcAction.READ_STATUS && (cvc == null || cvc.size !in 6..32) -> {
+            action != TapsignerMultisigNfcAction.READ_STATUS && (cvc == null || !isValidTapsignerPin(cvc)) -> {
                 cvc?.fill('0')
-                tapsignerNfcErrors[signerIndex] = "Enter the TAPSIGNER PIN"
+                tapsignerNfcErrors[signerIndex] = "Enter a valid TAPSIGNER PIN"
                 return
             }
         }
 
         stopTapsignerNfcReader()
-        val isTestnet = uiState.signers.getOrNull(signerIndex)?.derivationPath?.contains("/1'") == true
+        val isTestnet = viewModel.isTestnet()
         tapsignerReaderActiveIndex = signerIndex
         tapsignerPendingAction = action
         tapsignerPendingCvc = cvc
@@ -323,6 +324,7 @@ fun CreateMultisigScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = {
+                        dismissIme()
                         if (uiState.currentStep > 1) viewModel.previousStep()
                         else onBack()
                     }) {
@@ -340,6 +342,7 @@ fun CreateMultisigScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
         ) {
             // Step indicator
             LinearProgressIndicator(
@@ -413,17 +416,42 @@ fun CreateMultisigScreen(
                 2 -> SignersStep(
                     signers = uiState.signers,
                     onUpdateSigner = { index, label, xpub -> viewModel.updateSigner(index, label, xpub) },
-                    onSetDevice = { index -> devicePickerTargetIndex = index },
-                    onClearDevice = { index -> viewModel.setSignerDevice(index, null) },
-                    onUsePhoneSigner = { index -> viewModel.generatePhoneSigner(index) },
-                    onClearPhoneSigner = { index -> viewModel.clearPhoneSigner(index) },
+                    onSetDevice = { index ->
+                        dismissIme()
+                        devicePickerTargetIndex = index
+                    },
+                    onClearDevice = { index ->
+                        dismissIme()
+                        viewModel.setSignerDevice(index, null)
+                    },
+                    onUsePhoneSigner = { index ->
+                        dismissIme()
+                        viewModel.generatePhoneSigner(index)
+                    },
+                    onClearPhoneSigner = { index ->
+                        dismissIme()
+                        viewModel.clearPhoneSigner(index)
+                    },
                     onPhoneSignerBackupChanged = { index, backedUp -> viewModel.setPhoneSignerBackedUp(index, backedUp) },
-                    onRemoveSigner = { viewModel.removeSigner(it) },
+                    onRemoveSigner = {
+                        dismissIme()
+                        viewModel.removeSigner(it)
+                    },
                     savedSignerOptions = uiState.savedSignerOptions,
-                    onChooseSavedSigner = { index -> savedSignerPickerTargetIndex = index },
-                    onSaveSigner = { index -> viewModel.saveSignerToVault(index) },
-                    onScanQr = { viewModel.showQrScanner(it) },
+                    onChooseSavedSigner = { index ->
+                        dismissIme()
+                        savedSignerPickerTargetIndex = index
+                    },
+                    onSaveSigner = { index ->
+                        dismissIme()
+                        viewModel.saveSignerToVault(index)
+                    },
+                    onScanQr = {
+                        dismissIme()
+                        viewModel.showQrScanner(it)
+                    },
                     onLoadFile = { index ->
+                        dismissIme()
                         if (!pickerHost.launchPicker(
                                 PickerRequest.MultisigSignerImport(
                                     signerIndex = index,
@@ -454,12 +482,19 @@ fun CreateMultisigScreen(
                             cvc = tapsignerPinInputs[index].orEmpty().toCharArray()
                         )
                     },
-                    onSetupTapsignerMultisig = { index -> tapsignerPathConfirmIndex = index },
+                    onSetupTapsignerMultisig = { index ->
+                        dismissIme()
+                        tapsignerPathConfirmIndex = index
+                    },
                     onCancelTapsignerNfc = { stopTapsignerNfcReader() },
                     onNext = {
+                        dismissIme()
                         if (viewModel.validateCurrentStep()) viewModel.nextStep()
                     },
-                    onBack = { viewModel.previousStep() },
+                    onBack = {
+                        dismissIme()
+                        viewModel.previousStep()
+                    },
                     showPhoneSignerOptions = uiState.showPhoneSignerOptions,
                     generatingPhoneSignerIndex = uiState.generatingPhoneSignerIndex,
                     modifier = Modifier.weight(1f)
@@ -1112,6 +1147,7 @@ private fun TapsignerMultisigControls(
     onSetup: () -> Unit,
     onCancel: () -> Unit
 ) {
+    val dismissIme = rememberImeDismissAction()
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
@@ -1126,35 +1162,38 @@ private fun TapsignerMultisigControls(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
+            TapsignerPinInput(
                 value = pinInput,
                 onValueChange = onPinChanged,
-                label = { Text("TAPSIGNER PIN") },
-                supportingText = {
-                    Text("Use the current PIN. If unchanged, this is the Starting PIN Code printed on the card.")
-                },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                singleLine = true,
+                supportingText = "Use the current PIN. If unchanged, use the Starting PIN Code printed on the card.",
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
-                    onClick = onReadStatus,
+                    onClick = {
+                        dismissIme()
+                        onReadStatus()
+                    },
                     enabled = !readerActive,
                     modifier = Modifier.weight(1f)
                 ) { Text("Read Status") }
                 Button(
-                    onClick = onImport,
-                    enabled = !readerActive && pinInput.length in 6..32,
+                    onClick = {
+                        dismissIme()
+                        onImport()
+                    },
+                    enabled = !readerActive && isValidTapsignerPin(pinInput),
                     modifier = Modifier.weight(1f)
                 ) { Text("Import Key") }
             }
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedButton(
-                onClick = onSetup,
-                enabled = !readerActive && pinInput.length in 6..32,
+                onClick = {
+                    dismissIme()
+                    onSetup()
+                },
+                enabled = !readerActive && isValidTapsignerPin(pinInput),
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Set Up as Multisig Cosigner") }
             if (readerActive) {

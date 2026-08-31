@@ -187,6 +187,51 @@ class ImportWalletViewModelTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
+    fun `BDK-normalized Tapsigner descriptor reaches watch-only import unchanged`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val xpub =
+                "xpub6BemYiVNp19ZzAMK4m2qdPLpMLGjwVEfEmLiVJAnXKwe4H88QhfjDgb9V3s2" +
+                    "X3mWNrroXx4UtUTvqez8pUiQWcMhK6cARDvQ4PcLqocxs7y"
+            val descriptor = "wpkh([deadbeef/84'/0'/0']$xpub/0/*)#2s92tkc0"
+            val repository = mockk<BitcoinRepository>()
+            coEvery {
+                repository.importWatchOnly(
+                    name = "TAPSIGNER",
+                    descriptor = descriptor,
+                    deviceType = "TAPSIGNER"
+                )
+            } returns WalletData(
+                id = "wallet-tapsigner",
+                name = "TAPSIGNER",
+                descriptor = descriptor,
+                changeDescriptor = descriptor.replace("/0/*", "/1/*"),
+                isWatchOnly = true
+            )
+
+            val viewModel = importWalletViewModel(repository)
+            viewModel.setWalletName("TAPSIGNER")
+            viewModel.setHardwareDeviceType("TAPSIGNER")
+            viewModel.setInput(descriptor)
+            viewModel.importWallet { importedId -> assertEquals("wallet-tapsigner", importedId) }
+            advanceUntilIdle()
+
+            assertEquals(ImportWalletViewModel.DetectedType.DESCRIPTOR, viewModel.uiState.value.detectedType)
+            coVerify(exactly = 1) {
+                repository.importWatchOnly(
+                    name = "TAPSIGNER",
+                    descriptor = descriptor,
+                    deviceType = "TAPSIGNER"
+                )
+            }
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
     fun `private descriptor input imports signing wallet not watch-only wallet`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)

@@ -186,6 +186,91 @@ class HardwareWalletPsbtViewModelTest {
     }
 
     @Test
+    fun `TAPSIGNER reservation binds one reviewed PSBT and rejects stale completion`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val repository = mockk<BitcoinRepository>()
+            val store = mockk<PsbtStore>()
+            every { store.consume(any(), any(), any(), any()) } returns
+                handoff("wallet-a", "unsigned-a", "TAPSIGNER")
+            coEvery { repository.inspectPsbt("wallet-a", "unsigned-a") } returns review("review-a")
+            coEvery {
+                repository.mergeSignedPsbt("unsigned-a", "unsigned-a", "signed-return")
+            } returns PsbtSigningProgress("signed-a", readyToBroadcast = true, message = "ready")
+
+            val viewModel = HardwareWalletPsbtViewModel(repository, store)
+            assertNotNull(viewModel.initFromStore("wallet-a", "TAPSIGNER"))
+            advanceUntilIdle()
+            viewModel.acknowledgeReview()
+
+            val cancelled = checkNotNull(viewModel.beginTapsignerSigning("wallet-a"))
+            assertEquals("unsigned-a", cancelled.psbtBase64)
+            viewModel.cancelTapsignerSigning(cancelled)
+            assertFalse(viewModel.completeTapsignerSigning(cancelled, "stale-return"))
+            coVerify(exactly = 0) { repository.mergeSignedPsbt(any(), any(), any()) }
+
+            val active = checkNotNull(viewModel.beginTapsignerSigning("wallet-a"))
+            assertTrue(viewModel.completeTapsignerSigning(active, "signed-return"))
+            assertFalse(viewModel.completeTapsignerSigning(active, "duplicate-return"))
+            advanceUntilIdle()
+
+            assertEquals("signed-a", viewModel.uiState.value.signedPsbtBase64)
+            assertTrue(viewModel.uiState.value.readyToBroadcast)
+            coVerify(exactly = 1) {
+                repository.mergeSignedPsbt("unsigned-a", "unsigned-a", "signed-return")
+            }
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `TAPSIGNER matching stale callback releases reservation without cancelling a newer one`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val repository = mockk<BitcoinRepository>()
+            val store = mockk<PsbtStore>()
+            every { store.consume(any(), any(), any(), any()) } returns
+                handoff("wallet-a", "unsigned-a", "TAPSIGNER")
+            coEvery { repository.inspectPsbt("wallet-a", "unsigned-a") } returns review("review-a")
+            coEvery {
+                repository.mergeSignedPsbt("unsigned-a", "unsigned-a", "signed-return")
+            } returns PsbtSigningProgress("signed-a", readyToBroadcast = true, message = "ready")
+
+            val viewModel = HardwareWalletPsbtViewModel(repository, store)
+            assertNotNull(viewModel.initFromStore("wallet-a", "TAPSIGNER"))
+            advanceUntilIdle()
+            viewModel.acknowledgeReview()
+
+            val first = checkNotNull(viewModel.beginTapsignerSigning("wallet-a"))
+            val mismatchedSnapshot = HardwareWalletPsbtViewModel.TapsignerSigningToken(
+                first.operationId,
+                "different-psbt"
+            )
+            assertFalse(viewModel.completeTapsignerSigning(mismatchedSnapshot, "stale-return"))
+
+            val replacement = checkNotNull(viewModel.beginTapsignerSigning("wallet-a"))
+            val unrelatedStale = HardwareWalletPsbtViewModel.TapsignerSigningToken(
+                replacement.operationId + 1,
+                replacement.psbtBase64
+            )
+            assertFalse(viewModel.completeTapsignerSigning(unrelatedStale, "stale-return"))
+            assertTrue(viewModel.completeTapsignerSigning(replacement, "signed-return"))
+            advanceUntilIdle()
+
+            assertEquals("signed-a", viewModel.uiState.value.signedPsbtBase64)
+            assertTrue(viewModel.uiState.value.readyToBroadcast)
+            coVerify(exactly = 1) {
+                repository.mergeSignedPsbt("unsigned-a", "unsigned-a", "signed-return")
+            }
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
     fun `broadcast boundary reauthorizes session and rejects duplicate callbacks`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)

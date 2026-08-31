@@ -6,6 +6,8 @@ import android.util.Base64
 import android.widget.Toast
 import android.nfc.tech.Ndef
 import android.net.Uri
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -22,6 +24,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.ui.MainActivity
 import net.clench.wallet.ui.components.AnimatedQrCode
@@ -31,22 +36,40 @@ import net.clench.wallet.ui.components.HardwareWalletPickerSheet
 import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.TapsignerNfcReader
+import net.clench.wallet.ui.components.TapsignerPinInput
 import net.clench.wallet.ui.components.TransactionReviewCard
 import net.clench.wallet.ui.components.SignerProgressPresentation
 import net.clench.wallet.ui.components.SignerProgressStepper
 import net.clench.wallet.ui.components.encodePsbtForDevice
 import net.clench.wallet.ui.components.psbtQrFrameDelayMs
+import net.clench.wallet.ui.components.isValidTapsignerPin
+import net.clench.wallet.ui.components.rememberImeDismissAction
 import net.clench.wallet.ui.viewmodel.HardwareWalletPsbtViewModel
 import net.clench.wallet.ui.viewmodel.PsbtPickerPurpose
 import net.clench.wallet.security.InputLimits
 import net.clench.wallet.security.readBytesBounded
-import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
 import net.clench.wallet.ui.picker.PickerDestination
 import net.clench.wallet.ui.picker.PickerPurpose
 import net.clench.wallet.ui.picker.PickerRequest
 
 private enum class ColdcardNfcMode { Idle, SendUnsigned, ReceiveSigned }
+
+private sealed interface TapsignerNfcAttempt {
+    val id: Long
+
+    data class Status(override val id: Long) : TapsignerNfcAttempt
+
+    data class Sign(
+        override val id: Long,
+        val token: HardwareWalletPsbtViewModel.TapsignerSigningToken,
+        val cvc: CharArray
+    ) : TapsignerNfcAttempt
+}
+
+private fun TapsignerNfcAttempt.clearSecret() {
+    if (this is TapsignerNfcAttempt.Sign) cvc.fill('0')
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,15 +93,31 @@ fun HardwareWalletPsbtScreen(
     var nfcMode by remember { mutableStateOf(ColdcardNfcMode.Idle) }
     var nfcStatus by remember { mutableStateOf<String?>(null) }
     var nfcError by remember { mutableStateOf<String?>(null) }
-    var tapsignerReaderActive by remember { mutableStateOf(false) }
+    val tapsignerAttemptIds = remember { AtomicLong(0L) }
+    var tapsignerAttempt by remember { mutableStateOf<TapsignerNfcAttempt?>(null) }
+    val tapsignerReaderActive = tapsignerAttempt != null
     var tapsignerStatus by remember { mutableStateOf<String?>(null) }
     var tapsignerError by remember { mutableStateOf<String?>(null) }
+    var tapsignerCvcInput by remember { mutableStateOf("") }
+    val dismissIme = rememberImeDismissAction()
+    val cancelTapsignerAttempt: () -> Unit = {
+        val active = tapsignerAttempt
+        if (active is TapsignerNfcAttempt.Sign) {
+            viewModel.cancelTapsignerSigning(active.token)
+        }
+        active?.clearSecret()
+        tapsignerAttempt = null
+    }
+
+    // A focused Send field can otherwise leave its IME over this route after navigation.
+    LaunchedEffect(Unit) { dismissIme() }
 
     if (showSignerPicker) {
         HardwareWalletPickerSheet(
             title = "Continue with signer",
             onDismiss = { showSignerPicker = false },
             onDeviceSelected = { selected ->
+                dismissIme()
                 if (viewModel.selectDeviceType(selected.name)) {
                     deviceType = selected
                 }
@@ -86,9 +125,10 @@ fun HardwareWalletPsbtScreen(
                 nfcMode = ColdcardNfcMode.Idle
                 nfcStatus = null
                 nfcError = null
-                tapsignerReaderActive = false
+                cancelTapsignerAttempt()
                 tapsignerStatus = null
                 tapsignerError = null
+                tapsignerCvcInput = ""
             }
         )
     }
@@ -158,6 +198,9 @@ fun HardwareWalletPsbtScreen(
     }
 
     val secureBack: () -> Unit = {
+        dismissIme()
+        tapsignerCvcInput = ""
+        cancelTapsignerAttempt()
         pickerResume?.let { resume ->
             when (val destination = resume.destination) {
                 is PickerDestination.HardwarePsbt ->
@@ -168,7 +211,19 @@ fun HardwareWalletPsbtScreen(
         }
         onBack()
     }
-    BackHandler(enabled = pickerResume != null, onBack = secureBack)
+    BackHandler(onBack = secureBack)
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                tapsignerCvcInput = ""
+                cancelTapsignerAttempt()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(
         pickerResume?.requestId,
@@ -307,33 +362,89 @@ fun HardwareWalletPsbtScreen(
         }
     }
 
-    DisposableEffect(tapsignerReaderActive, deviceType) {
+    DisposableEffect(tapsignerAttempt, deviceType) {
+        val attempt = tapsignerAttempt
         val hostActivity = activity
         val adapter = nfcAdapter
-        if (!tapsignerReaderActive || !isTapsigner || hostActivity == null || adapter == null || !adapter.isEnabled) {
+        if (attempt == null) {
+            onDispose { }
+        } else if (!isTapsigner || hostActivity == null || adapter == null || !adapter.isEnabled) {
+            if (attempt is TapsignerNfcAttempt.Sign) {
+                viewModel.cancelTapsignerSigning(attempt.token)
+            }
+            attempt.clearSecret()
+            tapsignerAttempt = null
+            tapsignerError = when {
+                adapter == null -> "This phone does not report NFC hardware"
+                !adapter.isEnabled -> "NFC is off in Android settings"
+                else -> "TAPSIGNER NFC signing was cancelled"
+            }
             onDispose { }
         } else {
+            val tagHandled = AtomicBoolean(false)
+            val disposed = AtomicBoolean(false)
             adapter.enableReaderMode(
                 hostActivity,
                 { tag ->
-                    try {
-                        val status = TapsignerNfcReader.readStatus(tag)
-                        hostActivity.runOnUiThread {
-                            tapsignerStatus = status.summary()
-                            tapsignerError = null
-                            tapsignerReaderActive = false
-                        }
-                    } catch (e: Exception) {
-                        hostActivity.runOnUiThread {
-                            tapsignerError = e.message ?: "TAPSIGNER NFC status read failed"
-                            tapsignerStatus = null
+                    if (tagHandled.compareAndSet(false, true)) {
+                        try {
+                            val signingResult = when (attempt) {
+                                is TapsignerNfcAttempt.Sign -> TapsignerNfcReader.signPsbt(
+                                    tag = tag,
+                                    cvc = attempt.cvc,
+                                    psbtBase64 = attempt.token.psbtBase64
+                                )
+                                is TapsignerNfcAttempt.Status -> null
+                            }
+                            val status = if (signingResult == null) {
+                                TapsignerNfcReader.readStatus(tag).summary()
+                            } else {
+                                signingResult.summary
+                            }
+                            hostActivity.runOnUiThread {
+                                if (!disposed.get() && tapsignerAttempt?.id == attempt.id) {
+                                    val accepted = if (
+                                        attempt is TapsignerNfcAttempt.Sign && signingResult != null
+                                    ) {
+                                        viewModel.completeTapsignerSigning(
+                                            attempt.token,
+                                            signingResult.signedPsbtBase64
+                                        )
+                                    } else {
+                                        true
+                                    }
+                                    attempt.clearSecret()
+                                    tapsignerAttempt = null
+                                    tapsignerStatus = if (accepted) status else null
+                                    tapsignerError = if (accepted) null else "Stale TAPSIGNER result was discarded"
+                                }
+                            }
+                        } catch (e: Exception) {
+                            if (attempt is TapsignerNfcAttempt.Sign) {
+                                viewModel.cancelTapsignerSigning(attempt.token)
+                            }
+                            attempt.clearSecret()
+                            hostActivity.runOnUiThread {
+                                if (!disposed.get() && tapsignerAttempt?.id == attempt.id) {
+                                    tapsignerError = e.message ?: "TAPSIGNER NFC signing failed"
+                                    tapsignerStatus = null
+                                    tapsignerAttempt = null
+                                }
+                            }
                         }
                     }
                 },
                 NfcReaderModeFlags.coinkiteTap,
                 null
             )
-            onDispose { adapter.disableReaderMode(hostActivity) }
+            onDispose {
+                disposed.set(true)
+                adapter.disableReaderMode(hostActivity)
+                if (attempt is TapsignerNfcAttempt.Sign) {
+                    viewModel.cancelTapsignerSigning(attempt.token)
+                }
+                attempt.clearSecret()
+            }
         }
     }
 
@@ -462,6 +573,7 @@ fun HardwareWalletPsbtScreen(
                 .padding(padding)
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState())
+                .imePadding()
         ) {
             // Success state
             if (uiState.txid != null) {
@@ -802,6 +914,17 @@ fun HardwareWalletPsbtScreen(
             }
 
             if (isTapsigner) {
+                uiState.transactionReview?.let { review ->
+                    TransactionReviewCard(
+                        review = review,
+                        title = "Recheck before the TAPSIGNER tap",
+                        requiresHighFeeConfirmation = uiState.requiresHighFeeConfirmation,
+                        highFeeAcknowledged = uiState.highFeeAcknowledged,
+                        onAcknowledgeHighFee = viewModel::acknowledgeHighFee
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
@@ -811,7 +934,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "TAPSIGNER is a screenless NFC signer. Clench can verify the card responds to Coinkite Tap Protocol status, but direct PSBT signing is not enabled until PIN-authenticated signing and safe PSBT signature injection are implemented.",
+                            "TAPSIGNER is a screenless NFC signer. Review every recipient, amount, change output, and fee here before entering the PIN. The card signs Clench's digest; it cannot display or independently confirm the payment.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -831,7 +954,7 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Tap the TAPSIGNER to confirm NFC/app selection, firmware, derivation path, and backup count before using this wallet policy elsewhere.",
+                            "Read status without authorizing a signature, or use the payment panel below after approving the transaction.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -853,17 +976,22 @@ fun HardwareWalletPsbtScreen(
                             else -> {
                                 Button(
                                     onClick = {
+                                        dismissIme()
+                                        tapsignerCvcInput = ""
                                         tapsignerError = null
                                         tapsignerStatus = "Ready for NFC status. Hold TAPSIGNER against the phone."
-                                        tapsignerReaderActive = true
+                                        tapsignerAttempt = TapsignerNfcAttempt.Status(
+                                            tapsignerAttemptIds.incrementAndGet()
+                                        )
                                     },
+                                    enabled = tapsignerAttempt == null,
                                     modifier = Modifier.fillMaxWidth()
                                 ) { Text("Read TAPSIGNER NFC Status") }
-                                if (tapsignerReaderActive) {
+                                if (tapsignerAttempt is TapsignerNfcAttempt.Status) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     TextButton(
                                         onClick = {
-                                            tapsignerReaderActive = false
+                                            cancelTapsignerAttempt()
                                             tapsignerStatus = null
                                             tapsignerError = null
                                         }
@@ -895,23 +1023,75 @@ fun HardwareWalletPsbtScreen(
 
                 Card(
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            "Direct signing unavailable",
+                            "Tap to sign",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onErrorContainer
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Clench will not send this PSBT to a TAPSIGNER yet. The remaining bridge must compute each input digest, authenticate Tap Protocol sign commands with the TAPSIGNER PIN, inject signatures into the PSBT, finalize it, and re-run output validation before broadcast.",
+                            "Supports native-SegWit P2WPKH inputs using SIGHASH_ALL. Keep the card against the phone while Clench signs every input. The PIN is cleared as soon as NFC starts, and the signed PSBT still passes Clench's normal signature-only merge and final transaction checks.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        TapsignerPinInput(
+                            value = tapsignerCvcInput,
+                            onValueChange = {
+                                tapsignerCvcInput = it
+                                tapsignerError = null
+                            },
+                            supportingText = "Use the current PIN, not the printed AES backup key.",
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !tapsignerReaderActive && !uiState.isProcessingSignedPsbt
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                when {
+                                    nfcAdapter == null -> tapsignerError = "This phone does not report NFC hardware"
+                                    !nfcAdapter.isEnabled -> tapsignerError = "NFC is off in Android settings"
+                                    tapsignerCvcInput.length !in 6..32 -> tapsignerError = "Enter the TAPSIGNER PIN"
+                                    !isValidTapsignerPin(tapsignerCvcInput) ->
+                                        tapsignerError = "TAPSIGNER PIN must use printable ASCII without spaces"
+                                    else -> {
+                                        dismissIme()
+                                        val token = viewModel.beginTapsignerSigning(walletId)
+                                        if (token != null) {
+                                            val signingCvc = tapsignerCvcInput.toCharArray()
+                                            tapsignerCvcInput = ""
+                                            tapsignerError = null
+                                            tapsignerStatus = "Hold TAPSIGNER against the phone until every input is signed."
+                                            tapsignerAttempt = TapsignerNfcAttempt.Sign(
+                                                id = tapsignerAttemptIds.incrementAndGet(),
+                                                token = token,
+                                                cvc = signingCvc
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = isValidTapsignerPin(tapsignerCvcInput) &&
+                                !tapsignerReaderActive &&
+                                !uiState.isProcessingSignedPsbt,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Sign Reviewed Payment with TAPSIGNER") }
+                        if (tapsignerAttempt is TapsignerNfcAttempt.Sign) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TextButton(
+                                onClick = {
+                                    cancelTapsignerAttempt()
+                                    tapsignerStatus = null
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Cancel Signing Tap") }
+                        }
                     }
                 }
             }
@@ -938,7 +1118,10 @@ fun HardwareWalletPsbtScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedButton(
-                            onClick = { showSignerPicker = true },
+                            onClick = {
+                                dismissIme()
+                                showSignerPicker = true
+                            },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("Choose Another Signer Type") }
                     }

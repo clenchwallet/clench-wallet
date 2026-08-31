@@ -83,6 +83,8 @@ class CreateMultisigViewModel @Inject constructor(
         const val PRESET_SECURE_VAULT = "secure_vault"
     }
 
+    fun isTestnet(): Boolean = settingsManager.isTestnet()
+
     init {
         // Initialize signers list based on default totalSigners
         _uiState.update {

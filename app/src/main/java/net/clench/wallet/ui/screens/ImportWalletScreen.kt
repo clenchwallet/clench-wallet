@@ -41,8 +41,11 @@ import net.clench.wallet.ui.components.NfcReaderModeFlags
 import net.clench.wallet.ui.components.QrScanner
 import net.clench.wallet.ui.components.SecureBip39WordEntry
 import net.clench.wallet.ui.components.TapsignerNfcReader
+import net.clench.wallet.ui.components.TapsignerPinInput
 import net.clench.wallet.ui.components.WalletFingerprint
 import net.clench.wallet.ui.components.hasCameraAvailable
+import net.clench.wallet.ui.components.isValidTapsignerPin
+import net.clench.wallet.ui.components.rememberImeDismissAction
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.ImportWalletViewModel
 import net.clench.wallet.security.InputLimits
@@ -69,6 +72,7 @@ fun ImportWalletScreen(
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    val dismissIme = rememberImeDismissAction()
 
     var showScanner by remember { mutableStateOf(false) }
     var cameraErrorMessage by remember { mutableStateOf<String?>(null) }
@@ -246,13 +250,25 @@ fun ImportWalletScreen(
                         stopNfcReader(clearTapsignerPin = true)
                     }
                 } else {
+                    val expectedIsTestnet = viewModel.isTestnet()
                     val result = if (initializeTapsigner) {
-                        TapsignerNfcReader.initializeAndReadAccountXpub(tag, readerCvc)
+                        TapsignerNfcReader.initializeAndReadAccountXpub(
+                            tag = tag,
+                            cvc = readerCvc,
+                            expectedIsTestnet = expectedIsTestnet
+                        )
                     } else {
-                        TapsignerNfcReader.readAccountXpub(tag, readerCvc)
+                        TapsignerNfcReader.readAccountXpub(
+                            tag = tag,
+                            cvc = readerCvc,
+                            expectedIsTestnet = expectedIsTestnet
+                        )
                     }
+                    val importDescriptor = viewModel.preflightTapsignerImport(result)
                     hostActivity.runOnUiThread {
-                        viewModel.setInput(result.originWrappedXpub)
+                        // Carry the exact descriptor already accepted by BDK into
+                        // wallet import without rebuilding it from editable text.
+                        viewModel.setInput(importDescriptor)
                         nfcStatus = result.summary
                         nfcError = null
                         tapsignerInitializeAvailable = false
@@ -340,6 +356,7 @@ fun ImportWalletScreen(
         initializeTapsigner: Boolean = false,
         backupTapsigner: Boolean = false
     ) {
+        dismissIme()
         val hostActivity = activity ?: run {
             cvc?.fill('0')
             nfcError = "NFC reader is unavailable in this view"
@@ -403,7 +420,7 @@ fun ImportWalletScreen(
             !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
             activity == null -> nfcError = "NFC reader is unavailable in this view"
             selectedDevice == null -> nfcError = "Choose a hardware wallet first"
-            tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the TAPSIGNER PIN"
+            !isValidTapsignerPin(tapsignerCvcInput) -> nfcError = "Enter a valid TAPSIGNER PIN"
             else -> {
                 viewModel.clearError()
                 nfcError = null
@@ -428,8 +445,11 @@ fun ImportWalletScreen(
             !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
             activity == null -> nfcError = "NFC reader is unavailable in this view"
             selectedDevice == null -> nfcError = "Choose a hardware wallet first"
-            tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the TAPSIGNER PIN"
-            else -> showTapsignerBackupConfirm = true
+            !isValidTapsignerPin(tapsignerCvcInput) -> nfcError = "Enter a valid TAPSIGNER PIN"
+            else -> {
+                dismissIme()
+                showTapsignerBackupConfirm = true
+            }
         }
     }
 
@@ -582,13 +602,19 @@ fun ImportWalletScreen(
             TopAppBar(
                 title = { Text(screenTitle) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        dismissIme()
+                        onBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
                     if (onSettings != null) {
-                        IconButton(onClick = onSettings) {
+                        IconButton(onClick = {
+                            dismissIme()
+                            onSettings()
+                        }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
                         }
                     }
@@ -659,7 +685,10 @@ fun ImportWalletScreen(
                 }
 
                 // Change device link
-                TextButton(onClick = { showDevicePicker = true }) {
+                TextButton(onClick = {
+                    dismissIme()
+                    showDevicePicker = true
+                }) {
                     Text("Change device")
                 }
                 Spacer(modifier = Modifier.height(8.dp))
@@ -689,21 +718,15 @@ fun ImportWalletScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 if (needsTapsignerCvc) {
-                    OutlinedTextField(
+                    TapsignerPinInput(
                         value = tapsignerCvcInput,
                         onValueChange = {
-                            tapsignerCvcInput = it.take(32)
+                            tapsignerCvcInput = it
                             nfcError = null
                             viewModel.clearError()
                         },
-                        label = { Text("TAPSIGNER PIN") },
-                        supportingText = {
-                            Text("Use the current PIN. If unchanged, this is the Starting PIN Code printed on the card. Do not enter the AES backup key.")
-                        },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        supportingText = "Use the current PIN. If unchanged, use the Starting PIN Code printed on the card—not the AES backup key.",
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -740,8 +763,8 @@ fun ImportWalletScreen(
                                     !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
                                     activity == null -> nfcError = "NFC reader is unavailable in this view"
                                     selectedDevice == null -> nfcError = "Choose a hardware wallet first"
-                                    needsTapsignerCvc && tapsignerCvcInput.length !in 6..32 -> {
-                                        nfcError = "Enter the TAPSIGNER PIN"
+                                    needsTapsignerCvc && !isValidTapsignerPin(tapsignerCvcInput) -> {
+                                        nfcError = "Enter a valid TAPSIGNER PIN"
                                     }
                                     else -> {
                                         viewModel.clearError()
@@ -751,7 +774,8 @@ fun ImportWalletScreen(
                                     }
                                 }
                             },
-                            enabled = !nfcReaderActive && (!needsTapsignerCvc || tapsignerCvcInput.length in 6..32),
+                            enabled = !nfcReaderActive &&
+                                (!needsTapsignerCvc || isValidTapsignerPin(tapsignerCvcInput)),
                             modifier = Modifier.weight(1f)
                         ) { Text("NFC") }
                     }
@@ -778,8 +802,12 @@ fun ImportWalletScreen(
                                         nfcAdapter == null -> nfcError = "This phone does not report NFC hardware"
                                         !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
                                         activity == null -> nfcError = "NFC reader is unavailable in this view"
-                                        tapsignerCvcInput.length !in 6..32 -> nfcError = "Enter the TAPSIGNER PIN"
-                                        else -> showTapsignerInitializeConfirm = true
+                                        !isValidTapsignerPin(tapsignerCvcInput) ->
+                                            nfcError = "Enter a valid TAPSIGNER PIN"
+                                        else -> {
+                                            dismissIme()
+                                            showTapsignerInitializeConfirm = true
+                                        }
                                     }
                                 },
                                 enabled = !nfcReaderActive
@@ -821,7 +849,8 @@ fun ImportWalletScreen(
                                             nfcAdapter == null -> nfcError = "This phone does not report NFC hardware"
                                             !nfcAdapter.isEnabled -> nfcError = "NFC is off in Android settings"
                                             activity == null -> nfcError = "NFC reader is unavailable in this view"
-                                            tapsignerCvcInput.length !in 6..32 -> nfcError = "Re-enter the TAPSIGNER PIN"
+                                            !isValidTapsignerPin(tapsignerCvcInput) ->
+                                                nfcError = "Re-enter a valid TAPSIGNER PIN"
                                             else -> {
                                                 viewModel.clearError()
                                                 nfcError = null
@@ -1229,6 +1258,7 @@ fun ImportWalletScreen(
                         Button(
                             enabled = namePromptText.trim().isNotBlank(),
                             onClick = {
+                                dismissIme()
                                 viewModel.setWalletName(namePromptText.trim())
                                 showNamePrompt = false
                                 if (isSeedPhrase && uiState.passphrase.isNotBlank() && !hardwareWalletMode) {
@@ -1244,6 +1274,7 @@ fun ImportWalletScreen(
                     dismissButton = {
                         TextButton(
                             onClick = {
+                                dismissIme()
                                 viewModel.setWalletName(suggestedName)
                                 showNamePrompt = false
                                 if (isSeedPhrase && uiState.passphrase.isNotBlank() && !hardwareWalletMode) {
@@ -1284,6 +1315,7 @@ fun ImportWalletScreen(
                     confirmButton = {
                         Button(
                             onClick = {
+                                dismissIme()
                                 showPassphraseConfirmDialog = false
                                 viewModel.importWallet(onWalletImported)
                             }
@@ -1304,6 +1336,7 @@ fun ImportWalletScreen(
 
             Button(
                 onClick = {
+                    dismissIme()
                     // [H-4] Require confirmation before importing passphrase wallets
                     if (uiState.walletName.isBlank()) {
                         namePromptText = suggestedName

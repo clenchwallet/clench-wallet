@@ -768,7 +768,10 @@ def main() -> None:
     for required_contract in (
         "net.clench.wallet.data.repository.BdkWalletPersistenceTest",
         "sqliteWalletReloadsExactRevealedTestnetAddresses",
-        "Expected the exact seven named instrumentation tests to pass",
+        "net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest",
+        "canonicalMainnetAndTestnetAccountKeysPassTheRealBdkParser",
+        "preflightRejectsNetworkMismatchAndMalformedOrigin",
+        "Expected the exact nine named instrumentation tests to pass",
         "fetch-depth: 0",
         "test -e /dev/kvm",
         "Prove exact BDK 2.3.1 to 3.0.0 persisted-wallet upgrade",

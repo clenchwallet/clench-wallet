@@ -126,6 +126,7 @@ class TapsignerTapProtocolTest {
         val challenge = ByteArray(32) { (it + 91).toByte() }
         val command = TapsignerTapProtocol.authenticatedTapsignerProofCommand(
             challenge = challenge,
+            subpath = listOf(0L, 0L),
             cardPubkey = cardPubkey,
             cardNonce = ByteArray(16) { (it + 1).toByte() },
             cvc = "123456".toCharArray()
@@ -134,7 +135,7 @@ class TapsignerTapProtocolTest {
             assertEquals("00cb0000", command.take(4).toByteArray().toHex())
             assertTrue(command.toHex().contains("63636d64647369676e"))
             assertTrue(command.toHex().contains("64736c6f7400"))
-            assertTrue(command.toHex().contains("677375627061746880"))
+            assertTrue(command.toHex().contains("6773756270617468820000"))
             assertTrue(command.toHex().contains("666469676573745820"))
             assertTrue(command.toHex().contains("67657075626b65795821"))
             assertFalse(command.toHex().contains(challenge.toHex()))
@@ -190,6 +191,33 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
+    fun `status parser accepts bounded indefinite CBOR used by real cards`() {
+        val pubkeyTail = ByteArray(32) { index -> (index + 1).toByte() }
+        val nonce = ByteArray(16) { index -> (index + 1).toByte() }
+        val response = (
+            "bf" +
+                "6570726f746f01" +
+                "637665727f63312e31622e30ff" +
+                "697461707369676e6572f5" +
+                "6b6e756d5f6261636b75707303" +
+                "667075626b65795f41025820${pubkeyTail.toHex()}ff" +
+                "6a636172645f6e6f6e63655f48${nonce.copyOfRange(0, 8).toHex()}" +
+                "48${nonce.copyOfRange(8, 16).toHex()}ff" +
+                "64706174689f1a800000541a800000001a80000000ffff" +
+                "9000"
+            ).hexToBytes()
+
+        val status = TapsignerTapProtocol.parseStatusResponse(response)
+
+        assertEquals(CoinkiteTapCardKind.TAPSIGNER, status.kind)
+        assertEquals("1.1.0", status.version)
+        assertEquals("m/84'/0'/0'", status.displayPath)
+        assertEquals(3L, status.numberOfBackups)
+        assertEquals("02${pubkeyTail.toHex()}", status.cardPubkeyHex)
+        assertEquals(nonce.toHex(), status.cardNonceHex)
+    }
+
+    @Test
     fun `wait parser extracts remaining auth delay`() {
         val response = waitResponse(authDelay = 14L)
 
@@ -227,6 +255,194 @@ class TapsignerTapProtocolTest {
             "m/48'/1'/0'/2'",
             TapsignerNfcReader.formatDerivationPath(TapsignerNfcReader.multisigAccountPath(isTestnet = true))
         )
+    }
+
+    @Test
+    fun `Tapsigner payment signing requires network BIP84 account zero`() {
+        val mainnetPath = TapsignerNfcReader.singleSigAccountPath(isTestnet = false)
+        val testnetPath = TapsignerNfcReader.singleSigAccountPath(isTestnet = true)
+
+        assertEquals(
+            mainnetPath,
+            TapsignerNfcReader.requireSingleSigSigningPath(
+                tapsignerSigningStatus(path = mainnetPath, isTestnet = false)
+            )
+        )
+        assertEquals(
+            testnetPath,
+            TapsignerNfcReader.requireSingleSigSigningPath(
+                tapsignerSigningStatus(path = testnetPath, isTestnet = true)
+            )
+        )
+
+        val bip48 = assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.requireSingleSigSigningPath(
+                tapsignerSigningStatus(
+                    path = TapsignerNfcReader.multisigAccountPath(isTestnet = false),
+                    isTestnet = false
+                )
+            )
+        }
+        assertTrue(bip48.message.orEmpty().contains("BIP84 account-0"))
+        assertTrue(bip48.message.orEmpty().contains("m/48'/0'/0'/2'"))
+
+        val customAccount = assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.requireSingleSigSigningPath(
+                tapsignerSigningStatus(
+                    path = listOf(0x8000_0054L, 0x8000_0000L, 0x8000_0001L),
+                    isTestnet = false
+                )
+            )
+        }
+        assertTrue(customAccount.message.orEmpty().contains("m/84'/0'/0'"))
+        assertTrue(customAccount.message.orEmpty().contains("m/84'/0'/1'"))
+
+        val wrongNetworkPath = assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.requireSingleSigSigningPath(
+                tapsignerSigningStatus(path = mainnetPath, isTestnet = true)
+            )
+        }
+        assertTrue(wrongNetworkPath.message.orEmpty().contains("testnet BIP84 account-0"))
+        assertTrue(wrongNetworkPath.message.orEmpty().contains("m/84'/1'/0'"))
+    }
+
+    @Test
+    fun `Tapsigner network gate accepts matching networks and rejects mismatch`() {
+        TapsignerNfcReader.requireTapsignerNetwork(cardIsTestnet = null, expectedIsTestnet = false)
+        TapsignerNfcReader.requireTapsignerNetwork(cardIsTestnet = false, expectedIsTestnet = false)
+        TapsignerNfcReader.requireTapsignerNetwork(cardIsTestnet = true, expectedIsTestnet = true)
+
+        val mainCardInTestnet = assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.requireTapsignerNetwork(cardIsTestnet = false, expectedIsTestnet = true)
+        }
+        assertTrue(mainCardInTestnet.message!!.contains("configured for mainnet"))
+        assertTrue(mainCardInTestnet.message!!.contains("Clench is set to testnet"))
+
+        val testCardInMainnet = assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.requireTapsignerNetwork(cardIsTestnet = true, expectedIsTestnet = false)
+        }
+        assertTrue(testCardInMainnet.message!!.contains("configured for testnet"))
+        assertTrue(testCardInMainnet.message!!.contains("Clench is set to mainnet"))
+    }
+
+    @Test
+    fun `canonical Tapsigner BIP84 xpubs bind network path and proven account tuple`() {
+        val chainCode = ByteArray(32) { (it + 3).toByte() }
+        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 9 })
+
+        listOf(false, true).forEach { isTestnet ->
+            val path = TapsignerNfcReader.singleSigAccountPath(isTestnet)
+            val returned = serializedAccountXpub(
+                isTestnet = isTestnet,
+                path = path,
+                chainCode = chainCode,
+                pubkey = pubkey,
+                parentFingerprint = byteArrayOf(0xff.toByte(), 0xff.toByte(), 0xff.toByte(), 0xff.toByte())
+            )
+
+            val encoded = TapsignerNfcReader.canonicalTapsignerAccountXpub(
+                returnedXpub = returned,
+                expectedChainCode = chainCode,
+                expectedPubkey = pubkey,
+                expectedPath = path,
+                isTestnet = isTestnet
+            )
+            val decoded = base58CheckDecode(encoded)
+            val expectedVersion = if (isTestnet) "043587cf" else "0488b21e"
+
+            assertTrue(encoded.startsWith(if (isTestnet) "tpub" else "xpub"))
+            assertEquals(78, decoded.size)
+            assertEquals(expectedVersion, decoded.copyOfRange(0, 4).toHex())
+            assertEquals(3, decoded[4].toInt() and 0xff)
+            assertEquals("00000000", decoded.copyOfRange(5, 9).toHex())
+            assertEquals(path.last(), decoded.copyOfRange(9, 13).toUInt32())
+            assertTrue(decoded.copyOfRange(13, 45).contentEquals(chainCode))
+            assertTrue(decoded.copyOfRange(45, 78).contentEquals(pubkey))
+        }
+    }
+
+    @Test
+    fun `canonical Tapsigner BIP48 xpub uses path depth and final hardened child`() {
+        val path = TapsignerNfcReader.multisigAccountPath(isTestnet = false)
+        val chainCode = ByteArray(32) { (it + 31).toByte() }
+        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 12 })
+        val returned = serializedAccountXpub(false, path, chainCode, pubkey)
+
+        val decoded = base58CheckDecode(
+            TapsignerNfcReader.canonicalTapsignerAccountXpub(
+                returnedXpub = returned,
+                expectedChainCode = chainCode,
+                expectedPubkey = pubkey,
+                expectedPath = path,
+                isTestnet = false
+            )
+        )
+
+        assertEquals(4, decoded[4].toInt() and 0xff)
+        assertEquals(0x80000002L, decoded.copyOfRange(9, 13).toUInt32())
+    }
+
+    @Test
+    fun `canonical Tapsigner xpub rejects untrusted version depth and child metadata`() {
+        val path = TapsignerNfcReader.singleSigAccountPath(isTestnet = false)
+        val chainCode = ByteArray(32) { (it + 43).toByte() }
+        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 15 })
+        val valid = serializedAccountXpub(false, path, chainCode, pubkey)
+
+        val oppositeNetwork = valid.copyOf().also {
+            byteArrayOf(0x04, 0x35, 0x87.toByte(), 0xcf.toByte()).copyInto(it)
+        }
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.canonicalTapsignerAccountXpub(
+                oppositeNetwork, chainCode, pubkey, path, isTestnet = false
+            )
+        }
+
+        val unknownVersion = valid.copyOf().also { it[0] = 0x05 }
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.canonicalTapsignerAccountXpub(
+                unknownVersion, chainCode, pubkey, path, isTestnet = false
+            )
+        }
+
+        val wrongDepth = valid.copyOf().also { it[4] = 2 }
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.canonicalTapsignerAccountXpub(
+                wrongDepth, chainCode, pubkey, path, isTestnet = false
+            )
+        }
+
+        val wrongChild = valid.copyOf().also { it[12] = 1 }
+        assertThrows(IllegalStateException::class.java) {
+            TapsignerNfcReader.canonicalTapsignerAccountXpub(
+                wrongChild, chainCode, pubkey, path, isTestnet = false
+            )
+        }
+    }
+
+    @Test
+    fun `canonical Tapsigner xpub discards unauthenticated parent fingerprint`() {
+        val path = TapsignerNfcReader.singleSigAccountPath(isTestnet = false)
+        val chainCode = ByteArray(32) { (it + 61).toByte() }
+        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 18 })
+        val zeroParent = serializedAccountXpub(false, path, chainCode, pubkey)
+        val arbitraryParent = serializedAccountXpub(
+            false,
+            path,
+            chainCode,
+            pubkey,
+            parentFingerprint = byteArrayOf(0x12, 0x34, 0x56, 0x78)
+        )
+
+        val first = TapsignerNfcReader.canonicalTapsignerAccountXpub(
+            zeroParent, chainCode, pubkey, path, isTestnet = false
+        )
+        val second = TapsignerNfcReader.canonicalTapsignerAccountXpub(
+            arbitraryParent, chainCode, pubkey, path, isTestnet = false
+        )
+
+        assertEquals(first, second)
+        assertEquals("00000000", base58CheckDecode(second).copyOfRange(5, 9).toHex())
     }
 
     @Test
@@ -354,30 +570,220 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
-    fun `derive proof verifies nonce-bound response and rejects substitution`() {
-        val privateKey = ByteArray(32).also { it[31] = 7 }
-        val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey)
+    fun `non-empty documented derive profile is rejected because root is unbound`() {
+        val masterPrivateKey = ByteArray(32).also { it[31] = 7 }
+        val derivedPrivateKey = ByteArray(32).also { it[31] = 8 }
+        val masterPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(masterPrivateKey)
+        val derivedPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(derivedPrivateKey)
         val previousCardNonce = ByteArray(16) { (it + 1).toByte() }
         val requestNonce = ByteArray(16) { (it + 21).toByte() }
-        val chainCode = ByteArray(32) { (it + 41).toByte() }
+        val masterChainCode = ByteArray(32) { (it + 31).toByte() }
+        val derivedChainCode = ByteArray(32) { (it + 41).toByte() }
         val digest = MessageDigest.getInstance("SHA-256").digest(
             "OPENDIME".toByteArray(Charsets.US_ASCII) +
-                previousCardNonce + requestNonce + chainCode
+                previousCardNonce + requestNonce + derivedChainCode
         )
         val derive = TapsignerDeriveResult(
-            signature = compactSignature(privateKey, digest),
-            chainCode = chainCode,
-            masterPubkey = pubkey,
-            pubkey = pubkey,
+            signature = compactSignature(derivedPrivateKey, digest),
+            chainCode = derivedChainCode,
+            masterPubkey = masterPubkey,
+            pubkey = derivedPubkey,
             cardNonce = ByteArray(16) { (it + 61).toByte() }
         )
 
-        CoinkiteTapCardVerifier.verifyTapsignerDerive(previousCardNonce, requestNonce, derive)
-
-        val substituted = derive.copy(chainCode = chainCode.copyOf().also { it[0] = (it[0].toInt() xor 1).toByte() })
         assertThrows(IllegalStateException::class.java) {
-            CoinkiteTapCardVerifier.verifyTapsignerDerive(previousCardNonce, requestNonce, substituted)
+            CoinkiteTapCardVerifier.verifyTapsignerDerive(
+                previousCardNonce,
+                requestNonce,
+                derive,
+                masterPubkey,
+                masterChainCode
+            )
         }
+
+        val invalidMasterPubkey = ByteArray(33) { 0xff.toByte() }.also { it[0] = 0x02 }
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerDerive(
+                previousCardNonce,
+                requestNonce,
+                derive.copy(masterPubkey = invalidMasterPubkey),
+                invalidMasterPubkey,
+                masterChainCode
+            )
+        }
+    }
+
+    @Test
+    fun `production-profile derive proof uses master key and master chain code`() {
+        val masterPrivateKey = ByteArray(32).also { it[31] = 9 }
+        val derivedPrivateKey = ByteArray(32).also { it[31] = 10 }
+        val masterPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(masterPrivateKey)
+        val derivedPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(derivedPrivateKey)
+        val previousCardNonce = ByteArray(16) { (it + 2).toByte() }
+        val requestNonce = ByteArray(16) { (it + 22).toByte() }
+        val masterChainCode = ByteArray(32) { (it + 32).toByte() }
+        val derivedChainCode = ByteArray(32) { (it + 42).toByte() }
+        val digest = MessageDigest.getInstance("SHA-256").digest(
+            "OPENDIME".toByteArray(Charsets.US_ASCII) +
+                previousCardNonce + requestNonce + masterChainCode
+        )
+        val derive = TapsignerDeriveResult(
+            signature = compactSignature(masterPrivateKey, digest),
+            chainCode = derivedChainCode,
+            masterPubkey = masterPubkey,
+            pubkey = derivedPubkey,
+            cardNonce = ByteArray(16) { (it + 62).toByte() }
+        )
+
+        CoinkiteTapCardVerifier.verifyTapsignerDerive(
+            previousCardNonce,
+            requestNonce,
+            derive,
+            masterPubkey,
+            masterChainCode
+        )
+
+        val substitutedMasterChainCode = masterChainCode.copyOf().also {
+            it[0] = (it[0].toInt() xor 1).toByte()
+        }
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerDerive(
+                previousCardNonce,
+                requestNonce,
+                derive,
+                masterPubkey,
+                substitutedMasterChainCode
+            )
+        }
+
+        val differentMasterPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(
+            ByteArray(32).also { it[31] = 13 }
+        )
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerDerive(
+                previousCardNonce,
+                requestNonce,
+                derive,
+                differentMasterPubkey,
+                masterChainCode
+            )
+        }
+
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerDerive(
+                derive.cardNonce,
+                requestNonce,
+                derive,
+                masterPubkey,
+                masterChainCode
+            )
+        }
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerDerive(
+                previousCardNonce,
+                requestNonce.copyOf().also { it[0] = (it[0].toInt() xor 1).toByte() },
+                derive,
+                masterPubkey,
+                masterChainCode
+            )
+        }
+
+        val derivedDigest = MessageDigest.getInstance("SHA-256").digest(
+            "OPENDIME".toByteArray(Charsets.US_ASCII) +
+                previousCardNonce + requestNonce + derivedChainCode
+        )
+        val masterKeyDerivedChain = derive.copy(
+            signature = compactSignature(masterPrivateKey, derivedDigest)
+        )
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerDerive(
+                previousCardNonce,
+                requestNonce,
+                masterKeyDerivedChain,
+                masterPubkey,
+                masterChainCode
+            )
+        }
+
+        val derivedKeyMasterChain = derive.copy(
+            signature = compactSignature(derivedPrivateKey, digest)
+        )
+        assertThrows(IllegalStateException::class.java) {
+            CoinkiteTapCardVerifier.verifyTapsignerDerive(
+                previousCardNonce,
+                requestNonce,
+                derivedKeyMasterChain,
+                masterPubkey,
+                masterChainCode
+            )
+        }
+    }
+
+    @Test
+    fun `indefinite derive response verifies production transcript`() {
+        val masterPrivateKey = ByteArray(32).also { it[31] = 11 }
+        val derivedPrivateKey = ByteArray(32).also { it[31] = 12 }
+        val masterPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(masterPrivateKey)
+        val derivedPubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(derivedPrivateKey)
+        val previousCardNonce = ByteArray(16) { (it + 3).toByte() }
+        val requestNonce = ByteArray(16) { (it + 23).toByte() }
+        val masterChainCode = ByteArray(32) { (it + 33).toByte() }
+        val derivedChainCode = ByteArray(32) { (it + 43).toByte() }
+        val responseCardNonce = ByteArray(16) { (it + 63).toByte() }
+        val digest = MessageDigest.getInstance("SHA-256").digest(
+            "OPENDIME".toByteArray(Charsets.US_ASCII) +
+                previousCardNonce + requestNonce + masterChainCode
+        )
+        val response = indefiniteTapsignerDeriveResponse(
+            signature = compactSignature(masterPrivateKey, digest),
+            chainCode = derivedChainCode,
+            masterPubkey = masterPubkey,
+            pubkey = derivedPubkey,
+            cardNonce = responseCardNonce
+        )
+
+        val parsed = TapsignerTapProtocol.parseTapsignerDeriveResponse(response)
+
+        assertTrue(parsed.chainCode.contentEquals(derivedChainCode))
+        assertTrue(parsed.masterPubkey.contentEquals(masterPubkey))
+        assertTrue(parsed.pubkey.contentEquals(derivedPubkey))
+        assertTrue(parsed.cardNonce.contentEquals(responseCardNonce))
+        CoinkiteTapCardVerifier.verifyTapsignerDerive(
+            previousCardNonce,
+            requestNonce,
+            parsed,
+            masterPubkey,
+            masterChainCode
+        )
+    }
+
+    @Test
+    fun `unhardened public derivation matches BIP32 vector one`() {
+        // BIP32 test vector 1: m/0'/1/2' -> 2 -> 1000000000.
+        val parentXpub = (
+            "0488b21e03bef5a2f980000002" +
+                "04466b9cc8e161e966409ca52986c584f07e9dc81f735db683c3ff6ec7b15" +
+                "03f0357bfe1e341d01c69fe5654309956cbea516822fba8a601743a012a7896ee8dc2"
+            ).hexToBytes()
+        val expectedPubkey =
+            "022a471424da5e657499d1ff51cb43c47481a03b1e77f951fe64cec9f5a48f7011".hexToBytes()
+
+        val actual = CoinkiteTapCardVerifier.deriveUnhardenedPublicKey(
+            parentPubkey = parentXpub.copyOfRange(45, 78),
+            parentChainCode = parentXpub.copyOfRange(13, 45),
+            subpath = listOf(2L, 1_000_000_000L)
+        )
+        val substitutedChainCode = parentXpub.copyOfRange(13, 45).also {
+            it[0] = (it[0].toInt() xor 1).toByte()
+        }
+        val substituted = CoinkiteTapCardVerifier.deriveUnhardenedPublicKey(
+            parentPubkey = parentXpub.copyOfRange(45, 78),
+            parentChainCode = substitutedChainCode,
+            subpath = listOf(2L, 1_000_000_000L)
+        )
+
+        assertTrue(actual.contentEquals(expectedPubkey))
+        assertFalse(substituted.contentEquals(expectedPubkey))
     }
 
     @Test
@@ -503,7 +909,7 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
-    fun `account xpub must match nonce-verified derivation key and chain code`() {
+    fun `account xpub must match child-key-verified account key and chain code`() {
         val chainCode = ByteArray(32) { (it + 3).toByte() }
         val pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(ByteArray(32).also { it[31] = 9 })
         val rawXpub = ByteArray(78).also {
@@ -607,6 +1013,24 @@ class TapsignerTapProtocolTest {
         return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
     }
 
+    private fun tapsignerSigningStatus(
+        path: List<Long>,
+        isTestnet: Boolean?
+    ): CoinkiteTapCardStatus = CoinkiteTapCardStatus(
+        isTapsigner = true,
+        version = "1.1.0",
+        birthHeight = 700553L,
+        derivationPath = path,
+        numberOfBackups = 3L,
+        authDelaySeconds = 0L,
+        cardPubkeyHex = null,
+        cardNonceHex = null,
+        address = null,
+        slots = null,
+        isTestnet = isTestnet,
+        isTampered = false
+    )
+
     private fun tapsignerStatusWithoutPathResponse(testnet: Boolean): ByteArray {
         val map = CborBuilder().addMap()
             .put("proto", 1L)
@@ -695,6 +1119,41 @@ class TapsignerTapProtocolTest {
         return out.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
     }
 
+    private fun indefiniteTapsignerDeriveResponse(
+        signature: ByteArray,
+        chainCode: ByteArray,
+        masterPubkey: ByteArray,
+        pubkey: ByteArray,
+        cardNonce: ByteArray
+    ): ByteArray {
+        var body = byteArrayOf(0xbf.toByte())
+        listOf(
+            "sig" to signature,
+            "chain_code" to chainCode,
+            "master_pubkey" to masterPubkey,
+            "pubkey" to pubkey,
+            "card_nonce" to cardNonce
+        ).forEach { (key, value) ->
+            val keyBytes = key.toByteArray(Charsets.US_ASCII)
+            require(keyBytes.size < 24)
+            val split = value.size / 2
+            body += byteArrayOf((0x60 + keyBytes.size).toByte()) + keyBytes
+            body += byteArrayOf(0x5f.toByte())
+            body += cborByteString(value.copyOfRange(0, split))
+            body += cborByteString(value.copyOfRange(split, value.size))
+            body += byteArrayOf(0xff.toByte())
+        }
+        return body + byteArrayOf(0xff.toByte(), 0x90.toByte(), 0x00)
+    }
+
+    private fun cborByteString(value: ByteArray): ByteArray {
+        return if (value.size < 24) {
+            byteArrayOf((0x40 + value.size).toByte()) + value
+        } else {
+            byteArrayOf(0x58, value.size.toByte()) + value
+        }
+    }
+
     private fun tapsignerBackupResponse(data: ByteArray, cardNonce: ByteArray): ByteArray {
         val map = CborBuilder().addMap()
             .put("data", data)
@@ -745,6 +1204,66 @@ class TapsignerTapProtocolTest {
             pubkey = CoinkiteTapCardVerifier.publicKeyFromPrivateKey(privateKey),
             cardNonce = ByteArray(16) { (it + 111).toByte() }
         )
+    }
+
+    private fun serializedAccountXpub(
+        isTestnet: Boolean,
+        path: List<Long>,
+        chainCode: ByteArray,
+        pubkey: ByteArray,
+        parentFingerprint: ByteArray = ByteArray(4)
+    ): ByteArray {
+        require(path.isNotEmpty())
+        require(chainCode.size == 32)
+        require(pubkey.size == 33)
+        require(parentFingerprint.size == 4)
+        val serialized = ByteArray(78)
+        val version = if (isTestnet) {
+            byteArrayOf(0x04, 0x35, 0x87.toByte(), 0xcf.toByte())
+        } else {
+            byteArrayOf(0x04, 0x88.toByte(), 0xb2.toByte(), 0x1e)
+        }
+        val child = path.last()
+        version.copyInto(serialized, destinationOffset = 0)
+        serialized[4] = path.size.toByte()
+        parentFingerprint.copyInto(serialized, destinationOffset = 5)
+        serialized[9] = (child ushr 24).toByte()
+        serialized[10] = (child ushr 16).toByte()
+        serialized[11] = (child ushr 8).toByte()
+        serialized[12] = child.toByte()
+        chainCode.copyInto(serialized, destinationOffset = 13)
+        pubkey.copyInto(serialized, destinationOffset = 45)
+        return serialized
+    }
+
+    private fun base58CheckDecode(encoded: String): ByteArray {
+        val alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        var value = BigInteger.ZERO
+        val base = BigInteger.valueOf(58)
+        encoded.forEach { char ->
+            val digit = alphabet.indexOf(char)
+            require(digit >= 0) { "Invalid Base58 character" }
+            value = value.multiply(base).add(BigInteger.valueOf(digit.toLong()))
+        }
+        val magnitude = value.toByteArray().let { bytes ->
+            if (bytes.size > 1 && bytes[0] == 0.toByte()) bytes.copyOfRange(1, bytes.size) else bytes
+        }
+        val decoded = ByteArray(encoded.takeWhile { it == '1' }.length) + magnitude
+        require(decoded.size >= 4)
+        val payload = decoded.copyOfRange(0, decoded.size - 4)
+        val checksum = decoded.copyOfRange(decoded.size - 4, decoded.size)
+        val digest = MessageDigest.getInstance("SHA-256")
+        val expected = digest.digest(digest.digest(payload)).copyOfRange(0, 4)
+        require(MessageDigest.isEqual(checksum, expected)) { "Invalid Base58Check checksum" }
+        return payload
+    }
+
+    private fun ByteArray.toUInt32(): Long {
+        require(size == 4)
+        return ((this[0].toLong() and 0xffL) shl 24) or
+            ((this[1].toLong() and 0xffL) shl 16) or
+            ((this[2].toLong() and 0xffL) shl 8) or
+            (this[3].toLong() and 0xffL)
     }
 
     private fun BigInteger.toFixed32(): ByteArray {

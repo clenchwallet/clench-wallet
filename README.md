@@ -17,7 +17,7 @@ The static source for [clench.net](https://clench.net/) is in [`website/`](websi
 - **QR-based:** SeedSigner, Keystone, Foundation Passport, Blockstream Jade
 - **Coldcard Q:** BBQr QR, NFC, and file-based PSBT transfer
 - **Coldcard Mk4/Mk5:** NFC or user-selected file/microSD PSBT transfer
-- **TAPSIGNER:** Set up, import, verify, and save an encrypted card backup over NFC. The current release cannot yet use the card to sign a payment; this is a temporary software limitation, not a warning that single-signature TAPSIGNER wallets are unsafe.
+- **TAPSIGNER:** Set up, import, verify, back up, and directly sign single-signature BIP-84 native-SegWit payments over NFC. Clench reviews the complete payment before the tap, verifies every returned signature, and never auto-broadcasts. Taproot, legacy, nested-SegWit, and multisig-cosigner TAPSIGNER signing are not supported.
 - **SATSCARD:** NFC Tap Protocol status checks plus certificate-verified, CVC-authenticated active-slot unseal and sweep
 - **Signed-return support:** signed PSBT import, plus finalized transaction returns where supported
 - Explicit broadcast confirmation after hardware-wallet signing
@@ -27,7 +27,8 @@ Clench never opens a USB or Bluetooth data connection to a signing device.
 Transactions move by QR, an intentional NFC tap, or a file/removable card chosen
 by the user. A signer may still use a USB cable for power. With a screen-equipped
 signer, review the transaction on that device. TAPSIGNER is screenless, so its
-transaction details must be reviewed in Clench before a future tap-to-sign flow.
+transaction details must be reviewed carefully in Clench before entering the
+PIN and tapping the card.
 
 ### Privacy
 - **Tor support for Electrum** — route wallet sync traffic through a SOCKS5 proxy
@@ -94,6 +95,7 @@ Release trust docs:
 - [Signed-release verification](docs/release/signed-release-verification.md)
 - [Threat model](docs/security/threat-model.md)
 - [Security hardening](docs/security/security-hardening.md)
+- [v0.3.27 TAPSIGNER security review](docs/security/security-review-v0.3.27.md)
 - [Audit path](docs/security/audit-path.md)
 - [Coinkite compatible-wallet listing readiness](docs/qa/coinkite-wallet-list-readiness.md)
 
@@ -121,6 +123,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 
 | Version | Highlights |
 | --- | --- |
+| 0.3.27 | Adds verified TAPSIGNER signing for single-signature BIP-84 native-SegWit payments, real-card CBOR/derive/xpub interoperability, numeric-first PIN entry with a legacy fallback, BDK Android 3.0 persisted-wallet migration proof, Room/SQLCipher instrumentation, and an updated Android/Kotlin build toolchain. |
 | 0.3.26 | Carries the v0.3.24 security hardening forward after two unpublished, fail-closed release attempts and adds a two-gate, three-build reproducibility proof: byte-identical unsigned builds, followed by deterministic `apksigner` packaging normalization and a no-exclusions comparison of every APK ZIP entry. |
 | 0.3.25 | Unpublished fail-closed candidate: disabled unused APK v4 sidecars, then stopped before publication when the independent verifier rejected a post-`apksigner` local-header alignment-metadata mismatch. |
 | 0.3.23 | Removes unused Bluetooth permissions and stale USB/Bluetooth/Virtual Disk signer claims, enforces QR/NFC/user-selected-file transports, verifies TAPSIGNER setup chain-code use, and documents the exact SATSCARD/TAPSIGNER compatible-wallet listing gates. |

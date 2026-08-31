@@ -11,6 +11,7 @@ import co.nstant.`in`.cbor.model.DataItem
 import co.nstant.`in`.cbor.model.Map
 import co.nstant.`in`.cbor.model.Number
 import co.nstant.`in`.cbor.model.SimpleValue
+import co.nstant.`in`.cbor.model.Special
 import co.nstant.`in`.cbor.model.UnicodeString
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -185,15 +186,23 @@ data class TapsignerBackupResponse(
 
 data class TapsignerAccountXpubResult(
     val xpub: String,
+    val cardReturnedXpub: String,
     val originWrappedXpub: String,
     val masterFingerprint: String,
     val derivationPath: String,
+    val isTestnet: Boolean,
     val summary: String
 )
 
 data class TapsignerBackupResult(
     val data: ByteArray,
     val numberOfBackups: Long?,
+    val summary: String
+)
+
+data class TapsignerPsbtSignResult(
+    val signedPsbtBase64: String,
+    val signedInputCount: Int,
     val summary: String
 )
 
@@ -450,13 +459,37 @@ object TapsignerTapProtocol {
      */
     fun authenticatedTapsignerProofCommand(
         challenge: ByteArray,
+        subpath: List<Long> = emptyList(),
+        cardPubkey: ByteArray,
+        cardNonce: ByteArray,
+        cvc: CharArray
+    ): ByteArray = authenticatedTapsignerSignCommand(
+        digest = challenge,
+        subpath = subpath,
+        cardPubkey = cardPubkey,
+        cardNonce = cardNonce,
+        cvc = cvc
+    )
+
+    /**
+     * Build the authenticated Tap Protocol `sign` request for one exact
+     * Bitcoin sighash. The digest is encrypted with the fresh ECDH session
+     * key; the returned card signature is over the original digest directly.
+     */
+    fun authenticatedTapsignerSignCommand(
+        digest: ByteArray,
+        subpath: List<Long>,
         cardPubkey: ByteArray,
         cardNonce: ByteArray,
         cvc: CharArray
     ): ByteArray {
-        require(challenge.size == 32) { "TAPSIGNER proof challenge must be 32 bytes" }
+        require(digest.size == 32) { "TAPSIGNER signing digest must be 32 bytes" }
+        require(subpath.size <= 2) { "TAPSIGNER signing subpath can contain at most two components" }
+        require(subpath.all { it in 0 until HARDENED_FLAG }) {
+            "TAPSIGNER signing subpath must be unhardened"
+        }
         val auth = authenticatedCommand("sign", cardPubkey, cardNonce, cvc)
-        val encryptedDigest = xorBytes(challenge, auth.sessionKey)
+        val encryptedDigest = xorBytes(digest, auth.sessionKey)
         return try {
             apdu(
                 cla = 0x00,
@@ -466,7 +499,7 @@ object TapsignerTapProtocol {
                 data = cborMap(
                     "cmd" to "sign",
                     "slot" to 0L,
-                    "subpath" to emptyList<Long>(),
+                    "subpath" to subpath,
                     "digest" to encryptedDigest,
                     "epubkey" to auth.ephemeralPublicKey,
                     "xcvc" to auth.encryptedCvc
@@ -540,7 +573,7 @@ object TapsignerTapProtocol {
         if (birthHeight != null && birthHeight !in 0..10_000_000) {
             error("Coinkite Tap card returned an invalid birth height")
         }
-        if (numberOfBackups != null && numberOfBackups !in 0..32) {
+        if (numberOfBackups != null && numberOfBackups !in 0..127) {
             error("Coinkite Tap card returned an invalid backup count")
         }
         if (authDelaySeconds != null && authDelaySeconds !in 0..86_400) {
@@ -673,7 +706,8 @@ object TapsignerTapProtocol {
 
     /**
      * Bind a serialized BIP32 xpub returned by a later authenticated command to
-     * the public key and chain code proven by the nonce-bound derive response.
+     * the account public key and chain code already bound by the encrypted
+     * child-key proof.
      */
     fun requireTapsignerXpubBinding(
         xpub: ByteArray,
@@ -689,7 +723,7 @@ object TapsignerTapProtocol {
             if (!MessageDigest.isEqual(returnedChainCode, expectedChainCode) ||
                 !MessageDigest.isEqual(returnedPubkey, expectedPubkey)
             ) {
-                error("TAPSIGNER xpub did not match the nonce-verified derivation response")
+                error("TAPSIGNER xpub did not match the child-key-verified account")
             }
         } finally {
             returnedChainCode.fill(0)
@@ -811,8 +845,8 @@ object TapsignerTapProtocol {
 
     /**
      * Performs a non-allocating, depth-bounded CBOR framing pass before the
-     * library decoder. Tap-card responses use definite-length canonical CBOR;
-     * rejecting indefinite containers and excessive nesting prevents a small
+     * library decoder. Tap cards may use either definite or indefinite CBOR,
+     * so the preflight validates breaks and chunks while preventing a bounded
      * NFC response from becoming a recursive decoder stack attack.
      */
     private fun validateCborEnvelope(body: ByteArray) {
@@ -839,8 +873,15 @@ object TapsignerTapProtocol {
             val initial = readByte()
             val major = initial ushr 5
             val additional = initial and 0x1f
-            require(additional != 31) {
-                "Coinkite Tap card CBOR uses an indefinite-length value"
+            if (additional == 31) {
+                when (major) {
+                    2, 3 -> readIndefiniteString(major)
+                    4 -> readIndefiniteArray(depth)
+                    5 -> readIndefiniteMap(depth)
+                    7 -> error("Coinkite Tap card CBOR contains an unexpected break")
+                    else -> error("Coinkite Tap card CBOR uses an invalid indefinite-length value")
+                }
+                return
             }
             when (major) {
                 0, 1 -> readArgument(additional)
@@ -866,6 +907,58 @@ object TapsignerTapProtocol {
                 7 -> readSimple(additional)
                 else -> error("Coinkite Tap card CBOR major type is invalid")
             }
+        }
+
+        private fun readIndefiniteString(expectedMajor: Int) {
+            while (!consumeBreakIfPresent()) {
+                require(++items <= MAX_CBOR_CONTAINER_ITEMS) {
+                    "Coinkite Tap card CBOR contains too many values"
+                }
+                val initial = readByte()
+                val major = initial ushr 5
+                val additional = initial and 0x1f
+                require(major == expectedMajor && additional != 31) {
+                    "Coinkite Tap card CBOR indefinite string contains an invalid chunk"
+                }
+                val length = readArgument(additional)
+                require(length <= (bytes.size - offset).toULong()) {
+                    "Coinkite Tap card CBOR string is truncated"
+                }
+                offset += length.toInt()
+            }
+        }
+
+        private fun readIndefiniteArray(depth: Int) {
+            while (!consumeBreakIfPresent()) {
+                readItem(depth + 1)
+            }
+        }
+
+        private fun readIndefiniteMap(depth: Int) {
+            var entries = 0
+            while (!consumeBreakIfPresent()) {
+                require(++entries <= MAX_CBOR_CONTAINER_ITEMS / 2) {
+                    "Coinkite Tap card CBOR map contains too many entries"
+                }
+                readItem(depth + 1)
+                require(!nextIsBreak()) {
+                    "Coinkite Tap card CBOR indefinite map ended after a key"
+                }
+                readItem(depth + 1)
+            }
+        }
+
+        private fun nextIsBreak(): Boolean {
+            require(offset < bytes.size) {
+                "Coinkite Tap card CBOR indefinite-length value is unterminated"
+            }
+            return bytes[offset].toInt() and 0xff == 0xff
+        }
+
+        private fun consumeBreakIfPresent(): Boolean {
+            if (!nextIsBreak()) return false
+            offset++
+            return true
         }
 
         private fun readArgument(additional: Int): ULong = when (additional) {
@@ -993,7 +1086,7 @@ object TapsignerTapProtocol {
         val item = value(key) ?: return null
         val array = item as? Array
             ?: error("Coinkite Tap card field $key was not an array")
-        return array.dataItems.map { entry ->
+        return array.valuesWithoutBreak().map { entry ->
             val value = (entry as? Number)?.value
                 ?: error("Coinkite Tap card field $key contained a non-integer")
             require(value >= BigInteger.valueOf(Long.MIN_VALUE) && value <= BigInteger.valueOf(Long.MAX_VALUE)) {
@@ -1013,9 +1106,17 @@ object TapsignerTapProtocol {
         val item = value(key) ?: return null
         val array = item as? Array
             ?: error("Coinkite Tap card field $key was not an array")
-        return array.dataItems.map { entry ->
+        return array.valuesWithoutBreak().map { entry ->
             (entry as? ByteString)?.bytes
                 ?: error("Coinkite Tap card field $key contained non-binary data")
+        }
+    }
+
+    private fun Array.valuesWithoutBreak(): List<DataItem> {
+        return if (isChunked && dataItems.lastOrNull() == Special.BREAK) {
+            dataItems.dropLast(1)
+        } else {
+            dataItems
         }
     }
 
@@ -1446,7 +1547,135 @@ object TapsignerNfcReader {
         return status
     }
 
-    fun readAccountXpub(tag: Tag, cvc: CharArray): TapsignerAccountXpubResult {
+    /**
+     * Direct TAPSIGNER signing for native-SegWit single-signature inputs.
+     * The card remains in the RF field while Clench signs every eligible
+     * input, with a fresh authenticated command and nonce for each input. The
+     * returned PSBT still passes through Clench's normal signature-only merge,
+     * finalization, and transaction-policy validation.
+     */
+    fun signPsbt(tag: Tag, cvc: CharArray, psbtBase64: String): TapsignerPsbtSignResult {
+        try {
+            val isoDep = IsoDep.get(tag) ?: error("TAPSIGNER requires ISO-DEP NFC, not NDEF")
+            var plan: TapsignerPsbtSigning.Plan? = null
+            val signatures = mutableListOf<TapsignerPsbtSigning.Signature>()
+            try {
+                isoDep.connect()
+                isoDep.timeout = 20_000
+                var status = selectOrReadStatus(isoDep)
+            if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
+            if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
+            val accountPath = requireSingleSigSigningPath(status)
+            if ((status.authDelaySeconds ?: 0L) > 0L) {
+                clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "TAPSIGNER")
+                status = TapsignerTapProtocol.parseStatusResponse(
+                    isoDep.transceive(TapsignerTapProtocol.statusCommand())
+                )
+                if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
+                if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
+                if (requireSingleSigSigningPath(status) != accountPath) {
+                    error("TAPSIGNER derivation path changed before signing")
+                }
+            }
+
+            val cardPubkey = verifiedCardPubkey(status)
+            var latestCardNonce = verifyTapsignerCard(isoDep, status, cardPubkey)
+            plan = TapsignerPsbtSigning.prepare(psbtBase64, accountPath)
+
+            plan.requests.forEach { request ->
+                var signed = false
+                for (attempt in 0 until 5) {
+                    var command: ByteArray? = null
+                    var response: ByteArray? = null
+                    var proof: TapsignerSignProof? = null
+                    try {
+                        command = TapsignerTapProtocol.authenticatedTapsignerSignCommand(
+                            digest = request.digest,
+                            subpath = request.subpath,
+                            cardPubkey = cardPubkey,
+                            cardNonce = latestCardNonce,
+                            cvc = cvc
+                        )
+                        response = isoDep.transceive(command)
+                        proof = TapsignerTapProtocol.parseTapsignerSignProof(response)
+                        if (proof.slot != 0L) error("TAPSIGNER signed with an unexpected slot")
+                        if (request.candidatePubkeys.none { MessageDigest.isEqual(it, proof.pubkey) }) {
+                            error("TAPSIGNER returned a key outside this wallet policy")
+                        }
+                        if (!CoinkiteTapCardVerifier.verifyEcdsa(
+                                proof.pubkey,
+                                request.digest,
+                                proof.signature
+                            )) {
+                            error("TAPSIGNER payment signature did not verify")
+                        }
+                        signatures += TapsignerPsbtSigning.Signature(
+                            inputIndex = request.inputIndex,
+                            pubkey = proof.pubkey.copyOf(),
+                            compactSignature = proof.signature.copyOf()
+                        )
+                        latestCardNonce.fill(0)
+                        latestCardNonce = proof.cardNonce.copyOf()
+                        signed = true
+                        break
+                    } catch (e: CoinkiteTapCardException) {
+                        if (e.code != 205L || attempt == 4) throw e
+                        val refreshed = TapsignerTapProtocol.parseStatusResponse(
+                            isoDep.transceive(TapsignerTapProtocol.statusCommand())
+                        )
+                        requireSingleSigSigningPath(refreshed)
+                        val nextNonce = requireTapsignerContinuity(
+                            status = refreshed,
+                            expectedCardPubkey = cardPubkey,
+                            expectedPath = accountPath,
+                            expectedCardNonce = null
+                        )
+                        latestCardNonce.fill(0)
+                        latestCardNonce = nextNonce
+                    } finally {
+                        command?.fill(0)
+                        proof?.signature?.fill(0)
+                        proof?.pubkey?.fill(0)
+                        proof?.cardNonce?.fill(0)
+                        response?.fill(0)
+                    }
+                }
+                if (!signed) error("TAPSIGNER could not sign input ${request.inputIndex + 1}")
+            }
+
+            val finalStatus = TapsignerTapProtocol.parseStatusResponse(
+                isoDep.transceive(TapsignerTapProtocol.statusCommand())
+            )
+            requireSingleSigSigningPath(finalStatus)
+            val finalNonce = requireTapsignerContinuity(
+                status = finalStatus,
+                expectedCardPubkey = cardPubkey,
+                expectedPath = accountPath,
+                expectedCardNonce = latestCardNonce
+            )
+            finalNonce.fill(0)
+            val signedPsbt = TapsignerPsbtSigning.inject(plan, signatures)
+            return TapsignerPsbtSignResult(
+                signedPsbtBase64 = signedPsbt,
+                signedInputCount = signatures.size,
+                summary = "TAPSIGNER signed ${signatures.size} input${if (signatures.size == 1) "" else "s"}; Clench is verifying the resulting PSBT"
+            )
+            } finally {
+                plan?.clear()
+                plan?.parsed?.clear()
+                signatures.forEach { it.clear() }
+                runCatching { isoDep.close() }
+            }
+        } finally {
+            cvc.fill('0')
+        }
+    }
+
+    fun readAccountXpub(
+        tag: Tag,
+        cvc: CharArray,
+        expectedIsTestnet: Boolean
+    ): TapsignerAccountXpubResult {
         val isoDep = IsoDep.get(tag) ?: error("TAPSIGNER requires ISO-DEP NFC, not NDEF")
         isoDep.connect()
         try {
@@ -1454,6 +1683,7 @@ object TapsignerNfcReader {
             var status = selectOrReadStatus(isoDep)
             if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
             if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
+            requireTapsignerNetwork(status.isTestnet, expectedIsTestnet)
             if (status.derivationPath == null) {
                 error("This TAPSIGNER has not been set up yet. Initialize it with a TAPSIGNER-compatible wallet first, then return to Clench to import its xpub.")
             }
@@ -1464,11 +1694,12 @@ object TapsignerNfcReader {
                 )
                 if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
                 if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
+                requireTapsignerNetwork(status.isTestnet, expectedIsTestnet)
                 if (status.derivationPath == null) {
                     error("This TAPSIGNER has not been set up yet. Initialize it with a TAPSIGNER-compatible wallet first, then return to Clench to import its xpub.")
                 }
             }
-            val targetPath = singleSigAccountPath(status.isTestnet == true)
+            val targetPath = singleSigAccountPath(expectedIsTestnet)
             val targetPathDisplay = formatDerivationPath(targetPath)
             val cardPubkey = verifiedCardPubkey(status)
             var latestCardNonce = verifyTapsignerCard(isoDep, status, cardPubkey)
@@ -1485,7 +1716,6 @@ object TapsignerNfcReader {
                     )
                 )
             )
-            CoinkiteTapCardVerifier.verifyTapsignerDerive(previousCardNonce, deriveNonce, derive)
             latestCardNonce = proveCurrentDerivedKey(
                 isoDep = isoDep,
                 cardPubkey = cardPubkey,
@@ -1501,7 +1731,11 @@ object TapsignerNfcReader {
                 cvc = cvc,
                 reportedPath = targetPathDisplay,
                 summaryPrefix = "TAPSIGNER single-sig xpub imported",
-                deriveProof = derive
+                derivePreviousCardNonce = previousCardNonce,
+                deriveRequestNonce = deriveNonce,
+                deriveProof = derive,
+                expectedPath = targetPath,
+                expectedIsTestnet = expectedIsTestnet
             )
         } finally {
             isoDep.close()
@@ -1526,6 +1760,7 @@ object TapsignerNfcReader {
             var status = selectOrReadStatus(isoDep)
             if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
             if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
+            requireTapsignerNetwork(status.isTestnet, isTestnet)
             if ((status.authDelaySeconds ?: 0L) > 0L) {
                 clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "TAPSIGNER")
                 status = TapsignerTapProtocol.parseStatusResponse(
@@ -1533,6 +1768,7 @@ object TapsignerNfcReader {
                 )
                 if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
                 if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
+                requireTapsignerNetwork(status.isTestnet, isTestnet)
             }
 
             val cardPubkey = verifiedCardPubkey(status)
@@ -1580,7 +1816,6 @@ object TapsignerNfcReader {
                     )
                 )
             )
-            CoinkiteTapCardVerifier.verifyTapsignerDerive(previousCardNonce, deriveNonce, derive)
             latestCardNonce = proveCurrentDerivedKey(
                 isoDep = isoDep,
                 cardPubkey = cardPubkey,
@@ -1598,7 +1833,11 @@ object TapsignerNfcReader {
                 reportedPath = targetPathDisplay,
                 summaryPrefix = "TAPSIGNER multisig cosigner imported",
                 expectedMasterChainCode = expectedMasterChainCode,
-                deriveProof = derive
+                derivePreviousCardNonce = previousCardNonce,
+                deriveRequestNonce = deriveNonce,
+                deriveProof = derive,
+                expectedPath = targetPath,
+                expectedIsTestnet = isTestnet
             )
         } finally {
             isoDep.close()
@@ -1607,7 +1846,11 @@ object TapsignerNfcReader {
         }
     }
 
-    fun initializeAndReadAccountXpub(tag: Tag, cvc: CharArray): TapsignerAccountXpubResult {
+    fun initializeAndReadAccountXpub(
+        tag: Tag,
+        cvc: CharArray,
+        expectedIsTestnet: Boolean
+    ): TapsignerAccountXpubResult {
         val isoDep = IsoDep.get(tag) ?: error("TAPSIGNER requires ISO-DEP NFC, not NDEF")
         isoDep.connect()
         var expectedMasterChainCode: ByteArray? = null
@@ -1616,6 +1859,7 @@ object TapsignerNfcReader {
             var status = selectOrReadStatus(isoDep)
             if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
             if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
+            requireTapsignerNetwork(status.isTestnet, expectedIsTestnet)
             if (status.derivationPath != null) {
                 error("This TAPSIGNER is already initialized. Use NFC import instead.")
             }
@@ -1626,6 +1870,7 @@ object TapsignerNfcReader {
                 )
                 if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
                 if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
+                requireTapsignerNetwork(status.isTestnet, expectedIsTestnet)
                 if (status.derivationPath != null) {
                     error("This TAPSIGNER is already initialized. Use NFC import instead.")
                 }
@@ -1645,7 +1890,7 @@ object TapsignerNfcReader {
             )
             expectedMasterChainCode = chainCode
             if (newResult.slot != 0L) error("TAPSIGNER initialized an unexpected slot")
-            val targetPath = singleSigAccountPath(status.isTestnet == true)
+            val targetPath = singleSigAccountPath(expectedIsTestnet)
             val targetPathDisplay = formatDerivationPath(targetPath)
             val deriveNonce = randomNonce()
             val derive = TapsignerTapProtocol.parseTapsignerDeriveResponse(
@@ -1659,7 +1904,6 @@ object TapsignerNfcReader {
                     )
                 )
             )
-            CoinkiteTapCardVerifier.verifyTapsignerDerive(newResult.cardNonce, deriveNonce, derive)
             val proofCardNonce = proveCurrentDerivedKey(
                 isoDep = isoDep,
                 cardPubkey = cardPubkey,
@@ -1676,7 +1920,11 @@ object TapsignerNfcReader {
                 reportedPath = targetPathDisplay,
                 summaryPrefix = "TAPSIGNER initialized and xpub imported",
                 expectedMasterChainCode = expectedMasterChainCode,
-                deriveProof = derive
+                derivePreviousCardNonce = newResult.cardNonce,
+                deriveRequestNonce = deriveNonce,
+                deriveProof = derive,
+                expectedPath = targetPath,
+                expectedIsTestnet = expectedIsTestnet
             )
         } finally {
             isoDep.close()
@@ -1743,11 +1991,11 @@ object TapsignerNfcReader {
     }
 
     /**
-     * Close the active-relay gap in the self-signed derive tuple. A fresh
-     * app-secret digest is encrypted inside a CVC-authenticated `sign`
-     * command, then the current account key must sign that unknown challenge.
-     * Unlike TAPSIGNER's masked `read`, this does not expose known plaintext
-     * from which an active relay could recover the ECDH session key.
+     * Protect the spend-critical account tuple from response substitution. A
+     * fresh app-secret digest is encrypted inside a CVC-authenticated `sign`
+     * command. A fixed non-hardened child derived from the returned account pubkey and
+     * chain code must sign it. This binds both halves of the eventual account
+     * xpub instead of trusting the firmware's ambiguous derive attestation.
      */
     private fun proveCurrentDerivedKey(
         isoDep: IsoDep,
@@ -1757,6 +2005,12 @@ object TapsignerNfcReader {
         expectedPath: List<Long>,
         deriveProof: TapsignerDeriveResult
     ): ByteArray {
+        val proofSubpath = listOf(0L, 0L)
+        val expectedProofPubkey = CoinkiteTapCardVerifier.deriveUnhardenedPublicKey(
+            parentPubkey = deriveProof.pubkey,
+            parentChainCode = deriveProof.chainCode,
+            subpath = proofSubpath
+        )
         var currentCardNonce = cardNonce.copyOf()
         try {
             for (attempt in 0 until 5) {
@@ -1767,6 +2021,7 @@ object TapsignerNfcReader {
                 try {
                     val outbound = TapsignerTapProtocol.authenticatedTapsignerProofCommand(
                         challenge = challenge,
+                        subpath = proofSubpath,
                         cardPubkey = cardPubkey,
                         cardNonce = currentCardNonce,
                         cvc = cvc
@@ -1777,7 +2032,7 @@ object TapsignerNfcReader {
                     CoinkiteTapCardVerifier.verifyTapsignerProofOfPossession(
                         challenge = challenge,
                         proof = proof,
-                        expectedDerivedPubkey = deriveProof.pubkey
+                        expectedDerivedPubkey = expectedProofPubkey
                     )
                     val status = TapsignerTapProtocol.parseStatusResponse(
                         isoDep.transceive(TapsignerTapProtocol.statusCommand())
@@ -1816,6 +2071,7 @@ object TapsignerNfcReader {
             error("TAPSIGNER could not complete proof of key possession")
         } finally {
             currentCardNonce.fill(0)
+            expectedProofPubkey.fill(0)
         }
     }
 
@@ -1858,7 +2114,11 @@ object TapsignerNfcReader {
         reportedPath: String?,
         summaryPrefix: String,
         expectedMasterChainCode: ByteArray? = null,
-        deriveProof: TapsignerDeriveResult
+        derivePreviousCardNonce: ByteArray,
+        deriveRequestNonce: ByteArray,
+        deriveProof: TapsignerDeriveResult,
+        expectedPath: List<Long>,
+        expectedIsTestnet: Boolean
     ): TapsignerAccountXpubResult {
         var latestCardNonce = initialCardNonce
         val master = try {
@@ -1885,11 +2145,16 @@ object TapsignerNfcReader {
             )
         }
         val masterPubkey = master.xpub.copyOfRange(45, 78)
-        if (!MessageDigest.isEqual(masterPubkey, deriveProof.masterPubkey)) {
-            masterPubkey.fill(0)
-            error("TAPSIGNER master xpub did not match the nonce-verified derivation response")
-        }
+        val masterChainCode = master.xpub.copyOfRange(13, 45)
+        CoinkiteTapCardVerifier.verifyTapsignerDerive(
+            previousCardNonce = derivePreviousCardNonce,
+            requestNonce = deriveRequestNonce,
+            derive = deriveProof,
+            masterPubkey = masterPubkey,
+            masterChainCode = masterChainCode
+        )
         val fingerprint = CoinkiteTapCardVerifier.fingerprintHexFromPublicKey(masterPubkey)
+        masterChainCode.fill(0)
         latestCardNonce = master.cardNonce ?: readStatusNonce(isoDep)
 
         val account = try {
@@ -1909,13 +2174,19 @@ object TapsignerNfcReader {
             }
             throw e
         }
-        TapsignerTapProtocol.requireTapsignerXpubBinding(
-            xpub = account.xpub,
+        val xpub = canonicalTapsignerAccountXpub(
+            returnedXpub = account.xpub,
             expectedChainCode = deriveProof.chainCode,
-            expectedPubkey = deriveProof.pubkey
+            expectedPubkey = deriveProof.pubkey,
+            expectedPath = expectedPath,
+            isTestnet = expectedIsTestnet
         )
-        val xpub = account.xpub.base58CheckEncode()
+        // Retain the already validated card encoding only for matching wallets
+        // imported by older Clench builds, which preserved Coinkite's parent-
+        // fingerprint placeholder verbatim. New imports always use `xpub`.
+        val cardReturnedXpub = account.xpub.base58CheckEncode()
         val status = selectOrReadStatus(isoDep)
+        requireTapsignerNetwork(status.isTestnet, expectedIsTestnet)
         val refreshedPath = status.displayPath
             ?: error("TAPSIGNER did not report a derivation path after authenticated derive")
         if (reportedPath != null && refreshedPath != reportedPath) {
@@ -1925,9 +2196,11 @@ object TapsignerNfcReader {
         val originWrapped = "[$fingerprint/$originPath]$xpub"
         return TapsignerAccountXpubResult(
             xpub = xpub,
+            cardReturnedXpub = cardReturnedXpub,
             originWrappedXpub = originWrapped,
             masterFingerprint = fingerprint,
             derivationPath = refreshedPath,
+            isTestnet = expectedIsTestnet,
             summary = "$summaryPrefix: path $refreshedPath, fingerprint ${fingerprint.uppercase(Locale.US)}"
         )
     }
@@ -1998,8 +2271,118 @@ object TapsignerNfcReader {
         return listOf(84L, if (isTestnet) 1L else 0L, 0L).map { it or HARDENED_FLAG }
     }
 
+    /**
+     * Direct payment signing is intentionally narrower than generic xpub import.
+     * Fail closed unless the card is on the standard single-signature BIP84
+     * account-zero path for the network reported by its status response.
+     */
+    internal fun requireSingleSigSigningPath(status: CoinkiteTapCardStatus): List<Long> {
+        val actualPath = status.derivationPath
+            ?: error("This TAPSIGNER has not been set up yet")
+        val isTestnet = status.isTestnet == true
+        val expectedPath = singleSigAccountPath(isTestnet)
+        if (actualPath != expectedPath) {
+            val network = if (isTestnet) "testnet" else "mainnet"
+            error(
+                "TAPSIGNER payment signing requires the $network BIP84 account-0 path " +
+                    "${formatDerivationPath(expectedPath)}; card reported " +
+                    formatDerivationPath(actualPath)
+            )
+        }
+        return actualPath
+    }
+
     internal fun multisigAccountPath(isTestnet: Boolean): List<Long> {
         return listOf(48L, if (isTestnet) 1L else 0L, 0L, 2L).map { it or HARDENED_FLAG }
+    }
+
+    internal fun requireTapsignerNetwork(
+        cardIsTestnet: Boolean?,
+        expectedIsTestnet: Boolean
+    ) {
+        val actualIsTestnet = cardIsTestnet == true
+        if (actualIsTestnet == expectedIsTestnet) return
+        val cardNetwork = if (actualIsTestnet) "testnet" else "mainnet"
+        val clenchNetwork = if (expectedIsTestnet) "testnet" else "mainnet"
+        error(
+            "TAPSIGNER is configured for $cardNetwork, but Clench is set to " +
+                "$clenchNetwork. Switch Clench to $cardNetwork and retry."
+        )
+    }
+
+    /**
+     * Serialize only the account metadata Clench has independently established:
+     * card/app network, hardened account path, and the chain code/public key bound
+     * by the encrypted child-key proof. Coinkite uses a zero parent fingerprint
+     * placeholder for derived xpubs, so that unauthenticated header field is not
+     * copied from the card response.
+     */
+    internal fun canonicalTapsignerAccountXpub(
+        returnedXpub: ByteArray,
+        expectedChainCode: ByteArray,
+        expectedPubkey: ByteArray,
+        expectedPath: List<Long>,
+        isTestnet: Boolean
+    ): String {
+        TapsignerTapProtocol.requireTapsignerXpubBinding(
+            xpub = returnedXpub,
+            expectedChainCode = expectedChainCode,
+            expectedPubkey = expectedPubkey
+        )
+        require(expectedPath.isNotEmpty() && expectedPath.size <= 255) {
+            "TAPSIGNER account path must contain between 1 and 255 components"
+        }
+        require(expectedPath.all { it in 0..0xffff_ffffL }) {
+            "TAPSIGNER account path contains an invalid component"
+        }
+
+        val mainnetVersion = byteArrayOf(0x04, 0x88.toByte(), 0xB2.toByte(), 0x1E)
+        val testnetVersion = byteArrayOf(0x04, 0x35, 0x87.toByte(), 0xCF.toByte())
+        val expectedVersion = if (isTestnet) testnetVersion else mainnetVersion
+        val oppositeVersion = if (isTestnet) mainnetVersion else testnetVersion
+        val returnedVersion = returnedXpub.copyOfRange(0, 4)
+        try {
+            when {
+                MessageDigest.isEqual(returnedVersion, expectedVersion) -> Unit
+                MessageDigest.isEqual(returnedVersion, oppositeVersion) -> {
+                    error("TAPSIGNER xpub network did not match its card status")
+                }
+                else -> error("TAPSIGNER returned an unsupported account xpub version")
+            }
+        } finally {
+            returnedVersion.fill(0)
+        }
+
+        val expectedDepth = expectedPath.size
+        val returnedDepth = returnedXpub[4].toInt() and 0xff
+        if (returnedDepth != expectedDepth) {
+            error("TAPSIGNER xpub depth did not match its account path")
+        }
+        val expectedChild = expectedPath.last()
+        val returnedChild = ((returnedXpub[9].toLong() and 0xffL) shl 24) or
+            ((returnedXpub[10].toLong() and 0xffL) shl 16) or
+            ((returnedXpub[11].toLong() and 0xffL) shl 8) or
+            (returnedXpub[12].toLong() and 0xffL)
+        if (returnedChild != expectedChild) {
+            error("TAPSIGNER xpub child number did not match its account path")
+        }
+
+        val canonical = ByteArray(78)
+        expectedVersion.copyInto(canonical, destinationOffset = 0)
+        canonical[4] = expectedDepth.toByte()
+        // Bytes 5..8 intentionally remain zero: Coinkite cannot report the
+        // immediate hardened parent's fingerprint for a public account xpub.
+        canonical[9] = (expectedChild ushr 24).toByte()
+        canonical[10] = (expectedChild ushr 16).toByte()
+        canonical[11] = (expectedChild ushr 8).toByte()
+        canonical[12] = expectedChild.toByte()
+        expectedChainCode.copyInto(canonical, destinationOffset = 13)
+        expectedPubkey.copyInto(canonical, destinationOffset = 45)
+        return try {
+            canonical.base58CheckEncode()
+        } finally {
+            canonical.fill(0)
+        }
     }
 
     internal fun formatDerivationPath(path: List<Long>): String {

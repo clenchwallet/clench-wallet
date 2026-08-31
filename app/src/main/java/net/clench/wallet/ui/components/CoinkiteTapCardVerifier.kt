@@ -2,6 +2,8 @@ package net.clench.wallet.ui.components
 
 import java.math.BigInteger
 import java.security.MessageDigest
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import org.bouncycastle.asn1.sec.SECNamedCurves
 import org.bouncycastle.crypto.digests.RIPEMD160Digest
 import org.bouncycastle.crypto.params.ECDomainParameters
@@ -87,24 +89,100 @@ object CoinkiteTapCardVerifier {
     }
 
     /**
-     * Verify the TAPSIGNER derive proof exactly as specified by Coinkite:
-     * SHA256("OPENDIME" || previous_card_nonce || app_nonce || chain_code),
-     * signed by the derived key returned for the requested hardened path.
+     * Verify the derive attestation emitted by production TAPSIGNER cards:
+     * the master chain code is signed by the master key.
      *
-     * The caller must still bind the later account xpub to [derive]'s chain
-     * code and public key before importing it.
+     * The published protocol/emulator instead signs the derived tuple. Clench
+     * intentionally does not accept that profile for a non-empty hardened
+     * path because it cannot authenticate the master xpub/fingerprint. At `m`
+     * both profiles collapse to the same key and chain code and this check
+     * still succeeds.
+     *
+     * This is a self-attestation: it checks the response transcript but does
+     * not cryptographically tie the master fingerprint to the factory card
+     * identity. Card identity is checked separately, and the local NFC
+     * transport remains the trust boundary for master-origin metadata.
+     *
+     * The production attestation does not authenticate every returned derived
+     * field, so the caller must also prove a child of [derive]'s public key and
+     * chain code with a fresh encrypted `sign` challenge, then bind the later
+     * account xpub to that tuple before importing it.
      */
     fun verifyTapsignerDerive(
         previousCardNonce: ByteArray,
         requestNonce: ByteArray,
-        derive: TapsignerDeriveResult
+        derive: TapsignerDeriveResult,
+        masterPubkey: ByteArray,
+        masterChainCode: ByteArray
     ) {
         require(previousCardNonce.size == 16) { "TAPSIGNER previous card nonce was invalid" }
         require(requestNonce.size == 16) { "TAPSIGNER derive request nonce was invalid" }
-        val msg = "OPENDIME".toByteArray(Charsets.US_ASCII) +
-            previousCardNonce + requestNonce + derive.chainCode
-        if (!verifyEcdsa(derive.pubkey, sha256(msg), derive.signature)) {
+        require(masterPubkey.size == 33) { "TAPSIGNER master public key was invalid" }
+        require(masterChainCode.size == 32) { "TAPSIGNER master chain code was invalid" }
+        val masterPoint = runCatching { domain.curve.decodePoint(masterPubkey).normalize() }.getOrNull()
+        if (masterPubkey[0] != 0x02.toByte() && masterPubkey[0] != 0x03.toByte() ||
+            masterPoint == null || masterPoint.isInfinity
+        ) {
+            error("TAPSIGNER master public key was invalid")
+        }
+        if (!MessageDigest.isEqual(masterPubkey, derive.masterPubkey)) {
+            error("TAPSIGNER master xpub did not match the derivation response")
+        }
+
+        val prefix = "OPENDIME".toByteArray(Charsets.US_ASCII) +
+            previousCardNonce + requestNonce
+        val productionDigest = sha256(prefix + masterChainCode)
+        if (!verifyEcdsa(masterPubkey, productionDigest, derive.signature)) {
             error("TAPSIGNER derive signature did not verify")
+        }
+    }
+
+    /**
+     * Derive one or more non-hardened BIP32 public children. This is used to
+     * bind both halves of an account xpub to a card-only signing proof.
+     */
+    internal fun deriveUnhardenedPublicKey(
+        parentPubkey: ByteArray,
+        parentChainCode: ByteArray,
+        subpath: List<Long>
+    ): ByteArray {
+        require(parentPubkey.size == 33) { "TAPSIGNER parent public key was invalid" }
+        require(parentChainCode.size == 32) { "TAPSIGNER parent chain code was invalid" }
+        require(subpath.isNotEmpty() && subpath.size <= 2) {
+            "TAPSIGNER proof subpath must contain one or two components"
+        }
+        require(subpath.all { it in 0 until 0x8000_0000L }) {
+            "TAPSIGNER proof subpath must be unhardened"
+        }
+
+        var point = runCatching { domain.curve.decodePoint(parentPubkey).normalize() }
+            .getOrElse { error("TAPSIGNER parent public key was invalid") }
+        var chainCode = parentChainCode.copyOf()
+        try {
+            subpath.forEach { childNumber ->
+                val childBytes = byteArrayOf(
+                    (childNumber ushr 24).toByte(),
+                    (childNumber ushr 16).toByte(),
+                    (childNumber ushr 8).toByte(),
+                    childNumber.toByte()
+                )
+                val data = point.getEncoded(true) + childBytes
+                val mac = Mac.getInstance("HmacSHA512")
+                mac.init(SecretKeySpec(chainCode, "HmacSHA512"))
+                val output = mac.doFinal(data)
+                val tweak = BigInteger(1, output.copyOfRange(0, 32))
+                if (tweak == BigInteger.ZERO || tweak >= domain.n) {
+                    error("TAPSIGNER proof child derivation was invalid")
+                }
+                point = domain.g.multiply(tweak).add(point).normalize()
+                if (point.isInfinity) error("TAPSIGNER proof child derivation was invalid")
+                chainCode.fill(0)
+                chainCode = output.copyOfRange(32, 64)
+                output.fill(0)
+            }
+            return point.getEncoded(true)
+        } finally {
+            chainCode.fill(0)
         }
     }
 

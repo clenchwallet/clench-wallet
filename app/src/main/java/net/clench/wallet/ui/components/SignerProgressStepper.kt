@@ -35,7 +35,7 @@ internal object SignerProgressPresentation {
         HardwareWalletType.COLDCARD_Q -> "Use BBQr, NFC, or microSD; verify every output on Coldcard Q before returning the signed PSBT."
         HardwareWalletType.COLDCARD_MK4, HardwareWalletType.COLDCARD_MK5 ->
             "Use an intentional NFC tap or a user-selected microSD file; verify every output on Coldcard before returning the signed PSBT."
-        HardwareWalletType.TAPSIGNER -> "Direct transaction signing is unavailable. NFC status checks do not sign or approve this PSBT."
+        HardwareWalletType.TAPSIGNER -> "Review the complete payment in Clench, enter the TAPSIGNER PIN, then keep the screenless NFC signer against the phone while each input is signed."
         HardwareWalletType.JADE -> "Scan the BC-UR PSBT, verify outputs on Jade, then scan Jade's signed PSBT back."
     }
 
