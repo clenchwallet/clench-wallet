@@ -1,17 +1,23 @@
 package net.clench.wallet.ui.components
 
+import com.sparrowwallet.hummingbird.UR
 import com.sparrowwallet.hummingbird.registry.CryptoECKey
 import com.sparrowwallet.hummingbird.registry.CryptoHDKey
 import com.sparrowwallet.hummingbird.registry.CryptoOutput
 import com.sparrowwallet.hummingbird.registry.MultiKey
+import com.sparrowwallet.hummingbird.registry.RegistryType
 import com.sparrowwallet.hummingbird.registry.ScriptExpression
 import com.sparrowwallet.hummingbird.registry.URHDKey
 import com.sparrowwallet.hummingbird.registry.URKeypath
 import com.sparrowwallet.hummingbird.registry.UROutputDescriptor
+import com.sparrowwallet.hummingbird.registry.URPSBT
 import com.sparrowwallet.hummingbird.registry.pathcomponent.IndexPathComponent
 import com.sparrowwallet.hummingbird.registry.pathcomponent.PairPathComponent
 import com.sparrowwallet.hummingbird.registry.pathcomponent.PathComponent
 import com.sparrowwallet.hummingbird.registry.pathcomponent.WildcardPathComponent
+import java.io.ByteArrayOutputStream
+import java.math.BigInteger
+import java.util.Base64
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -20,6 +26,154 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HardwareWalletQrPayloadDecoderTest {
+
+    @Test
+    fun `bytes UR normalizes binary PSBT to base64`() {
+        val psbt = validPsbt()
+        val ur = UR.fromBytes(RegistryType.BYTES.toString(), psbt)
+
+        assertEquals(
+            Base64.getEncoder().encodeToString(psbt),
+            HardwareWalletQrPayloadDecoder.decodeUrPayload(ur)
+        )
+    }
+
+    @Test
+    fun `bytes UR normalizes binary transaction to base64`() {
+        val transaction = validTransaction()
+        val ur = UR.fromBytes(RegistryType.BYTES.toString(), transaction)
+
+        assertEquals(
+            Base64.getEncoder().encodeToString(transaction),
+            HardwareWalletQrPayloadDecoder.decodeUrPayload(ur)
+        )
+    }
+
+    @Test
+    fun `bytes UR preserves strict UTF-8 text`() {
+        val ur = UR.fromBytes(
+            RegistryType.BYTES.toString(),
+            "  wpkh([AABBCCDD/84'/0'/0']xpub6Example/0/*)\n".toByteArray()
+        )
+
+        assertEquals(
+            "wpkh([AABBCCDD/84'/0'/0']xpub6Example/0/*)",
+            HardwareWalletQrPayloadDecoder.decodeUrPayload(ur)
+        )
+    }
+
+    @Test
+    fun `bytes UR rejects unrecognized non-UTF8 binary`() {
+        val ur = UR.fromBytes(
+            RegistryType.BYTES.toString(),
+            byteArrayOf(0xff.toByte(), 0xfe.toByte(), 0xfd.toByte())
+        )
+
+        assertNull(HardwareWalletQrPayloadDecoder.decodeUrPayload(ur))
+    }
+
+    @Test
+    fun `bytes UR rejects control-byte payload that is not a transaction`() {
+        val ur = UR.fromBytes(
+            RegistryType.BYTES.toString(),
+            byteArrayOf(0x01, 0x02, 0x03, 0x04)
+        )
+
+        assertNull(HardwareWalletQrPayloadDecoder.decodeUrPayload(ur))
+    }
+
+    @Test
+    fun `deprecated PSBT registry type decodes to base64`() {
+        val psbt = validPsbt()
+
+        assertEquals(
+            Base64.getEncoder().encodeToString(psbt),
+            HardwareWalletQrPayloadDecoder.decodeUrPayload(URPSBT(psbt).toUR())
+        )
+    }
+
+    @Test
+    fun `deprecated PSBT registry type rejects malformed PSBT`() {
+        assertNull(
+            HardwareWalletQrPayloadDecoder.decodeUrPayload(
+                URPSBT(byteArrayOf(0x70, 0x73, 0x62, 0x74, 0xff.toByte())).toUR()
+            )
+        )
+    }
+
+    @Test
+    fun `static Base43 PSBT normalizes to base64`() {
+        val psbt = validPsbt()
+
+        assertEquals(
+            Base64.getEncoder().encodeToString(psbt),
+            HardwareWalletQrPayloadDecoder.normalizeStaticPayload(base43Encode(psbt))
+        )
+    }
+
+    @Test
+    fun `static Base43 transaction normalizes to base64`() {
+        val transaction = validTransaction()
+
+        assertEquals(
+            Base64.getEncoder().encodeToString(transaction),
+            HardwareWalletQrPayloadDecoder.normalizeStaticPayload(base43Encode(transaction))
+        )
+    }
+
+    @Test
+    fun `static payload normalizer preserves malformed and unrecognized Base43`() {
+        assertEquals(
+            "not-a-descriptor",
+            HardwareWalletQrPayloadDecoder.normalizeStaticPayload("  not-a-descriptor  ")
+        )
+        assertEquals("0000", HardwareWalletQrPayloadDecoder.normalizeStaticPayload("0000"))
+
+        val truncatedTransaction = base43Encode(validTransaction().dropLast(1).toByteArray())
+        assertEquals(
+            truncatedTransaction,
+            HardwareWalletQrPayloadDecoder.normalizeStaticPayload(truncatedTransaction)
+        )
+    }
+
+    @Test
+    fun `static Base43 decoding is bounded`() {
+        val oversized = "0".repeat(4_297)
+
+        assertEquals(oversized, HardwareWalletQrPayloadDecoder.normalizeStaticPayload(oversized))
+    }
+
+    @Test
+    fun `single-key crypto output preserves nested SegWit descriptor expressions`() {
+        val output = CryptoOutput(
+            listOf(ScriptExpression.SCRIPT_HASH, ScriptExpression.WITNESS_PUBLIC_KEY_HASH),
+            testKey(1)
+        )
+
+        val decoded = HardwareWalletQrPayloadDecoder.decodeUrPayload(output.toUR())
+
+        assertNotNull(decoded)
+        assertTrue(decoded!!.startsWith("sh(wpkh([AABBCC01/48'/0'/0'/2']xpub"))
+        assertTrue(decoded.endsWith("/0/*))"))
+    }
+
+    @Test
+    fun `single-key crypto output preserves Taproot descriptor expression`() {
+        val output = CryptoOutput(listOf(ScriptExpression.TAPROOT), testKey(1))
+
+        val decoded = HardwareWalletQrPayloadDecoder.decodeUrPayload(output.toUR())
+
+        assertNotNull(decoded)
+        assertTrue(decoded!!.startsWith("tr([AABBCC01/48'/0'/0'/2']xpub"))
+        assertTrue(decoded.endsWith("/0/*)"))
+    }
+
+    @Test
+    fun `single-key crypto output rejects unsupported descriptor expression`() {
+        val output = CryptoOutput(listOf(ScriptExpression.COMBO), testKey(1))
+
+        assertNull(HardwareWalletQrPayloadDecoder.decodeUrPayload(output.toUR()))
+    }
 
     @Test
     fun `crypto output multisig decodes to full sortedmulti descriptor`() {
@@ -133,5 +287,51 @@ class HardwareWalletQrPayloadDecoderTest {
             ),
             null
         )
+    }
+
+    private fun validPsbt(): ByteArray {
+        val transaction = validTransaction()
+        return ByteArrayOutputStream().apply {
+            write(byteArrayOf(0x70, 0x73, 0x62, 0x74, 0xff.toByte()))
+            write(1) // global key length
+            write(0) // unsigned transaction key type
+            write(transaction.size)
+            write(transaction)
+            write(0) // global separator
+            write(0) // input-map separator
+            write(0) // output-map separator
+        }.toByteArray()
+    }
+
+    private fun validTransaction(): ByteArray {
+        return hexToBytes(
+            "01000000" +
+                "01" +
+                "00".repeat(32) +
+                "ffffffff" +
+                "00" +
+                "ffffffff" +
+                "01" +
+                "0000000000000000" +
+                "00" +
+                "00000000"
+        )
+    }
+
+    private fun hexToBytes(hex: String): ByteArray {
+        return hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    }
+
+    private fun base43Encode(bytes: ByteArray): String {
+        val alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ\$*+-./:"
+        var value = BigInteger(1, bytes)
+        val encoded = StringBuilder()
+        while (value > BigInteger.ZERO) {
+            val quotientAndRemainder = value.divideAndRemainder(BigInteger.valueOf(43))
+            value = quotientAndRemainder[0]
+            encoded.append(alphabet[quotientAndRemainder[1].toInt()])
+        }
+        bytes.takeWhile { it == 0.toByte() }.forEach { _ -> encoded.append('0') }
+        return encoded.reverse().toString()
     }
 }

@@ -1548,7 +1548,7 @@ object TapsignerNfcReader {
     }
 
     /**
-     * Direct TAPSIGNER signing for native-SegWit single-signature inputs.
+     * Direct TAPSIGNER signing for supported native-SegWit inputs.
      * The card remains in the RF field while Clench signs every eligible
      * input, with a fresh authenticated command and nonce for each input. The
      * returned PSBT still passes through Clench's normal signature-only merge,
@@ -1565,7 +1565,7 @@ object TapsignerNfcReader {
                 var status = selectOrReadStatus(isoDep)
             if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
             if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
-            val accountPath = requireSingleSigSigningPath(status)
+            val accountPath = requireSupportedSigningPath(status)
             if ((status.authDelaySeconds ?: 0L) > 0L) {
                 clearCoinkiteAuthDelay(isoDep, status.authDelaySeconds!!, "TAPSIGNER")
                 status = TapsignerTapProtocol.parseStatusResponse(
@@ -1573,7 +1573,7 @@ object TapsignerNfcReader {
                 )
                 if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
                 if (status.isTampered == true) error("TAPSIGNER tamper warning is set")
-                if (requireSingleSigSigningPath(status) != accountPath) {
+                if (requireSupportedSigningPath(status) != accountPath) {
                     error("TAPSIGNER derivation path changed before signing")
                 }
             }
@@ -1623,7 +1623,7 @@ object TapsignerNfcReader {
                         val refreshed = TapsignerTapProtocol.parseStatusResponse(
                             isoDep.transceive(TapsignerTapProtocol.statusCommand())
                         )
-                        requireSingleSigSigningPath(refreshed)
+                        requireSupportedSigningPath(refreshed)
                         val nextNonce = requireTapsignerContinuity(
                             status = refreshed,
                             expectedCardPubkey = cardPubkey,
@@ -1646,7 +1646,7 @@ object TapsignerNfcReader {
             val finalStatus = TapsignerTapProtocol.parseStatusResponse(
                 isoDep.transceive(TapsignerTapProtocol.statusCommand())
             )
-            requireSingleSigSigningPath(finalStatus)
+            requireSupportedSigningPath(finalStatus)
             val finalNonce = requireTapsignerContinuity(
                 status = finalStatus,
                 expectedCardPubkey = cardPubkey,
@@ -2273,19 +2273,21 @@ object TapsignerNfcReader {
 
     /**
      * Direct payment signing is intentionally narrower than generic xpub import.
-     * Fail closed unless the card is on the standard single-signature BIP84
-     * account-zero path for the network reported by its status response.
+     * Fail closed unless the card is on the network's standard account-zero path
+     * for either BIP84 single-signature or BIP48 native-SegWit multisig.
      */
-    internal fun requireSingleSigSigningPath(status: CoinkiteTapCardStatus): List<Long> {
+    internal fun requireSupportedSigningPath(status: CoinkiteTapCardStatus): List<Long> {
         val actualPath = status.derivationPath
             ?: error("This TAPSIGNER has not been set up yet")
         val isTestnet = status.isTestnet == true
-        val expectedPath = singleSigAccountPath(isTestnet)
-        if (actualPath != expectedPath) {
+        val singleSigPath = singleSigAccountPath(isTestnet)
+        val multisigPath = multisigAccountPath(isTestnet)
+        if (actualPath != singleSigPath && actualPath != multisigPath) {
             val network = if (isTestnet) "testnet" else "mainnet"
             error(
                 "TAPSIGNER payment signing requires the $network BIP84 account-0 path " +
-                    "${formatDerivationPath(expectedPath)}; card reported " +
+                    "${formatDerivationPath(singleSigPath)} or BIP48 native-SegWit " +
+                    "multisig account-0 path ${formatDerivationPath(multisigPath)}; card reported " +
                     formatDerivationPath(actualPath)
             )
         }

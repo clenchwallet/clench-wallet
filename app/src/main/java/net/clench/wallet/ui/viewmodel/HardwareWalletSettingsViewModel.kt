@@ -28,11 +28,15 @@ class HardwareWalletSettingsViewModel @Inject constructor(
     private val deviceLabels = mapOf(
         "SEEDSIGNER" to "SeedSigner",
         "KEYSTONE" to "Keystone",
+        "ONEKEY_PRO" to "OneKey Pro",
+        "KRUX" to "Krux",
+        "SPECTER_DIY" to "Specter DIY",
         "PASSPORT" to "Foundation Passport", // legacy saved value
         "FOUNDATION_PASSPORT" to "Foundation Passport",
         "COLDCARD_Q" to "Coldcard Q",
         "COLDCARD_MK4" to "Coldcard Mk4",
         "COLDCARD_MK5" to "Coldcard Mk5",
+        "TAPSIGNER" to "TAPSIGNER",
         "JADE" to "Blockstream Jade"
     )
 

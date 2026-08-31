@@ -14,11 +14,11 @@ The static source for [clench.net](https://clench.net/) is in [`website/`](websi
 - Testnet support
 
 ### Hardware Wallet Signing — Without USB or Bluetooth
-- **QR-based:** SeedSigner, Keystone, Foundation Passport, Blockstream Jade
+- **QR-based:** SeedSigner, Keystone, Foundation Passport, Blockstream Jade, OneKey Pro, Krux, and Specter DIY. Krux and Specter DIY also support a user-selected microSD/file PSBT round trip.
 - **Coldcard Q:** BBQr QR, NFC, and file-based PSBT transfer
 - **Coldcard Mk4/Mk5:** NFC or user-selected file/microSD PSBT transfer
-- **TAPSIGNER:** Set up, import, verify, back up, and directly sign single-signature BIP-84 native-SegWit payments over NFC. Clench reviews the complete payment before the tap, verifies every returned signature, and never auto-broadcasts. Taproot, legacy, nested-SegWit, and multisig-cosigner TAPSIGNER signing are not supported.
-- **SATSCARD:** NFC Tap Protocol status checks plus certificate-verified, CVC-authenticated active-slot unseal and sweep
+- **TAPSIGNER:** Set up, import, verify, back up, and directly sign PSBT-v0 BIP-84 P2WPKH single-signature or standard BIP-48 native-SegWit P2WSH multisig inputs over NFC with `SIGHASH_ALL`. Clench reviews the complete payment before the tap, verifies returned and existing policy-member signatures, merges atomically, and never auto-broadcasts. Taproot, legacy, nested-SegWit, nonstandard P2WSH, other account paths, and PIN change are not supported.
+- **SATSCARD:** NFC status plus certificate-verified, CVC-authenticated active-slot funding, unseal, and sweep. A sealed SATSCARD slot cannot sign, and Clench does not present SATSCARD as a general PSBT or multisig signer.
 - **Signed-return support:** signed PSBT import, plus finalized transaction returns where supported
 - Explicit broadcast confirmation after hardware-wallet signing
 - Full PSBT (BIP-174) workflow
@@ -29,6 +29,10 @@ by the user. A signer may still use a USB cable for power. With a screen-equippe
 signer, review the transaction on that device. TAPSIGNER is screenless, so its
 transaction details must be reviewed carefully in Clench before entering the
 PIN and tapping the card.
+
+The OneKey Pro, Krux, Specter DIY, and TAPSIGNER multisig paths have automated
+coverage but still require recorded physical-device acceptance before release
+compatibility claims.
 
 ### Privacy
 - **Tor support for Electrum** — route wallet sync traffic through a SOCKS5 proxy
@@ -97,7 +101,8 @@ Release trust docs:
 - [Security hardening](docs/security/security-hardening.md)
 - [v0.3.27 TAPSIGNER security review](docs/security/security-review-v0.3.27.md)
 - [Audit path](docs/security/audit-path.md)
-- [Coinkite compatible-wallet listing readiness](docs/qa/coinkite-wallet-list-readiness.md)
+- [v0.3.27 Coinkite compatible-wallet listing-readiness assessment](docs/qa/coinkite-wallet-list-readiness.md)
+- [Post-v0.3.27 hardware development gates](docs/qa/post-v0.3.27-hardware-gates.md)
 
 ## Architecture
 

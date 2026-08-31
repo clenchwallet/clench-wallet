@@ -1216,8 +1216,7 @@ private fun TapsignerMultisigControls(
 }
 
 private fun supportsMultisigSignerFile(device: HardwareWalletType): Boolean {
-    return device.connectionMethod.contains("File") ||
-        device.connectionMethod.contains("SD")
+    return device.supportsFileTransfer
 }
 
 @Composable
@@ -1285,6 +1284,9 @@ private fun signerImportHint(device: HardwareWalletType?): String {
         HardwareWalletType.COLDCARD_MK5 -> "Use the Coldcard multisig/xpub export for this cosigner. Clench accepts origin-wrapped keys such as [fingerprint/path]xpub..."
         HardwareWalletType.SEEDSIGNER -> "Use SeedSigner multisig BIP48 export. Animated QR is preferred; paste is available as fallback."
         HardwareWalletType.KEYSTONE,
+        HardwareWalletType.ONEKEY_PRO,
+        HardwareWalletType.KRUX,
+        HardwareWalletType.SPECTER_DIY,
         HardwareWalletType.FOUNDATION_PASSPORT -> "Use the device's multisig account/export QR or file for this signer."
         HardwareWalletType.JADE -> "Use Jade's account xpub export for the BIP48 multisig path."
         HardwareWalletType.TAPSIGNER -> "Tap TAPSIGNER to import its BIP48 multisig cosigner key. Clench will not use the single-sig m/84 account in this multisig flow."

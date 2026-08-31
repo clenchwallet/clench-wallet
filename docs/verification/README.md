@@ -38,11 +38,11 @@ count greater than that case index.
 | Surface | Simulator / fixture | Required invariant |
 | --- | --- | --- |
 | PSBT / BIP-174 and BIP-370 framing | Generated key-value maps, mutations, duplicate keys, non-canonical/truncated CompactSize values | Reject malformed or oversized framing before BDK; never accept a duplicate key in one map |
-| Animated QR / BBQr | Random binary round trips, shuffled frames, mixed streams, conflicting duplicates, bad encodings/indexes/alignment, arbitrary text | Reassemble exactly one bounded canonical stream or fail closed |
+| Animated QR / UR / BBQr / Base43 | BC-UR v2, legacy UR v1, `ur:psbt`, `ur:bytes`, BBQr, and bounded static Base43 PSBT/transaction fixtures; shuffled, mixed, conflicting, and malformed streams | Normalize one bounded, structurally valid payload or fail closed; never carry state across conflicting sessions |
 | Coldcard NFC / NDEF | Mocked binary PSBT/transaction, checksum, duplicate-record, excessive-record, and oversized-record messages | Accept one bounded structurally valid signing payload; reject ambiguous payloads and missing, duplicate, or mismatched integrity evidence |
 | NFC / APDU transport | Deterministic interrupted-response simulator plus arbitrary response corpus | Truncated or oversized responses never enter protocol state; retry begins from fresh state |
 | SATSCARD | Deterministic status/read/certs/dump responses plus duplicate-key, wrong-type, recursive, malformed-indefinite, and semantically hostile CBOR | Enforce one break-aware, depth-bounded CBOR root and bounded signatures, keys, nonces, chain, slots, address, and delays |
-| TAPSIGNER | Deterministic status/wait/derive/xpub/sign responses; production-card derive transcripts; documented-profile rejection; indefinite CBOR; BIP-143 vectors; path/key/signature substitution; Android BDK descriptor preflight | Enforce bounded CBOR and card continuity; bind the BIP-84 account through the master transcript plus encrypted child proof; accept only owned PSBT-v0 P2WPKH `SIGHASH_ALL` inputs and verified low-S signatures; preserve the reviewed transaction |
+| TAPSIGNER | Deterministic status/wait/derive/xpub/sign responses; production-card derive transcripts; documented-profile rejection; indefinite CBOR; BIP-143 P2WPKH/P2WSH vectors; witness-script mismatch; mixed cosigner origins; existing-partial and atomic multi-input cases; path/key/signature substitution; Android BDK descriptor preflight | Enforce bounded CBOR and card continuity; bind BIP-84 account zero or BIP-48 native-P2WSH multisig account zero through the master transcript plus encrypted child proof; accept only owned PSBT-v0 `SIGHASH_ALL` inputs; validate and preserve policy-member low-S signatures; merge atomically without changing the reviewed transaction |
 | Multisig | Generated M-of-N descriptors, invalid thresholds, excessive signer sets, duplicate origins/branches, arbitrary descriptor text | Each policy has 2–20 independent public signers and a threshold inside the signer set |
 | Storage corruption | Bounded import overflow, quarantine namespace attacks, corrupt-state rollback fixtures | Never consume unbounded storage input; preserve or restore the original state on failure |
 | Fee attacks | Generated absolute/relative fees, threshold boundaries, negative/non-finite/overflow metadata | Invalid metadata or policy excess is blocked; warning/rejection thresholds are monotonic |
@@ -89,7 +89,8 @@ The Coinkite simulator validates Clench's APDU framing, CBOR parsing, bounds, re
 - NFC field strength, antenna alignment, Android tag-dispatch behavior, or removal timing.
 - Coinkite factory certificate authenticity or secure-element cryptography.
 - Correct behavior of a specific SATSCARD/TAPSIGNER firmware revision.
-- Coldcard, SeedSigner, Keystone, Passport, or Jade interoperability.
+- Coldcard, SeedSigner, Keystone, Passport, Jade, OneKey Pro, Krux, or Specter DIY interoperability.
+- Physical TAPSIGNER BIP-48/P2WSH multisig interoperability.
 
 Those are physical gates, recorded separately rather than converted into automated claims.
 

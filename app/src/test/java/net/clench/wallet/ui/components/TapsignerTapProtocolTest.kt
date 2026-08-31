@@ -258,36 +258,39 @@ class TapsignerTapProtocolTest {
     }
 
     @Test
-    fun `Tapsigner payment signing requires network BIP84 account zero`() {
+    fun `Tapsigner payment signing accepts network BIP84 and native Segwit BIP48 account zero`() {
         val mainnetPath = TapsignerNfcReader.singleSigAccountPath(isTestnet = false)
         val testnetPath = TapsignerNfcReader.singleSigAccountPath(isTestnet = true)
+        val mainnetMultisigPath = TapsignerNfcReader.multisigAccountPath(isTestnet = false)
+        val testnetMultisigPath = TapsignerNfcReader.multisigAccountPath(isTestnet = true)
 
         assertEquals(
             mainnetPath,
-            TapsignerNfcReader.requireSingleSigSigningPath(
+            TapsignerNfcReader.requireSupportedSigningPath(
                 tapsignerSigningStatus(path = mainnetPath, isTestnet = false)
             )
         )
         assertEquals(
             testnetPath,
-            TapsignerNfcReader.requireSingleSigSigningPath(
+            TapsignerNfcReader.requireSupportedSigningPath(
                 tapsignerSigningStatus(path = testnetPath, isTestnet = true)
             )
         )
-
-        val bip48 = assertThrows(IllegalStateException::class.java) {
-            TapsignerNfcReader.requireSingleSigSigningPath(
-                tapsignerSigningStatus(
-                    path = TapsignerNfcReader.multisigAccountPath(isTestnet = false),
-                    isTestnet = false
-                )
+        assertEquals(
+            mainnetMultisigPath,
+            TapsignerNfcReader.requireSupportedSigningPath(
+                tapsignerSigningStatus(path = mainnetMultisigPath, isTestnet = false)
             )
-        }
-        assertTrue(bip48.message.orEmpty().contains("BIP84 account-0"))
-        assertTrue(bip48.message.orEmpty().contains("m/48'/0'/0'/2'"))
+        )
+        assertEquals(
+            testnetMultisigPath,
+            TapsignerNfcReader.requireSupportedSigningPath(
+                tapsignerSigningStatus(path = testnetMultisigPath, isTestnet = true)
+            )
+        )
 
         val customAccount = assertThrows(IllegalStateException::class.java) {
-            TapsignerNfcReader.requireSingleSigSigningPath(
+            TapsignerNfcReader.requireSupportedSigningPath(
                 tapsignerSigningStatus(
                     path = listOf(0x8000_0054L, 0x8000_0000L, 0x8000_0001L),
                     isTestnet = false
@@ -295,15 +298,17 @@ class TapsignerTapProtocolTest {
             )
         }
         assertTrue(customAccount.message.orEmpty().contains("m/84'/0'/0'"))
+        assertTrue(customAccount.message.orEmpty().contains("m/48'/0'/0'/2'"))
         assertTrue(customAccount.message.orEmpty().contains("m/84'/0'/1'"))
 
         val wrongNetworkPath = assertThrows(IllegalStateException::class.java) {
-            TapsignerNfcReader.requireSingleSigSigningPath(
+            TapsignerNfcReader.requireSupportedSigningPath(
                 tapsignerSigningStatus(path = mainnetPath, isTestnet = true)
             )
         }
         assertTrue(wrongNetworkPath.message.orEmpty().contains("testnet BIP84 account-0"))
         assertTrue(wrongNetworkPath.message.orEmpty().contains("m/84'/1'/0'"))
+        assertTrue(wrongNetworkPath.message.orEmpty().contains("m/48'/1'/0'/2'"))
     }
 
     @Test
