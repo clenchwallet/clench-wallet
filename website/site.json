@@ -1,0 +1,41 @@
+{
+  "base_url": "https://clench.net",
+  "release_version": "0.3.28",
+  "release_tag": "v0.3.28",
+  "copyright_year": 2026,
+  "pages": [
+    {
+      "source": "index.html",
+      "output": "index.html",
+      "path": "/",
+      "title": "Clench Wallet — Bitcoin wallet for Android",
+      "description": "Clench Wallet is a Bitcoin-only Android wallet for single-signature, multisig, watch-only wallets, hardware wallets, Tor, and your own Electrum server.",
+      "og_title": "Clench Wallet",
+      "og_description": "Bitcoin-only wallet for Android, with signed releases and independent build evidence.",
+      "lastmod": "2026-09-01",
+      "main_class": "home-page"
+    },
+    {
+      "source": "privacy.html",
+      "output": "privacy.html",
+      "path": "/privacy.html",
+      "title": "Privacy Policy — Clench Wallet",
+      "description": "Clench Wallet privacy policy for the Android app and static website.",
+      "og_title": "Privacy Policy — Clench Wallet",
+      "og_description": "How the Clench Wallet Android app and static website handle privacy.",
+      "lastmod": "2026-09-01",
+      "main_class": "content-page"
+    },
+    {
+      "source": "contact.html",
+      "output": "contact.html",
+      "path": "/contact.html",
+      "title": "Contact — Clench Wallet",
+      "description": "Contact Clench Wallet for security reports and GitHub issues.",
+      "og_title": "Contact — Clench Wallet",
+      "og_description": "Contact Clench Wallet for security reports, bugs, feature requests, and questions.",
+      "lastmod": "2026-09-01",
+      "main_class": "content-page"
+    }
+  ]
+}

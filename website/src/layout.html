@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{title}}</title>
+  <meta name="description" content="{{description}}">
+  <meta name="theme-color" content="#0d0d0e">
+  <meta property="og:title" content="{{og_title}}">
+  <meta property="og:description" content="{{og_description}}">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="{{canonical_url}}">
+  <meta property="og:image" content="{{base_url}}/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{og_title}}">
+  <meta name="twitter:description" content="{{og_description}}">
+  <meta name="twitter:image" content="{{base_url}}/og-image.png">
+  <link rel="canonical" href="{{canonical_url}}">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/assets/site.css?v={{css_version}}">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+{{header}}
+
+  <main id="main" class="{{main_class}}">
+{{page_content}}
+  </main>
+
+{{footer}}
+</body>
+</html>

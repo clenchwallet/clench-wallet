@@ -7,18 +7,18 @@
   <meta name="description" content="Clench Wallet is a Bitcoin-only Android wallet for single-signature, multisig, watch-only wallets, hardware wallets, Tor, and your own Electrum server.">
   <meta name="theme-color" content="#0d0d0e">
   <meta property="og:title" content="Clench Wallet">
-  <meta property="og:description" content="Bitcoin-only wallet for Android. Signed release v0.3.28, with F-Droid availability following its own build cadence.">
+  <meta property="og:description" content="Bitcoin-only wallet for Android, with signed releases and independent build evidence.">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://clench.net">
+  <meta property="og:url" content="https://clench.net/">
   <meta property="og:image" content="https://clench.net/og-image.png">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Clench Wallet">
-  <meta name="twitter:description" content="Bitcoin-only wallet for Android. Signed release v0.3.28, with F-Droid availability following its own build cadence.">
+  <meta name="twitter:description" content="Bitcoin-only wallet for Android, with signed releases and independent build evidence.">
   <meta name="twitter:image" content="https://clench.net/og-image.png">
   <link rel="canonical" href="https://clench.net/">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="/assets/site.css?v=20260719">
+  <link rel="stylesheet" href="/assets/site.css?v=1d46cf24762b">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -32,16 +32,17 @@
         <span>Clench Wallet</span>
       </a>
       <nav class="site-nav" aria-label="Primary navigation">
-        <a href="#screenshots">App</a>
-        <a href="#features">Features</a>
-        <a href="#download">Download</a>
-        <a href="/privacy.html">Privacy</a>
+        <a href="/#screenshots">App</a>
+        <a class="nav-mobile-optional" href="/#features">Features</a>
+        <a href="/#download">Download</a>
+        <a class="nav-mobile-optional" href="/privacy.html">Privacy</a>
         <a href="https://github.com/clenchwallet/clench-wallet">Source</a>
       </nav>
     </div>
   </header>
 
-  <main id="main">
+
+  <main id="main" class="home-page">
     <section class="hero">
       <div class="hero-glow" aria-hidden="true"></div>
       <div class="shell hero-layout">
@@ -149,7 +150,7 @@
         <div class="download-copy">
           <p class="eyebrow">Android release</p>
           <h2>Get the signed<br>v0.3.28 release.</h2>
-          <p>Download the signed APK and its checksum, provenance, SBOM, and independent-build evidence from GitHub Releases. F-Droid follows its own build schedule and may show an older version temporarily.</p>
+          <p>Download the signed APK and its checksum, provenance, SBOM, and independent-build evidence from GitHub Releases. F-Droid follows its own publishing cadence; see F-Droid for the currently available version.</p>
           <a class="text-action" href="https://github.com/clenchwallet/clench-wallet/releases/tag/v0.3.28">Open signed release <span aria-hidden="true">↗</span></a>
           <a class="fdroid-badge" href="https://f-droid.org/packages/net.clench.wallet/" aria-label="Get Clench Wallet on F-Droid">
             <img loading="lazy" src="/assets/get-it-on-fdroid.svg" alt="Get it on F-Droid" width="564" height="168">
@@ -161,7 +162,7 @@
           <dl class="release-facts">
             <div><dt>Build</dt><dd>Reproducible release evidence published</dd></div>
             <div><dt>Signing</dt><dd>Established Clench APK signer</dd></div>
-            <div><dt>F-Droid</dt><dd>May follow after its independent build</dd></div>
+            <div><dt>F-Droid</dt><dd>See F-Droid for its currently published version</dd></div>
           </dl>
           <details>
             <summary>How do I verify the APK?</summary>
@@ -184,6 +185,7 @@
         </div>
       </div>
     </section>
+
   </main>
 
   <footer class="site-footer">
@@ -207,5 +209,6 @@
       <p>&copy; 2026 Clench Wallet. No cookies or analytics.</p>
     </div>
   </footer>
+
 </body>
 </html>

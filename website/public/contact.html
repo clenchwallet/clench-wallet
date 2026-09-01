@@ -6,29 +6,43 @@
   <title>Contact — Clench Wallet</title>
   <meta name="description" content="Contact Clench Wallet for security reports and GitHub issues.">
   <meta name="theme-color" content="#0d0d0e">
+  <meta property="og:title" content="Contact — Clench Wallet">
+  <meta property="og:description" content="Contact Clench Wallet for security reports, bugs, feature requests, and questions.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://clench.net/contact.html">
+  <meta property="og:image" content="https://clench.net/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Contact — Clench Wallet">
+  <meta name="twitter:description" content="Contact Clench Wallet for security reports, bugs, feature requests, and questions.">
+  <meta name="twitter:image" content="https://clench.net/og-image.png">
   <link rel="canonical" href="https://clench.net/contact.html">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="/assets/site.css?v=20260719">
+  <link rel="stylesheet" href="/assets/site.css?v=1d46cf24762b">
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
     <div class="shell header-inner">
       <a class="brand" href="/" aria-label="Clench Wallet home">
-        <img src="/assets/clench-mark-dark.png" alt="" width="512" height="512">
+        <picture>
+          <source media="(prefers-color-scheme: light)" srcset="/assets/clench-mark-light.png">
+          <img src="/assets/clench-mark-dark.png" alt="" width="512" height="512">
+        </picture>
         <span>Clench Wallet</span>
       </a>
       <nav class="site-nav" aria-label="Primary navigation">
         <a href="/#screenshots">App</a>
-        <a href="/#features">Features</a>
+        <a class="nav-mobile-optional" href="/#features">Features</a>
         <a href="/#download">Download</a>
-        <a href="/privacy.html">Privacy</a>
+        <a class="nav-mobile-optional" href="/privacy.html">Privacy</a>
         <a href="https://github.com/clenchwallet/clench-wallet">Source</a>
       </nav>
     </div>
   </header>
 
-  <main class="content-page">
+
+  <main id="main" class="content-page">
     <div class="content-shell">
       <p class="eyebrow">Contact</p>
       <h1>Report issues or ask questions</h1>
@@ -46,18 +60,30 @@
       <h2>Lost seeds and passphrases</h2>
       <p>Clench cannot recover lost recovery phrases, passphrases, private keys, or hardware-wallet secrets. Keep backups offline and test recovery before relying on a wallet.</p>
     </div>
+
   </main>
 
   <footer class="site-footer">
     <div class="shell footer-inner">
-      <p>&copy; 2026 Clench Wallet. No cookies or analytics.</p>
+      <div>
+        <a class="brand footer-brand" href="/" aria-label="Clench Wallet home">
+          <img src="/assets/clench-mark-dark.png" alt="" width="512" height="512">
+          <span>Clench Wallet</span>
+        </a>
+        <p>Open-source Bitcoin wallet for Android.</p>
+      </div>
       <nav class="footer-links" aria-label="Footer navigation">
         <a href="https://f-droid.org/packages/net.clench.wallet/">F-Droid</a>
         <a href="/privacy.html">Privacy</a>
         <a href="/contact.html">Contact</a>
         <a href="https://github.com/clenchwallet/clench-wallet">GitHub</a>
+        <a href="https://x.com/clenchwallet">X</a>
       </nav>
     </div>
+    <div class="shell footer-bottom">
+      <p>&copy; 2026 Clench Wallet. No cookies or analytics.</p>
+    </div>
   </footer>
+
 </body>
 </html>

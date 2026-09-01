@@ -1,0 +1,142 @@
+    <section class="hero">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="shell hero-layout">
+        <div class="hero-copy">
+          <div class="availability"><span aria-hidden="true"></span> Latest signed release · v{{release_version}}</div>
+          <h1>A Bitcoin wallet<br>for Android.</h1>
+          <p class="lead">Create a single-signature or multisig wallet, monitor cold storage with a watch-only wallet, and sign transactions with a hardware wallet.</p>
+          <div class="hero-actions">
+            <a class="fdroid-badge" href="https://f-droid.org/packages/net.clench.wallet/" aria-label="Get Clench Wallet on F-Droid">
+              <img src="/assets/get-it-on-fdroid.svg" alt="Get it on F-Droid" width="564" height="168">
+            </a>
+            <a class="text-action" href="https://github.com/clenchwallet/clench-wallet/releases/tag/{{release_tag}}">Get signed v{{release_version}} <span aria-hidden="true">↗</span></a>
+          </div>
+          <ul class="trust-row" aria-label="Release details">
+            <li>Android 8+</li>
+            <li>Open source</li>
+            <li>Reproducible build</li>
+          </ul>
+        </div>
+
+        <div class="hero-visual" aria-label="Clench Wallet app preview">
+          <div class="orbit orbit-one" aria-hidden="true"></div>
+          <div class="orbit orbit-two" aria-hidden="true"></div>
+          <figure class="phone phone-hero">
+            <img src="/assets/screenshots/wallet-actions.webp" alt="Clench Wallet showing options to create, import, recover, connect hardware, or create a multisig wallet" width="540" height="1200">
+          </figure>
+          <div class="hero-note note-top"><strong>Multisig</strong><span>Use a phone key with external cosigners.</span></div>
+          <div class="hero-note note-bottom"><strong>Bitcoin connection</strong><span>Use your own Electrum server, a public server, or offline mode.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="proof-strip" aria-label="Clench Wallet principles">
+      <div class="shell proof-grid">
+        <p><strong>No Clench account</strong><span>No cloud wallet or hosted service.</span></p>
+        <p><strong>No tracking</strong><span>No analytics, ads, Firebase, or crash reporting.</span></p>
+        <p><strong>No recovery service</strong><span>Clench cannot recover a lost seed or passphrase.</span></p>
+      </div>
+    </section>
+
+    <section class="section screenshots-section" id="screenshots">
+      <div class="shell">
+        <div class="section-heading split-heading">
+          <div>
+            <p class="eyebrow">The app</p>
+            <h2>Choose the network, connection, and wallet type.</h2>
+          </div>
+          <p>Start on Mainnet or Testnet, choose how Clench connects to Bitcoin, then create or import a wallet.</p>
+        </div>
+
+        <div class="screenshot-rail" role="list" aria-label="Clench Wallet screenshots">
+          <figure class="screenshot-card shot-one" role="listitem">
+            <div class="phone"><img loading="lazy" src="/assets/screenshots/network.webp" alt="Choose between the Bitcoin mainnet and testnet" width="540" height="1200"></div>
+            <figcaption><span>01</span><strong>Network</strong><small>Choose Mainnet or Testnet during setup.</small></figcaption>
+          </figure>
+          <figure class="screenshot-card shot-two" role="listitem">
+            <div class="phone"><img loading="lazy" src="/assets/screenshots/connection.webp" alt="Choose a personal node, public Electrum server, or offline mode" width="540" height="1200"></div>
+            <figcaption><span>02</span><strong>Bitcoin connection</strong><small>Connect to your own Electrum server, use a public server, or remain offline.</small></figcaption>
+          </figure>
+          <figure class="screenshot-card shot-three" role="listitem">
+            <div class="phone"><img loading="lazy" src="/assets/screenshots/new-wallet.webp" alt="Create a new wallet and choose seed phrase length" width="540" height="1200"></div>
+            <figcaption><span>03</span><strong>New wallet</strong><small>Choose a 12- or 24-word recovery phrase and an address format.</small></figcaption>
+          </figure>
+          <figure class="screenshot-card shot-four" role="listitem">
+            <div class="phone"><img loading="lazy" src="/assets/screenshots/hardware-wallets.webp" alt="Select a supported hardware wallet export method" width="540" height="1200"></div>
+            <figcaption><span>04</span><strong>Hardware wallet</strong><small>Import a watch-only or multisig wallet over QR, NFC, SD card, or file.</small></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="section features-section" id="features">
+      <div class="shell">
+        <div class="section-heading">
+          <p class="eyebrow">Wallet support</p>
+          <h2>Single-signature, multisig, and watch-only.</h2>
+        </div>
+        <div class="feature-grid">
+          <article class="feature feature-accent">
+            <span class="feature-number">01</span>
+            <h3>Create or import a wallet</h3>
+            <p>Create a wallet with new recovery words, restore an existing wallet, or import an extended public key (xpub) to watch cold storage.</p>
+          </article>
+          <article class="feature">
+            <span class="feature-number">02</span>
+            <h3>Hardware wallets</h3>
+            <p>Use supported air-gapped PSBT paths over QR, NFC, SD card, or file. TAPSIGNER can sign supported BIP-84 single-signature and BIP-48 native-SegWit multisig inputs with an intentional NFC tap. See the release notes for new-path physical-validation limits.</p>
+          </article>
+          <article class="feature">
+            <span class="feature-number">03</span>
+            <h3>Your own node and Tor</h3>
+            <p>Connect to your own Electrum server, send wallet traffic through Tor with Orbot, or use Clench offline.</p>
+          </article>
+          <article class="feature">
+            <span class="feature-number">04</span>
+            <h3>Transaction tools</h3>
+            <p>Use coin control, BIP-329 labels, batch payments, RBF bump or cancel, CPFP, saved payees, raw transaction broadcast, and guided sweep or recovery flows.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section download-section" id="download">
+      <div class="shell download-panel">
+        <div class="download-copy">
+          <p class="eyebrow">Android release</p>
+          <h2>Get the signed<br>v{{release_version}} release.</h2>
+          <p>Download the signed APK and its checksum, provenance, SBOM, and independent-build evidence from GitHub Releases. F-Droid follows its own publishing cadence; see F-Droid for the currently available version.</p>
+          <a class="text-action" href="https://github.com/clenchwallet/clench-wallet/releases/tag/{{release_tag}}">Open signed release <span aria-hidden="true">↗</span></a>
+          <a class="fdroid-badge" href="https://f-droid.org/packages/net.clench.wallet/" aria-label="Get Clench Wallet on F-Droid">
+            <img loading="lazy" src="/assets/get-it-on-fdroid.svg" alt="Get it on F-Droid" width="564" height="168">
+          </a>
+        </div>
+        <div class="install-card">
+          <p class="install-label">Clench Wallet</p>
+          <p class="version">v{{release_version}} <span>· Android 8+</span></p>
+          <dl class="release-facts">
+            <div><dt>Build</dt><dd>Reproducible release evidence published</dd></div>
+            <div><dt>Signing</dt><dd>Established Clench APK signer</dd></div>
+            <div><dt>F-Droid</dt><dd>See F-Droid for its currently published version</dd></div>
+          </dl>
+          <details>
+            <summary>How do I verify the APK?</summary>
+            <p>Follow the source tag, checksum, signer-certificate, package/version, SBOM, and provenance steps in the <a href="https://github.com/clenchwallet/clench-wallet/blob/{{release_tag}}/docs/release/signed-release-verification.md">signed-release guide</a>.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="section security-section" id="security">
+      <div class="shell security-layout">
+        <div>
+          <p class="eyebrow">Source and releases</p>
+          <h2>Check the source<br>or verify the APK.</h2>
+        </div>
+        <div class="security-points">
+          <p><strong>Source</strong><span>The source code, build instructions, release history, and security documentation are on GitHub.</span></p>
+          <p><strong>Keys on this phone</strong><span>Keys stored on the phone are encrypted and protected by Android's secure key storage. Clench does not upload them.</span></p>
+          <p><strong>Before broadcast</strong><span>Clench checks that the signed transaction still matches the addresses, amounts, and fee you reviewed.</span></p>
+        </div>
+      </div>
+    </section>
