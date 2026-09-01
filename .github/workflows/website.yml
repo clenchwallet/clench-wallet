@@ -1,0 +1,29 @@
+name: Website CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'website/**'
+      - '.github/workflows/website.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'website/**'
+      - '.github/workflows/website.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Test static site
+        run: python3 -B -m unittest discover -s website/tests -p 'test_*.py'
+
+      - name: Require current generated output
+        run: python3 -B website/build.py --check
