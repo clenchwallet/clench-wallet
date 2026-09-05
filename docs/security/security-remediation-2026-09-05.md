@@ -40,3 +40,18 @@ Preserve all existing funded wallet descriptors. Identity validation cannot prov
 - Release-control static verification passed; existing signed release/tag and app version untouched.
 - Android `AuthenticationGatePersistenceTest` compiled into the test APK; execution still NOT RUN.
 - This server exposes no /dev/kvm and has no connected Android device. A Mac emulator can establish Android runtime behavior, not physical NFC/camera or OEM-wide compatibility.
+
+## Mac runtime blocker recovery
+
+The owner reports that API 36 ARM64 emulation crashed before boot with SIGILL and the strict macOS build rejected a missing AAPT2 checksum at `1d8b0a2`. All requested Mac runtime checks remain NOT RUN. The supplied summary does not establish the emulator crash cause; the crash report has not been independently inspected here.
+
+The missing artifact is `com.android.tools.build:aapt2:9.3.1-15703166:osx`. The archive was downloaded separately from Google's documented Maven location, checked for ZIP integrity, and its SHA-256 matched Google's separately published `.jar.sha256` sidecar:
+
+- Artifact: https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/9.3.1-15703166/aapt2-9.3.1-15703166-osx.jar
+- Published digest: https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/9.3.1-15703166/aapt2-9.3.1-15703166-osx.jar.sha256
+- SHA-256: `1e35bc2ce18c3aae840be2a29659ce50d6043e907a44d98ee1cf375d044fa29c`
+- Trust boundary: Google Maven HTTPS plus its published digest; this is not an independently signed provenance claim. No macOS executable was run on Linux. The optional SHA-1 sidecar request failed; SHA-256 verification succeeded.
+
+Only this missing artifact pin is added; versions, locks, existing checksums and strict verification are unchanged.
+
+Hosted Android instrumentation run `33938776111` passed on `1d8b0a2`, but its explicit nine-test selector excluded `AuthenticationGatePersistenceTest`. The selector and result gate now require the four new tests as well (thirteen exact cases). This is persistence/controller coverage, not proof of actual biometric-prompt UI or lifecycle behavior. Await the updated hosted results and the Mac runtime evidence.

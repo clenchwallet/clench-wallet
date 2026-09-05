@@ -19,6 +19,11 @@ on:
       - 'app/src/main/java/net/clench/wallet/ui/viewmodel/ImportWalletViewModel.kt'
       - 'app/src/main/java/net/clench/wallet/ui/viewmodel/SweepViewModel.kt'
       - 'app/src/main/java/net/clench/wallet/ui/viewmodel/WifPrivateKeyParser.kt'
+      - 'app/src/main/java/net/clench/wallet/security/AuthenticationGateChangeController.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/viewmodel/SettingsViewModel.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/screens/SecurityScreen.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/screens/SecurityOnboardingScreen.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/util/BiometricHelper.kt'
       - 'app/src/androidTest/**'
       - 'scripts/verification/bdk-wallet-upgrade/**'
       - 'scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh'
@@ -126,7 +131,7 @@ jobs:
             --no-daemon \
             --dependency-verification=strict \
             :app:connectedDebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.data.repository.BdkWalletPersistenceTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest,net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest
+            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.local.AuthenticationGatePersistenceTest,net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.data.repository.BdkWalletPersistenceTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest,net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest
 
       - name: Require actual instrumentation results
         if: always()
@@ -143,6 +148,22 @@ jobs:
               raise SystemExit('No instrumentation XML result was produced')
 
           expected = {
+              (
+                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
+                  'initialDefaultsNeverOverwritePreviouslyEnabledProtection',
+              ),
+              (
+                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
+                  'previouslyConfiguredSingleGatePreventsDefaultDowngrade',
+              ),
+              (
+                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
+                  'initialUnavailableAuthDefaultsAreOneTimeOnly',
+              ),
+              (
+                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
+                  'cancelledControllerDoesNotPersistDowngrade',
+              ),
               (
                   'net.clench.wallet.data.local.ClenchDatabaseMigrationTest',
                   'migrate12To13CreatesAndValidatesSignerVaultSchema',
@@ -198,7 +219,7 @@ jobs:
               'actual': sorted(actual),
           })
           if actual != expected or failures != 0 or errors != 0 or skipped != 0:
-              raise SystemExit('Expected the exact nine named instrumentation tests to pass')
+              raise SystemExit('Expected the exact thirteen named instrumentation tests to pass')
           PY
 
       - name: Upload BDK cross-version evidence
