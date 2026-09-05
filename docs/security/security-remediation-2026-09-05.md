@@ -9,7 +9,7 @@ Status: IN PROGRESS. No release, production deployment, or compatibility claim.
 | Item | Correction / acceptance | Status |
 | --- | --- | --- |
 | A-01 authentication setting downgrade | Fresh crypto-bound authentication to disable an enabled gate; single-use controller callback; cancel/replacement/disposal protection; initial setup cannot weaken existing settings or wallets | Implemented; JVM and hosted Android persistence tests passed; actual system-prompt/UI checks pending |
-| WS-01 multisig key aliases | Shared chain-code/public-key identity for creation and descriptor validation; reject lineage/version/origin/branch aliases while retaining distinct key material | Implemented; JVM regressions passed; existing-wallet diagnostic still to assess |
+| WS-01 multisig key aliases | Shared chain-code/public-key identity for creation and descriptor validation; reject lineage/version/origin/branch aliases while retaining distinct key material | New-policy protection implemented; legacy Wallet Info and descriptor-backup warnings added without rewriting or blocking existing wallets; JVM regressions passed |
 | SC-01 signer credential scope | Four secrets in protected release-signing environment, no repository copies, continuity preserved; verify metadata without retrieving values | Current scope reconfirmed; maintainer must supply existing values securely |
 | SC-02 native assurance | Inventory embedded native libraries, bind upstream source/lockfiles and advisory dispositions to shipped AAR hashes; do not equate Maven OSV success with native coverage | Five native-bearing artifacts inventoried with CI drift gate; partial source bindings recorded; transitive source/advisory review remains open |
 | Phone signer sessions | Reserve exact reviewed PSBT before authentication; single-use completion; ignore stale inspect/sign/broadcast completions and prevent overlapping operations | Implemented; JVM regressions passed |
@@ -18,7 +18,7 @@ Status: IN PROGRESS. No release, production deployment, or compatibility claim.
 | Electrum input and socket lifetime | Cap line and cumulative response sizes before parsing; stream verbose responses without retaining their JSON; close socket on every exit | Defensive correction implemented from source evidence; finite regressions passed; no OOM attack performed |
 | External invalid partial signatures | Establish actual finalization/recovery behavior before changing acceptance policy | Pending; not a confirmed fund-loss issue |
 | App-UID/Keystore boundary and clipboard lifetime | Document explicit threat-model limits; no promise of protection from a compromised process or perfect JVM zeroization | Documented against current key and clipboard implementation; no storage migration or runtime policy change |
-| Release governance | Assess stable required website check and independent maintainer review without breaking sole-maintainer operations | Pending; no protection changes made |
+| Release governance | Assess stable required website check and independent maintainer review without breaking sole-maintainer operations | Website check now always reports; required-check activation awaits protected-master workflow availability; independent-review enforcement requires a designated second maintainer; no protection changes made |
 | Runtime/hardware | Android emulator checks on corrected commit, with no real wallets/funds; physical-device requirements remain NOT RUN | Hosted 13-case instrumentation passed; Mac retry handoff at 06c24c6 supplied; UI/hardware checks remain NOT RUN |
 
 ## Rules
@@ -76,3 +76,14 @@ Hosted Android instrumentation run `33938776111` passed on `1d8b0a2`, but its ex
   not a failed application regression. See [maintainer migration](signing-secret-scope.md).
 - Release controls and release-tool self-tests passed for the tooling changes.
   No signing values were read, moved or rotated; no release was initiated.
+- Four legacy multisig-display regressions cover equivalent key material with
+  different metadata, warning propagation into backup metadata, genuinely
+  different chain codes, and persistence after renaming signers. No stored
+  descriptor or signer ID is rewritten and old-wallet loading is not gated by
+  the new import validator. The complete JVM suite subsequently ran 471 cases,
+  with zero failures/errors/skips. Debug assembly and lint also passed; lint
+  reports 87 warnings and 2 hints, not zero issues.
+- The eleven website tests and generated-output check passed after removing
+  the workflow path filter. Remote branch protection still requires only
+  `build` and `analyze`; [activation and reviewer prerequisites](release-governance-follow-up.md)
+  are recorded rather than reported as completed enforcement.

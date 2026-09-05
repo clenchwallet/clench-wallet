@@ -18,6 +18,7 @@ import net.clench.wallet.data.local.dao.WalletKeystoreMetadataDao
 import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.entity.TransactionLabelEntity
 import net.clench.wallet.data.local.entity.WalletKeystoreMetadataEntity
+import net.clench.wallet.data.repository.MultisigDescriptorSafety
 import net.clench.wallet.data.util.Bip329
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.security.InputLimits
@@ -593,6 +594,23 @@ class WalletInfoViewModel @Inject constructor(
 
         internal fun buildMultisigWarnings(keystores: List<MultisigKeystoreInfo>): List<String> {
             return buildList {
+                // Diagnose legacy policies without rejecting load, rewriting descriptors,
+                // changing signer IDs, or interfering with access to existing funds.
+                val identities = keystores.mapNotNull { keystore ->
+                    try {
+                        MultisigDescriptorSafety.canonicalSigner(keystore.xpub) to keystore
+                    } catch (_: IllegalArgumentException) {
+                        add("${keystore.label}: signer key identity could not be checked")
+                        null
+                    }
+                }
+                identities.groupBy({ it.first }, { it.second }).values
+                    .filter { it.size > 1 }
+                    .forEach { aliases ->
+                        add("${aliases.joinToString { it.label }} share the same key material. " +
+                            "Do not count these as independent signers. Keep the original descriptor " +
+                            "for recovery; create and verify a new wallet before moving funds.")
+                    }
                 keystores.forEach { keystore ->
                     if (keystore.masterFingerprint == null) {
                         add("${keystore.label}: missing master fingerprint")

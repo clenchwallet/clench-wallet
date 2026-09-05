@@ -12,6 +12,51 @@ import org.junit.Test
 
 class WalletInfoViewModelTest {
 
+    // Synthetic public-only extended keys: generator point and repeated chain bytes.
+    // The alias changes version/depth/parent/child metadata, not key or chain code.
+    private val originalKey = "xpub6DYLKsxfR6wLthZeqQB6KeTfqqmyNkPZqmjTuJ4jMNeoBqfwvFax4VVTALMgWXegeDnU1JmnCL7sDYpAtVwhpDXXVcZugxxcXdu7ipEbCHV"
+    private val aliasedKey = "zpub6u7i5vktX9WUnSp2i81QnF9vAU2KgmEKdYNX7zgr5aii6LynJqhEHuakvoTXdtC6ZSjQueD9Y3vJe6KqpNmTzdj4DRES9hDsNTXy8DujuY2"
+    private val distinctKey = "xpub6DYLKsxfR6wLti9GzcuLu5q4onJoiUfuZqVeZr2e1JsBnmpe9ybre1hSXHn52jtvgqGGfJE2k8sw5naQNwMU3auuueZzJDhm579cNQT3e9o"
+
+    @Test
+    fun `legacy aliased policy remains displayable and warns without changing its descriptor`() {
+        val descriptor = "wsh(sortedmulti(2,[01020304/48'/0'/0'/2']$originalKey/0/*,[05060708/48'/0'/1'/2']$aliasedKey/1/*))"
+        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        assertEquals(descriptor, policy.descriptor)
+        assertEquals(2, policy.threshold)
+        assertEquals(2, policy.keystores.size)
+        assertEquals(aliasedKey, policy.keystores[1].xpub)
+        assertTrue(policy.warnings.single().contains("Do not count these as independent signers"))
+        assertTrue(policy.warnings.single().contains("Keep the original descriptor"))
+    }
+
+    @Test
+    fun `legacy descriptor backup retains duplicate signer recovery warning`() {
+        val descriptor = "wsh(multi(2,[01020304/48'/0'/0'/2']$originalKey/0/*,[05060708/48'/0'/1'/2']$aliasedKey/0/*))"
+        val wallet = WalletData(id = "legacy-wallet", name = "Legacy vault", descriptor = descriptor,
+            changeDescriptor = descriptor.replace("/0/*", "/1/*"), isWatchOnly = true, isMultisig = true)
+        val metadata = WalletInfoViewModel.buildDescriptorBackupMetadata(wallet)
+        assertEquals(descriptor, wallet.descriptor)
+        assertTrue(metadata.signerWarnings.single().contains("share the same key material"))
+        assertNotNull(metadata.bsmsDescriptorRecord)
+    }
+
+    @Test
+    fun `different chain codes do not produce duplicate material warning`() {
+        val descriptor = "wsh(multi(2,[01020304/48'/0'/0'/2']$originalKey/0/*,[05060708/48'/0'/1'/2']$distinctKey/0/*))"
+        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        assertTrue(policy.warnings.isEmpty())
+    }
+
+    @Test
+    fun `renaming legacy cosigners cannot remove the material warning`() {
+        val descriptor = "wsh(multi(2,[01020304/48'/0'/0'/2']$originalKey/0/*,[05060708/48'/0'/1'/2']$aliasedKey/0/*))"
+        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        val renamed = policy.keystores.mapIndexed { i, key -> key.copy(label = "Device ${i + 1}") }
+        val warning = WalletInfoViewModel.buildMultisigWarnings(renamed).single()
+        assertTrue(warning.startsWith("Device 1, Device 2 share"))
+    }
+
     @Test
     fun `multisig descriptor exposes policy and every keystore`() {
         val descriptor =
