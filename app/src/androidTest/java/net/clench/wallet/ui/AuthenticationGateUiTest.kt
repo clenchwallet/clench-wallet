@@ -234,21 +234,15 @@ class AuthenticationGateUiTest {
         val label = if (seed) "Require authentication to view seed phrase" else "Require authentication to send"
         var found: AccessibilityNodeInfo? = null
         await("gate control: $label") {
-            val nodes = nodes()
-            val text = nodes.firstOrNull { it.text?.toString() == label && it.isVisibleToUser }
-            if (text == null) {
-                nodes.firstOrNull { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-                false
-            } else {
-                val bounds = android.graphics.Rect().also(text::getBoundsInScreen)
-                val toggle = nodes.firstOrNull { candidate ->
-                    val box = android.graphics.Rect().also(candidate::getBoundsInScreen)
-                    candidate.isCheckable && candidate.isVisibleToUser &&
-                        box.centerY() in (bounds.top - 32)..(bounds.bottom + 32)
-                }
-                found = toggle
-                toggle != null
+            val all = nodes()
+            val matches = all.filter {
+                it.isCheckable && it.isVisibleToUser && it.contentDescription?.toString() == label
             }
+            check(matches.size <= 1) { "Ambiguous accessibility label for $label" }
+            found = matches.singleOrNull()
+            if (found == null) all.firstOrNull { it.isScrollable }
+                ?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            found != null
         }
         return checkNotNull(found)
     }
@@ -312,9 +306,11 @@ class AuthenticationGateUiTest {
 
     private fun saveHierarchy(label: String) {
         val output = File(context.getExternalFilesDir(null), "ui-regression").apply { mkdirs() }
+        android.util.Log.i("ClenchUiRegression", "$label: seedEnabled=${settings.isBiometricForSeedEnabled()} sendEnabled=${settings.isBiometricForSendEnabled()}")
         val hierarchy = nodes().joinToString("\n") {
             "${it.packageName} ${it.className} ${it.viewIdResourceName} " +
-                if (it.isPassword) "[password omitted]" else "text=${it.text} description=${it.contentDescription}"
+                if (it.isPassword) "[password omitted]" else
+                    "text=${it.text} description=${it.contentDescription} checkable=${it.isCheckable} checked=${it.isChecked} bounds=${android.graphics.Rect().also(it::getBoundsInScreen)}"
         }
         File(output, "$label-hierarchy.txt").writeText(hierarchy)
         // Gradle can uninstall the fixture before CI pulls external files.

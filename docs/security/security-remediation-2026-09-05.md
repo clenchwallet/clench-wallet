@@ -8,10 +8,10 @@ Status: IN PROGRESS. No release, production deployment, or compatibility claim.
 
 | Item | Correction / acceptance | Status |
 | --- | --- | --- |
-| A-01 authentication setting downgrade | Fresh crypto-bound authentication to disable an enabled gate; single-use controller callback; cancel/replacement/disposal protection; initial setup cannot weaken existing settings or wallets | Implemented; JVM and hosted Android persistence tests passed; seed/send credential, backgrounding and unavailable-authenticator UI cases passed at 6005bfe; onboarding UI execution pending |
+| A-01 authentication setting downgrade | Fresh crypto-bound authentication to disable an enabled gate; single-use controller callback; cancel/replacement/disposal protection; initial setup cannot weaken existing settings or wallets | Implemented; JVM and hosted Android persistence tests passed; four auth UI cases passed at 6005bfe; new onboarding case passed at 0960d4e and 9af8872; current send UI timeout remains under investigation |
 | WS-01 multisig key aliases | Shared chain-code/public-key identity for creation and descriptor validation; reject lineage/version/origin/branch aliases while retaining distinct key material | New-policy protection implemented; legacy Wallet Info and descriptor-backup warnings added without rewriting or blocking existing wallets; JVM regressions passed |
 | SC-01 signer credential scope | Four secrets in protected release-signing environment, no repository copies, continuity preserved; verify metadata without retrieving values | Current scope reconfirmed; maintainer must supply existing values securely |
-| SC-02 native assurance | Inventory embedded native libraries, bind upstream source/lockfiles and advisory dispositions to shipped AAR hashes; do not equate Maven OSV success with native coverage | Five native-bearing artifacts inventoried with CI drift gate; partial source bindings recorded; transitive source/advisory review remains open |
+| SC-02 native assurance | Inventory embedded native libraries, bind upstream source/lockfiles and advisory dispositions to shipped AAR hashes; do not equate Maven OSV success with native coverage | Five native-bearing artifacts inventoried with CI drift gate; live Cargo pre-sign release gate added; current matches and non-Cargo source/advisory dispositions remain open |
 | Phone signer sessions | Reserve exact reviewed PSBT before authentication; single-use completion; ignore stale inspect/sign/broadcast completions and prevent overlapping operations | Implemented; JVM regressions passed |
 | Legacy multipart QR | Bounded accumulator rejecting differing duplicate frames and count changes; no claim of cryptographic stream identity | Implemented; JVM regressions passed |
 | SATSCARD cleanup | Wipe decrypted private-key buffer if validation throws before ownership handoff | Implemented; existing protocol JVM suite passed |
@@ -19,7 +19,7 @@ Status: IN PROGRESS. No release, production deployment, or compatibility claim.
 | External invalid partial signatures | Establish actual finalization/recovery behavior; provide explicit original-transaction restart without weakening field-conflict checks | Retention/non-readiness/recovery confirmed on Android at 6005bfe; snapshot-bound restart implemented with four JVM regressions; no fund-loss claim |
 | App-UID/Keystore boundary and clipboard lifetime | Document explicit threat-model limits; no promise of protection from a compromised process or perfect JVM zeroization | Documented against current key and clipboard implementation; no storage migration or runtime policy change |
 | Release governance | Assess stable required website check and independent maintainer review without breaking sole-maintainer operations | Website check now always reports; required-check activation awaits protected-master workflow availability; independent-review enforcement requires a designated second maintainer; no protection changes made |
-| Runtime/hardware | Android emulator checks on corrected commit, with no real wallets/funds; physical-device requirements remain NOT RUN | Hosted 18-case instrumentation passed at 6005bfe, including four actual auth UI cases and native return recovery; new onboarding case pending; Mac runtime and physical hardware remain NOT RUN |
+| Runtime/hardware | Android emulator checks on corrected commit, with no real wallets/funds; physical-device requirements remain NOT RUN | Hosted 18-case instrumentation passed at 6005bfe; expanded runs at 0960d4e and 9af8872 executed 19 with 18 passes and a send UI timeout; Mac runtime and physical hardware remain NOT RUN |
 
 ## Rules
 
@@ -202,3 +202,12 @@ release-tool self-tests passed. Four added workflow mutations prove removal,
 skipping, continue-on-error and shell suppression of this gate are rejected.
 SC-02 remains open for candidate dispositions, non-Cargo source/advisory gaps
 and the deliberate SQLCipher update acceptance plan.
+
+At `9af8872826cd1d838fbc8df5bceb1891f6919af5`, run `33957195380`
+again executed nineteen cases with eighteen passes and the same send-gate
+post-credential timeout. Navigation synchronization alone did not resolve it.
+The fixture's geometric switch matching is now replaced with exact accessible
+labels on the production switches, preserving their role and checked state.
+Failure evidence now records both synthetic gate preferences and control
+bounds/check states. These changes investigate control selection; no claim
+of root cause or successful correction is made before actual execution.
