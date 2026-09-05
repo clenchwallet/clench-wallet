@@ -37,12 +37,15 @@ The machine-readable [baseline](native-dependencies.json) pins five owners,
 their archive and native payload SHA-256 values, source evidence URLs/hashes, and
 explicit incomplete review status:
 
-- CameraX camera-core 1.6.1: image-processing and surface JNI libraries. Exact
-  release-source mapping and bundled source dependency/advisory review pending.
-- AndroidX graphics-path 1.0.1: path JNI library. Exact release-source mapping and
-  source dependency/advisory review pending.
+- CameraX camera-core 1.6.1: image-processing and surface JNI libraries. The
+  official release-note commit-range endpoint and CMake hash are recorded. It
+  links the vendored external:libyuv project; vendored/advisory review remains open.
+- AndroidX graphics-path 1.0.1: path JNI library. The official release-note
+  commit-range endpoint and CMake source hash are recorded; no third-party link
+  target is declared there. Vendored source ancestry/advisory review remains open.
 - JNA 5.14.0: jnidispatch. Vendor tag resolved to an immutable commit; build file
-  evidence recorded. Exact bundled libffi and native advisory review pending.
+  evidence recorded. Vendored libffi declares 3.4.4; its exact source tree and
+  manifest/build hashes are recorded. Local patches/native advisories remain open.
 - BDK Android 3.0.0: bdkffi. The vendor's immutable release commit, Cargo manifest,
   Cargo lockfile and Android build file are identified. The lock contains 199
   package candidates, including build/dev/conditional entries; this is not a
@@ -62,3 +65,7 @@ SC-02 stays open until each owner has a pinned transitive source inventory,
 dated authoritative advisory results and reviewed dispositions, and those inputs
 are maintained by the release evidence pipeline. The current CI report supplements,
 but does not replace or silently change, the signed release asset contract.
+
+The [dated Cargo candidate review](native-cargo-review.md) records four advisory
+groups found by the new repeatable source-bound scan. No suppressions or native
+clearance have been issued.

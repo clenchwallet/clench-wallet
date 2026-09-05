@@ -50,8 +50,25 @@
       "source_review": {
         "advisory_disposition": "NOT_REVIEWED",
         "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
-        "remaining": "Resolve exact AndroidX release source revision and bundled native source dependencies, build flags and advisory coverage.",
-        "status": "NOT_REVIEWED",
+        "evidence": [
+          {
+            "sha256": "6506d3c4353821f4596648008801a81312e2214725297286e067351f8667b286",
+            "url": "https://android.googlesource.com/platform/frameworks/support/+/987b9ac8585b31424a397206c492196dd163997b/camera/camera-core/src/main/cpp/CMakeLists.txt"
+          },
+          {
+            "sha256": "c35a8cc0c3b21e9f3c2b8cba603c2e7f0f74df4ea29504133922886a1e7a880d",
+            "url": "https://android.googlesource.com/platform/frameworks/support/+/987b9ac8585b31424a397206c492196dd163997b/external/libyuv/README.md"
+          },
+          {
+            "sha256": "4eb97c3cbe950ef7f5b9a28e9d3bb9807c2b8fabb2f92f1cb0659693a14c9ca7",
+            "url": "https://android.googlesource.com/platform/frameworks/support/+/987b9ac8585b31424a397206c492196dd163997b/external/libyuv/build.gradle"
+          }
+        ],
+        "release_association": "Endpoint of the commit range linked by the official AndroidX release notes; not independent artifact provenance.",
+        "release_notes_url": "https://developer.android.com/jetpack/androidx/releases/camera",
+        "remaining": "CameraX packages libyuv statically from the separate ../../external/libyuv checkout. The framework-support commit alone does not pin that external checkout; obtain vendor source/build manifest, then review exact libyuv revision and advisories. Source defaults do not prove binary build flags.",
+        "status": "PARTIAL",
+        "upstream_commit": "987b9ac8585b31424a397206c492196dd163997b",
         "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/"
       }
     },
@@ -85,8 +102,17 @@
       "source_review": {
         "advisory_disposition": "NOT_REVIEWED",
         "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
-        "remaining": "Resolve exact AndroidX release source revision and bundled native source dependencies, build flags and advisory coverage.",
-        "status": "NOT_REVIEWED",
+        "evidence": [
+          {
+            "sha256": "87a8967586e828d2b1cc6c5745d09f30466036bffbcd780b378c75239d90b173",
+            "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/CMakeLists.txt"
+          }
+        ],
+        "release_association": "Endpoint of the commit range linked by the official AndroidX release notes; not independent artifact provenance.",
+        "release_notes_url": "https://developer.android.com/jetpack/androidx/releases/graphics",
+        "remaining": "Review vendored source and native advisories; verify binary build correspondence. CMake lists Conic.cpp, PathIterator.cpp, pathway.cpp, without a third-party link target; source-level ancestry review remains open.",
+        "status": "PARTIAL",
+        "upstream_commit": "8a05a22af450d589ef911d772a001a49dcb05b71",
         "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/"
       }
     },
@@ -139,11 +165,29 @@
           {
             "sha256": "a06479cd198a8c8c8ed18da4ef45757a19c5fa74332ebdbced6fd4fe5b7c6061",
             "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/build.xml"
+          },
+          {
+            "sha256": "d236071538a8ae12b75a267de2fbec80d3f59f05704d04f55ad2bcf3f41ec563",
+            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/native/README.libffi"
+          },
+          {
+            "sha256": "59bbfa4e75f1f60d36568b1b7f46625be512c75d29aff20830ed2778e344a312",
+            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/native/Makefile"
+          },
+          {
+            "sha256": "b78dbea3292cbe4454c778009dda02b0a41a39fea218f850fd40949e1454e86a",
+            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/native/libffi/configure.ac"
           }
         ],
-        "remaining": "Identify exact vendored libffi source revision and build flags, then review native advisories.",
+        "remaining": "Review vendored libffi patches/advisories and validate artifact build flags/source correspondence.",
         "status": "PARTIAL",
-        "upstream_commit": "c366bc4fd0c50a30ac8d2475603ec564f6611462"
+        "upstream_commit": "c366bc4fd0c50a30ac8d2475603ec564f6611462",
+        "vendored_libffi": {
+          "declared_version": "3.4.4",
+          "git_tree": "e0e8cdf7495229c7e98265886219315ee61b25c5",
+          "scope": "Vendored tree in pinned JNA source; local patches possible; not an independent upstream commit or binary proof.",
+          "source_path": "native/libffi"
+        }
       }
     },
     {
@@ -224,8 +268,9 @@
       "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0",
       "source_dependency_assurance": "NOT_REVIEWED",
       "source_review": {
-        "advisory_disposition": "NOT_REVIEWED",
+        "advisory_disposition": "CANDIDATE_MATCHES_REQUIRE_REVIEW",
         "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "candidate_advisory_report": "native-cargo-review.md",
         "evidence": [
           {
             "sha256": "8e86d388a119564809fafa5fed1b851357f08d8a5cb03634ec6092aec074476a",

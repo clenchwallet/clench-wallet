@@ -747,6 +747,7 @@ def main() -> None:
         raise SystemExit("Android CI does not exercise hostile fuzz runner self-tests")
     for required_native_control in (
         "scripts/verification/test-native-inventory.py",
+        "scripts/verification/test-native-cargo-advisories.py",
         "scripts/verification/test-signing-secret-scope.py",
         "scripts/verification/native-artifacts.init.gradle :app:exportNativeRuntimeArtifacts",
         "--baseline docs/security/native-dependencies.json",

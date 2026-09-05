@@ -78,3 +78,13 @@ The first diagnostic pull used the release package path instead of the debug
 package path. Correct it to `net.clench.wallet.debug`; also preserve bounded,
 password-redacted hierarchy lines in logcat because Gradle may uninstall test
 packages before post-job file collection.
+
+## Corrected hosted UI execution
+
+At `9abb7684195c7abb0d5cdd54b229316a1f0dc388`, hosted run `33952815565`
+passed. The actual result gate lists all fifteen required cases with zero
+failures/errors/skips, including both real seed/send authentication UI cases.
+This establishes the cancellation, revisit, credential-success, selected-gate
+and recreation assertions in those tests on the hosted API 35 emulator.
+It does not establish the remaining background/late-callback, unavailable
+authenticator/onboarding UI or physical/OEM matrix. Mac runtime remains NOT RUN.
