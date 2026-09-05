@@ -1,7 +1,7 @@
 {
   "base_url": "https://clench.net",
-  "release_version": "0.3.28",
-  "release_tag": "v0.3.28",
+  "release_version": "0.3.29",
+  "release_tag": "v0.3.29",
   "copyright_year": 2026,
   "pages": [
     {
@@ -12,7 +12,7 @@
       "description": "Clench Wallet is a Bitcoin-only Android wallet for single-signature, multisig, watch-only wallets, hardware wallets, Tor, and your own Electrum server.",
       "og_title": "Clench Wallet",
       "og_description": "Bitcoin-only wallet for Android, with signed releases and independent build evidence.",
-      "lastmod": "2026-09-01",
+      "lastmod": "2026-09-05",
       "main_class": "home-page"
     },
     {
