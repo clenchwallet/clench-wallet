@@ -23,6 +23,8 @@ on:
       - 'app/src/main/java/net/clench/wallet/ui/viewmodel/SettingsViewModel.kt'
       - 'app/src/main/java/net/clench/wallet/ui/screens/SecurityScreen.kt'
       - 'app/src/main/java/net/clench/wallet/ui/screens/SecurityOnboardingScreen.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/screens/ConnectionSetupScreen.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/screens/NetworkChoiceScreen.kt'
       - 'app/src/main/java/net/clench/wallet/ui/util/BiometricHelper.kt'
       - 'app/src/main/java/net/clench/wallet/ui/MainActivity.kt'
       - 'app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt'
@@ -159,6 +161,10 @@ jobs:
           expected = {
               (
                   'net.clench.wallet.ui.AuthenticationGateUiTest',
+                  'freshOfflineOnboardingAndRevisitPreserveAuthenticationPolicy',
+              ),
+              (
+                  'net.clench.wallet.ui.AuthenticationGateUiTest',
                   'backgroundingPendingAuthenticationPreservesEnabledGates',
               ),
               (
@@ -248,7 +254,7 @@ jobs:
               'actual': sorted(actual),
           })
           if actual != expected or failures != 0 or errors != 0 or skipped != 0:
-              raise SystemExit('Expected the exact eighteen named instrumentation tests to pass')
+              raise SystemExit('Expected the exact nineteen named instrumentation tests to pass')
           PY
 
       - name: Upload BDK cross-version evidence

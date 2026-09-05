@@ -57,8 +57,10 @@ internal object ExternalSignaturePolicy {
     }
 
     /**
-     * Return a canonical PSBT containing the current PSBT plus only validated
-     * signature material from [returned]. No other returned metadata survives.
+     * Return a canonical PSBT plus signature material whose encoding and sighash
+     * commitment policy pass these checks. This does not verify signature math or
+     * cosigner membership; native finalization is separate. No other returned
+     * metadata survives.
      */
     fun mergeSignatureMaterial(
         current: String,

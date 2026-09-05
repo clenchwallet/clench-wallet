@@ -137,3 +137,39 @@ disable downgrade controls and preserve both gates, with the public fixture
 credential restored in finally. The expanded eighteen-case gate requires their
 actual execution, not just compilation. Fresh/revisited onboarding UI and
 a deliberately late positive callback remain separate outstanding checks.
+
+## Confirmed return-recovery finding and correction
+
+Hosted run `33954981865` at `6005bfe44a0812fd2b62c07c2839f816424d2390`
+produced eighteen named passes, zero failures/errors/skips. Saved fixture
+logcat explicitly reports `unusable_partial_rejected=false; retained=true`.
+This confirms a recoverable collection/session obstruction, not accepted
+on-chain spending: the incorrect partial stays non-ready, conflicts with a
+corrected same-key field, and valid signatures finalize from the unchanged
+original. The four real Android authentication UI tests also passed, including
+backgrounding and temporarily unavailable device authentication.
+
+The correction adds an explicit **Discard signatures and restart** confirmation.
+It restores the exact original PSBT, drops accumulated returns, assigns a new
+session identity and requires new output/fee review. The confirmation token is
+bound to the session and current payload; stale/reused confirmations cannot
+discard newer state. Restart is refused while merge, signing or broadcast is
+active, and after broadcast. Only that session's document-picker stage is
+invalidated. The action does not overwrite conflicting signatures, rebuild the
+transaction, or imply that a broadcast can be undone. Collection status now
+describes a non-ready signer return without claiming signature-math validation.
+
+Four JVM regressions cover exact-original recovery with fresh review, in-flight
+merge refusal, late inspection isolation, and generation-specific picker
+cleanup; the first also checks replay of a used confirmation token. The full
+actual JVM run passed **475 tests**, zero failures/errors/skips; debug assembly
+and lint passed (87 warnings, 2 hints). Strict Android test-APK assembly passed.
+These software results do not establish physical signer compatibility.
+
+One additional actual onboarding UI case is queued in the nineteen-case hosted
+gate: without a credential, a new offline setup must remain navigable with
+unset optional gates initialized off; revisiting the same setup must preserve
+explicitly enabled gates. No wallet, seed generation, connection test or public
+broadcast is involved. Stale positive callback rejection already has JVM
+controller coverage; the real OS background test establishes its observed
+cancellation path, not every possible OEM callback schedule.

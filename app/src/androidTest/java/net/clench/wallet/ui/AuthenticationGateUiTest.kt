@@ -107,6 +107,51 @@ class AuthenticationGateUiTest {
         }
     }
 
+    @Test fun freshOfflineOnboardingAndRevisitPreserveAuthenticationPolicy() {
+        val prefs = context.getSharedPreferences("clench_settings", Context.MODE_PRIVATE)
+        shell("locksettings clear --old 246813")
+        try {
+            await("onboarding fixture has no credential") {
+                !(context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isDeviceSecure
+            }
+            check(prefs.edit().remove("biometric_seed").remove("biometric_send")
+                .putBoolean("onboarded", false).commit())
+            completeOfflineOnboarding()
+            assertFalse(settings.isBiometricForSeedEnabled())
+            assertFalse(settings.isBiometricForSendEnabled())
+
+            // Explicitly enabled protection must survive revisiting exactly the same UI.
+            settings.setBiometricForSeedEnabled(true)
+            settings.setBiometricForSendEnabled(true)
+            check(prefs.edit().putBoolean("onboarded", false).commit())
+            completeOfflineOnboarding()
+            assertBothEnabled()
+        } catch (failure: Throwable) {
+            saveHierarchy("onboarding")
+            throw failure
+        } finally {
+            shell("locksettings set-pin 246813")
+            await("onboarding fixture credential restored") {
+                (context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isDeviceSecure
+            }
+            settings.setOnboarded()
+        }
+    }
+
+    private fun completeOfflineOnboarding() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            clickText("Testnet")
+            clickText("Offline mode")
+            clickText("Continue in Offline Mode")
+            await("security onboarding") { nodes().any { it.text?.toString() == "Secure Your Wallet" } }
+            clickText("Continue")
+            // Reaching Settings through the real welcome page proves setup is navigable.
+            clickText("Settings")
+            clickText("Security")
+            assertTrue(settings.isOnboarded())
+        }
+    }
+
     private fun exerciseGate(seed: Boolean) {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             try {

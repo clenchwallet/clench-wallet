@@ -2789,7 +2789,7 @@ class BdkBitcoinRepository @Inject constructor(
             PsbtSigningProgress(
                 psbtBase64 = mergedSerialized,
                 readyToBroadcast = false,
-                message = "Signature added. More signatures are required before broadcast."
+                message = "Signer return collected; the transaction is not ready. More valid signatures may be needed. If signing cannot continue, discard collected signatures and restart."
             )
         } finally {
             closeSecretNativeResources(

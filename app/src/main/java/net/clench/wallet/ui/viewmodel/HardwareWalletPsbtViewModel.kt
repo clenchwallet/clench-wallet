@@ -29,6 +29,7 @@ class HardwareWalletPsbtViewModel @Inject constructor(
         val readyToBroadcast: Boolean = false,
         val hasCollectedSignature: Boolean = false,
         val collectedSignerReturns: Int = 0,
+        val canRestartSigning: Boolean = false,
         val signingMessage: String? = null,
         val walletId: String = "",
         val psbtBase64: String = "",
@@ -150,8 +151,9 @@ class HardwareWalletPsbtViewModel @Inject constructor(
                     deviceType = data.deviceType,
                     signedPsbtBase64 = null,
                     readyToBroadcast = false,
-                    hasCollectedSignature = false,
+                    hasCollectedSignature = data.currentPsbtBase64 != data.originalUnsignedPsbtBase64,
                     collectedSignerReturns = 0,
+                    canRestartSigning = data.currentPsbtBase64 != data.originalUnsignedPsbtBase64,
                     signingMessage = null,
                     transactionReview = null,
                     isReviewLoading = true,
@@ -163,11 +165,16 @@ class HardwareWalletPsbtViewModel @Inject constructor(
             data to session
         }
         val (data, session) = initialized
+        inspectSession(session, data.currentPsbtBase64)
+        return data
+    }
+
+    private fun inspectSession(session: SigningSession, psbtBase64: String) {
         viewModelScope.launch {
             try {
                 val review = bitcoinRepository.inspectPsbt(
-                    data.walletId,
-                    data.currentPsbtBase64
+                    session.walletId,
+                    psbtBase64
                 )
                 SendViewModel.feeSafetyError(review)?.let { error(it) }
                 updateIfActive(session) {
@@ -186,7 +193,54 @@ class HardwareWalletPsbtViewModel @Inject constructor(
                 }
             }
         }
-        return data
+    }
+
+    class SigningRestartToken internal constructor(
+        internal val sessionIdentity: Any,
+        internal val currentPsbtBase64: String
+    )
+
+    fun prepareSigningRestart(): SigningRestartToken? = synchronized(sessionLock) {
+        val session = activeSession ?: return@synchronized null
+        val current = _uiState.value
+        if (signingOperationActive.get() || current.txid != null ||
+            current.psbtBase64 == session.unsignedPsbtBase64) return@synchronized null
+        SigningRestartToken(session, current.psbtBase64)
+    }
+
+    /** Discard only the confirmed snapshot, never conflicting fields or a replacement session. */
+    fun restartSigningFromOriginal(token: SigningRestartToken): Boolean {
+        val replacement = synchronized(sessionLock) {
+            val session = activeSession ?: return false
+            val current = _uiState.value
+            if (session !== token.sessionIdentity || current.psbtBase64 != token.currentPsbtBase64) {
+                _uiState.update { it.copy(error = "The signing session changed; review the restart request again") }
+                return false
+            }
+            if (signingOperationActive.get() || current.isBroadcasting || current.txid != null) {
+                _uiState.update { it.copy(error = "Wait for the current signer operation before restarting") }
+                return false
+            }
+            if (current.psbtBase64 == session.unsignedPsbtBase64) return false
+            val generation = sessionGeneration.updateAndGet {
+                check(it < Long.MAX_VALUE) { "Signing session generation is exhausted" }
+                it + 1L
+            }
+            psbtStore.discardSessionStage(session.walletId, session.generation)
+            val next = session.copy(generation = generation)
+            activeSession = next
+            reservedTapsignerOperation = null
+            _uiState.value = UiState(
+                walletId = session.walletId,
+                psbtBase64 = session.unsignedPsbtBase64,
+                deviceType = current.deviceType,
+                isReviewLoading = true,
+                signingMessage = "Collected signatures discarded. Review the original transaction before signing again."
+            )
+            next
+        }
+        inspectSession(replacement, replacement.unsignedPsbtBase64)
+        return true
     }
 
     /**
@@ -393,6 +447,7 @@ class HardwareWalletPsbtViewModel @Inject constructor(
                         readyToBroadcast = progress.readyToBroadcast,
                         hasCollectedSignature = true,
                         collectedSignerReturns = it.collectedSignerReturns + 1,
+                        canRestartSigning = progress.psbtBase64 != session.unsignedPsbtBase64,
                         signingMessage = progress.message,
                         error = null
                     )

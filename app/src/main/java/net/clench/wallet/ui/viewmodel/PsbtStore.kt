@@ -180,6 +180,14 @@ class PsbtStore internal constructor(
         pending = null
     }
 
+    /** A restarted signing session invalidates only its own outstanding picker hand-off. */
+    @Synchronized
+    internal fun discardSessionStage(walletId: String, sourceSessionGeneration: Long) {
+        val current = pending ?: return
+        if (current.walletId == walletId && current.sourceSessionGeneration == sourceSessionGeneration &&
+            current.pickerStage != null) pending = null
+    }
+
     @Synchronized
     internal fun hasPendingForTest(): Boolean {
         clearIfExpiredLocked()

@@ -84,6 +84,7 @@ fun HardwareWalletPsbtScreen(
     var deviceType by remember { mutableStateOf(initialDeviceType) }
     var showScanner by remember { mutableStateOf(false) }
     var showSignerPicker by remember { mutableStateOf(false) }
+    var restartConfirmation by remember { mutableStateOf<HardwareWalletPsbtViewModel.SigningRestartToken?>(null) }
     val activity = context as? Activity
     val nfcAdapter = remember(context) { NfcAdapter.getDefaultAdapter(context) }
     val coldcardSupportsNfc = deviceType == HardwareWalletType.COLDCARD_Q ||
@@ -111,6 +112,31 @@ fun HardwareWalletPsbtScreen(
 
     // A focused Send field can otherwise leave its IME over this route after navigation.
     LaunchedEffect(Unit) { dismissIme() }
+
+    restartConfirmation?.let { restartToken ->
+        AlertDialog(
+            onDismissRequest = { restartConfirmation = null },
+            title = { Text("Discard collected signatures?") },
+            text = { Text("Keep the original transaction, outputs and fee, but discard all collected signer returns. You will need to review it and collect signatures again. This cannot undo a broadcast.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (viewModel.restartSigningFromOriginal(restartToken)) {
+                        showScanner = false
+                        nfcMode = ColdcardNfcMode.Idle
+                        cancelTapsignerAttempt()
+                        nfcStatus = null
+                        nfcError = null
+                        tapsignerStatus = null
+                        tapsignerError = null
+                    }
+                    restartConfirmation = null
+                }) { Text("Discard and review again") }
+            },
+            dismissButton = {
+                TextButton(onClick = { restartConfirmation = null }) { Text("Keep signatures") }
+            }
+        )
+    }
 
     if (showSignerPicker) {
         HardwareWalletPickerSheet(
@@ -695,6 +721,15 @@ fun HardwareWalletPsbtScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 OutlinedButton(onClick = secureBack, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
                 return@Column
+            }
+
+            if (uiState.canRestartSigning) {
+                OutlinedButton(
+                    onClick = { restartConfirmation = viewModel.prepareSigningRestart() },
+                    enabled = !uiState.isProcessingSignedPsbt && !uiState.isBroadcasting && !tapsignerReaderActive,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Discard signatures and restart") }
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
             // Signed PSBT ready state — require explicit user confirmation before broadcast.

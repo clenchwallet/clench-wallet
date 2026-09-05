@@ -13,6 +13,23 @@ import org.junit.Test
 
 class PsbtStoreInterruptionTest {
     @Test
+    fun `restart invalidates only its own picker generation`() {
+        val store = PsbtStore()
+        fun stage() = store.stageForPicker("wallet", validEnvelope(), validEnvelope(), "JADE", 9,
+            PsbtPickerPurpose.HARDWARE_IMPORT)
+        val token = stage()
+        store.discardSessionStage("other-wallet", 9)
+        store.discardSessionStage("wallet", 8)
+        assertTrue(store.hasPendingForTest())
+        store.discardSessionStage("wallet", 9)
+        assertTrue(!store.hasPendingForTest())
+        assertNull(store.consume("wallet", "JADE", token, PsbtPickerPurpose.HARDWARE_IMPORT))
+        store.store("wallet", validEnvelope(), "JADE")
+        store.discardSessionStage("wallet", 0)
+        assertTrue(store.hasPendingForTest())
+        store.clear()
+    }
+    @Test
     fun `cancel or interrupted signing clears all pending authorization state`() {
         val store = PsbtStore()
         store.store("wallet", validEnvelope(), "COLDCARD_Q")
