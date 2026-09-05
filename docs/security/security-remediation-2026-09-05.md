@@ -188,3 +188,17 @@ reopening destinations, avoiding interaction with a departing Compose screen.
 This tests a synchronization hypothesis; it is not a claimed diagnosis or
 a weakened authentication check. Strict test-APK compilation passed. Actual
 hosted execution is required before reporting the expanded gate green.
+
+## Live native advisory pre-sign enforcement
+
+The `build_unsigned` release job now repeats the strict native inventory and
+runs the source-bound live Cargo check before producing signing inputs. Its
+dependency chain prevents signing after a native-gate failure. Reports are
+retained even on failure; no release was dispatched. A fresh local query
+returned the same seven advisory IDs across four groups and exited 1, as
+required; no suppression or native clearance is claimed. Six Cargo parser
+tests, ten native inventory tests, release-control validation and hostile
+release-tool self-tests passed. Four added workflow mutations prove removal,
+skipping, continue-on-error and shell suppression of this gate are rejected.
+SC-02 remains open for candidate dispositions, non-Cargo source/advisory gaps
+and the deliberate SQLCipher update acceptance plan.

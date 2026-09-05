@@ -151,6 +151,22 @@ def verify_release_workflow(workflow: str) -> None:
             "Release workflow must contain exactly the required isolated jobs"
         )
 
+    native_gate = named_step_blocks(blocks["build_unsigned"]).get(
+        "Require native inventory and Cargo advisory evidence before signing", ""
+    )
+    expected_native_gate = """      - name: Require native inventory and Cargo advisory evidence before signing
+        run: |
+          ./gradlew --no-daemon --dependency-verification=strict \\
+            -I scripts/verification/native-artifacts.init.gradle :app:exportNativeRuntimeArtifacts
+          python3 -B scripts/release/inventory-native-artifacts.py \\
+            --baseline docs/security/native-dependencies.json \\
+            --output build/reports/native-dependency-inventory.json
+          python3 -B scripts/release/check-native-cargo-advisories.py \\
+            --output build/reports/native-cargo-advisories.json
+"""
+    if native_gate.strip() != expected_native_gate.strip():
+        raise SystemExit("Release must run the fail-closed native advisory gate before signing")
+
     for job_name, block in blocks.items():
         steps_offset = block.find("\n    steps:\n")
         if steps_offset < 0:

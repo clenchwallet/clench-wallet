@@ -20,9 +20,12 @@ input-binding regressions run in Android CI.
 
 The live checker currently exits **1**, after saving its report: seven advisory
 IDs correspond to four advisory groups across two candidate package versions.
-It does not suppress findings or claim a successful scan. The live advisory
-check is not yet a required release job; integrating reviewed dispositions and
-covering the non-Cargo native components remains part of open SC-02. Existing
+It does not suppress findings or claim a successful scan. The release workflow now requires this live check in its no-secrets unsigned
+build, before any signing dependency can succeed. Findings, source mismatch or
+lookup failure block that job; saved native reports are retained on failure.
+The current advisory matches therefore block a future release, not ordinary
+PR builds. No release workflow has been dispatched to test this change.
+Reviewed dispositions and non-Cargo native coverage remain part of open SC-02;
 CI identity/test success is not native vulnerability clearance.
 
 ## Matches and current evidence

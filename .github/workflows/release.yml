@@ -119,6 +119,27 @@ jobs:
           ./gradlew --no-daemon --dependency-verification=strict \
             clean testDebugUnitTest lint assembleRelease
 
+      - name: Require native inventory and Cargo advisory evidence before signing
+        run: |
+          ./gradlew --no-daemon --dependency-verification=strict \
+            -I scripts/verification/native-artifacts.init.gradle :app:exportNativeRuntimeArtifacts
+          python3 -B scripts/release/inventory-native-artifacts.py \
+            --baseline docs/security/native-dependencies.json \
+            --output build/reports/native-dependency-inventory.json
+          python3 -B scripts/release/check-native-cargo-advisories.py \
+            --output build/reports/native-cargo-advisories.json
+
+      - name: Retain native review evidence even when the release gate fails
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-release-review-${{ needs.validate_source.outputs.version }}
+          path: |
+            build/reports/native-dependency-inventory.json
+            build/reports/native-cargo-advisories.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Require an unsigned APK and generate deterministic SBOM
         env:
           VERSION: ${{ needs.validate_source.outputs.version }}
