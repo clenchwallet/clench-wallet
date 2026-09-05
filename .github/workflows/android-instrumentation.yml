@@ -24,6 +24,9 @@ on:
       - 'app/src/main/java/net/clench/wallet/ui/screens/SecurityScreen.kt'
       - 'app/src/main/java/net/clench/wallet/ui/screens/SecurityOnboardingScreen.kt'
       - 'app/src/main/java/net/clench/wallet/ui/util/BiometricHelper.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/MainActivity.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/screens/SettingsScreen.kt'
       - 'app/src/androidTest/**'
       - 'scripts/verification/bdk-wallet-upgrade/**'
       - 'scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh'
@@ -126,12 +129,18 @@ jobs:
           scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh
 
       - name: Run migration, BDK persistence, and descriptor instrumentation tests
+        env:
+          ANDROID_SERIAL: emulator-5554
         run: |
+          test "$(adb -s "$ANDROID_SERIAL" shell getprop ro.kernel.qemu | tr -d '\r')" = "1"
+          # Public fixture credential on the fresh CI emulator only; never a maintainer credential.
+          adb -s "$ANDROID_SERIAL" shell locksettings set-pin 246813
           ./gradlew \
             --no-daemon \
             --dependency-verification=strict \
             :app:connectedDebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.local.AuthenticationGatePersistenceTest,net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.data.repository.BdkWalletPersistenceTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest,net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest
+            -Pandroid.testInstrumentationRunnerArguments.clenchDisposableEmulator=YES \
+            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.ui.AuthenticationGateUiTest,net.clench.wallet.data.local.AuthenticationGatePersistenceTest,net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.data.repository.BdkWalletPersistenceTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest,net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest
 
       - name: Require actual instrumentation results
         if: always()
@@ -148,6 +157,14 @@ jobs:
               raise SystemExit('No instrumentation XML result was produced')
 
           expected = {
+              (
+                  'net.clench.wallet.ui.AuthenticationGateUiTest',
+                  'seedGateRequiresSystemAuthenticationAndPersistsCancellation',
+              ),
+              (
+                  'net.clench.wallet.ui.AuthenticationGateUiTest',
+                  'sendGateRequiresSystemAuthenticationAndPersistsCancellation',
+              ),
               (
                   'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
                   'initialDefaultsNeverOverwritePreviouslyEnabledProtection',
@@ -219,7 +236,7 @@ jobs:
               'actual': sorted(actual),
           })
           if actual != expected or failures != 0 or errors != 0 or skipped != 0:
-              raise SystemExit('Expected the exact thirteen named instrumentation tests to pass')
+              raise SystemExit('Expected the exact fifteen named instrumentation tests to pass')
           PY
 
       - name: Upload BDK cross-version evidence
@@ -235,6 +252,8 @@ jobs:
         if: failure()
         run: |
           mkdir -p "$RUNNER_TEMP/android-instrumentation-diagnostics"
+          adb -s emulator-5554 pull /sdcard/Android/data/net.clench.wallet/files/ui-regression \
+            "$RUNNER_TEMP/android-instrumentation-diagnostics/ui-regression" || true
           adb devices -l \
             > "$RUNNER_TEMP/android-instrumentation-diagnostics/devices.txt" \
             2>&1 || true

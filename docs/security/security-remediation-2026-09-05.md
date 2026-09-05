@@ -87,3 +87,22 @@ Hosted Android instrumentation run `33938776111` passed on `1d8b0a2`, but its ex
   the workflow path filter. Remote branch protection still requires only
   `build` and `analyze`; [activation and reviewer prerequisites](release-governance-follow-up.md)
   are recorded rather than reported as completed enforcement.
+
+## Hosted UI validation replacing the blocked Mac execution
+
+At `99b8b8805383482bb0489fd1e4fb3bd9127f2e36`, Android CI, thirteen-case
+instrumentation, CodeQL and the always-reporting Website CI all passed.
+
+The owner subsequently supplied a strict Mac build PASS at `06c24c6` and detailed
+host CPU/cache initialization evidence. The app never ran there; see
+[the Mac evidence summary](../qa/mac-runtime-2026-09-05.md). No sandbox bypass,
+graphics workaround or guest-image replacement is authorized by that diagnosis.
+
+`AuthenticationGateUiTest` now compiles against the actual production activity
+and screens, using real system credential prompts and no mock success callback.
+The hosted selector/result gate expands to fifteen exact cases, adding separate
+seed and send UI cases. The disposable-emulator guard and known test credential
+are required; no physical device or real wallet material is used. These new UI
+cases remain NOT RUN until their hosted results are inspected. They do not yet
+cover the complete background/late-success, unavailable-authenticator and initial
+onboarding UI matrix; those acceptance items remain open.
