@@ -211,3 +211,12 @@ labels on the production switches, preserving their role and checked state.
 Failure evidence now records both synthetic gate preferences and control
 bounds/check states. These changes investigate control selection; no claim
 of root cause or successful correction is made before actual execution.
+
+At `3a96b6da8bcbd33d1ecc56cf9d49e1d66cd98609`, hosted run
+`33958237914` reports nineteen executed cases, fifteen passes and four fixture
+failures locating authentication controls. Saved accessibility output places
+the explicit label on a child and checkable state on its ancestor. The selector
+now follows that exact ancestry instead of requiring both properties on one
+node. Both preferences remained enabled in the saved failure evidence. Strict
+test-APK compilation passed; this addresses a selector defect, not yet the
+earlier post-authentication timeout.

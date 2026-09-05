@@ -236,8 +236,14 @@ class AuthenticationGateUiTest {
         await("gate control: $label") {
             val all = nodes()
             val matches = all.filter {
-                it.isCheckable && it.isVisibleToUser && it.contentDescription?.toString() == label
-            }
+                it.isVisibleToUser && it.contentDescription?.toString() == label
+            }.mapNotNull { labeled ->
+                // Material's minimum touch target can place checkable state on
+                // the label node's ancestor. Bind by ancestry, never screen Y.
+                var control: AccessibilityNodeInfo? = labeled
+                while (control != null && !control.isCheckable) control = control.parent
+                control?.takeIf { it.isVisibleToUser }
+            }.distinct()
             check(matches.size <= 1) { "Ambiguous accessibility label for $label" }
             found = matches.singleOrNull()
             if (found == null) all.firstOrNull { it.isScrollable }
