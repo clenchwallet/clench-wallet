@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import datetime as dt
+import copy
 
 spec = importlib.util.spec_from_file_location("native_cargo", Path(__file__).resolve().parents[1] / "release/check-native-cargo-advisories.py")
 scanner = importlib.util.module_from_spec(spec)
@@ -13,6 +15,99 @@ spec.loader.exec_module(scanner)
 
 
 class NativeCargoTests(unittest.TestCase):
+    def disposition_fixture(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        (root / "app/src/main").mkdir(parents=True)
+        (root / "docs/security").mkdir(parents=True)
+        for name in ["src/main/Test.kt", "build.gradle.kts", "gradle.lockfile", "proguard-rules.pro"]:
+            (root / "app" / name).write_text("reviewed")
+        evidence = root / "docs/security/evidence.md"
+        evidence.write_text("Specific reviewed Android source paths")
+        advisory = {"id": "RUSTSEC-2099-0001", "details": "Original reviewed advisory"}
+        entry = dict(purl="pkg:cargo/example@1.0.0", id=advisory["id"],
+                     status="not_affected_reviewed_call_path", reason="A concrete source-bound applicability rationale. " * 3,
+                     advisory_sha256=scanner.canonical_hash(advisory))
+        owner = {"artifact_sha256": "a" * 64}
+        document = dict(schema_version=1, owner_purl=scanner.OWNER,
+                        owner_artifact_sha256=owner["artifact_sha256"], source_lock_sha256="b" * 64,
+                        application_sha256=scanner.application_hash(root), reviewed_on="2099-01-01",
+                        expires_on="2099-01-31", evidence=[dict(path="docs/security/evidence.md",
+                        sha256=hashlib.sha256(evidence.read_bytes()).hexdigest())], entries=[entry])
+        findings = {(entry["purl"], entry["id"])}
+        def run(doc=None, live=None, matches=None, today=None):
+            return scanner.disposition_results(doc if doc is not None else document, owner, "b" * 64,
+                    findings if matches is None else matches, root,
+                    today=today or dt.date(2099, 1, 5), fetch_advisory=lambda _: live or advisory)
+        return root, document, advisory, findings, run
+
+    def test_exact_review_keeps_raw_match_and_reports_disposition(self):
+        _, doc, _, findings, run = self.disposition_fixture()
+        reviewed, unresolved = run()
+        self.assertEqual(doc["entries"], reviewed)
+        self.assertEqual([], unresolved)
+        self.assertEqual(1, len(findings))
+
+    def test_new_advisory_is_unresolved_not_package_wide_suppressed(self):
+        _, _, _, findings, run = self.disposition_fixture()
+        new = ("pkg:cargo/example@1.0.0", "RUSTSEC-2099-0002")
+        self.assertEqual([new], run(matches=findings | {new})[1])
+
+    def test_changed_or_new_production_source_invalidates_review(self):
+        root, _, _, _, run = self.disposition_fixture()
+        (root / "app/src/main/Added.kt").write_text("new native client")
+        with self.assertRaisesRegex(ValueError, "binding changed"):
+            run()
+
+    def test_new_release_source_set_invalidates_review(self):
+        root, _, _, _, run = self.disposition_fixture()
+        (root / "app/src/release").mkdir()
+        (root / "app/src/release/Added.kt").write_text("new release-only native client")
+        with self.assertRaisesRegex(ValueError, "binding changed"):
+            run()
+
+    def test_changed_artifact_or_lock_invalidates_review(self):
+        _, doc, _, _, run = self.disposition_fixture()
+        for field in ["owner_artifact_sha256", "source_lock_sha256"]:
+            changed = copy.deepcopy(doc)
+            changed[field] = "0" * 64
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "binding changed"):
+                run(changed)
+
+    def test_expired_future_or_overlong_review_is_rejected(self):
+        _, doc, _, _, run = self.disposition_fixture()
+        for today in [dt.date(2098, 12, 31), dt.date(2099, 2, 1)]:
+            with self.assertRaisesRegex(ValueError, "review interval"):
+                run(today=today)
+        doc["expires_on"] = "2099-03-01"
+        with self.assertRaisesRegex(ValueError, "review interval"):
+            run()
+
+    def test_advisory_content_change_invalidates_disposition(self):
+        _, _, advisory, _, run = self.disposition_fixture()
+        advisory = dict(advisory, details="Expanded affected operation")
+        with self.assertRaisesRegex(ValueError, "content changed"):
+            run(live=advisory)
+
+    def test_changed_evidence_invalidates_disposition(self):
+        root, _, _, _, run = self.disposition_fixture()
+        (root / "docs/security/evidence.md").write_text("different conclusion")
+        with self.assertRaisesRegex(ValueError, "evidence changed"):
+            run()
+
+    def test_stale_duplicate_and_blanket_dispositions_are_rejected(self):
+        _, doc, _, _, run = self.disposition_fixture()
+        with self.assertRaisesRegex(ValueError, "Stale"):
+            run(matches=set())
+        changed = copy.deepcopy(doc)
+        changed["entries"].append(changed["entries"][0])
+        with self.assertRaisesRegex(ValueError, "Duplicate"):
+            run(changed)
+        doc["entries"][0]["status"] = "accepted_risk"
+        with self.assertRaisesRegex(ValueError, "rationale"):
+            run()
+
     def fixture(self, text, *, digest=None):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

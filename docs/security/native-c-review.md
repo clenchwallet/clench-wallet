@@ -67,15 +67,24 @@ LibTomCrypt fork commit `476a9579ae94f32b9ea9e2747bfb04b302370259` also returned
 none. Neither result establishes complete C/fork advisory coverage. SQLCipher's
 provider fixes are separate from the LibTomCrypt library version.
 
-CameraX's `external:libyuv` build uses another source checkout; its exact
-revision is not established by the frameworks/support release endpoint.
+CameraX's `external:libyuv` build uses another source checkout. Follow-up
+inspection found Android superproject snapshot
+`cda3ca13a9e9be059fe674a8173cae532cfa42c6`, which pins the exact reviewed
+frameworks/support release endpoint `987b9ac8585b31424a397206c492196dd163997b`
+alongside external/libyuv `afae031e789e344bfc34c9e763c83f861a1ff3f1`.
+The external checkout's METADATA identifies Chromium upstream
+`b7d97d5f3f8f897b88872b6935e4c996b955bc1f`; its header declares 1915.
+Both exact commit OSV queries returned no matches on 2026-09-05. The snapshot
+gitlinks and metadata/header/CMake hashes are recorded in the native baseline.
+This resolves the external revision gap, not independent binary reproduction
+or completeness of C advisory databases.
 All 12 files in graphics-path's pinned native source directory now match their
 Gitiles blob IDs, including the three local `filament::math` headers. CMake
 names only the three local translation units; quoted includes stay within that
 directory, while angle-bracket includes use system/NDK headers. This pins the
 source snapshot but not a separate Filament release version or binary build
-correspondence. CameraX's missing external revision and vendor build evidence
-remain prerequisites. Do not substitute a nearby release date, moving branch or
+correspondence. Vendor binary build evidence remains a limitation.
+Do not substitute a nearby release date, moving branch or
 guessed version to make a scanner report green.
 
 ## Maintenance boundary

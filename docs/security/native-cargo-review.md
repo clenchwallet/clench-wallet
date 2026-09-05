@@ -1,7 +1,10 @@
 # BDK upstream Cargo advisory review — 2026-09-05
 
-Status: **candidate matches require disposition**. No confirmed Clench exploit
-or blanket native clearance is established by this report.
+Status: **exact reviewed call-path dispositions added** in
+`native-cargo-dispositions.md` / `.json`. The chronological investigation below
+retains the earlier blocking state. The latest live run queried 198 candidates,
+retained seven raw IDs and passed with seven exact reviewed dispositions.
+No confirmed Clench exploit or blanket native clearance is established.
 
 ## Reproduce the coverage check
 

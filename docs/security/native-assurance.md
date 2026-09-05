@@ -1,6 +1,14 @@
 # Native dependency assurance
 
-Status: partial remediation of SC-02, **not a native vulnerability clearance**.
+Status: native inventory and Rust applicability controls implemented; remaining
+vendor provenance/C-coverage limits are explicit. **Not a native vulnerability clearance**.
+
+Latest follow-up: the CameraX libyuv source revision is now bound through the
+exact matching Android superproject snapshot. Seven raw Cargo advisory IDs
+have short-lived, evidence-bound call-path dispositions; new or changed inputs
+fail closed. See `native-cargo-dispositions.md`. SQLCipher's published Android
+tag/submodule discrepancy is still unresolved; no independent native rebuild
+or complete transitive C clearance is claimed.
 
 The Maven CycloneDX inventory remains useful for resolved Java/Kotlin coordinates,
 but does not inventory source dependencies embedded in native binaries. Its zero
@@ -39,7 +47,9 @@ explicit incomplete review status:
 
 - CameraX camera-core 1.6.1: image-processing and surface JNI libraries. The
   official release-note commit-range endpoint and CMake hash are recorded. It
-  links the vendored external:libyuv project; vendored/advisory review remains open.
+  links external:libyuv. The matching superproject pins its exact Android and
+  upstream revisions; source-bound commit queries found no matches, with C
+  coverage limitations retained.
 - AndroidX graphics-path 1.0.1: path JNI library. The official release-note
   commit-range endpoint and CMake source hash are recorded; no third-party link
   target is declared there. All twelve native source files and bundled math
@@ -83,10 +93,13 @@ do not turn the unresolved source associations into a native clearance.
 
 ## Pre-sign release enforcement
 
-The no-secrets `build_unsigned` job now repeats the strict native identity
-check and runs the live Cargo advisory query. Signing depends transitively on
-this job. Its current matches fail the gate; an upload with `always()` retains
-the reports but never converts failure into success. No suppression is added.
+The no-secrets `build_unsigned` job repeats the strict native identity check
+and live Cargo query. Signing depends transitively on this job. Exact-ID
+dispositions are now bound to the native artifact, lock, application source,
+review evidence and live advisory contents, with at most 30-day expiry. Unknown
+findings, stale reviews, changed inputs and lookup failures still block; raw
+findings are always retained. These are not patched-version or binary-removal
+claims. An upload with `always()` never converts a gate failure into success.
 Four workflow mutation tests reject removing, skipping, ignoring or masking the
 live gate. This is a supplement to the Maven SBOM, not a claim of complete C
 coverage or a change to the thirteen public release assets. No release was run.

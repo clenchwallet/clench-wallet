@@ -26,8 +26,8 @@ The signed release workflow is dispatched explicitly from protected `master` wit
 
 At v0.3.28 these values are repository-scoped GitHub secrets, but the trusted
 workflow references them only inside the approval-gated, source-free
-`release-signing` job. Moving or rotating them into environment scope remains a
-defense-in-depth governance follow-up.
+`release-signing` job. The original values were migrated to the protected environment on 2026-09-05,
+and repository copies are now absent; see ../security/signing-secret-scope.md.
 
 Release documentation:
 
@@ -35,7 +35,7 @@ Release documentation:
 - [Signed-release verification](signed-release-verification.md)
 - [Release tag signing](tag-signing.md)
 - [Verification laboratory](../verification/README.md)
-- [Current release gate](../qa/v0.3.28-release-gate.md)
+- [Published 0.3.28 release gate](../qa/v0.3.28-release-gate.md)
 - [Current physical-hardware gates](../qa/physical-hardware-gates-v0.3.28.md)
 - [v0.3.22 release-key isolation review](../security/release-key-isolation-v0.3.22.md)
 
@@ -47,3 +47,5 @@ Security review documentation:
 - [Security hardening](../security/security-hardening.md)
 - [Audit path](../security/audit-path.md)
 - [Manual test plan](../qa/manual-test-plan.md)
+
+Release candidate: [0.3.29 gate](../qa/v0.3.29-release-gate.md) and [security review](../security/security-review-v0.3.29.md).

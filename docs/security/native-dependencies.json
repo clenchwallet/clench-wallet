@@ -48,7 +48,7 @@
       "owner_purl": "pkg:maven/androidx.camera/camera-core@1.6.1",
       "source_dependency_assurance": "NOT_REVIEWED",
       "source_review": {
-        "advisory_disposition": "NOT_REVIEWED",
+        "advisory_disposition": "SOURCE_BOUND_QUERY_REVIEWED_WITH_COVERAGE_LIMITS",
         "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
         "evidence": [
           {
@@ -62,14 +62,57 @@
           {
             "sha256": "4eb97c3cbe950ef7f5b9a28e9d3bb9807c2b8fabb2f92f1cb0659693a14c9ca7",
             "url": "https://android.googlesource.com/platform/frameworks/support/+/987b9ac8585b31424a397206c492196dd163997b/external/libyuv/build.gradle"
+          },
+          {
+            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/METADATA?format=TEXT",
+            "sha256": "53f1c84f656ee31f2acbba634185720224911c3a45933e6eb28659fe823e50d7"
+          },
+          {
+            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/include/libyuv/version.h?format=TEXT",
+            "sha256": "5ff9d453e3d215ab9b5c9d64d2c87cfb366423335320c8ad887cc010028cd37c"
+          },
+          {
+            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/CMakeLists.txt?format=TEXT",
+            "sha256": "12b91b5ef7077d48b2c3469baad360e44ba13cddb6d80d42d6fcfb4fed4c387c"
           }
         ],
         "release_association": "Endpoint of the commit range linked by the official AndroidX release notes; not independent artifact provenance.",
         "release_notes_url": "https://developer.android.com/jetpack/androidx/releases/camera",
-        "remaining": "CameraX packages libyuv statically from the separate ../../external/libyuv checkout. The framework-support commit alone does not pin that external checkout; obtain vendor source/build manifest, then review exact libyuv revision and advisories. Source defaults do not prove binary build flags.",
+        "remaining": "Exact external libyuv source revision now established by the matching superproject snapshot. Vendor binary/source reproducibility and complete C advisory coverage remain limitations.",
         "status": "PARTIAL",
         "upstream_commit": "987b9ac8585b31424a397206c492196dd163997b",
-        "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/"
+        "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/",
+        "libyuv_source_binding": {
+          "superproject_commit": "cda3ca13a9e9be059fe674a8173cae532cfa42c6",
+          "superproject_url": "https://android.googlesource.com/platform/superproject/+/cda3ca13a9e9be059fe674a8173cae532cfa42c6",
+          "ls_tree_sha256": "faeedaf4eec2e1b018d0144592c0eda5815bac09f300d270494e00aad8a6d101",
+          "frameworks_support": "987b9ac8585b31424a397206c492196dd163997b",
+          "external_libyuv": "afae031e789e344bfc34c9e763c83f861a1ff3f1",
+          "metadata_upstream_commit": "b7d97d5f3f8f897b88872b6935e4c996b955bc1f",
+          "header_version": 1915,
+          "scope": "Exact Android superproject snapshot tying both gitlinks; vendor binary not independently rebuilt."
+        },
+        "libyuv_advisory_query": {
+          "checked_on": "2026-09-05",
+          "source": "https://api.osv.dev/v1/querybatch",
+          "query": {
+            "queries": [
+              {
+                "commit": "afae031e789e344bfc34c9e763c83f861a1ff3f1"
+              },
+              {
+                "commit": "b7d97d5f3f8f897b88872b6935e4c996b955bc1f"
+              }
+            ]
+          },
+          "response": {
+            "results": [
+              {},
+              {}
+            ]
+          },
+          "limitation": "No-match results do not establish complete Android/Chromium C advisory coverage."
+        }
       }
     },
     {
@@ -404,12 +447,12 @@
       "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0",
       "source_dependency_assurance": "NOT_REVIEWED",
       "source_review": {
-        "advisory_disposition": "CANDIDATE_MATCHES_REQUIRE_REVIEW",
+        "advisory_disposition": "EXACT_EXPIRING_SOURCE_CALL_PATH_DISPOSITIONS; not patched-version or binary clearance",
         "anyhow_source_disposition": {
           "date": "2026-09-05",
           "direct_consumers_reviewed": 15,
           "findings": "Mutable anyhow downcasts found in wit-parser 0.244.0, reached through wasip3 on getrandom 0.4.2 wasm32/wasi/p3 target. UniFFI pipeline downcast_mut is std::any::Any, not anyhow::Error. Pinned BDK Rust source has no matching call.",
-          "remaining": "Source-bound evidence only; no advisory gate suppression or binary-wide clearance.",
+          "remaining": "Exact review now bound to live gate; independent binary correspondence remains a vendor trust boundary.",
           "status": "NO_AFFECTED_ANDROID_CALL_PATH_ESTABLISHED"
         },
         "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",

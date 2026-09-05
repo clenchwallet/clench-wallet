@@ -1,12 +1,34 @@
 # Signing-secret scope remediation
 
-SC-01 remains open. Read-only GitHub metadata inspection on 2026-09-05 found
+SC-01 is resolved as an access-scope finding. Initial read-only GitHub metadata inspection on 2026-09-05 found
 the four signing entries at repository scope and none in `release-signing`.
 No secret values were read, and there is no evidence of compromise. A source-free,
 approval-gated signing job does not prevent another authorized workflow writer
 from referencing repository-scoped secrets in a different job.
 
-## Maintainer action needed
+## Completion evidence — 2026-09-05
+
+The maintainer supplied a Mac Codex migration summary reporting successful store
+password, private-key-entry, key-password and pinned-certificate validation;
+all four environment uploads succeeded before repository copies were deleted.
+Original files remained unchanged. The reported Mac evidence is
+`.audit-runtime/sc01-migration-override-results/SC01_MIGRATION_RESULTS.md`.
+The primary agent received the summary, not the underlying report or credentials.
+
+Independent read-only verification at approximately 16:48 UTC passed
+`python3 -B scripts/release/verify-signing-secret-scope.py`: all four required
+environment entries are present and repository copies are absent. Separate API
+inspection confirmed required reviewer `clenchwallet`, self-review still allowed,
+and the sole custom deployment policy `master` (branch). Protections were not
+changed. The original APK certificate pin remains
+`d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca`.
+
+This closes credential scope based on independently checked metadata and
+maintainer-reported local continuity. GitHub secret contents cannot be read back;
+no end-to-end release/signing run was performed as part of this verification.
+No key rotation, merge or publication is claimed.
+
+## Migration procedure (completed; retained for reference)
 
 The original four values must be available on a trusted maintainer machine:
 

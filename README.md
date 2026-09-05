@@ -129,6 +129,7 @@ For release verification and security-review scope, see [docs/release/README.md]
 
 | Version | Highlights |
 | --- | --- |
+| 0.3.29 (candidate) | Fresh-authentication protection changes, multisig key-alias rejection, signing-session recovery, backup/network/QR hardening, and tested SQLCipher 4.17 upgrade; see candidate security review for native provenance limits. |
 | 0.3.28 | Adds physically unverified air-gapped protocol presets intended for OneKey Pro, Krux, and Specter DIY; implements TAPSIGNER BIP-48 native-P2WSH multisig signing with physical acceptance still `NOT RUN`; adds legacy UR, `ur:psbt`, `ur:bytes`, and Base43 imports; and fixes the persisted TAPSIGNER settings label. |
 | 0.3.27 | Adds verified TAPSIGNER signing for single-signature BIP-84 native-SegWit payments, real-card CBOR/derive/xpub interoperability, numeric-first PIN entry with a legacy fallback, BDK Android 3.0 persisted-wallet migration proof, Room/SQLCipher instrumentation, and an updated Android/Kotlin build toolchain. |
 | 0.3.26 | Carries the v0.3.24 security hardening forward after two unpublished, fail-closed release attempts and adds a two-gate, three-build reproducibility proof: byte-identical unsigned builds, followed by deterministic `apksigner` packaging normalization and a no-exclusions comparison of every APK ZIP entry. |
