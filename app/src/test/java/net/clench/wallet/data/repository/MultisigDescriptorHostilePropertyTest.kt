@@ -66,6 +66,40 @@ class MultisigDescriptorHostilePropertyTest {
     }
 
     @Test
+    fun `lineage and version aliases cannot increase signer count`() {
+        val payload = ByteArray(74) { (it + 1).toByte() }.also { it[41] = 0x02 }
+        val original = encodeExtendedKey(0x0488B21E, payload)
+        // Payload bytes 0-8 are depth, parent fingerprint and child number.
+        for (field in 0..8) {
+            val aliasPayload = payload.copyOf().also { it[field] = (it[field].toInt() xor 0x01).toByte() }
+            for (version in listOf(0x0488B21E, 0x043587CF, 0x04B24746, 0x045F1CF6)) {
+                val alias = encodeExtendedKey(version, aliasPayload)
+                for (function in listOf("multi", "sortedmulti")) {
+                    assertThrows(IllegalArgumentException::class.java) {
+                        MultisigDescriptorSafety.validate("wsh($function(2,$original/0/*,$alias/1/*))")
+                    }
+                    org.junit.Assert.assertEquals(
+                        MultisigDescriptorSafety.canonicalSigner(original),
+                        MultisigDescriptorSafety.canonicalSigner(" [01020304/48'/0'/0'/2']$alias/1/* ")
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `distinct chain codes and public keys retain separate identities`() {
+        val payload = ByteArray(74) { (it + 1).toByte() }.also { it[41] = 0x02 }
+        val original = encodeExtendedKey(0x0488B21E, payload)
+        // Chain code and public key bytes are identity, not lineage metadata.
+        for (field in listOf(9, 40, 42, 73)) {
+            val other = encodeExtendedKey(0x0488B21E,
+                payload.copyOf().also { it[field] = (it[field].toInt() xor 0x01).toByte() })
+            MultisigDescriptorSafety.validate("wsh(sortedmulti(2,$original/0/*,$other/0/*))")
+        }
+    }
+
+    @Test
     fun `invalid thresholds and excessive signer sets are rejected`() {
         assertThrows(IllegalArgumentException::class.java) {
             MultisigDescriptorSafety.validate("wsh(sortedmulti(3,tpubA/0/*,tpubB/0/*))")

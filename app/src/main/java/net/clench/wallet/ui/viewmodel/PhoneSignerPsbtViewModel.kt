@@ -3,6 +3,7 @@ package net.clench.wallet.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -39,12 +40,24 @@ class PhoneSignerPsbtViewModel @Inject constructor(
 
     private var unsignedPsbtBase64: String = ""
     private var sessionGeneration: Long = 0L
+    class SigningToken internal constructor(
+        internal val generation: Long,
+        internal val walletId: String,
+        internal val psbt: String
+    )
+    private var pendingSigning: SigningToken? = null
+
+    private fun isSessionCurrent(generation: Long, walletId: String, psbt: String): Boolean =
+        generation == sessionGeneration && _uiState.value.walletId == walletId &&
+            _uiState.value.psbtBase64 == psbt
+
 
     internal fun initFromStore(
         expectedWalletId: String,
         pickerToken: String? = null,
         pickerPurpose: PsbtPickerPurpose? = null
     ): PsbtHandoff? {
+        if (_uiState.value.isSigning || _uiState.value.isBroadcasting) return null
         val data = psbtStore.consume(
             expectedWalletId = expectedWalletId,
             expectedDeviceType = PHONE_SIGNER_DEVICE,
@@ -61,7 +74,7 @@ class PhoneSignerPsbtViewModel @Inject constructor(
         sessionGeneration = baselineGeneration + 1L
         unsignedPsbtBase64 = data.originalUnsignedPsbtBase64
         _uiState.update {
-            it.copy(
+            UiState(
                 walletId = data.walletId,
                 psbtBase64 = data.currentPsbtBase64,
                 signedPsbtBase64 = null,
@@ -71,12 +84,14 @@ class PhoneSignerPsbtViewModel @Inject constructor(
                 biometricForSendEnabled = settingsManager.isBiometricForSendEnabled()
             )
         }
+        val generation = sessionGeneration
         viewModelScope.launch {
             try {
                 val review = bitcoinRepository.inspectPsbt(
                     data.walletId,
                     data.currentPsbtBase64
                 )
+                if (!isSessionCurrent(generation, data.walletId, data.currentPsbtBase64)) return@launch
                 SendViewModel.feeSafetyError(review)?.let { error(it) }
                 _uiState.update {
                     it.copy(
@@ -86,6 +101,8 @@ class PhoneSignerPsbtViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (!isSessionCurrent(generation, data.walletId, data.currentPsbtBase64)) return@launch
                 _uiState.update {
                     it.copy(
                         isReviewLoading = false,
@@ -132,38 +149,67 @@ class PhoneSignerPsbtViewModel @Inject constructor(
     }
 
     private fun invalidatePickerSession(message: String) {
+        pendingSigning = null
         sessionGeneration += 1L
         unsignedPsbtBase64 = ""
         _uiState.value = UiState(error = message)
     }
 
-    fun signWithPhoneKeys(walletId: String) {
-        val psbt = _uiState.value.psbtBase64
-        if (psbt.isBlank()) {
-            _uiState.update { it.copy(error = "No PSBT is loaded") }
-            return
+    /** Reserve the exact reviewed transaction before opening the authentication prompt. */
+    fun beginPhoneSigning(walletId: String): SigningToken? {
+        val current = _uiState.value
+        if (current.isSigning || current.isBroadcasting) return null
+        if (walletId.isBlank() || walletId != current.walletId || current.psbtBase64.isBlank()) {
+            setError("Signing request does not belong to the active wallet")
+            return null
         }
-        if (_uiState.value.transactionReview == null) {
-            _uiState.update { it.copy(error = "Wait for transaction verification before signing") }
-            return
+        if (current.isReviewLoading || current.transactionReview == null) {
+            setError("Wait for transaction verification before signing")
+            return null
         }
-        if (_uiState.value.requiresHighFeeConfirmation && !_uiState.value.highFeeAcknowledged) {
-            _uiState.update { it.copy(error = "Confirm the high network fee before signing") }
-            return
+        if (current.requiresHighFeeConfirmation && !current.highFeeAcknowledged) {
+            setError("Confirm the high network fee before signing")
+            return null
         }
+        return SigningToken(sessionGeneration, walletId, current.psbtBase64).also {
+            pendingSigning = it
+            _uiState.update { state -> state.copy(isSigning = true, error = null) }
+        }
+    }
+
+    fun cancelPhoneSigning(token: SigningToken) {
+        if (pendingSigning === token) {
+            pendingSigning = null
+            _uiState.update { it.copy(isSigning = false) }
+        }
+    }
+
+    fun cancelPendingAuthentication() {
+        pendingSigning?.let(::cancelPhoneSigning)
+    }
+
+    fun signWithPhoneKeys(token: SigningToken) {
+        if (pendingSigning !== token) return
+        pendingSigning = null // Single-use even if the repository fails.
+        if (!isSessionCurrent(token.generation, token.walletId, token.psbt)) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isSigning = true, error = null) }
             try {
-                val signed = bitcoinRepository.signMultisigPsbtWithPhoneKeys(walletId, psbt)
-                _uiState.update { it.copy(isSigning = false, signedPsbtBase64 = signed) }
+                val signed = bitcoinRepository.signMultisigPsbtWithPhoneKeys(token.walletId, token.psbt)
+                if (isSessionCurrent(token.generation, token.walletId, token.psbt)) {
+                    _uiState.update { it.copy(isSigning = false, signedPsbtBase64 = signed) }
+                }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isSigning = false, error = e.message ?: "Phone signing failed") }
+                if (e is CancellationException) throw e
+                if (isSessionCurrent(token.generation, token.walletId, token.psbt)) {
+                    _uiState.update { it.copy(isSigning = false, error = e.message ?: "Phone signing failed") }
+                }
             }
         }
     }
 
     fun broadcastIfComplete(walletId: String) {
         val current = _uiState.value
+        if (current.isSigning || current.isBroadcasting) return
         if (walletId.isBlank() || walletId != current.walletId) {
             _uiState.update { it.copy(error = "Security: broadcast request does not belong to the active wallet") }
             return
@@ -178,11 +224,12 @@ class PhoneSignerPsbtViewModel @Inject constructor(
             _uiState.update { it.copy(error = "No PSBT is loaded") }
             return
         }
+        val generation = sessionGeneration
+        _uiState.update { it.copy(isBroadcasting = true, error = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isBroadcasting = true, error = null) }
             try {
                 val assertSessionCurrent = {
-                    if (_uiState.value.walletId != walletId ||
+                    if (sessionGeneration != generation || _uiState.value.walletId != walletId ||
                         unsignedPsbtBase64 != sessionUnsignedPsbt
                     ) {
                         throw SecurityException("Signer session changed before the transaction could be broadcast")
@@ -198,10 +245,13 @@ class PhoneSignerPsbtViewModel @Inject constructor(
                 assertSessionCurrent()
                 _uiState.update { it.copy(isBroadcasting = false, txid = txid) }
             } catch (e: SecurityException) {
+                if (!isSessionCurrent(generation, walletId, current.psbtBase64)) return@launch
                 _uiState.update {
                     it.copy(isBroadcasting = false, error = "Security: ${e.message}")
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (!isSessionCurrent(generation, walletId, current.psbtBase64)) return@launch
                 _uiState.update {
                     it.copy(
                         isBroadcasting = false,

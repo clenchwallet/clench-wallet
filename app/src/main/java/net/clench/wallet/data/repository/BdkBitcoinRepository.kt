@@ -3517,8 +3517,10 @@ class BdkBitcoinRepository @Inject constructor(
                     ),
                     true
                 )
-                val reader = java.io.BufferedReader(
-                    java.io.InputStreamReader(socket.getInputStream(), Charsets.UTF_8)
+                val reader = net.clench.wallet.data.network.BoundedLineReader(
+                    socket.getInputStream().bufferedReader(Charsets.UTF_8),
+                    maxLineChars = 64 * 1024,
+                    maxTotalChars = 256 * 1024L
                 )
 
                 writer.println("""{"id":1,"method":"blockchain.headers.subscribe","params":[]}""")
@@ -3559,61 +3561,34 @@ class BdkBitcoinRepository @Inject constructor(
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "batchElectrumTxLookup: connecting for ${txids.size} txids")
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "batchElectrumTxLookup: first txid=${txids.firstOrNull()} len=${txids.firstOrNull()?.length}")
 
-            val socket = electrumConnectionFactory.createRawSocket(config)
-            socket.soTimeout = 30_000
-
-            val writer = java.io.PrintWriter(java.io.BufferedWriter(java.io.OutputStreamWriter(socket.getOutputStream())), true)
-            val reader = java.io.BufferedReader(java.io.InputStreamReader(socket.getInputStream()))
-
-            // Send all requests at once (batch)
-            for ((idx, txid) in txids.withIndex()) {
-                val request = """{"id":$idx,"method":"blockchain.transaction.get","params":["$txid",true]}"""
-                writer.println(request)
-            }
-
-            // Read all responses
-            val responses = mutableMapOf<Int, org.json.JSONObject>()
-            repeat(txids.size) {
-                val line = reader.readLine() ?: return@repeat
-                try {
-                    val obj = org.json.JSONObject(line)
-                    responses[obj.getInt("id")] = obj
-                } catch (_: Exception) {}
-            }
-
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "batchElectrumTxLookup: got ${responses.size} responses for ${txids.size} requests")
-            // Parse results
-            for ((idx, txid) in txids.withIndex()) {
-                val resp = responses[idx]
-                if (resp == null) {
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "batchElectrumTxLookup: no response for idx=$idx txid=${txid.take(12)}")
-                    continue
+            electrumConnectionFactory.createRawSocket(config).use { socket ->
+                socket.soTimeout = 30_000
+                val writer = java.io.PrintWriter(socket.getOutputStream().bufferedWriter(Charsets.UTF_8), true)
+                val reader = net.clench.wallet.data.network.BoundedLineReader(
+                    socket.getInputStream().bufferedReader(Charsets.UTF_8),
+                    maxLineChars = 16 * 1024 * 1024,
+                    maxTotalChars = 64 * 1024 * 1024L
+                )
+                for ((idx, txid) in txids.withIndex()) {
+                    require(txid.matches(Regex("[0-9a-fA-F]{64}"))) { "Invalid transaction identifier" }
+                    writer.println("""{"id":$idx,"method":"blockchain.transaction.get","params":["$txid",true]}""")
                 }
-                val error = resp.optJSONObject("error")
-                if (error != null) {
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "batchElectrumTxLookup: error for ${txid.take(12)}: ${error}")
-                    continue
-                }
-                val txResult = resp.optJSONObject("result")
-                if (txResult == null) {
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "batchElectrumTxLookup: no result object for ${txid.take(12)}: ${resp.toString().take(200)}")
-                    continue
-                }
-                // Electrum verbose tx: "confirmations", "blocktime"/"time", no "blockheight"
-                val confs = txResult.optInt("confirmations", 0)
-                val blockTime = txResult.optLong("blocktime", 0L)
-                    .let { if (it == 0L) txResult.optLong("time", 0L) else it }
-                // Derive block height from tip - confirmations + 1
-                val blockHeight = if (confs > 0 && tipHeight > 0u) {
-                    (tipHeight.toLong() - confs + 1)
-                } else 0L
-                if (confs > 0) {
-                    if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "Electrum batch: ${txid.take(12)}... confs=$confs height=$blockHeight time=$blockTime")
-                    result[txid] = Pair(blockHeight, blockTime)
+                // Consume one response at a time; never retain every verbose transaction JSON.
+                val seen = mutableSetOf<Int>()
+                for (ignored in txids.indices) {
+                    val line = reader.readLine() ?: break
+                    val response = try { org.json.JSONObject(line) } catch (_: Exception) { continue }
+                    val id = response.optInt("id", -1)
+                    if (id !in txids.indices || !seen.add(id) || response.optJSONObject("error") != null) continue
+                    val tx = response.optJSONObject("result") ?: continue
+                    val confirmations = tx.optInt("confirmations", 0)
+                    val blockTime = tx.optLong("blocktime", 0L).let { if (it == 0L) tx.optLong("time", 0L) else it }
+                    if (confirmations > 0 && (tipHeight == 0u || confirmations.toLong() <= tipHeight.toLong())) {
+                        val height = if (tipHeight > 0u) tipHeight.toLong() - confirmations + 1 else 0L
+                        result[txids[id]] = Pair(height, blockTime)
+                    }
                 }
             }
-
-            socket.close()
         } catch (e: Exception) {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "batchElectrumTxLookup failed: ${e.message}")
         }
@@ -4075,12 +4050,7 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     private fun canonicalMultisigSignerKey(raw: String): String {
-        val trimmed = raw.trim()
-        val key = if (trimmed.startsWith("[")) {
-            val closeBracket = trimmed.indexOf(']')
-            if (closeBracket >= 0) trimmed.substring(closeBracket + 1) else trimmed
-        } else trimmed
-        return key.removeSuffix("/0/*").removeSuffix("/1/*")
+        return MultisigDescriptorSafety.canonicalSigner(raw)
     }
 
     // ========== Passphrase Wallet Methods ==========

@@ -124,14 +124,23 @@ class SettingsManager @Inject constructor(
 
     // --- Biometric / Security settings ---
 
+    /** Called only after the repository confirms that initial setup has no wallets. */
+    internal fun initializeAuthenticationGates(canAuthenticate: Boolean) {
+        if (prefs.contains("biometric_seed") || prefs.contains("biometric_send")) return
+        check(prefs.edit()
+            .putBoolean("biometric_seed", canAuthenticate)
+            .putBoolean("biometric_send", canAuthenticate)
+            .commit()) { "Could not persist initial authentication settings" }
+    }
+
     fun isBiometricForSeedEnabled(): Boolean = prefs.getBoolean("biometric_seed", true)
-    fun setBiometricForSeedEnabled(enabled: Boolean) {
-        prefs.edit { putBoolean("biometric_seed", enabled) }
+    internal fun setBiometricForSeedEnabled(enabled: Boolean) {
+        check(prefs.edit().putBoolean("biometric_seed", enabled).commit()) { "Could not persist seed authentication setting" }
     }
 
     fun isBiometricForSendEnabled(): Boolean = prefs.getBoolean("biometric_send", true)
-    fun setBiometricForSendEnabled(enabled: Boolean) {
-        prefs.edit { putBoolean("biometric_send", enabled) }
+    internal fun setBiometricForSendEnabled(enabled: Boolean) {
+        check(prefs.edit().putBoolean("biometric_send", enabled).commit()) { "Could not persist send authentication setting" }
     }
 
     fun getAppLockMode(): String = prefs.getString("app_lock_mode", "none") ?: "none"

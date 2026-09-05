@@ -2,6 +2,10 @@ package net.clench.wallet.ui.viewmodel
 
 import android.content.Context
 import android.net.Uri
+import androidx.fragment.app.FragmentActivity
+import net.clench.wallet.security.AuthenticationGate
+import net.clench.wallet.security.AuthenticationGateChangeController
+import net.clench.wallet.ui.util.BiometricHelper
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -453,21 +457,75 @@ class SettingsViewModel @Inject constructor(
     }
 
     // --- Security settings ---
-    fun disableAuthenticationGatesWhenUnavailable(canAuthenticate: Boolean) {
-        if (!canAuthenticate) {
-            setBiometricForSeed(false)
-            setBiometricForSend(false)
+    private val gateChanges = AuthenticationGateChangeController(
+        isEnabled = { gate ->
+            when (gate) {
+                AuthenticationGate.SEED -> settingsManager.isBiometricForSeedEnabled()
+                AuthenticationGate.SEND -> settingsManager.isBiometricForSendEnabled()
+            }
+        },
+        persist = { gate, enabled ->
+            when (gate) {
+                AuthenticationGate.SEED -> {
+                    settingsManager.setBiometricForSeedEnabled(enabled)
+                    _uiState.update { it.copy(biometricForSeed = enabled) }
+                }
+                AuthenticationGate.SEND -> {
+                    settingsManager.setBiometricForSendEnabled(enabled)
+                    _uiState.update { it.copy(biometricForSend = enabled) }
+                }
+            }
+        }
+    )
+
+    fun cancelAuthenticationGateChange() = gateChanges.cancel()
+
+    fun requestAuthenticationGateChange(
+        gate: AuthenticationGate,
+        enabled: Boolean,
+        activity: FragmentActivity?,
+        onError: (String) -> Unit
+    ) {
+        gateChanges.request(gate, enabled) { success, abort ->
+            if (activity == null) {
+                abort()
+                onError(BiometricHelper.authenticationUnavailableGuidance())
+            } else {
+                BiometricHelper.authenticate(
+                    activity = activity,
+                    title = "Change authentication requirement",
+                    subtitle = "Authenticate to turn off this protection",
+                    onSuccess = {
+                        try { success() } catch (t: Throwable) {
+                            if (t.shouldRethrowForUiBoundary()) throw t
+                            onError("Could not save the authentication setting. Please retry.")
+                        }
+                    },
+                    onFailure = { message -> abort(); onError(message) },
+                    onCancel = abort
+                )
+            }
         }
     }
 
-    fun setBiometricForSeed(enabled: Boolean) {
-        settingsManager.setBiometricForSeedEnabled(enabled)
-        _uiState.update { it.copy(biometricForSeed = enabled) }
+    /** Initial defaults only: never weaken an existing wallet or an explicitly stored gate. */
+    fun completeSecurityOnboarding(canAuthenticate: Boolean, onComplete: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                if (bitcoinRepository.listWallets().isEmpty()) {
+                    settingsManager.initializeAuthenticationGates(canAuthenticate)
+                }
+                onComplete()
+            } catch (t: Throwable) {
+                if (t.shouldRethrowForUiBoundary()) throw t
+                onError("Could not verify initial security settings. Please retry.")
+            }
+        }
     }
 
-    fun setBiometricForSend(enabled: Boolean) {
-        settingsManager.setBiometricForSendEnabled(enabled)
-        _uiState.update { it.copy(biometricForSend = enabled) }
+    override fun onCleared() {
+        gateChanges.cancel()
+        super.onCleared()
     }
 
     fun setAppLockMode(mode: String) {

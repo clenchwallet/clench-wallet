@@ -74,8 +74,8 @@ internal fun Throwable.hasCauseMatching(predicate: (Throwable) -> Boolean): Bool
  * Every success must authorize a per-use Android Keystore HMAC operation supplied to the system
  * prompt as a [BiometricPrompt.CryptoObject]. A prompt callback alone never grants access.
  * Android 11+ can bind either a strong biometric or device credential to that operation. Android
- * 8-10 can bind only a strong biometric; users without one must choose the Clench PIN app lock or
- * disable an optional per-action gate from Settings rather than receiving a UI-only fallback.
+ * 8-10 can bind only a strong biometric; users without one can choose the Clench PIN app lock at initial setup.
+ * An enabled per-action gate cannot be disabled without fresh crypto-bound authentication.
  */
 object BiometricHelper {
 
@@ -258,8 +258,8 @@ object BiometricHelper {
     fun authenticationUnavailableGuidance(): String =
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             "Cryptographic authentication on Android 8-10 requires an enrolled strong " +
-                "biometric. Use a Clench PIN app lock, or change optional authentication " +
-                "gates in Settings → Security."
+                "biometric. Enroll a strong biometric in Android settings, then retry. " +
+                "A Clench app PIN does not replace per-action Android authentication."
         } else {
             "Configure a strong biometric or device credential in Android settings, then retry."
         }
