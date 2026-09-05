@@ -3,6 +3,8 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import subprocess
+import tempfile
 
 spec = importlib.util.spec_from_file_location("upgrade", Path(__file__).with_name("run-sqlcipher-upgrade.py"))
 upgrade = importlib.util.module_from_spec(spec)
@@ -38,6 +40,44 @@ class ResultTests(unittest.TestCase):
         for extra in ("INSTRUMENTATION_STATUS_CODE: 0", "Process crashed", "FAILURES!!!"):
             with self.subTest(extra=extra), self.assertRaises(RuntimeError):
                 upgrade.require_one_passing_case(self.good + extra, "example.Fixture")
+
+
+class SourceHistoryTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.git("init", "--quiet")
+        self.git("config", "user.name", "Synthetic Fixture")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.base = self.commit("base")
+        self.producer = self.commit("producer snapshot")
+        self.git("checkout", "--quiet", "--detach", self.base)
+        self.consumer = self.commit("squashed consumer")
+
+    def git(self, *args):
+        return subprocess.run(
+            ["git", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", *args],
+            cwd=self.root, check=True, capture_output=True, text=True, timeout=20
+        ).stdout.strip()
+
+    def commit(self, message):
+        self.git("commit", "--quiet", "--allow-empty", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def test_squashed_consumer_does_not_require_development_ancestry(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.git("merge-base", "--is-ancestor", self.producer, self.consumer)
+        upgrade.require_source_history(self.root, self.producer, self.consumer, self.base)
+
+    def test_unrelated_source_and_symbolic_ref_are_rejected(self):
+        self.git("checkout", "--quiet", "--orphan", "unrelated")
+        unrelated = self.commit("unrelated root")
+        for producer, consumer in ((unrelated, self.consumer),
+                                   (self.producer, unrelated),
+                                   (self.producer, "HEAD")):
+            with self.subTest(producer=producer, consumer=consumer), self.assertRaises(RuntimeError):
+                upgrade.require_source_history(self.root, producer, consumer, self.base)
 
 
 if __name__ == "__main__":
