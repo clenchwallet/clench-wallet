@@ -133,7 +133,7 @@ dependencies {
 
     // SQLCipher — encrypts Room database at rest
     implementation("net.zetetic:sqlcipher-android:4.17.0")
-    implementation("androidx.sqlite:sqlite-ktx:2.6.2")
+    implementation("androidx.sqlite:sqlite-ktx:2.7.0")
 
     // Coroutines
     implementation(libs.coroutines.android)
