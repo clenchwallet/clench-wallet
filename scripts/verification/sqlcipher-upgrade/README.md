@@ -7,6 +7,12 @@ clean candidate HEAD with 4.17.0. It changes only instrumentation source in
 separate worktrees, retains strict dependency verification and existing locks,
 and gives both APK pairs a newly generated disposable debug certificate.
 
+Both exact source commits must descend from pinned base
+`ab00e8e56c006dc3dc872fc7ab2efc6db6b3cff3`. The producer is a reviewed
+development snapshot and need not itself be an ancestor of the consumer: the
+protected branch uses squash merges. Its full commit pin, version/lock checks,
+and rejection of source-substitution metadata remain mandatory.
+
 Run only on a new dedicated emulator with neither Clench debug package installed:
 
 ```bash
@@ -31,7 +37,7 @@ destructive-migration fallback, or dependency-verification exception is used.
 Evidence goes under `build/reports/sqlcipher-inplace-upgrade`: source IDs,
 fixture/APK/certificate hashes, three actual instrumentation results and build
 logs. Skipped, incomplete, wrong-class and failed executions are rejected by
-the result parser; four finite parser tests run without an emulator. Owned app
+the result parser; four parser and two source-history tests run without an emulator. Owned app
 packages are removed after the device phase. Isolated build worktrees are
 retained for diagnosis and disappear with the hosted runner; their disposable
 debug keystore is never uploaded in the evidence artifact.

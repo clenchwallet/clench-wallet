@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 
 PRODUCER = "3a96b6da8bcbd33d1ecc56cf9d49e1d66cd98609"
+SOURCE_BASE = "ab00e8e56c006dc3dc872fc7ab2efc6db6b3cff3"
 APP = "net.clench.wallet.debug"
 TEST_APP = APP + ".test"
 RUNNER = TEST_APP + "/androidx.test.runner.AndroidJUnitRunner"
@@ -40,6 +41,16 @@ def run(args, *, cwd=None, env=None, output=None, timeout=90):
     return result.stdout.decode("utf-8", errors="strict").strip()
 
 
+def require_source_history(root, producer, consumer, source_base):
+    # The pinned producer is a development snapshot, not a released ancestor.
+    # Squash merging preserves its reviewed content, but not its ancestry.
+    # Both exact commits must still descend from the pinned repository base.
+    for commit in (producer, consumer):
+        if run(["git", "rev-parse", commit + "^{commit}"], cwd=root) != commit:
+            raise RuntimeError("An exact source commit ID is required")
+        run(["git", "merge-base", "--is-ancestor", source_base, commit], cwd=root)
+
+
 def main():
     if os.environ.get("CLENCH_SQLCIPHER_UPGRADE_DISPOSABLE") != "YES":
         raise RuntimeError("Explicit disposable-emulator authorization required")
@@ -55,7 +66,7 @@ def main():
     if run(["git", "for-each-ref", "--format=%(refname)", "refs/replace/"], cwd=root) or \
             ((common / "info/grafts").exists() and (common / "info/grafts").stat().st_size):
         raise RuntimeError("Source substitution metadata is not allowed")
-    run(["git", "merge-base", "--is-ancestor", PRODUCER, consumer], cwd=root)
+    require_source_history(root, PRODUCER, consumer, SOURCE_BASE)
     for commit, version in ((PRODUCER, "4.15.0"), (consumer, "4.17.0")):
         build = run(["git", "show", commit + ":app/build.gradle.kts"], cwd=root)
         lock = run(["git", "show", commit + ":app/gradle.lockfile"], cwd=root)
