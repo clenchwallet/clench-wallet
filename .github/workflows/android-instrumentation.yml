@@ -252,7 +252,7 @@ jobs:
         if: failure()
         run: |
           mkdir -p "$RUNNER_TEMP/android-instrumentation-diagnostics"
-          adb -s emulator-5554 pull /sdcard/Android/data/net.clench.wallet/files/ui-regression \
+          adb -s emulator-5554 pull /sdcard/Android/data/net.clench.wallet.debug/files/ui-regression \
             "$RUNNER_TEMP/android-instrumentation-diagnostics/ui-regression" || true
           adb devices -l \
             > "$RUNNER_TEMP/android-instrumentation-diagnostics/devices.txt" \

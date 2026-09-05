@@ -54,8 +54,7 @@ class AuthenticationGateUiTest {
                 clickGate(seed)
                 awaitSystemPrompt()
                 assertBothEnabled()
-                shell("input keyevent KEYCODE_BACK")
-                await("return from cancelled prompt") { automation.rootInActiveWindow?.packageName == context.packageName }
+                cancelSystemPrompt()
                 assertBothEnabled()
 
                 // Navigate away and reopen: cancellation must survive a new screen/VM visit.
@@ -89,6 +88,23 @@ class AuthenticationGateUiTest {
     private fun assertBothEnabled() {
         assertTrue(settings.isBiometricForSeedEnabled())
         assertTrue(settings.isBiometricForSendEnabled())
+    }
+
+    private fun cancelSystemPrompt() {
+        // Android may consume the first Back to hide the credential keyboard.
+        // Do not mistake that for cancellation, or send Back into the app.
+        repeat(2) {
+            assertBothEnabled()
+            if (automation.rootInActiveWindow?.packageName == context.packageName) return
+            awaitSystemPrompt()
+            shell("input keyevent KEYCODE_BACK")
+            val deadline = SystemClock.uptimeMillis() + 1_500
+            while (SystemClock.uptimeMillis() < deadline) {
+                if (automation.rootInActiveWindow?.packageName == context.packageName) return
+                SystemClock.sleep(100)
+            }
+        }
+        await("return from cancelled prompt") { automation.rootInActiveWindow?.packageName == context.packageName }
     }
 
     private fun clickGate(seed: Boolean) {
@@ -170,9 +186,13 @@ class AuthenticationGateUiTest {
 
     private fun saveHierarchy(label: String) {
         val output = File(context.getExternalFilesDir(null), "ui-regression").apply { mkdirs() }
-        File(output, "$label-hierarchy.txt").writeText(nodes().joinToString("\n") {
+        val hierarchy = nodes().joinToString("\n") {
             "${it.packageName} ${it.className} ${it.viewIdResourceName} " +
                 if (it.isPassword) "[password omitted]" else "text=${it.text} description=${it.contentDescription}"
-        })
+        }
+        File(output, "$label-hierarchy.txt").writeText(hierarchy)
+        // Gradle can uninstall the fixture before CI pulls external files.
+        // Retain bounded password-redacted diagnostics; this test uses no wallet/seed.
+        hierarchy.lineSequence().forEach { android.util.Log.i("ClenchUiRegression", "$label: $it") }
     }
 }

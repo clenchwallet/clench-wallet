@@ -56,3 +56,25 @@ successful OS authentication, changing only the selected gate, and activity
 recreation. They do not yet prove the full pending-background/late-success,
 no-authenticator or initial-onboarding UI matrix. Keep those remaining items
 open until their own runtime evidence exists.
+
+## First hosted UI execution
+
+At `d08fa58150e5a2b040e4fbc188ea72cae0871a24`, run `33951879114`
+executed all fifteen required cases: fourteen passed, one failed, none skipped.
+The seed-gate UI case completed cancellation, revisiting, actual credential
+success and recreation. The send-gate case reached the actual prompt with both
+gates still enabled but timed out waiting for cancellation.
+
+Saved logcat at 07:22:06 shows `HIDE_SOFT_INPUT_BY_BACK_KEY` followed by the IME
+being hidden, while the `BiometricPrompt` remained present until test teardown.
+This supports a fixture interaction error: one Back hid the keyboard instead
+of cancelling the prompt. The corrected fixture sends at most two Back events,
+only while the real system prompt is active, and checks both gates remain
+enabled between events. It does not synthesize authentication success or alter
+app authentication behavior. The send cancellation/success result remains
+unverified until the corrected fixture executes.
+
+The first diagnostic pull used the release package path instead of the debug
+package path. Correct it to `net.clench.wallet.debug`; also preserve bounded,
+password-redacted hierarchy lines in logcat because Gradle may uninstall test
+packages before post-job file collection.
