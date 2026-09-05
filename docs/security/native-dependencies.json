@@ -235,9 +235,10 @@
       "source_review": {
         "advisory_disposition": "Vendor 4.17 notes report SQLite FTS and provider CSPRNG/error fixes. Not an independent proof of all fixes or complete native advisory clearance; see native-assurance.md.",
         "binary_source_correspondence": "NOT_ESTABLISHED: Android v4.17.0 tag pins a SQLCipher 4.16-era submodule, while separate SQLCipher v4.17.0 source and binary strings associate with SQLite 3.53.3. Vendor build manifest required to reconcile; no independent binary reproduction.",
+        "c_advisory_review": "native-c-review.md",
         "embedded_version_evidence": {
           "android_tag_sqlcipher_gitlink_VERSION": "3.53.1",
-          "binary_strings": "Verified AAR x86_64 and armeabi-v7a include 3.53.3 and 4.17.0; ARM64/x86 include 4.17.0. String absence is not version proof. Runtime checks pending.",
+          "binary_strings": "Verified AAR x86_64 and armeabi-v7a include 3.53.3 and 4.17.0; ARM64/x86 include 4.17.0. String absence is not version proof. Hosted API 35 x86_64 runtime asserted SQLite 3.53.3 and SQLCipher 4.17.0.",
           "libtomcrypt_declared": "1.18.2",
           "sqlcipher_417_release_tag_VERSION": "3.53.3"
         },
@@ -277,6 +278,15 @@
             "repository": "https://github.com/sqlcipher/sqlcipher"
           }
         ],
+        "libtomcrypt_advisory_query": {
+          "checked_at": "2026-09-05T11:54:21.127528+00:00",
+          "ids": [],
+          "limitation": "No commit-query matches; incomplete C/fork coverage, not a clearance. Vendor provider changes and source mismatch are tracked separately.",
+          "query": {
+            "commit": "476a9579ae94f32b9ea9e2747bfb04b302370259"
+          },
+          "source": "https://api.osv.dev/v1/querybatch"
+        },
         "remaining": "Reconcile stale Android gitlink against vendor build source; finish C/libtomcrypt advisory review and source-to-binary assurance. The pinned 4.15 writer/4.17 reader Android gate passed.",
         "runtime_upgrade_evidence": {
           "actual_cross_version_cases_passed": 3,
@@ -325,12 +335,33 @@
           "status": "NO_AFFECTED_ANDROID_CALL_PATH_ESTABLISHED"
         },
         "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "bundled_secp256k1_candidate": {
+          "advisory_query": {
+            "checked_at": "2026-09-05T11:54:21.127528+00:00",
+            "disposition": "WRONG_COMPONENT_MAPPING: primary RUSTSEC-2021-0076 concerns paritytech/libsecp256k1 Rust crate, absent from the pinned lock; not the bitcoin-core C implementation. See native-c-review.md.",
+            "ids": [
+              "CVE-2021-38195"
+            ],
+            "query": {
+              "commit": "1ad5185cd42c0636104129fcc9f6a4bf9c67cc40"
+            },
+            "source": "https://api.osv.dev/v1/querybatch"
+          },
+          "crate": "secp256k1-sys 0.10.1",
+          "declared_upstream_version": "0.4.1",
+          "revision_file_sha256": "4d33498fa9f8056d6a2e46bf054ce1c3f7e49db48a2c93641288614bd3efaf0e",
+          "scope": "Vendor revision file in lock-checksum-verified crate; source namespacing/patches are possible, not a pristine-tree or binary equivalence claim.",
+          "upstream_commit": "1ad5185cd42c0636104129fcc9f6a4bf9c67cc40"
+        },
         "bundled_sqlite_candidate": {
+          "build_script_flags": "Bundled branch enables FTS3/FTS5 and extension-loading support; binary compile-option equivalence is not established. App/FFI entry-point review is recorded in native-c-review.md.",
+          "build_script_sha256": "a3a0c7f409e20573d21448fb53c5a1f168fd04c5983af68671da126cc3bf9ff4",
           "header_sha256": "0c207567adc631521a353e067cfbc5044ebf11868f3c3fbf3178d6990409740e",
           "scope": "Header bundled in checksum-verified libsqlite3-sys crate. Build feature/binary confirmation and C advisory review remain open.",
           "source_id": "2024-01-15 17:01:13 1066602b2b1976fe58b5150777cced894af17c803e068f5918390d6915b46e1d",
           "version": "3.45.0"
         },
+        "c_advisory_review": "native-c-review.md",
         "candidate_advisory_report": "native-cargo-review.md",
         "evidence": [
           {

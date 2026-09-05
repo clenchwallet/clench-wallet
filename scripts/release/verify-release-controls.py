@@ -811,12 +811,16 @@ def main() -> None:
                 f"{required_path}"
             )
     for required_contract in (
+        "net.clench.wallet.data.backup.BackupWalletIdentifierTest",
+        "unsafeIdentifiersAreRejectedBeforeAnyDatabaseWrite",
+        "duplicateIdentifiersAreRejectedBeforeAnyDatabaseWrite",
+        "validIdentifiersPreserveRecordAssociations",
         "net.clench.wallet.data.repository.BdkWalletPersistenceTest",
         "sqliteWalletReloadsExactRevealedTestnetAddresses",
         "net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest",
         "canonicalMainnetAndTestnetAccountKeysPassTheRealBdkParser",
         "preflightRejectsNetworkMismatchAndMalformedOrigin",
-        "Expected the exact nineteen named instrumentation tests to pass",
+        "Expected the exact twenty-two named instrumentation tests to pass",
         "net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest",
         "originalTransactionRemainsRecoverableAfterUnusablePartial",
         "android-regression-results",

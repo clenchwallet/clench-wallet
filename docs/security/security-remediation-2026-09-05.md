@@ -25,6 +25,7 @@ chronological evidence, not the current test status.
 | Legacy multipart QR | Bounded accumulator rejecting differing duplicate frames and count changes; no claim of cryptographic stream identity | Implemented; JVM regressions passed |
 | SATSCARD cleanup | Wipe decrypted private-key buffer if validation throws before ownership handoff | Implemented; existing protocol JVM suite passed |
 | Electrum input and socket lifetime | Cap line and cumulative response sizes before parsing; stream verbose responses without retaining their JSON; close socket on every exit | Defensive correction implemented from source evidence; finite regressions passed; no OOM attack performed |
+| State-backup wallet identifiers | Preflight filename-safe, bounded nonblank IDs and reject duplicate IDs before parsing descriptors or writing records | Implemented; three real-JSON/Room Android cases added to the required 22-case gate; execution pending. No arbitrary-file access exploit established |
 | External invalid partial signatures | Establish actual finalization/recovery behavior; provide explicit original-transaction restart without weakening field-conflict checks | Retention/non-readiness/recovery confirmed on Android at 6005bfe; snapshot-bound restart implemented with four JVM regressions; no fund-loss claim |
 | App-UID/Keystore boundary and clipboard lifetime | Document explicit threat-model limits; no promise of protection from a compromised process or perfect JVM zeroization | Documented against current key and clipboard implementation; no storage migration or runtime policy change |
 | Release governance | Assess stable required website check and independent maintainer review without breaking sole-maintainer operations | Website check now always reports; required-check activation awaits protected-master workflow availability; independent-review enforcement requires a designated second maintainer; no protection changes made |
@@ -37,6 +38,30 @@ Use disposable synthetic fixtures; never access real seeds or exercise real sign
 The signing-secret move is an access-scope migration, not key rotation. Never generate a replacement APK signer casually. Adding environment copies without removing repository copies does not resolve SC-01. Remote secret values cannot be retrieved from GitHub.
 
 Preserve all existing funded wallet descriptors. Identity validation cannot prove that distinct keys belong to independent people/devices. Do not silently rewrite or lock users out of a funded policy.
+
+## Backup identifier follow-up
+
+Tracing native database entry points found that state backup IDs were accepted
+unchanged and later interpolated into database filenames. New imports now
+preflight nonblank IDs as 1–128 ASCII letters, digits, underscores or hyphens.
+Duplicate nonblank IDs are rejected because label/UTXO references would otherwise
+be ambiguous. Missing/blank IDs retain fresh UUID behavior. Existing stored
+wallets and descriptors are not rewritten or removed; no traversal or
+arbitrary-file access experiment was performed, and no such exploit is claimed.
+
+The initial JVM fixture attempts failed in Android's unimplemented host
+`JSONObject.put` stub, before reaching app validation. Those failures are not
+passes or native parser results. The cases were moved to actual Android JSON and
+in-memory Room with isolated preferences: unsafe IDs, duplicate IDs, and valid
+legacy/UUID/missing-ID imports with transaction-label and UTXO associations.
+They are compiled and selected separately from the previous 19-case runtime
+evidence; execution must be confirmed from the new 22-case XML report.
+
+The corrected local no-build-cache run executed all 475 JVM cases across 74
+suites with zero failures/errors/skips. Debug APK, Android test APK and lint
+completed successfully; lint success is not a zero-warning claim. Release-control
+verification, hostile release-tool tests and the five-artifact native identity
+check passed. The new Android cases remain pending hosted execution.
 
 ## Verification record
 

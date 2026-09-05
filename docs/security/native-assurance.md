@@ -74,6 +74,11 @@ The [dated Cargo candidate review](native-cargo-review.md) records four advisory
 groups found by the new repeatable source-bound scan. No suppressions or native
 clearance have been issued.
 
+The [dated embedded C review](native-c-review.md) records the secp256k1 vendor
+revision, an advisory component-mapping mismatch, SQLite build flags and entry
+points, and the limits of the libffi/LibTomCrypt commit queries. These results
+do not turn the unresolved source associations into a native clearance.
+
 ## Pre-sign release enforcement
 
 The no-secrets `build_unsigned` job now repeats the strict native identity
