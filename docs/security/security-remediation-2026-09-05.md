@@ -106,3 +106,18 @@ are required; no physical device or real wallet material is used. These new UI
 cases remain NOT RUN until their hosted results are inspected. They do not yet
 cover the complete background/late-success, unavailable-authenticator and initial
 onboarding UI matrix; those acceptance items remain open.
+
+## External partial-signature runtime probe
+
+`ExternalPartialSignatureRecoveryTest` exercises the production repository and
+actual BDK library with a fictional P2WSH 2-of-3 transaction and public fixture
+keys. It forbids DAO/entropy/mnemonic access, never creates a funded wallet, and
+never calls broadcast. It checks that an unusable partial cannot become ready,
+that conflicting material is not silently replaced if retained, and that valid
+fixture signatures can finalize when starting from the original PSBT. The test
+logs whether the unusable partial was rejected or retained, rather than
+asserting source speculation as a required product behavior.
+
+Strict Android test-APK compilation passed; actual execution is pending in the
+expanded sixteen-case hosted result gate. No application correction for this
+provisional issue is claimed from compilation alone.

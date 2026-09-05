@@ -140,7 +140,7 @@ jobs:
             --dependency-verification=strict \
             :app:connectedDebugAndroidTest \
             -Pandroid.testInstrumentationRunnerArguments.clenchDisposableEmulator=YES \
-            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.ui.AuthenticationGateUiTest,net.clench.wallet.data.local.AuthenticationGatePersistenceTest,net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.data.repository.BdkWalletPersistenceTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest,net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest
+            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest,net.clench.wallet.ui.AuthenticationGateUiTest,net.clench.wallet.data.local.AuthenticationGatePersistenceTest,net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.data.repository.BdkWalletPersistenceTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest,net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest
 
       - name: Require actual instrumentation results
         if: always()
@@ -157,6 +157,10 @@ jobs:
               raise SystemExit('No instrumentation XML result was produced')
 
           expected = {
+              (
+                  'net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest',
+                  'originalTransactionRemainsRecoverableAfterUnusablePartial',
+              ),
               (
                   'net.clench.wallet.ui.AuthenticationGateUiTest',
                   'seedGateRequiresSystemAuthenticationAndPersistsCancellation',
@@ -236,7 +240,7 @@ jobs:
               'actual': sorted(actual),
           })
           if actual != expected or failures != 0 or errors != 0 or skipped != 0:
-              raise SystemExit('Expected the exact fifteen named instrumentation tests to pass')
+              raise SystemExit('Expected the exact sixteen named instrumentation tests to pass')
           PY
 
       - name: Upload BDK cross-version evidence
