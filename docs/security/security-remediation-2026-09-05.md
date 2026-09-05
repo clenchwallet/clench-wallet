@@ -8,7 +8,7 @@ Status: IN PROGRESS. No release, production deployment, or compatibility claim.
 
 | Item | Correction / acceptance | Status |
 | --- | --- | --- |
-| A-01 authentication setting downgrade | Fresh crypto-bound authentication to disable an enabled gate; single-use controller callback; cancel/replacement/disposal protection; initial setup cannot weaken existing settings or wallets | Implemented; JVM and hosted Android persistence tests passed; both seed/send real credential UI cases passed at 9abb768; remaining lifecycle/no-auth/onboarding UI matrix pending |
+| A-01 authentication setting downgrade | Fresh crypto-bound authentication to disable an enabled gate; single-use controller callback; cancel/replacement/disposal protection; initial setup cannot weaken existing settings or wallets | Implemented; JVM and hosted Android persistence tests passed; seed/send credential, backgrounding and unavailable-authenticator UI cases passed at 6005bfe; onboarding UI execution pending |
 | WS-01 multisig key aliases | Shared chain-code/public-key identity for creation and descriptor validation; reject lineage/version/origin/branch aliases while retaining distinct key material | New-policy protection implemented; legacy Wallet Info and descriptor-backup warnings added without rewriting or blocking existing wallets; JVM regressions passed |
 | SC-01 signer credential scope | Four secrets in protected release-signing environment, no repository copies, continuity preserved; verify metadata without retrieving values | Current scope reconfirmed; maintainer must supply existing values securely |
 | SC-02 native assurance | Inventory embedded native libraries, bind upstream source/lockfiles and advisory dispositions to shipped AAR hashes; do not equate Maven OSV success with native coverage | Five native-bearing artifacts inventoried with CI drift gate; partial source bindings recorded; transitive source/advisory review remains open |
@@ -16,10 +16,10 @@ Status: IN PROGRESS. No release, production deployment, or compatibility claim.
 | Legacy multipart QR | Bounded accumulator rejecting differing duplicate frames and count changes; no claim of cryptographic stream identity | Implemented; JVM regressions passed |
 | SATSCARD cleanup | Wipe decrypted private-key buffer if validation throws before ownership handoff | Implemented; existing protocol JVM suite passed |
 | Electrum input and socket lifetime | Cap line and cumulative response sizes before parsing; stream verbose responses without retaining their JSON; close socket on every exit | Defensive correction implemented from source evidence; finite regressions passed; no OOM attack performed |
-| External invalid partial signatures | Establish actual finalization/recovery behavior before changing acceptance policy | Pending; not a confirmed fund-loss issue |
+| External invalid partial signatures | Establish actual finalization/recovery behavior; provide explicit original-transaction restart without weakening field-conflict checks | Retention/non-readiness/recovery confirmed on Android at 6005bfe; snapshot-bound restart implemented with four JVM regressions; no fund-loss claim |
 | App-UID/Keystore boundary and clipboard lifetime | Document explicit threat-model limits; no promise of protection from a compromised process or perfect JVM zeroization | Documented against current key and clipboard implementation; no storage migration or runtime policy change |
 | Release governance | Assess stable required website check and independent maintainer review without breaking sole-maintainer operations | Website check now always reports; required-check activation awaits protected-master workflow availability; independent-review enforcement requires a designated second maintainer; no protection changes made |
-| Runtime/hardware | Android emulator checks on corrected commit, with no real wallets/funds; physical-device requirements remain NOT RUN | Hosted 13-case instrumentation passed; Mac retry handoff at 06c24c6 supplied; UI/hardware checks remain NOT RUN |
+| Runtime/hardware | Android emulator checks on corrected commit, with no real wallets/funds; physical-device requirements remain NOT RUN | Hosted 18-case instrumentation passed at 6005bfe, including four actual auth UI cases and native return recovery; new onboarding case pending; Mac runtime and physical hardware remain NOT RUN |
 
 ## Rules
 
@@ -173,3 +173,18 @@ explicitly enabled gates. No wallet, seed generation, connection test or public
 broadcast is involved. Stale positive callback rejection already has JVM
 controller coverage; the real OS background test establishes its observed
 cancellation path, not every possible OEM callback schedule.
+
+## Nineteen-case hosted follow-up
+
+At `0960d4eefe7a91a9659e299e921639cf69b63c95`, run `33956185754`
+executed all nineteen cases: eighteen passed, one failed, zero errors/skips.
+The new fresh/revisited offline onboarding case passed. The send-gate case
+timed out after credential entry waiting for the setting to change; it did
+not demonstrate an unauthorized downgrade. Saved XML and per-test logcat are
+retained. The cause is not established from the timeout alone.
+
+The fixture now waits for accessibility/navigation idle between leaving and
+reopening destinations, avoiding interaction with a departing Compose screen.
+This tests a synchronization hypothesis; it is not a claimed diagnosis or
+a weakened authentication check. Strict test-APK compilation passed. Actual
+hosted execution is required before reporting the expanded gate green.

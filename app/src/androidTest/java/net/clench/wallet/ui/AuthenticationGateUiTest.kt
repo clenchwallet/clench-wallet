@@ -164,7 +164,9 @@ class AuthenticationGateUiTest {
 
                 // Navigate away and reopen: cancellation must survive a new screen/VM visit.
                 clickText("Back")
+                awaitNavigationIdle()
                 clickText("Security")
+                awaitNavigationIdle()
                 clickGate(seed)
                 awaitSystemPrompt()
                 assertBothEnabled()
@@ -187,7 +189,17 @@ class AuthenticationGateUiTest {
 
     private fun openSecurity() {
         clickText("Settings")
+        awaitNavigationIdle()
         clickText("Security")
+        awaitNavigationIdle()
+    }
+
+    private fun awaitNavigationIdle() {
+        // An outgoing Compose destination can remain accessible during its exit
+        // transition. Do not start a prompt on that departing screen, whose
+        // disposal correctly invalidates its pending authentication request.
+        instrumentation.waitForIdleSync()
+        automation.waitForIdle(500, 5_000)
     }
 
     private fun assertBothEnabled() {
