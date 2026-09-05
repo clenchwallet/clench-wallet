@@ -4,12 +4,13 @@ Baseline: `ab00e8e56c006dc3dc872fc7ab2efc6db6b3cff3` (v0.3.28 plus website updat
 Working branch: `codex/security-remediation-20260905`.
 Status: IN PROGRESS. No release, production deployment, or compatibility claim.
 
-Latest verified runtime target: `b099db055a62f39d1c71b60ae1c1a949bf553242`.
-Hosted run [33960440165](https://github.com/clenchwallet/clench-wallet/actions/runs/33960440165)
-passed all 19 Android regressions, including the five real authentication UI
-cases, plus three separate SQLCipher 4.15-to-4.17 upgrade/recovery phases.
-The Mac's strict build passed at `06c24c6`; Mac runtime remains NOT RUN because
-of the documented host initializer failure. Neither result establishes physical
+Latest verified runtime target: `5cd9f63cc07e78c10661eb53c71c7f5023e2d96b`.
+Hosted run [33967221107](https://github.com/clenchwallet/clench-wallet/actions/runs/33967221107)
+passed all 22 named Android regressions, including five real authentication UI
+cases and three real JSON/Room backup-identifier cases. Actual XML records zero
+failures/errors/skips. Both pinned cross-version upgrade gates passed in that
+run. The Mac's strict build passed at `06c24c6`; Mac runtime remains NOT RUN due
+to the documented host initializer failure. Neither result establishes physical
 hardware or OEM-wide compatibility. Earlier pending/failed entries below are
 chronological evidence, not the current test status.
 
@@ -17,7 +18,7 @@ chronological evidence, not the current test status.
 
 | Item | Correction / acceptance | Status |
 | --- | --- | --- |
-| A-01 authentication setting downgrade | Fresh crypto-bound authentication to disable an enabled gate; single-use controller callback; cancel/replacement/disposal protection; initial setup cannot weaken existing settings or wallets | Implemented; JVM and hosted Android persistence tests passed; four auth UI cases passed at 6005bfe; new onboarding case passed at 0960d4e and 9af8872; all five exact-control auth UI cases passed at 4aa5633 (19 total cases, zero failures/skips) |
+| A-01 authentication setting downgrade | Fresh crypto-bound authentication to disable an enabled gate; single-use controller callback; cancel/replacement/disposal protection; initial setup cannot weaken existing settings or wallets | Implemented; JVM and hosted persistence tests passed; all five actual authentication UI cases passed at 5cd9f63 within the 22-case suite |
 | WS-01 multisig key aliases | Shared chain-code/public-key identity for creation and descriptor validation; reject lineage/version/origin/branch aliases while retaining distinct key material | New-policy protection implemented; legacy Wallet Info and descriptor-backup warnings added without rewriting or blocking existing wallets; JVM regressions passed |
 | SC-01 signer credential scope | Four secrets in protected release-signing environment, no repository copies, continuity preserved; verify metadata without retrieving values | Current scope reconfirmed; maintainer must supply existing values securely |
 | SC-02 native assurance | Inventory embedded native libraries, bind upstream source/lockfiles and advisory dispositions to shipped AAR hashes; do not equate Maven OSV success with native coverage | Five native-bearing artifacts inventoried with CI drift gate; live Cargo pre-sign release gate added; current matches and non-Cargo source/advisory dispositions remain open |
@@ -25,11 +26,11 @@ chronological evidence, not the current test status.
 | Legacy multipart QR | Bounded accumulator rejecting differing duplicate frames and count changes; no claim of cryptographic stream identity | Implemented; JVM regressions passed |
 | SATSCARD cleanup | Wipe decrypted private-key buffer if validation throws before ownership handoff | Implemented; existing protocol JVM suite passed |
 | Electrum input and socket lifetime | Cap line and cumulative response sizes before parsing; stream verbose responses without retaining their JSON; close socket on every exit | Defensive correction implemented from source evidence; finite regressions passed; no OOM attack performed |
-| State-backup wallet identifiers | Preflight filename-safe, bounded nonblank IDs and reject duplicate IDs before parsing descriptors or writing records | Implemented; three real-JSON/Room Android cases added to the required 22-case gate; execution pending. No arbitrary-file access exploit established |
+| State-backup wallet identifiers | Preflight filename-safe, bounded nonblank IDs and reject duplicate IDs before parsing descriptors or writing records | Implemented; all three real-JSON/Room cases passed at 5cd9f63, including preserved labels/UTXO associations. No arbitrary-file access exploit established |
 | External invalid partial signatures | Establish actual finalization/recovery behavior; provide explicit original-transaction restart without weakening field-conflict checks | Retention/non-readiness/recovery confirmed on Android at 6005bfe; snapshot-bound restart implemented with four JVM regressions; no fund-loss claim |
 | App-UID/Keystore boundary and clipboard lifetime | Document explicit threat-model limits; no promise of protection from a compromised process or perfect JVM zeroization | Documented against current key and clipboard implementation; no storage migration or runtime policy change |
 | Release governance | Assess stable required website check and independent maintainer review without breaking sole-maintainer operations | Website check now always reports; required-check activation awaits protected-master workflow availability; independent-review enforcement requires a designated second maintainer; no protection changes made |
-| Runtime/hardware | Android emulator checks on corrected commit, with no real wallets/funds; physical-device requirements remain NOT RUN | Hosted 18-case instrumentation passed at 6005bfe; expanded 19-case gate passed at 4aa5633; earlier failed fixture runs remain recorded below; Mac runtime and physical hardware remain NOT RUN |
+| Runtime/hardware | Android emulator checks on corrected commit, with no real wallets/funds; physical-device requirements remain NOT RUN | Hosted 22-case gate passed at 5cd9f63; earlier failed fixture runs remain recorded below; Mac runtime and physical hardware remain NOT RUN |
 
 ## Rules
 
@@ -71,6 +72,15 @@ The intended public point 2G was independently recomputed; the fixture changed
 `...85a778...` to `...85c778...`. No production descriptor validation was weakened.
 The corrected positive fixture requires a new hosted result; the failed run is
 not relabeled as a pass. Both cross-version upgrade steps in that run succeeded.
+
+At `5cd9f63cc07e78c10661eb53c71c7f5023e2d96b`, run `33967221107` passed
+all 22 named cases with zero failures/errors/skips. The actual XML includes
+successful unsafe-ID, duplicate-ID and positive identifier/record-association
+cases. The positive case uses real JSON, Room and BDK descriptor parsing; this is
+not a mock replacement for the failed fixture. Android CI, CodeQL and Website CI
+also completed successfully for that exact commit. No further Mac emulator retry
+is needed for this software matrix; the Mac-specific NOT RUN record remains.
+
 
 ## Verification record
 
