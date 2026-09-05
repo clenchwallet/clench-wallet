@@ -121,3 +121,19 @@ asserting source speculation as a required product behavior.
 Strict Android test-APK compilation passed; actual execution is pending in the
 expanded sixteen-case hosted result gate. No application correction for this
 provisional issue is claimed from compilation alone.
+
+At `08efb525f21d16b45cb6ba09c359914d500fb98e`, hosted run `33954243239`
+passed all sixteen exact cases with zero failures/errors/skips, including the
+native recovery test. That proves its no-false-readiness and successful
+original-transaction recovery assertions. The diagnostic branch marker was not
+retained by the old success-only artifact configuration, so rejection versus
+retention remains unestablished from this result. Always-retained filtered
+fixture logcat and actual result XML are now added; no real wallet/key is used.
+
+Two additional real UI cases are compiled and queued for hosted execution:
+backgrounding a pending credential prompt and recreating the application must
+leave both gates enabled; removing the disposable emulator credential must
+disable downgrade controls and preserve both gates, with the public fixture
+credential restored in finally. The expanded eighteen-case gate requires their
+actual execution, not just compilation. Fresh/revisited onboarding UI and
+a deliberately late positive callback remain separate outstanding checks.

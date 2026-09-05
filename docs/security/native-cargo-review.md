@@ -61,3 +61,24 @@ BDK is MIT/Apache-2.0 licensed. The copy is review input, never executed as a
 build script. Source association is not independent binary reproducibility.
 This check does not inventory C code inside Rust sys crates, vendored libffi,
 libyuv, SQLite, libtomcrypt, or compiler/runtime libraries.
+
+## Additional source tracing
+
+Six crate archives were fetched without executing code and verified against
+the vendor lock checksums: uniffi, uniffi_core, minreq, esplora-client,
+libsqlite3-sys, and secp256k1-sys. The archive identities are in the native
+baseline. In uniffi_core 0.30.0, source downcasts found are consuming `downcast`
+and shared `downcast_ref`, not the affected `downcast_mut`. This narrows the
+anyhow hypothesis but does not clear every runtime/build caller.
+
+Minreq's selected Rustls source builds a standard client with root certificates
+and no CRL configuration in that module. The CRL advisory requires CRL use;
+this is supporting non-reachability evidence for that module, not an invented
+patched version. Its name-constraint behavior still depends on the old webpki
+code if that HTTPS client is invoked.
+
+The checksum-verified libsqlite3-sys 0.28.0 crate bundles a SQLite 3.45.0 header,
+which is distinct from SQLCipher's separately pinned SQLite 3.53.0 source.
+Do not confuse the two database implementations or extend the Rust advisory
+query to imply coverage of either C implementation. Build-feature confirmation,
+C advisory applicability and vendor patch assessment remain open.

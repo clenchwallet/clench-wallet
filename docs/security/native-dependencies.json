@@ -220,6 +220,11 @@
       "source_review": {
         "advisory_disposition": "NOT_REVIEWED",
         "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "embedded_version_evidence": {
+          "libtomcrypt_declared": "1.18.2",
+          "scope": "Pinned vendor source declarations; local patches possible, not independent binary reconstruction.",
+          "sqlite": "3.53.0"
+        },
         "evidence": [
           {
             "sha256": "4b41c04d112f6de215d9b8dba806a036b50d00b634370ba1e66e8ec12e49d127",
@@ -228,6 +233,14 @@
           {
             "sha256": "6161bb1a5e76e3e38ff93016aaeb2da0fa4e0f719cb637201636ee5833c13a7b",
             "url": "https://github.com/sqlcipher/sqlcipher-android/blob/a005db3c359ca3c5ede448a5a0cc39a67fa8c32b/sqlcipher/src/main/jni/sqlcipher/Android.mk"
+          },
+          {
+            "sha256": "072ec5de4afc8df3b5e2c5e5f0a48af6c36a6ca8cd72c7a308995b7df8e99193",
+            "url": "https://github.com/sqlcipher/sqlcipher/blob/0b4d16090a71579c4c88220b7fb67bb7396f1434/VERSION"
+          },
+          {
+            "sha256": "7e53c3f50b984307fe5cd281c4e3647d9531c928b635b0711f725105e3814576",
+            "url": "https://github.com/sqlcipher/libtomcrypt/blob/476a9579ae94f32b9ea9e2747bfb04b302370259/src/headers/tomcrypt.h"
           }
         ],
         "gitlinks": [
@@ -240,7 +253,7 @@
             "repository": "https://github.com/sqlcipher/sqlcipher"
           }
         ],
-        "remaining": "Verify vendor build flags against binary; resolve embedded SQLite version and libtomcrypt changes; disposition relevant upstream advisories. Default source configuration is not proof of artifact build flags.",
+        "remaining": "Review vendor patches/advisories for SQLite 3.53.0 and declared libtomcrypt 1.18.2, compiled algorithms/flags and app reachability. Source version declarations are not binary reproducibility.",
         "status": "PARTIAL",
         "upstream_commit": "a005db3c359ca3c5ede448a5a0cc39a67fa8c32b"
       }
@@ -270,6 +283,12 @@
       "source_review": {
         "advisory_disposition": "CANDIDATE_MATCHES_REQUIRE_REVIEW",
         "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "bundled_sqlite_candidate": {
+          "header_sha256": "0c207567adc631521a353e067cfbc5044ebf11868f3c3fbf3178d6990409740e",
+          "scope": "Header bundled in checksum-verified libsqlite3-sys crate. Build feature/binary confirmation and C advisory review remain open.",
+          "source_id": "2024-01-15 17:01:13 1066602b2b1976fe58b5150777cced894af17c803e068f5918390d6915b46e1d",
+          "version": "3.45.0"
+        },
         "candidate_advisory_report": "native-cargo-review.md",
         "evidence": [
           {
@@ -287,7 +306,57 @@
         ],
         "remaining": "Resolve shipped Android target/features versus build/dev/conditional Cargo packages, including C libraries bundled in Rust sys crates; review advisories with reachability evidence.",
         "status": "PARTIAL",
-        "upstream_commit": "cfb3418524d451ba8d1758f0ec27f8443740b422"
+        "upstream_commit": "cfb3418524d451ba8d1758f0ec27f8443740b422",
+        "verified_crate_sources": [
+          {
+            "archive_sha256": "f19e3ea99dbfbef0c1ec26d83e69de0c579f6aa6aaac4f44597805fcc27e97af",
+            "bytes": 117599,
+            "files": 7,
+            "package": "esplora-client",
+            "url": "https://static.crates.io/crates/esplora-client/esplora-client-0.12.3.crate",
+            "version": "0.12.3"
+          },
+          {
+            "archive_sha256": "0c10584274047cb335c23d3e61bcef8e323adae7c5c8c760540f73610177fc3f",
+            "bytes": 20145931,
+            "files": 18,
+            "package": "libsqlite3-sys",
+            "url": "https://static.crates.io/crates/libsqlite3-sys/libsqlite3-sys-0.28.0.crate",
+            "version": "0.28.0"
+          },
+          {
+            "archive_sha256": "05015102dad0f7d61691ca347e9d9d9006685a64aefb3d79eecf62665de2153d",
+            "bytes": 111411,
+            "files": 16,
+            "package": "minreq",
+            "url": "https://static.crates.io/crates/minreq/minreq-2.14.1.crate",
+            "version": "2.14.1"
+          },
+          {
+            "archive_sha256": "d4387882333d3aa8cb20530a17c69a3752e97837832f34f6dccc760e715001d9",
+            "bytes": 5651398,
+            "files": 115,
+            "package": "secp256k1-sys",
+            "url": "https://static.crates.io/crates/secp256k1-sys/secp256k1-sys-0.10.1.crate",
+            "version": "0.10.1"
+          },
+          {
+            "archive_sha256": "c866f627c3f04c3df068b68bb2d725492caaa539dd313e2a9d26bb85b1a32f4e",
+            "bytes": 24730,
+            "files": 11,
+            "package": "uniffi",
+            "url": "https://static.crates.io/crates/uniffi/uniffi-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "7e7a5a038ebffe8f4cf91416b154ef3c2468b18e828b7009e01b1b99938089f9",
+            "bytes": 177011,
+            "files": 21,
+            "package": "uniffi_core",
+            "url": "https://static.crates.io/crates/uniffi_core/uniffi_core-0.30.0.crate",
+            "version": "0.30.0"
+          }
+        ]
       }
     }
   ],

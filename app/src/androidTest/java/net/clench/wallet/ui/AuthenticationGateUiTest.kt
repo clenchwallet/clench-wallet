@@ -47,6 +47,66 @@ class AuthenticationGateUiTest {
 
     @Test fun sendGateRequiresSystemAuthenticationAndPersistsCancellation() = exerciseGate(seed = false)
 
+    @Test fun backgroundingPendingAuthenticationPreservesEnabledGates() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            try {
+                openSecurity()
+                clickGate(seed = true)
+                awaitSystemPrompt()
+                shell("input keyevent KEYCODE_HOME")
+                await("launcher after backgrounding") {
+                    automation.rootInActiveWindow?.packageName?.toString() in
+                        setOf("com.google.android.apps.nexuslauncher", "com.android.launcher3")
+                }
+                assertBothEnabled()
+                shell("am start -W -n ${context.packageName}/${MainActivity::class.java.name}")
+                await("foreground after pending authentication") {
+                    automation.rootInActiveWindow?.packageName == context.packageName
+                }
+                assertBothEnabled()
+                scenario.recreate()
+                await("recreated app after backgrounding") {
+                    automation.rootInActiveWindow?.packageName == context.packageName
+                }
+                assertBothEnabled()
+            } catch (failure: Throwable) {
+                saveHierarchy("background")
+                throw failure
+            }
+        }
+    }
+
+    @Test fun unavailableAuthenticatorDoesNotWeakenExistingGates() {
+        // Only the explicitly authorized disposable emulator's public fixture credential.
+        shell("locksettings clear --old 246813")
+        try {
+            await("fixture credential removed") {
+                !(context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isDeviceSecure
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                try {
+                    openSecurity()
+                    for (seed in listOf(true, false)) {
+                        val toggle = findGate(seed)
+                        assertFalse("Unavailable authentication must disable the downgrade control", toggle.isEnabled)
+                        toggle.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        assertBothEnabled()
+                    }
+                    scenario.recreate()
+                    assertBothEnabled()
+                } catch (failure: Throwable) {
+                    saveHierarchy("unavailable")
+                    throw failure
+                }
+            }
+        } finally {
+            shell("locksettings set-pin 246813")
+            await("fixture credential restored") {
+                (context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isDeviceSecure
+            }
+        }
+    }
+
     private fun exerciseGate(seed: Boolean) {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             try {
@@ -108,7 +168,14 @@ class AuthenticationGateUiTest {
     }
 
     private fun clickGate(seed: Boolean) {
+        check(findGate(seed).performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            "Could not click authentication gate"
+        }
+    }
+
+    private fun findGate(seed: Boolean): AccessibilityNodeInfo {
         val label = if (seed) "Require authentication to view seed phrase" else "Require authentication to send"
+        var found: AccessibilityNodeInfo? = null
         await("gate control: $label") {
             val nodes = nodes()
             val text = nodes.firstOrNull { it.text?.toString() == label && it.isVisibleToUser }
@@ -122,9 +189,11 @@ class AuthenticationGateUiTest {
                     candidate.isCheckable && candidate.isVisibleToUser &&
                         box.centerY() in (bounds.top - 32)..(bounds.bottom + 32)
                 }
-                toggle?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+                found = toggle
+                toggle != null
             }
         }
+        return checkNotNull(found)
     }
 
     private fun clickText(label: String) = await("click $label") {

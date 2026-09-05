@@ -158,6 +158,14 @@ jobs:
 
           expected = {
               (
+                  'net.clench.wallet.ui.AuthenticationGateUiTest',
+                  'backgroundingPendingAuthenticationPreservesEnabledGates',
+              ),
+              (
+                  'net.clench.wallet.ui.AuthenticationGateUiTest',
+                  'unavailableAuthenticatorDoesNotWeakenExistingGates',
+              ),
+              (
                   'net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest',
                   'originalTransactionRemainsRecoverableAfterUnusablePartial',
               ),
@@ -240,7 +248,7 @@ jobs:
               'actual': sorted(actual),
           })
           if actual != expected or failures != 0 or errors != 0 or skipped != 0:
-              raise SystemExit('Expected the exact sixteen named instrumentation tests to pass')
+              raise SystemExit('Expected the exact eighteen named instrumentation tests to pass')
           PY
 
       - name: Upload BDK cross-version evidence
@@ -249,6 +257,25 @@ jobs:
         with:
           name: bdk2-to-bdk3-upgrade-evidence
           path: build/reports/bdk2-bdk3-inplace-upgrade/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Collect native and UI test evidence
+        if: always()
+        run: |
+          mkdir -p build/reports/android-regression-evidence
+          timeout 30 adb -s emulator-5554 logcat -d \
+            -s ClenchPartialRegression:I ClenchUiRegression:I '*:S' \
+            > build/reports/android-regression-evidence/fixture-logcat.txt 2>&1 || true
+
+      - name: Upload actual Android test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-regression-results
+          path: |
+            app/build/outputs/androidTest-results/connected/debug/
+            build/reports/android-regression-evidence/
           if-no-files-found: warn
           retention-days: 14
 
