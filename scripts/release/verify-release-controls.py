@@ -765,6 +765,7 @@ def main() -> None:
         "scripts/verification/test-native-inventory.py",
         "scripts/verification/test-native-cargo-advisories.py",
         "scripts/verification/test-signing-secret-scope.py",
+        "scripts/verification/test-sqlcipher-upgrade-harness.py",
         "scripts/verification/native-artifacts.init.gradle :app:exportNativeRuntimeArtifacts",
         "--baseline docs/security/native-dependencies.json",
         "build/reports/native-dependency-inventory.json",
@@ -775,6 +776,14 @@ def main() -> None:
     instrumentation_workflow = Path(
         ".github/workflows/android-instrumentation.yml"
     ).read_text(encoding="utf-8")
+    for required_upgrade_control in (
+        "python3 -B scripts/verification/run-sqlcipher-upgrade.py",
+        "CLENCH_SQLCIPHER_UPGRADE_DISPOSABLE: 'YES'",
+        "name: sqlcipher-inplace-upgrade",
+        "path: build/reports/sqlcipher-inplace-upgrade",
+    ):
+        if required_upgrade_control not in instrumentation_workflow:
+            raise SystemExit("Android CI lacks SQLCipher upgrade evidence: " + required_upgrade_control)
     for required_path in (
         "gradle/libs.versions.toml",
         "app/src/main/java/net/clench/wallet/ClenchApplication.kt",

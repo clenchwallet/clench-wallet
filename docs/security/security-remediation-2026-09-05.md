@@ -8,7 +8,7 @@ Status: IN PROGRESS. No release, production deployment, or compatibility claim.
 
 | Item | Correction / acceptance | Status |
 | --- | --- | --- |
-| A-01 authentication setting downgrade | Fresh crypto-bound authentication to disable an enabled gate; single-use controller callback; cancel/replacement/disposal protection; initial setup cannot weaken existing settings or wallets | Implemented; JVM and hosted Android persistence tests passed; four auth UI cases passed at 6005bfe; new onboarding case passed at 0960d4e and 9af8872; current send UI timeout remains under investigation |
+| A-01 authentication setting downgrade | Fresh crypto-bound authentication to disable an enabled gate; single-use controller callback; cancel/replacement/disposal protection; initial setup cannot weaken existing settings or wallets | Implemented; JVM and hosted Android persistence tests passed; four auth UI cases passed at 6005bfe; new onboarding case passed at 0960d4e and 9af8872; all five exact-control auth UI cases passed at 4aa5633 (19 total cases, zero failures/skips) |
 | WS-01 multisig key aliases | Shared chain-code/public-key identity for creation and descriptor validation; reject lineage/version/origin/branch aliases while retaining distinct key material | New-policy protection implemented; legacy Wallet Info and descriptor-backup warnings added without rewriting or blocking existing wallets; JVM regressions passed |
 | SC-01 signer credential scope | Four secrets in protected release-signing environment, no repository copies, continuity preserved; verify metadata without retrieving values | Current scope reconfirmed; maintainer must supply existing values securely |
 | SC-02 native assurance | Inventory embedded native libraries, bind upstream source/lockfiles and advisory dispositions to shipped AAR hashes; do not equate Maven OSV success with native coverage | Five native-bearing artifacts inventoried with CI drift gate; live Cargo pre-sign release gate added; current matches and non-Cargo source/advisory dispositions remain open |
@@ -19,7 +19,7 @@ Status: IN PROGRESS. No release, production deployment, or compatibility claim.
 | External invalid partial signatures | Establish actual finalization/recovery behavior; provide explicit original-transaction restart without weakening field-conflict checks | Retention/non-readiness/recovery confirmed on Android at 6005bfe; snapshot-bound restart implemented with four JVM regressions; no fund-loss claim |
 | App-UID/Keystore boundary and clipboard lifetime | Document explicit threat-model limits; no promise of protection from a compromised process or perfect JVM zeroization | Documented against current key and clipboard implementation; no storage migration or runtime policy change |
 | Release governance | Assess stable required website check and independent maintainer review without breaking sole-maintainer operations | Website check now always reports; required-check activation awaits protected-master workflow availability; independent-review enforcement requires a designated second maintainer; no protection changes made |
-| Runtime/hardware | Android emulator checks on corrected commit, with no real wallets/funds; physical-device requirements remain NOT RUN | Hosted 18-case instrumentation passed at 6005bfe; expanded runs at 0960d4e and 9af8872 executed 19 with 18 passes and a send UI timeout; Mac runtime and physical hardware remain NOT RUN |
+| Runtime/hardware | Android emulator checks on corrected commit, with no real wallets/funds; physical-device requirements remain NOT RUN | Hosted 18-case instrumentation passed at 6005bfe; expanded 19-case gate passed at 4aa5633; earlier failed fixture runs remain recorded below; Mac runtime and physical hardware remain NOT RUN |
 
 ## Rules
 
@@ -220,3 +220,33 @@ now follows that exact ancestry instead of requiring both properties on one
 node. Both preferences remained enabled in the saved failure evidence. Strict
 test-APK compilation passed; this addresses a selector defect, not yet the
 earlier post-authentication timeout.
+
+Hosted run `33959152097` at `4aa563306d95a3d6055d5bd6fb74df1fa1dfc90e`
+produced nineteen passes, zero failures/errors/skips. Actual XML confirms both
+gate success/cancel cases, backgrounding, unavailable authentication and fresh/
+revisited onboarding. Exact label ancestry now selects the real switches; the
+prior failures remain evidence, not relabeled passes.
+
+## SQLCipher 4.17 candidate and cross-version gate
+
+The candidate uses SQLCipher 4.17.0 while retaining AndroidX SQLite 2.6.2 and
+compileSdk 36. AAR/POM/module pins matched Maven Central published SHA-256;
+strict resolution passed and only the SQLCipher lock coordinate changed. The
+native baseline records the new archive/payload hashes and explicitly retains
+the Android-tag/submodule discrepancy described in native-assurance.md.
+
+The full local JVM task executed 475 tests (not FROM-CACHE), with zero
+failures/errors/skips. Debug/test APK and lint passed. The final test-only
+SQLCipher overlay compiled to actual classes/dex in the test APK; it has been
+removed from app/src and remains solely under scripts/verification for isolated
+build overlays. An earlier init-script attempt returned UP-TO-DATE and was not
+accepted as fixture compilation proof. Four acceptance-parser regressions,
+six Cargo checks, ten native inventory cases and release-control hostile
+self-tests passed.
+
+Hosted instrumentation now requires a separate exact-commit 4.15 writer / 4.17
+reader APK-upgrade gate before the existing nineteen-case suite. It verifies
+encrypted Room data, committed WAL recovery, nonmutation on wrong-key/corrupt
+input, and a new-process reopen, with a disposable shared debug signer. These
+three runtime phases remain NOT RUN until actual hosted results are inspected.
+No existing release, signing secrets, physical device or real wallet is changed.

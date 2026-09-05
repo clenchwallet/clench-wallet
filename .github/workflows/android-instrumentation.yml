@@ -32,6 +32,8 @@ on:
       - 'app/src/androidTest/**'
       - 'scripts/verification/bdk-wallet-upgrade/**'
       - 'scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh'
+      - 'scripts/verification/run-sqlcipher-upgrade.py'
+      - 'scripts/verification/sqlcipher-upgrade/**'
       - 'scripts/release/verify-release-controls.py'
       - '.github/workflows/android-instrumentation.yml'
   workflow_dispatch:
@@ -129,6 +131,21 @@ jobs:
         run: |
           test "$(git rev-parse --verify HEAD^{commit})" = "$EXPECTED_SOURCE_COMMIT"
           scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh
+
+      - name: Prove SQLCipher 4.15 to 4.17 encrypted Room and WAL upgrade
+        env:
+          ADB_SERIAL: emulator-5554
+          CLENCH_SQLCIPHER_UPGRADE_DISPOSABLE: 'YES'
+        run: python3 -B scripts/verification/run-sqlcipher-upgrade.py
+
+      - name: Retain SQLCipher upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sqlcipher-inplace-upgrade
+          path: build/reports/sqlcipher-inplace-upgrade
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Run migration, BDK persistence, and descriptor instrumentation tests
         env:

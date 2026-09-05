@@ -51,10 +51,11 @@ explicit incomplete review status:
   package candidates, including build/dev/conditional entries; this is not a
   claim that all are shipped. Android feature/target filtering, Rust sys-crate C
   contents, and applicable advisories still require review.
-- SQLCipher Android 4.15.0: sqlcipher JNI. Immutable vendor source and its SQLCipher
-  and libtomcrypt gitlink revisions are recorded. Default source flags include
-  libtomcrypt and FTS support; those defaults are not proof of binary build flags.
-  Exact embedded versions, vendor patches and advisory applicability remain open.
+- SQLCipher Android 4.17.0 candidate: sqlcipher JNI. Archive hashes and vendor
+  source associations are recorded. The Android tag points to older SQLCipher
+  source than the separate SQLCipher release tag and binary version strings;
+  the discrepancy is explicit, not treated as reproducibility. Cross-version
+  database validation and remaining native advisory review are required.
 
 Source-tag association is not independent binary reproducibility. Do not call
 an upstream advisory exploitable from Clench without checking affected version,
@@ -84,7 +85,9 @@ coverage or a change to the thirteen public release assets. No release was run.
 
 The [4.17.0 vendor notes](https://www.zetetic.net/blog/2026/07/08/sqlcipher-4.17.0-release/)
 identify SQLite 3.53.3 FTS5 fixes and LibTomCrypt provider CSPRNG/error-handling
-changes. The baseline here remains 4.15.0, not patched merely by this review.
+changes. The candidate branch selects 4.17.0 with unchanged AndroidX SQLite 2.6.2; the
+published v0.3.28 release remains unchanged. The candidate is not called
+validated merely by this review.
 A 2026-09-05 source review found fixed application migration SQL and no FTS
 queries, `sqlcipher_export`, extension loading or explicit defensive-mode
 disable in Clench's database/backup/DI paths. The two cited FTS CVEs require
@@ -107,3 +110,22 @@ refresh this native source inventory, and execute these acceptance cases:
 Current same-version tests are not proof of a cross-version upgrade. If a
 candidate requires compileSdk 37, that must be an explicit compatible SDK
 migration, not an unchecked Dependabot merge or a verification exception.
+
+### Candidate evidence and source discrepancy
+
+The 4.17 AAR, POM and module hashes matched Maven Central published SHA-256
+sidecars. The AAR declares minCompileSdk 1 and the module requires the already
+locked AndroidX SQLite 2.6.2. No SDK 37 migration or verification bypass was
+needed for strict local resolution. The 475 JVM tests passed with zero
+failures/errors/skips, and debug/test APK plus lint assembly passed.
+
+Android tag commit `ae57a61052d8c41ce35cd48319b2f6f20f4de6bf` records SQLCipher
+gitlink `e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc` (a 4.16-era source with
+SQLite VERSION 3.53.1). The separate SQLCipher v4.17.0 source commit
+`810db22f575ee7cf94ea96a3e91622b5fcece3dc` declares 3.53.3; the verified AAR's
+x86_64/armeabi-v7a libraries contain 3.53.3 and 4.17.0 strings. Other ABI string
+absence is not proof of another version. A vendor build manifest is needed to
+reconcile the source association; no source-to-binary reproducibility claim
+is made. The selected Android runtime is required to report 3.53.3 by the
+[old-writer/new-reader fixture](../../scripts/verification/sqlcipher-upgrade/README.md).
+Actual hosted upgrade execution is still pending.

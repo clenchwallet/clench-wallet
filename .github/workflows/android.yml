@@ -73,6 +73,7 @@ jobs:
           python3 -B scripts/verification/test-native-inventory.py
           python3 -B scripts/verification/test-native-cargo-advisories.py
           python3 -B scripts/verification/test-signing-secret-scope.py
+          python3 -B scripts/verification/test-sqlcipher-upgrade-harness.py
           ./gradlew --no-daemon --dependency-verification=strict \
             -I scripts/verification/native-artifacts.init.gradle :app:exportNativeRuntimeArtifacts
           python3 -B scripts/release/inventory-native-artifacts.py \

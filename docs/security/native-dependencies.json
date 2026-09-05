@@ -191,52 +191,61 @@
       }
     },
     {
-      "artifact": "sqlcipher-android-4.15.0.aar",
-      "artifact_sha256": "480c9176aecbc8a3a7bd98441372bba5ad9482f57e54c5734b9a7e97a39971d8",
+      "artifact": "sqlcipher-android-4.17.0.aar",
+      "artifact_sha256": "44fc40c33d1de597c8339072a71fa0ff20e12d01ab352d6abe4ad5df668ead94",
       "native_payloads": [
         {
-          "bytes": 2084336,
+          "bytes": 2100040,
           "path": "jni/arm64-v8a/libsqlcipher.so",
-          "sha256": "7f73afc7c292cf899459053ebc167ea60cb62b879ad9e13912ea6e76bac347c0"
+          "sha256": "bc018e5d323751c91aec7fca6189d9760060ac0b3f1044dca4c3cf4894310ed0"
         },
         {
-          "bytes": 1039508,
+          "bytes": 1046404,
           "path": "jni/armeabi-v7a/libsqlcipher.so",
-          "sha256": "45bd541de134281997425fbb39a5e082bbd3d2afe030fb7ac269631f926bd215"
+          "sha256": "4dd9ec2a839f36517c2d33252655508208ee96656e2567a44b9ff3be0ceb4c98"
         },
         {
-          "bytes": 2226160,
+          "bytes": 2244588,
           "path": "jni/x86/libsqlcipher.so",
-          "sha256": "817df983ae03bc3d73cc90e85f0b3fcfd79176440814ba75d1d609ede8c8fa7e"
+          "sha256": "f9123664d6f1ec8f31478baa60b30f15ea78bda909d80380dad9e6f44dc859e2"
         },
         {
-          "bytes": 2214952,
+          "bytes": 2231416,
           "path": "jni/x86_64/libsqlcipher.so",
-          "sha256": "867742f2c7dca591da44455396efebb2b536b5b09405f4fd9dfa3bd3d27675b5"
+          "sha256": "337ab86baae3d7b37d6f784773dc6cf036a6406f2b191a35c25b4493feddc9e2"
         }
       ],
-      "owner_purl": "pkg:maven/net.zetetic/sqlcipher-android@4.15.0",
+      "owner_purl": "pkg:maven/net.zetetic/sqlcipher-android@4.17.0",
       "source_dependency_assurance": "NOT_REVIEWED",
       "source_review": {
-        "advisory_disposition": "NOT_REVIEWED",
-        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "advisory_disposition": "Vendor 4.17 notes report SQLite FTS and provider CSPRNG/error fixes. Not an independent proof of all fixes or complete native advisory clearance; see native-assurance.md.",
+        "binary_source_correspondence": "NOT_ESTABLISHED: Android v4.17.0 tag pins a SQLCipher 4.16-era submodule, while separate SQLCipher v4.17.0 source and binary strings associate with SQLite 3.53.3. Vendor build manifest required to reconcile; no independent binary reproduction.",
         "embedded_version_evidence": {
+          "android_tag_sqlcipher_gitlink_VERSION": "3.53.1",
+          "binary_strings": "Verified AAR x86_64 and armeabi-v7a include 3.53.3 and 4.17.0; ARM64/x86 include 4.17.0. String absence is not version proof. Runtime checks pending.",
           "libtomcrypt_declared": "1.18.2",
-          "scope": "Pinned vendor source declarations; local patches possible, not independent binary reconstruction.",
-          "sqlite": "3.53.0"
+          "sqlcipher_417_release_tag_VERSION": "3.53.3"
         },
         "evidence": [
           {
-            "sha256": "4b41c04d112f6de215d9b8dba806a036b50d00b634370ba1e66e8ec12e49d127",
-            "url": "https://github.com/sqlcipher/sqlcipher-android/blob/a005db3c359ca3c5ede448a5a0cc39a67fa8c32b/.gitmodules"
+            "sha256": "a2db8e463932956e6373dd281c31b17291162b394449745b0d6e92bdc3bd284f",
+            "url": "https://raw.githubusercontent.com/sqlcipher/sqlcipher-android/ae57a61052d8c41ce35cd48319b2f6f20f4de6bf/sqlcipher/src/main/jni/Android.mk"
           },
           {
             "sha256": "6161bb1a5e76e3e38ff93016aaeb2da0fa4e0f719cb637201636ee5833c13a7b",
-            "url": "https://github.com/sqlcipher/sqlcipher-android/blob/a005db3c359ca3c5ede448a5a0cc39a67fa8c32b/sqlcipher/src/main/jni/sqlcipher/Android.mk"
+            "url": "https://raw.githubusercontent.com/sqlcipher/sqlcipher-android/ae57a61052d8c41ce35cd48319b2f6f20f4de6bf/sqlcipher/src/main/jni/sqlcipher/Android.mk"
           },
           {
-            "sha256": "072ec5de4afc8df3b5e2c5e5f0a48af6c36a6ca8cd72c7a308995b7df8e99193",
-            "url": "https://github.com/sqlcipher/sqlcipher/blob/0b4d16090a71579c4c88220b7fb67bb7396f1434/VERSION"
+            "sha256": "3a94f8822a99c2e401e894d8f5475a2e1b115d6b291f096cff3e2efa9edb2ecf",
+            "url": "https://raw.githubusercontent.com/sqlcipher/sqlcipher/e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc/VERSION"
+          },
+          {
+            "sha256": "58b678f86816fefe9958e80e46ee6308edeef798af2700223ce1015c3ec64b3b",
+            "url": "https://raw.githubusercontent.com/sqlcipher/sqlcipher/e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc/src/crypto_libtomcrypt.c"
+          },
+          {
+            "sha256": "16b85a92c5f8032d8b687d336da5a0032dc8fa229e0134d3b0b3837137a31e64",
+            "url": "https://github.com/sqlcipher/sqlcipher/blob/810db22f575ee7cf94ea96a3e91622b5fcece3dc/VERSION"
           },
           {
             "sha256": "7e53c3f50b984307fe5cd281c4e3647d9531c928b635b0711f725105e3814576",
@@ -249,13 +258,14 @@
             "repository": "https://github.com/sqlcipher/libtomcrypt"
           },
           {
-            "commit": "0b4d16090a71579c4c88220b7fb67bb7396f1434",
+            "commit": "e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc",
             "repository": "https://github.com/sqlcipher/sqlcipher"
           }
         ],
-        "remaining": "Review vendor patches/advisories for SQLite 3.53.0 and declared libtomcrypt 1.18.2, compiled algorithms/flags and app reachability. Source version declarations are not binary reproducibility.",
+        "remaining": "Run old-writer/new-reader Android regression; reconcile stale Android gitlink against vendor build source; finish C/libtomcrypt advisory review and source-to-binary assurance.",
+        "separate_sqlcipher_release_commit": "810db22f575ee7cf94ea96a3e91622b5fcece3dc",
         "status": "PARTIAL",
-        "upstream_commit": "a005db3c359ca3c5ede448a5a0cc39a67fa8c32b"
+        "upstream_commit": "ae57a61052d8c41ce35cd48319b2f6f20f4de6bf"
       }
     },
     {
@@ -361,7 +371,7 @@
     }
   ],
   "coverage": "native payload identity only; upstream source graph and advisory review required",
-  "lockfile_sha256": "66d9ee60f8887d71b1c2a3ce0116f948c2aa1ada78928ad5adde9e6bbdf98882",
+  "lockfile_sha256": "5e40aa62a696d0f3974cdcc2ce65f7ead396b28e8d295999d556f64770d3c5a2",
   "schemaVersion": 1,
-  "verification_metadata_sha256": "91ab8988513bb3fb3691fc4ecd896707de760d99ed7c8f8b249f3ab220d71492"
+  "verification_metadata_sha256": "be50fe73ccb590fd0fd3e620b1bebf83a8336a78da531f3eb9398d0e382293fb"
 }
