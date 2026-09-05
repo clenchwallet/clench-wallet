@@ -42,7 +42,9 @@ explicit incomplete review status:
   links the vendored external:libyuv project; vendored/advisory review remains open.
 - AndroidX graphics-path 1.0.1: path JNI library. The official release-note
   commit-range endpoint and CMake source hash are recorded; no third-party link
-  target is declared there. Vendored source ancestry/advisory review remains open.
+  target is declared there. All twelve native source files and bundled math
+  headers are pinned by Git blob and SHA-256; further advisory and vendor binary
+  correspondence review remains open.
 - JNA 5.14.0: jnidispatch. Vendor tag resolved to an immutable commit; build file
   evidence recorded. Vendored libffi declares 3.4.4; its exact source tree and
   manifest/build hashes are recorded. That tree exactly matches upstream libffi

@@ -110,10 +110,88 @@
         ],
         "release_association": "Endpoint of the commit range linked by the official AndroidX release notes; not independent artifact provenance.",
         "release_notes_url": "https://developer.android.com/jetpack/androidx/releases/graphics",
-        "remaining": "Review vendored source and native advisories; verify binary build correspondence. CMake lists Conic.cpp, PathIterator.cpp, pathway.cpp, without a third-party link target; source-level ancestry review remains open.",
+        "remaining": "Review applicable native advisories and verify vendor binary build correspondence. All native source-directory files and local math headers are pinned; original upstream provenance beyond that snapshot is not established.",
         "status": "PARTIAL",
         "upstream_commit": "8a05a22af450d589ef911d772a001a49dcb05b71",
-        "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/"
+        "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/",
+        "verified_native_source_directory": {
+          "files": [
+            {
+              "git_blob": "722eb2d68bf63dffefa1eaf0fadae397c23fc6ba",
+              "path": "CMakeLists.txt",
+              "sha256": "87a8967586e828d2b1cc6c5745d09f30466036bffbcd780b378c75239d90b173",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/CMakeLists.txt"
+            },
+            {
+              "git_blob": "e22e2b2c0643d377f21bc92a18458867618296a2",
+              "path": "Conic.cpp",
+              "sha256": "49b3da93aa43480cf9cd481590be48705cb9340c52e5d09635efbd0ece07be83",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/Conic.cpp"
+            },
+            {
+              "git_blob": "2bd34419cd410e0c38391ecf580e068f0fc59191",
+              "path": "Conic.h",
+              "sha256": "cd315ad7c8d030c72e96893e9a0feec463d72d2066209a203dedcf0925398a6f",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/Conic.h"
+            },
+            {
+              "git_blob": "f25d708782be3f13fb77fef6098fdd26e57b10b6",
+              "path": "Path.h",
+              "sha256": "4ee841338063d8c6f71ff4c655ecf52559f6c6df9af79835388dae1ebcd8b982",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/Path.h"
+            },
+            {
+              "git_blob": "cab9c5d1eb14317ee973cf6198a452393fc94fca",
+              "path": "PathIterator.cpp",
+              "sha256": "3705946b43bf894e013f46ccc940f9923f43285340f8fc2128f95c59238ec7f8",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/PathIterator.cpp"
+            },
+            {
+              "git_blob": "414dbdd1d62f4a50fa30d49143edad60ea6d959e",
+              "path": "PathIterator.h",
+              "sha256": "a16e99b0273fb7205607eb0cf51fc7be518a55f3446a304f92ecab353e77be6f",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/PathIterator.h"
+            },
+            {
+              "git_blob": "d1310e52849b7f49928acbd74384c3c7d507a602",
+              "path": "libandroidx.graphics.path.map",
+              "sha256": "bc338abd36eeb27059572903ad167cf4231a36ca92be4eae3574501aa83f0d8c",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/libandroidx.graphics.path.map"
+            },
+            {
+              "git_blob": "ef7e182d804f20d3ecb3b3f5c69409b335ee8d57",
+              "path": "math/TVecHelpers.h",
+              "sha256": "1b0d6b06c5bbd6b438f9d8440ac78cf93fb8a713761badc59a4412b6457c1014",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/math/TVecHelpers.h"
+            },
+            {
+              "git_blob": "d6e18aaae05a3be3e4fe766b38bb1c3046240b40",
+              "path": "math/compiler.h",
+              "sha256": "d53e85383580e5dbf81cbcb24426b0fe1bf419b4837540242dbdca3f1df4cf66",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/math/compiler.h"
+            },
+            {
+              "git_blob": "ae67a2563332513d7b3fe071494d004dc39ae1af",
+              "path": "math/vec2.h",
+              "sha256": "09e1a8eb3f8fdf9c1071500f1a4933f67caeb6d0f765d5c44ba968370de9fcb1",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/math/vec2.h"
+            },
+            {
+              "git_blob": "d3a7d75a447274e8941f327a50593493f495115c",
+              "path": "pathway.cpp",
+              "sha256": "4be68d6fdb6376e95560f7c49a79aa0cd97218d758cf11ea3230ac9124485800",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/pathway.cpp"
+            },
+            {
+              "git_blob": "0342d138393b2bc579e5055fd3ee09e80a6f390d",
+              "path": "scalar.h",
+              "sha256": "b1d2bba80a4c9272d84473b6f09f700972b016f7579842d3a87bdbbdb2af1edc",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/scalar.h"
+            }
+          ],
+          "scope": "All 12 native-directory files match Gitiles blob IDs, including three bundled filament::math headers. This pins the source snapshot, not published native binary correspondence.",
+          "source_commit": "8a05a22af450d589ef911d772a001a49dcb05b71"
+        }
       }
     },
     {

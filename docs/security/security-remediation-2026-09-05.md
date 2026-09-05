@@ -63,6 +63,15 @@ completed successfully; lint success is not a zero-warning claim. Release-contro
 verification, hostile release-tool tests and the five-artifact native identity
 check passed. The new Android cases remain pending hosted execution.
 
+At `aa455fb98d134ff2176aa62ac6752c337e0a5815`, hosted run `33965900411`
+reported 22 cases: 21 passed, one failed, zero errors/skips. Both negative
+identifier cases and all prior 19 cases passed. The positive import fixture
+failed BDK's public-key parser because its change key had one mistyped hex digit.
+The intended public point 2G was independently recomputed; the fixture changed
+`...85a778...` to `...85c778...`. No production descriptor validation was weakened.
+The corrected positive fixture requires a new hosted result; the failed run is
+not relabeled as a pass. Both cross-version upgrade steps in that run succeeded.
+
 ## Verification record
 
 - Initial offline Gradle attempt failed resolving the Android plugin before compilation.

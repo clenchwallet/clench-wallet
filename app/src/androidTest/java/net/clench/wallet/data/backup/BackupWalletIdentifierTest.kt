@@ -64,7 +64,7 @@ class BackupWalletIdentifierTest {
                 val wallet = document.getJSONArray("wallets").getJSONObject(0)
                 // Public test keys only; no secret, real wallet, BDK database or network.
                 wallet.put("descriptor", "wpkh(0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798)")
-                wallet.put("changeDescriptor", "wpkh(02c6047f9441ed7d6d3045406e95c07cd85a778e4b8cef3ca7abac09b95c709ee5)")
+                wallet.put("changeDescriptor", "wpkh(02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5)")
                 wallet.put("network", "testnet")
                 val txid = "1".repeat(64)
                 if (id.isNotEmpty()) {

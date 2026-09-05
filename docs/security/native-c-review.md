@@ -69,10 +69,14 @@ provider fixes are separate from the LibTomCrypt library version.
 
 CameraX's `external:libyuv` build uses another source checkout; its exact
 revision is not established by the frameworks/support release endpoint.
-Graphics-path's inspected CMake has no separately linked third-party target,
-but that alone does not establish source ancestry. These remain explicit
-vendor/build-evidence prerequisites. Do not substitute a nearby release date,
-moving branch or guessed version to make a scanner report green.
+All 12 files in graphics-path's pinned native source directory now match their
+Gitiles blob IDs, including the three local `filament::math` headers. CMake
+names only the three local translation units; quoted includes stay within that
+directory, while angle-bracket includes use system/NDK headers. This pins the
+source snapshot but not a separate Filament release version or binary build
+correspondence. CameraX's missing external revision and vendor build evidence
+remain prerequisites. Do not substitute a nearby release date, moving branch or
+guessed version to make a scanner report green.
 
 ## Maintenance boundary
 
