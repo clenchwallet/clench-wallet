@@ -745,6 +745,15 @@ def main() -> None:
     android_workflow = Path(".github/workflows/android.yml").read_text(encoding="utf-8")
     if "scripts/verification/test-hostile-fuzz-runner.py" not in android_workflow:
         raise SystemExit("Android CI does not exercise hostile fuzz runner self-tests")
+    for required_native_control in (
+        "scripts/verification/test-native-inventory.py",
+        "scripts/verification/test-signing-secret-scope.py",
+        "scripts/verification/native-artifacts.init.gradle :app:exportNativeRuntimeArtifacts",
+        "--baseline docs/security/native-dependencies.json",
+        "build/reports/native-dependency-inventory.json",
+    ):
+        if required_native_control not in android_workflow:
+            raise SystemExit("Android CI lacks native coverage evidence control: " + required_native_control)
 
     instrumentation_workflow = Path(
         ".github/workflows/android-instrumentation.yml"

@@ -1,0 +1,253 @@
+{
+  "artifacts": [
+    {
+      "artifact": "camera-core-1.6.1.aar",
+      "artifact_sha256": "a36f1c323851b51215ba476640e1eb4153882b0c368c0376e9fb905e689df84a",
+      "native_payloads": [
+        {
+          "bytes": 32528,
+          "path": "jni/arm64-v8a/libimage_processing_util_jni.so",
+          "sha256": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2"
+        },
+        {
+          "bytes": 4896,
+          "path": "jni/arm64-v8a/libsurface_util_jni.so",
+          "sha256": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba"
+        },
+        {
+          "bytes": 24448,
+          "path": "jni/armeabi-v7a/libimage_processing_util_jni.so",
+          "sha256": "05973c0cf8e8dd281c8ec505c41814b78b740461056925bb41120594d7c35dcd"
+        },
+        {
+          "bytes": 3460,
+          "path": "jni/armeabi-v7a/libsurface_util_jni.so",
+          "sha256": "78eb0b10e91b819be97cb7daa8c97fb757fa6d07cb80ccb7e92c113b45bda9be"
+        },
+        {
+          "bytes": 41276,
+          "path": "jni/x86/libimage_processing_util_jni.so",
+          "sha256": "b52f93b57d408b2306071f9de1a4b0b5684c1b86563e34a8711d80a1e6c03f94"
+        },
+        {
+          "bytes": 3812,
+          "path": "jni/x86/libsurface_util_jni.so",
+          "sha256": "3048a535d701579c87c4ad91283cd1246d2c85399a164ee4720642037ea31727"
+        },
+        {
+          "bytes": 49416,
+          "path": "jni/x86_64/libimage_processing_util_jni.so",
+          "sha256": "112703727717651e69e91f3ea2c3c2311737ee5809a909c9d342a811b6c7c069"
+        },
+        {
+          "bytes": 4912,
+          "path": "jni/x86_64/libsurface_util_jni.so",
+          "sha256": "e5311942b4fce0f7f2505d41150cf9921e558a6368929cb73127450f74dd4fe4"
+        }
+      ],
+      "owner_purl": "pkg:maven/androidx.camera/camera-core@1.6.1",
+      "source_dependency_assurance": "NOT_REVIEWED",
+      "source_review": {
+        "advisory_disposition": "NOT_REVIEWED",
+        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "remaining": "Resolve exact AndroidX release source revision and bundled native source dependencies, build flags and advisory coverage.",
+        "status": "NOT_REVIEWED",
+        "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/"
+      }
+    },
+    {
+      "artifact": "graphics-path-1.0.1.aar",
+      "artifact_sha256": "8ca4032b6d79b351f0b59ad4b580eddbb9423e1652f7c958830687f1eee2ec03",
+      "native_payloads": [
+        {
+          "bytes": 10096,
+          "path": "jni/arm64-v8a/libandroidx.graphics.path.so",
+          "sha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6"
+        },
+        {
+          "bytes": 7252,
+          "path": "jni/armeabi-v7a/libandroidx.graphics.path.so",
+          "sha256": "41399eba6fc2a60f6f14642375c1824f3cf25eb8fec7397d753730a3ceda3e2b"
+        },
+        {
+          "bytes": 9284,
+          "path": "jni/x86/libandroidx.graphics.path.so",
+          "sha256": "eb0570b41fd3bff25d8204a967c03bd7550719e768b791f680cc40cbe35f29af"
+        },
+        {
+          "bytes": 10760,
+          "path": "jni/x86_64/libandroidx.graphics.path.so",
+          "sha256": "4e56c996f13670e70082658de7880c4020eabf4f25e43387f88ed78a713fc9f0"
+        }
+      ],
+      "owner_purl": "pkg:maven/androidx.graphics/graphics-path@1.0.1",
+      "source_dependency_assurance": "NOT_REVIEWED",
+      "source_review": {
+        "advisory_disposition": "NOT_REVIEWED",
+        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "remaining": "Resolve exact AndroidX release source revision and bundled native source dependencies, build flags and advisory coverage.",
+        "status": "NOT_REVIEWED",
+        "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/"
+      }
+    },
+    {
+      "artifact": "jna-5.14.0.aar",
+      "artifact_sha256": "81a8b9afc65f9d6b205338c25908af8de0ff8411a00985104c9d83fffdfab380",
+      "native_payloads": [
+        {
+          "bytes": 168176,
+          "path": "jni/arm64-v8a/libjnidispatch.so",
+          "sha256": "3730ce014f7a6807ae74af78c3b9f5a3cba1f5886316b3d3858493df923efe96"
+        },
+        {
+          "bytes": 122296,
+          "path": "jni/armeabi-v7a/libjnidispatch.so",
+          "sha256": "73334a01c209297c131cb746d166128f702b44760c9429c0d91d1e8dfdeaa570"
+        },
+        {
+          "bytes": 122784,
+          "path": "jni/armeabi/libjnidispatch.so",
+          "sha256": "27efc9e8c7320544c8417a1ae4c77d5091702430e6edae9f5dab060430b62ff6"
+        },
+        {
+          "bytes": 150924,
+          "path": "jni/mips/libjnidispatch.so",
+          "sha256": "c6f2d715fc6a91c4a364aba7e277f4302c726984c3d22860e4b80d80634d9e71"
+        },
+        {
+          "bytes": 141904,
+          "path": "jni/mips64/libjnidispatch.so",
+          "sha256": "7a9fe9d0d017deb0195dca3d21ef06a7864b9ad66bcab2608e9ad468a511f697"
+        },
+        {
+          "bytes": 120184,
+          "path": "jni/x86/libjnidispatch.so",
+          "sha256": "06c0d445fc1a216f9735d3e23de2b95682db055824928c4554c9728919092729"
+        },
+        {
+          "bytes": 118584,
+          "path": "jni/x86_64/libjnidispatch.so",
+          "sha256": "a6d3997d3cfc0dba1b00fd2943b41e7395741e88336ed6f6237b594c94083eea"
+        }
+      ],
+      "owner_purl": "pkg:maven/net.java.dev.jna/jna@5.14.0",
+      "source_dependency_assurance": "NOT_REVIEWED",
+      "source_review": {
+        "advisory_disposition": "NOT_REVIEWED",
+        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "evidence": [
+          {
+            "sha256": "a06479cd198a8c8c8ed18da4ef45757a19c5fa74332ebdbced6fd4fe5b7c6061",
+            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/build.xml"
+          }
+        ],
+        "remaining": "Identify exact vendored libffi source revision and build flags, then review native advisories.",
+        "status": "PARTIAL",
+        "upstream_commit": "c366bc4fd0c50a30ac8d2475603ec564f6611462"
+      }
+    },
+    {
+      "artifact": "sqlcipher-android-4.15.0.aar",
+      "artifact_sha256": "480c9176aecbc8a3a7bd98441372bba5ad9482f57e54c5734b9a7e97a39971d8",
+      "native_payloads": [
+        {
+          "bytes": 2084336,
+          "path": "jni/arm64-v8a/libsqlcipher.so",
+          "sha256": "7f73afc7c292cf899459053ebc167ea60cb62b879ad9e13912ea6e76bac347c0"
+        },
+        {
+          "bytes": 1039508,
+          "path": "jni/armeabi-v7a/libsqlcipher.so",
+          "sha256": "45bd541de134281997425fbb39a5e082bbd3d2afe030fb7ac269631f926bd215"
+        },
+        {
+          "bytes": 2226160,
+          "path": "jni/x86/libsqlcipher.so",
+          "sha256": "817df983ae03bc3d73cc90e85f0b3fcfd79176440814ba75d1d609ede8c8fa7e"
+        },
+        {
+          "bytes": 2214952,
+          "path": "jni/x86_64/libsqlcipher.so",
+          "sha256": "867742f2c7dca591da44455396efebb2b536b5b09405f4fd9dfa3bd3d27675b5"
+        }
+      ],
+      "owner_purl": "pkg:maven/net.zetetic/sqlcipher-android@4.15.0",
+      "source_dependency_assurance": "NOT_REVIEWED",
+      "source_review": {
+        "advisory_disposition": "NOT_REVIEWED",
+        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "evidence": [
+          {
+            "sha256": "4b41c04d112f6de215d9b8dba806a036b50d00b634370ba1e66e8ec12e49d127",
+            "url": "https://github.com/sqlcipher/sqlcipher-android/blob/a005db3c359ca3c5ede448a5a0cc39a67fa8c32b/.gitmodules"
+          },
+          {
+            "sha256": "6161bb1a5e76e3e38ff93016aaeb2da0fa4e0f719cb637201636ee5833c13a7b",
+            "url": "https://github.com/sqlcipher/sqlcipher-android/blob/a005db3c359ca3c5ede448a5a0cc39a67fa8c32b/sqlcipher/src/main/jni/sqlcipher/Android.mk"
+          }
+        ],
+        "gitlinks": [
+          {
+            "commit": "476a9579ae94f32b9ea9e2747bfb04b302370259",
+            "repository": "https://github.com/sqlcipher/libtomcrypt"
+          },
+          {
+            "commit": "0b4d16090a71579c4c88220b7fb67bb7396f1434",
+            "repository": "https://github.com/sqlcipher/sqlcipher"
+          }
+        ],
+        "remaining": "Verify vendor build flags against binary; resolve embedded SQLite version and libtomcrypt changes; disposition relevant upstream advisories. Default source configuration is not proof of artifact build flags.",
+        "status": "PARTIAL",
+        "upstream_commit": "a005db3c359ca3c5ede448a5a0cc39a67fa8c32b"
+      }
+    },
+    {
+      "artifact": "bdk-android-3.0.0.aar",
+      "artifact_sha256": "e11f099ab3f7acce9770825d9f431ce0970a30356c46ebed6aef66594491bb1e",
+      "native_payloads": [
+        {
+          "bytes": 15287360,
+          "path": "jni/arm64-v8a/libbdkffi.so",
+          "sha256": "e006df2cc314584ffcfa87dc5f924d433939f0db3123e5eac2106668792a565a"
+        },
+        {
+          "bytes": 10630084,
+          "path": "jni/armeabi-v7a/libbdkffi.so",
+          "sha256": "8404a412bbd14ea20ec256243badc3dc5aeab2c2b5decb36e5b4341480b92cdc"
+        },
+        {
+          "bytes": 14085512,
+          "path": "jni/x86_64/libbdkffi.so",
+          "sha256": "cec0265302d29a727b31213082e14435bcb6fd0f12bd6532b663ed54c45a7465"
+        }
+      ],
+      "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0",
+      "source_dependency_assurance": "NOT_REVIEWED",
+      "source_review": {
+        "advisory_disposition": "NOT_REVIEWED",
+        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "evidence": [
+          {
+            "sha256": "8e86d388a119564809fafa5fed1b851357f08d8a5cb03634ec6092aec074476a",
+            "url": "https://github.com/bitcoindevkit/bdk-ffi/blob/cfb3418524d451ba8d1758f0ec27f8443740b422/bdk-ffi/Cargo.lock"
+          },
+          {
+            "sha256": "e6143a1963e9f70f8b37b63f84d9aa0f6265cec7a9a7cc721506fb19718351dd",
+            "url": "https://github.com/bitcoindevkit/bdk-ffi/blob/cfb3418524d451ba8d1758f0ec27f8443740b422/bdk-ffi/Cargo.toml"
+          },
+          {
+            "sha256": "76e8c28692840726a440f962b1f6ef06029504e97ac418cc4518fc901fb28c87",
+            "url": "https://github.com/bitcoindevkit/bdk-ffi/blob/cfb3418524d451ba8d1758f0ec27f8443740b422/bdk-android/lib/build.gradle.kts"
+          }
+        ],
+        "remaining": "Resolve shipped Android target/features versus build/dev/conditional Cargo packages, including C libraries bundled in Rust sys crates; review advisories with reachability evidence.",
+        "status": "PARTIAL",
+        "upstream_commit": "cfb3418524d451ba8d1758f0ec27f8443740b422"
+      }
+    }
+  ],
+  "coverage": "native payload identity only; upstream source graph and advisory review required",
+  "lockfile_sha256": "66d9ee60f8887d71b1c2a3ce0116f948c2aa1ada78928ad5adde9e6bbdf98882",
+  "schemaVersion": 1,
+  "verification_metadata_sha256": "91ab8988513bb3fb3691fc4ecd896707de760d99ed7c8f8b249f3ab220d71492"
+}

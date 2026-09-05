@@ -73,8 +73,32 @@ This threat model covers Clench Wallet as a Bitcoin-only, non-custodial Android 
 
 ## Residual Risks
 
-- A fully compromised Android device can observe UI, memory, clipboard, or input.
+- Code execution within Clench's process/app UID is already outside the UI-gate
+  protection boundary; it does not require a fully compromised Android OS.
+  `KeystoreManager` creates its wallet-secret `MasterKey` without a per-use
+  authentication requirement. Code with that app identity and Keystore access
+  can request decryption independently of the seed/send screen gates.
+  `BiometricHelper` uses separate authentication-bound proof keys to authorize
+  application actions; those keys do not wrap each wallet-secret decryption.
+  Hardware-backed storage therefore must not be described as making secrets
+  inaccessible to a compromised Clench process. Changing this storage boundary
+  would require a separately tested key-migration and recovery design, not
+  silently changing the existing key's configuration.
+- A compromised Android OS can additionally observe UI, memory, clipboard, or input.
 - JVM strings cannot be reliably zeroed after use.
+- Mutable-buffer cleanup is best effort and does not erase prior copies made by
+  JVM/native libraries, preferences, IPC, or the operating system. The clipboard
+  helper retains the copied string in a delayed callback and attempts to replace
+  only the unchanged clipboard after 60 seconds. Process death, background
+  access restrictions or callback delays can prevent that cleanup. Android's
+  sensitive-content flag is a presentation hint, not an access-control or
+  clipboard-history-erasure guarantee. Avoid copying secrets where possible.
+- Distinct multisig key material does not prove independent ownership or devices.
+  Newly created/imported policies reject equivalent extended-key material;
+  older funded policies must retain their exact descriptors and recovery access.
+- Maven dependency inventory/advisory success does not establish coverage of
+  native transitive dependencies. See [native assurance](native-assurance.md)
+  for artifact identity, source mappings and unresolved coverage.
 - A malicious Electrum server can degrade availability and may learn wallet activity unless the user uses their own node or Tor.
 - Tor routing depends on a working SOCKS proxy such as Orbot.
 - First-use trust of the release signing certificate requires an out-of-band digest.
