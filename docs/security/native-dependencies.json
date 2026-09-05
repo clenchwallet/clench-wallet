@@ -159,7 +159,19 @@
       "owner_purl": "pkg:maven/net.java.dev.jna/jna@5.14.0",
       "source_dependency_assurance": "NOT_REVIEWED",
       "source_review": {
-        "advisory_disposition": "NOT_REVIEWED",
+        "advisory_disposition": "PARTIAL_SOURCE_QUERY_NO_MATCHES",
+        "advisory_queries": [
+          {
+            "date": "2026-09-05",
+            "limitation": "No commit-query matches; OSV coverage of C libraries is incomplete. Not a native clearance.",
+            "matches": 0,
+            "query": {
+              "commit": "f24180be1367f942824365b131ae894b9c769c7d"
+            },
+            "response_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "source": "https://api.osv.dev/v1/query"
+          }
+        ],
         "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
         "evidence": [
           {
@@ -179,14 +191,17 @@
             "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/native/libffi/configure.ac"
           }
         ],
-        "remaining": "Review vendored libffi patches/advisories and validate artifact build flags/source correspondence.",
+        "remaining": "Review other applicable native advisories and validate artifact build flags/source correspondence; vendored source tree identity is established.",
         "status": "PARTIAL",
         "upstream_commit": "c366bc4fd0c50a30ac8d2475603ec564f6611462",
         "vendored_libffi": {
           "declared_version": "3.4.4",
           "git_tree": "e0e8cdf7495229c7e98265886219315ee61b25c5",
-          "scope": "Vendored tree in pinned JNA source; local patches possible; not an independent upstream commit or binary proof.",
-          "source_path": "native/libffi"
+          "scope": "Pinned JNA vendored tree exactly equals upstream libffi v3.4.4 tree; this establishes source content identity, not native binary correspondence.",
+          "source_path": "native/libffi",
+          "upstream_commit": "f24180be1367f942824365b131ae894b9c769c7d",
+          "upstream_tag": "v3.4.4",
+          "upstream_tree": "e0e8cdf7495229c7e98265886219315ee61b25c5"
         }
       }
     },
@@ -262,7 +277,17 @@
             "repository": "https://github.com/sqlcipher/sqlcipher"
           }
         ],
-        "remaining": "Run old-writer/new-reader Android regression; reconcile stale Android gitlink against vendor build source; finish C/libtomcrypt advisory review and source-to-binary assurance.",
+        "remaining": "Reconcile stale Android gitlink against vendor build source; finish C/libtomcrypt advisory review and source-to-binary assurance. The pinned 4.15 writer/4.17 reader Android gate passed.",
+        "runtime_upgrade_evidence": {
+          "actual_cross_version_cases_passed": 3,
+          "additional_android_cases_passed": 19,
+          "consumer_version": "4.17.0",
+          "producer_version": "4.15.0",
+          "run_url": "https://github.com/clenchwallet/clench-wallet/actions/runs/33960440165",
+          "scope": "Disposable API 35 x86_64 emulator, synthetic Room/WAL data; not physical/OEM-wide evidence or native binary reproducibility.",
+          "source_commit": "b099db055a62f39d1c71b60ae1c1a949bf553242",
+          "sqlite_version_asserted": "3.53.3"
+        },
         "separate_sqlcipher_release_commit": "810db22f575ee7cf94ea96a3e91622b5fcece3dc",
         "status": "PARTIAL",
         "upstream_commit": "ae57a61052d8c41ce35cd48319b2f6f20f4de6bf"
@@ -292,6 +317,13 @@
       "source_dependency_assurance": "NOT_REVIEWED",
       "source_review": {
         "advisory_disposition": "CANDIDATE_MATCHES_REQUIRE_REVIEW",
+        "anyhow_source_disposition": {
+          "date": "2026-09-05",
+          "direct_consumers_reviewed": 15,
+          "findings": "Mutable anyhow downcasts found in wit-parser 0.244.0, reached through wasip3 on getrandom 0.4.2 wasm32/wasi/p3 target. UniFFI pipeline downcast_mut is std::any::Any, not anyhow::Error. Pinned BDK Rust source has no matching call.",
+          "remaining": "Source-bound evidence only; no advisory gate suppression or binary-wide clearance.",
+          "status": "NO_AFFECTED_ANDROID_CALL_PATH_ESTABLISHED"
+        },
         "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
         "bundled_sqlite_candidate": {
           "header_sha256": "0c207567adc631521a353e067cfbc5044ebf11868f3c3fbf3178d6990409740e",
@@ -315,6 +347,12 @@
           }
         ],
         "remaining": "Resolve shipped Android target/features versus build/dev/conditional Cargo packages, including C libraries bundled in Rust sys crates; review advisories with reachability evidence.",
+        "source_archive_review": {
+          "archive_sha256": "629e3dc3f17050d500cafb71c17977f35bfaab5a947a3d6d082a7992bf784ec6",
+          "git_blob_files_verified": 106,
+          "scope": "Every archive file matches the recursive GitHub blob listing for the pinned commit. Rust source has no downcast_mut or explicit anyhow use; generated code and published binary correspondence are not established by a text search.",
+          "url": "https://codeload.github.com/bitcoindevkit/bdk-ffi/tar.gz/cfb3418524d451ba8d1758f0ec27f8443740b422"
+        },
         "status": "PARTIAL",
         "upstream_commit": "cfb3418524d451ba8d1758f0ec27f8443740b422",
         "verified_crate_sources": [
@@ -325,6 +363,20 @@
             "package": "esplora-client",
             "url": "https://static.crates.io/crates/esplora-client/esplora-client-0.12.3.crate",
             "version": "0.12.3"
+          },
+          {
+            "archive_sha256": "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd",
+            "files": 35,
+            "package": "getrandom",
+            "url": "https://static.crates.io/crates/getrandom/getrandom-0.3.4.crate",
+            "version": "0.3.4"
+          },
+          {
+            "archive_sha256": "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555",
+            "files": 40,
+            "package": "getrandom",
+            "url": "https://static.crates.io/crates/getrandom/getrandom-0.4.2.crate",
+            "version": "0.4.2"
           },
           {
             "archive_sha256": "0c10584274047cb335c23d3e61bcef8e323adae7c5c8c760540f73610177fc3f",
@@ -359,12 +411,103 @@
             "version": "0.30.0"
           },
           {
+            "archive_sha256": "7c8ca600167641ebe7c8ba9254af40492dda3397c528cc3b2f511bd23e8541a5",
+            "files": 97,
+            "package": "uniffi_bindgen",
+            "url": "https://static.crates.io/crates/uniffi_bindgen/uniffi_bindgen-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "3e55c05228f4858bb258f651d21d743fcc1fe5a2ec20d3c0f9daefddb105ee4d",
+            "files": 2,
+            "package": "uniffi_build",
+            "url": "https://static.crates.io/crates/uniffi_build/uniffi_build-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
             "archive_sha256": "7e7a5a038ebffe8f4cf91416b154ef3c2468b18e828b7009e01b1b99938089f9",
             "bytes": 177011,
             "files": 21,
             "package": "uniffi_core",
             "url": "https://static.crates.io/crates/uniffi_core/uniffi_core-0.30.0.crate",
             "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "e3c2a6f93e7b73726e2015696ece25ca0ac5a5f1cf8d6a7ab5214dd0a01d2edf",
+            "files": 7,
+            "package": "uniffi_internal_macros",
+            "url": "https://static.crates.io/crates/uniffi_internal_macros/uniffi_internal_macros-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "0a138823392dba19b0aa494872689f97d0ee157de5852e2bec157ce6de9cdc22",
+            "files": 7,
+            "package": "uniffi_meta",
+            "url": "https://static.crates.io/crates/uniffi_meta/uniffi_meta-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "8c27c4b515d25f8e53cc918e238c39a79c3144a40eaf2e51c4a7958973422c29",
+            "files": 5,
+            "package": "uniffi_pipeline",
+            "url": "https://static.crates.io/crates/uniffi_pipeline/uniffi_pipeline-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "a4adb08eb5589849231dc0626ba0f9a1297925fd751f0740fc630ae934dd9c5e",
+            "files": 2,
+            "package": "uniffi_testing",
+            "url": "https://static.crates.io/crates/uniffi_testing/uniffi_testing-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "d0adacdd848aeed7af4f5af7d2f621d5e82531325d405e29463482becfdeafca",
+            "files": 11,
+            "package": "uniffi_udl",
+            "url": "https://static.crates.io/crates/uniffi_udl/uniffi_udl-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "bb0e353e6a2fbdc176932bbaab493762eb1255a7900fe0fea1a2f96c296cc909",
+            "files": 23,
+            "package": "wasm-metadata",
+            "url": "https://static.crates.io/crates/wasm-metadata/wasm-metadata-0.244.0.crate",
+            "version": "0.244.0"
+          },
+          {
+            "archive_sha256": "ea61de684c3ea68cb082b7a88508a8b27fcc8b797d738bfc99a82facf1d752dc",
+            "files": 8,
+            "package": "wit-bindgen-core",
+            "url": "https://static.crates.io/crates/wit-bindgen-core/wit-bindgen-core-0.51.0.crate",
+            "version": "0.51.0"
+          },
+          {
+            "archive_sha256": "b7c566e0f4b284dd6561c786d9cb0142da491f46a9fbed79ea69cdad5db17f21",
+            "files": 6,
+            "package": "wit-bindgen-rust",
+            "url": "https://static.crates.io/crates/wit-bindgen-rust/wit-bindgen-rust-0.51.0.crate",
+            "version": "0.51.0"
+          },
+          {
+            "archive_sha256": "0c0f9bfd77e6a48eccf51359e3ae77140a7f50b1e2ebfe62422d8afdaffab17a",
+            "files": 3,
+            "package": "wit-bindgen-rust-macro",
+            "url": "https://static.crates.io/crates/wit-bindgen-rust-macro/wit-bindgen-rust-macro-0.51.0.crate",
+            "version": "0.51.0"
+          },
+          {
+            "archive_sha256": "9d66ea20e9553b30172b5e831994e35fbde2d165325bec84fc43dbf6f4eb9cb2",
+            "files": 22,
+            "package": "wit-component",
+            "url": "https://static.crates.io/crates/wit-component/wit-component-0.244.0.crate",
+            "version": "0.244.0"
+          },
+          {
+            "archive_sha256": "ecc8ac4bc1dc3381b7f59c34f00b67e18f910c2c0f50015669dde7def656a736",
+            "files": 15,
+            "package": "wit-parser",
+            "url": "https://static.crates.io/crates/wit-parser/wit-parser-0.244.0.crate",
+            "version": "0.244.0"
           }
         ]
       }

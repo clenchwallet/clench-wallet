@@ -45,7 +45,9 @@ explicit incomplete review status:
   target is declared there. Vendored source ancestry/advisory review remains open.
 - JNA 5.14.0: jnidispatch. Vendor tag resolved to an immutable commit; build file
   evidence recorded. Vendored libffi declares 3.4.4; its exact source tree and
-  manifest/build hashes are recorded. Local patches/native advisories remain open.
+  manifest/build hashes are recorded. That tree exactly matches upstream libffi
+  v3.4.4. The dated OSV commit query returned no matches; this is not complete C
+  advisory coverage or source-to-binary proof.
 - BDK Android 3.0.0: bdkffi. The vendor's immutable release commit, Cargo manifest,
   Cargo lockfile and Android build file are identified. The lock contains 199
   package candidates, including build/dev/conditional entries; this is not a
@@ -55,7 +57,8 @@ explicit incomplete review status:
   source associations are recorded. The Android tag points to older SQLCipher
   source than the separate SQLCipher release tag and binary version strings;
   the discrepancy is explicit, not treated as reproducibility. Cross-version
-  database validation and remaining native advisory review are required.
+  database validation passed on the disposable hosted emulator; remaining native
+  advisory and source-correspondence review are required.
 
 Source-tag association is not independent binary reproducibility. Do not call
 an upstream advisory exploitable from Clench without checking affected version,
@@ -128,4 +131,16 @@ absence is not proof of another version. A vendor build manifest is needed to
 reconcile the source association; no source-to-binary reproducibility claim
 is made. The selected Android runtime is required to report 3.53.3 by the
 [old-writer/new-reader fixture](../../scripts/verification/sqlcipher-upgrade/README.md).
-Actual hosted upgrade execution is still pending.
+Hosted run [33960440165](https://github.com/clenchwallet/clench-wallet/actions/runs/33960440165)
+at `b099db055a62f39d1c71b60ae1c1a949bf553242` passed all three actual
+instrumentation phases: the pinned 4.15 writer, 4.17 reader, and new-process
+reopen. The result records producer `3a96b6da8bcbd33d1ecc56cf9d49e1d66cd98609`
+and the exact candidate commit. The runtime version assertions, encrypted Room
+rows, frozen WAL recovery, wrong-key/corruption non-mutation and checkpoint/reopen
+checks therefore executed; they are not inferred from compilation.
+
+The same run passed the additional 19 Android regression cases, including all
+five real-system-authentication UI cases. This is API 35 x86_64 disposable-emulator
+evidence, not physical/OEM-wide testing, all-ABI version proof, or resolution of
+the vendor source discrepancy. The three upgrade phases remain separate from
+the 19-case count.

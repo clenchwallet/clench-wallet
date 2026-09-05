@@ -32,7 +32,7 @@ CI identity/test success is not native vulnerability clearance.
 
 | Candidate | Advisory group | Current disposition |
 | --- | --- | --- |
-| anyhow 1.0.102 | [RUSTSEC-2026-0190](https://rustsec.org/advisories/RUSTSEC-2026-0190.html) | Version match; affected operation is contextual error followed by mutable downcast. UniFFI occurs in both runtime/build graph. Call-site and shipped reachability review pending; do not label build-only. Patched at 1.0.103. |
+| anyhow 1.0.102 | [RUSTSEC-2026-0190](https://rustsec.org/advisories/RUSTSEC-2026-0190.html) | Version match; affected operation is contextual error followed by mutable downcast. Reviewed mutable anyhow calls are in the WASI-only WIT path, not an established Android path; see source tracing below. UniFFI itself is not classified as build-only. No gate exemption or binary clearance. Patched at 1.0.103. |
 | rustls-webpki 0.101.7 | [RUSTSEC-2026-0098](https://rustsec.org/advisories/RUSTSEC-2026-0098.html), alias GHSA-965h-392x-2mh5 | URI name-constraint handling; valid certificate signature and certificate misissuance are prerequisites per upstream. Locked minreq/Esplora chain; Clench call-path review pending. |
 | rustls-webpki 0.101.7 | [RUSTSEC-2026-0099](https://rustsec.org/advisories/RUSTSEC-2026-0099.html), alias GHSA-xgp8-3hg3-c2mh | Wildcard DNS name constraints; same upstream certificate prerequisites. Locked minreq/Esplora chain; no demonstrated Clench exploit. |
 | rustls-webpki 0.101.7 | [RUSTSEC-2026-0104](https://rustsec.org/advisories/RUSTSEC-2026-0104.html), alias GHSA-82j2-j2ch-gfr8 | CRL parsing panic; upstream says applications not using CRLs are unaffected. CRL configuration/reachability review pending, not a demonstrated remote Clench crash. |
@@ -81,7 +81,35 @@ patched version. Its name-constraint behavior still depends on the old webpki
 code if that HTTPS client is invoked.
 
 The checksum-verified libsqlite3-sys 0.28.0 crate bundles a SQLite 3.45.0 header,
-which is distinct from SQLCipher's separately pinned SQLite 3.53.0 source.
+which is distinct from the SQLCipher candidate's runtime-asserted SQLite 3.53.3.
 Do not confuse the two database implementations or extend the Rust advisory
 query to imply coverage of either C implementation. Build-feature confirmation,
 C advisory applicability and vendor patch assessment remain open.
+
+### Version-resolved anyhow consumer review
+
+On 2026-09-05, all fifteen direct consumers of `anyhow` in the pinned lock were
+inspected, plus getrandom 0.3.4 and 0.4.2 for target selection. Each downloaded
+crate archive matched its lockfile checksum; no dependency script was executed.
+The identities are retained in `verified_crate_sources` in the native baseline.
+
+- `wit-parser` 0.244.0 `src/ast.rs` contains mutable `anyhow::Error` downcasts.
+  Version-resolved reverse edges lead through wit-bindgen 0.51.0 and wasip3 to
+  getrandom 0.4.2. Its normalized Cargo.toml selects wasip3 only for
+  `target_arch = "wasm32", target_os = "wasi", target_env = "p3"`, not Android
+  or the Linux/macOS build hosts. A name-only graph would incorrectly conflate
+  this with the separate wasip2/wit-bindgen 0.57.1 entries.
+- `uniffi_pipeline` 0.30.0 `src/node.rs` calls `downcast_mut` on
+  `&mut dyn std::any::Any`, not on `anyhow::Error`. It is not evidence of the
+  advisory's affected operation. Other reviewed UniFFI Rust files did not
+  contain mutable-downcast calls. UniFFI does re-export anyhow; that fact is
+  not treated as an exploit or ignored as build-only.
+- All 106 files in the pinned BDK source archive matched the corresponding
+  Git blob IDs. Its Rust sources contain no `downcast_mut`, `anyhow::`, or
+  `uniffi::deps::anyhow` reference. This includes the local source consumer of
+  UniFFI's re-export, but does not establish arbitrary generated-code behavior.
+
+These observations establish **no affected Android call path in the reviewed
+source**, not absence of anyhow from the native binary. The release gate still
+reports the version match and fails; no suppression was introduced. Vendor
+build/source correspondence and the remaining native components remain open.

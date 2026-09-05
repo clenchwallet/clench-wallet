@@ -4,6 +4,15 @@ Baseline: `ab00e8e56c006dc3dc872fc7ab2efc6db6b3cff3` (v0.3.28 plus website updat
 Working branch: `codex/security-remediation-20260905`.
 Status: IN PROGRESS. No release, production deployment, or compatibility claim.
 
+Latest verified runtime target: `b099db055a62f39d1c71b60ae1c1a949bf553242`.
+Hosted run [33960440165](https://github.com/clenchwallet/clench-wallet/actions/runs/33960440165)
+passed all 19 Android regressions, including the five real authentication UI
+cases, plus three separate SQLCipher 4.15-to-4.17 upgrade/recovery phases.
+The Mac's strict build passed at `06c24c6`; Mac runtime remains NOT RUN because
+of the documented host initializer failure. Neither result establishes physical
+hardware or OEM-wide compatibility. Earlier pending/failed entries below are
+chronological evidence, not the current test status.
+
 ## Scope and completion criteria
 
 | Item | Correction / acceptance | Status |
