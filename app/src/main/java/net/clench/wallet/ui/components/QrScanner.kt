@@ -198,7 +198,8 @@ fun QrScanner(
     var bbqrTotalFrames by remember { mutableIntStateOf(0) }
 
     // Generic p1ofN animated-text accumulator used by SeedSigner/Specter-style exports
-    val multipartTextFrames = remember { mutableMapOf<Int, String>() }
+    val multipartTextAccumulator = remember { MultipartTextQrAccumulator(maxAnimatedFrames, maxDecodedChars) }
+    var multipartTextCollectedFrames by remember { mutableIntStateOf(0) }
     var multipartTextTotalFrames by remember { mutableIntStateOf(0) }
 
     fun deliverResult(payload: String) {
@@ -368,25 +369,18 @@ fun QrScanner(
                                     val index = multipartTextMatch.groupValues[1].toIntOrNull()
                                     val total = multipartTextMatch.groupValues[2].toIntOrNull()
                                     val data = multipartTextMatch.groupValues[3]
-                                    if (index != null && total != null && total in 1..maxAnimatedFrames &&
-                                        index in 1..total && data.length <= maxDecodedChars
-                                    ) {
-                                        if (multipartTextTotalFrames != total) {
-                                            multipartTextFrames.clear()
-                                            multipartTextTotalFrames = total
-                                        }
-                                        val priorLength = multipartTextFrames[index]?.length ?: 0
-                                        val accumulatedLength = multipartTextFrames.values.sumOf { it.length } - priorLength + data.length
-                                        if (accumulatedLength > maxDecodedChars) {
-                                            multipartTextFrames.clear()
-                                            multipartTextTotalFrames = 0
-                                            throw IllegalArgumentException("Animated QR exceeds import safety limit")
-                                        }
-                                        multipartTextFrames[index] = data
-                                        progress = multipartTextFrames.size.toFloat() / total.toFloat()
-                                        if (multipartTextFrames.size == total) {
-                                            deliverResult((1..total).joinToString("") { i -> multipartTextFrames[i].orEmpty() }.trim())
-                                        }
+                                    try {
+                                        require(index != null && total != null) { "Invalid animated QR index" }
+                                        val payload = multipartTextAccumulator.receive(index, total, data)
+                                        multipartTextTotalFrames = multipartTextAccumulator.totalFrames
+                                        multipartTextCollectedFrames = multipartTextAccumulator.collectedFrames
+                                        progress = multipartTextCollectedFrames.toFloat() / total.toFloat()
+                                        payload?.let { deliverResult(it) }
+                                    } catch (e: IllegalArgumentException) {
+                                        multipartTextAccumulator.reset()
+                                        multipartTextCollectedFrames = 0
+                                        multipartTextTotalFrames = 0
+                                        progress = 0f
                                     }
                                 } else if (lowerText.startsWith("ur:")) {
                                     if (LegacyURDecoder.isLegacyURFragment(lowerText)) {
@@ -486,7 +480,7 @@ fun QrScanner(
             Text(
                 "Scanning animated QR: ${(progress * 100).toInt()}%${when {
                     bbqrTotalFrames > 0 -> " ($bbqrCollectedFrames/$bbqrTotalFrames)"
-                    multipartTextTotalFrames > 0 -> " (${multipartTextFrames.size}/$multipartTextTotalFrames)"
+                    multipartTextTotalFrames > 0 -> " ($multipartTextCollectedFrames/$multipartTextTotalFrames)"
                     else -> ""
                 }}",
                 modifier = Modifier.padding(horizontal = 16.dp),

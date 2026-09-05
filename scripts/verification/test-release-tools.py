@@ -664,6 +664,21 @@ def test_workflow_control_mutations() -> None:
     workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     controls.verify_release_workflow(workflow)
 
+    native_name = "Require native inventory and Cargo advisory evidence before signing"
+    native_step = controls.named_step_blocks(controls.job_blocks(workflow)["build_unsigned"])[native_name]
+    for label, replacement in (
+        ("removed-native-gate", ""),
+        ("ignored-native-failure", native_step.replace("        run: |", "        continue-on-error: true\n        run: |")),
+        ("suppressed-native-result", native_step.replace("--output build/reports/native-cargo-advisories.json", "--output build/reports/native-cargo-advisories.json || true")),
+        ("skipped-native-gate", native_step.replace("        run: |", "        if: false\n        run: |")),
+    ):
+        expect_workflow_failure(
+            controls,
+            replace_once(workflow, native_step, replacement, label=label),
+            label,
+            "Release must run the fail-closed native advisory gate before signing",
+        )
+
     strict_semver = (
         '[[ ! "$RELEASE_TAG" =~ '
         '^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.'

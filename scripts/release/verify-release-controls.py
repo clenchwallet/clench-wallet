@@ -151,6 +151,22 @@ def verify_release_workflow(workflow: str) -> None:
             "Release workflow must contain exactly the required isolated jobs"
         )
 
+    native_gate = named_step_blocks(blocks["build_unsigned"]).get(
+        "Require native inventory and Cargo advisory evidence before signing", ""
+    )
+    expected_native_gate = """      - name: Require native inventory and Cargo advisory evidence before signing
+        run: |
+          ./gradlew --no-daemon --dependency-verification=strict \\
+            -I scripts/verification/native-artifacts.init.gradle :app:exportNativeRuntimeArtifacts
+          python3 -B scripts/release/inventory-native-artifacts.py \\
+            --baseline docs/security/native-dependencies.json \\
+            --output build/reports/native-dependency-inventory.json
+          python3 -B scripts/release/check-native-cargo-advisories.py \\
+            --output build/reports/native-cargo-advisories.json
+"""
+    if native_gate.strip() != expected_native_gate.strip():
+        raise SystemExit("Release must run the fail-closed native advisory gate before signing")
+
     for job_name, block in blocks.items():
         steps_offset = block.find("\n    steps:\n")
         if steps_offset < 0:
@@ -745,10 +761,29 @@ def main() -> None:
     android_workflow = Path(".github/workflows/android.yml").read_text(encoding="utf-8")
     if "scripts/verification/test-hostile-fuzz-runner.py" not in android_workflow:
         raise SystemExit("Android CI does not exercise hostile fuzz runner self-tests")
+    for required_native_control in (
+        "scripts/verification/test-native-inventory.py",
+        "scripts/verification/test-native-cargo-advisories.py",
+        "scripts/verification/test-signing-secret-scope.py",
+        "scripts/verification/test-sqlcipher-upgrade-harness.py",
+        "scripts/verification/native-artifacts.init.gradle :app:exportNativeRuntimeArtifacts",
+        "--baseline docs/security/native-dependencies.json",
+        "build/reports/native-dependency-inventory.json",
+    ):
+        if required_native_control not in android_workflow:
+            raise SystemExit("Android CI lacks native coverage evidence control: " + required_native_control)
 
     instrumentation_workflow = Path(
         ".github/workflows/android-instrumentation.yml"
     ).read_text(encoding="utf-8")
+    for required_upgrade_control in (
+        "python3 -B scripts/verification/run-sqlcipher-upgrade.py",
+        "CLENCH_SQLCIPHER_UPGRADE_DISPOSABLE: 'YES'",
+        "name: sqlcipher-inplace-upgrade",
+        "path: build/reports/sqlcipher-inplace-upgrade",
+    ):
+        if required_upgrade_control not in instrumentation_workflow:
+            raise SystemExit("Android CI lacks SQLCipher upgrade evidence: " + required_upgrade_control)
     for required_path in (
         "gradle/libs.versions.toml",
         "app/src/main/java/net/clench/wallet/ClenchApplication.kt",
@@ -757,6 +792,16 @@ def main() -> None:
         "app/src/main/java/net/clench/wallet/domain/model/BdkNetworkKind.kt",
         "app/src/main/java/net/clench/wallet/domain/model/ScriptType.kt",
         "app/src/main/java/net/clench/wallet/ui/viewmodel/ImportWalletViewModel.kt",
+        "app/src/main/java/net/clench/wallet/security/AuthenticationGateChangeController.kt",
+        "app/src/main/java/net/clench/wallet/ui/viewmodel/SettingsViewModel.kt",
+        "app/src/main/java/net/clench/wallet/ui/screens/SecurityScreen.kt",
+        "app/src/main/java/net/clench/wallet/ui/screens/SecurityOnboardingScreen.kt",
+        "app/src/main/java/net/clench/wallet/ui/screens/ConnectionSetupScreen.kt",
+        "app/src/main/java/net/clench/wallet/ui/screens/NetworkChoiceScreen.kt",
+        "app/src/main/java/net/clench/wallet/ui/util/BiometricHelper.kt",
+        "app/src/main/java/net/clench/wallet/ui/MainActivity.kt",
+        "app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt",
+        "app/src/main/java/net/clench/wallet/ui/screens/SettingsScreen.kt",
         "scripts/verification/bdk-wallet-upgrade/**",
         "scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh",
     ):
@@ -766,12 +811,32 @@ def main() -> None:
                 f"{required_path}"
             )
     for required_contract in (
+        "net.clench.wallet.data.backup.BackupWalletIdentifierTest",
+        "unsafeIdentifiersAreRejectedBeforeAnyDatabaseWrite",
+        "duplicateIdentifiersAreRejectedBeforeAnyDatabaseWrite",
+        "validIdentifiersPreserveRecordAssociations",
         "net.clench.wallet.data.repository.BdkWalletPersistenceTest",
         "sqliteWalletReloadsExactRevealedTestnetAddresses",
         "net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest",
         "canonicalMainnetAndTestnetAccountKeysPassTheRealBdkParser",
         "preflightRejectsNetworkMismatchAndMalformedOrigin",
-        "Expected the exact nine named instrumentation tests to pass",
+        "Expected the exact twenty-two named instrumentation tests to pass",
+        "net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest",
+        "originalTransactionRemainsRecoverableAfterUnusablePartial",
+        "android-regression-results",
+        "ClenchPartialRegression:I ClenchUiRegression:I",
+        "net.clench.wallet.ui.AuthenticationGateUiTest",
+        "seedGateRequiresSystemAuthenticationAndPersistsCancellation",
+        "sendGateRequiresSystemAuthenticationAndPersistsCancellation",
+        "backgroundingPendingAuthenticationPreservesEnabledGates",
+        "freshOfflineOnboardingAndRevisitPreserveAuthenticationPolicy",
+        "unavailableAuthenticatorDoesNotWeakenExistingGates",
+        "-Pandroid.testInstrumentationRunnerArguments.clenchDisposableEmulator=YES",
+        "net.clench.wallet.data.local.AuthenticationGatePersistenceTest",
+        "initialDefaultsNeverOverwritePreviouslyEnabledProtection",
+        "previouslyConfiguredSingleGatePreventsDefaultDowngrade",
+        "initialUnavailableAuthDefaultsAreOneTimeOnly",
+        "cancelledControllerDoesNotPersistDowngrade",
         "fetch-depth: 0",
         "test -e /dev/kvm",
         "Prove exact BDK 2.3.1 to 3.0.0 persisted-wallet upgrade",

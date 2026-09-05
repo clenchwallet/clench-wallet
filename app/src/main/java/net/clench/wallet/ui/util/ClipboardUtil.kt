@@ -13,7 +13,8 @@ import android.widget.Toast
 /**
  * Copies text to the system clipboard with security best practices:
  * - Marks data as sensitive on Android 13+ (EXTRA_IS_SENSITIVE)
- * - Auto-clears clipboard after [clearAfterMs] (default 60 seconds)
+ * - Attempts to clear unchanged clipboard content after [clearAfterMs] (default 60 seconds)
+ *   while this process remains alive and Android permits clipboard access.
  */
 fun copyToClipboardWithAutoClear(
     context: Context,
@@ -24,7 +25,8 @@ fun copyToClipboardWithAutoClear(
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val clip = ClipData.newPlainText(label, text)
 
-    // Mark as sensitive on Android 13+ so keyboard/other apps don't cache it
+    // Request sensitive-content presentation on Android 13+; not an access-control
+    // or third-party clipboard-history erasure guarantee.
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         clip.description.extras = PersistableBundle().apply {
             putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)

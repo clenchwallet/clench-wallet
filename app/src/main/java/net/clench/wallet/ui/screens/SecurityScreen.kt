@@ -13,12 +13,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
+import net.clench.wallet.security.AuthenticationGate
 import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.util.SecureWindowEffect
 import net.clench.wallet.ui.viewmodel.SettingsViewModel
@@ -55,6 +58,17 @@ fun SecurityScreen(
     var verifyPinError by remember { mutableStateOf<String?>(null) }
     var showVerifyPin by remember { mutableStateOf(false) }
     var securityError by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.cancelAuthenticationGateChange() }
+    }
+
+    fun changeGate(gate: AuthenticationGate, enabled: Boolean) {
+        securityError = null
+        viewModel.requestAuthenticationGateChange(gate, enabled, fragmentActivity) {
+            securityError = it
+        }
+    }
 
     val canBiometric = BiometricHelper.canAuthenticate(context)
 
@@ -345,7 +359,7 @@ fun SecurityScreen(
             if (!canBiometric) {
                 Text(
                     BiometricHelper.authenticationUnavailableGuidance() +
-                        " Any gate already enabled can still be turned off.",
+                        " Enabled protections stay on until you can authenticate.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -355,8 +369,11 @@ fun SecurityScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(
                     checked = uiState.biometricForSeed,
-                    onCheckedChange = { viewModel.setBiometricForSeed(it) },
-                    enabled = canBiometric || uiState.biometricForSeed
+                    onCheckedChange = { changeGate(AuthenticationGate.SEED, it) },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Require authentication to view seed phrase"
+                    },
+                    enabled = canBiometric
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
@@ -370,8 +387,11 @@ fun SecurityScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(
                     checked = uiState.biometricForSend,
-                    onCheckedChange = { viewModel.setBiometricForSend(it) },
-                    enabled = canBiometric || uiState.biometricForSend
+                    onCheckedChange = { changeGate(AuthenticationGate.SEND, it) },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Require authentication to send"
+                    },
+                    enabled = canBiometric
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {

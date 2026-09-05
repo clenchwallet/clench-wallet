@@ -124,6 +124,7 @@ class ClenchStateBackupManager @Inject constructor(
         require(labels.length() <= MAX_LABELS) { "Backup contains too many transaction labels." }
         require(utxoMetadata.length() <= MAX_UTXO_METADATA) { "Backup contains too many UTXO records." }
 
+        validateBackupWalletIds(wallets)
         validateBackupWallets(wallets)
 
         val result = database.withTransaction {
@@ -235,6 +236,19 @@ class ClenchStateBackupManager @Inject constructor(
         return result
     }
 
+    private fun validateBackupWalletIds(wallets: JSONArray) {
+        val seen = mutableSetOf<String>()
+        for (i in 0 until wallets.length()) {
+            val id = wallets.getJSONObject(i).optString("id")
+            // Missing IDs retain the existing fresh-UUID behavior. Nonempty IDs
+            // later form database filenames and must remain a single safe component.
+            if (id.isBlank()) continue
+            require(id.matches(WALLET_ID_REGEX)) { "Backup contains an invalid wallet identifier." }
+            // Labels reference this identifier; duplicate IDs make their owner ambiguous.
+            require(seen.add(id)) { "Backup contains duplicate wallet identifiers." }
+        }
+    }
+
     private fun validateBackupWallets(wallets: JSONArray) {
         for (i in 0 until wallets.length()) {
             val item = wallets.getJSONObject(i)
@@ -298,6 +312,7 @@ class ClenchStateBackupManager @Inject constructor(
         private const val MAX_NAME_CHARS = 100
         private const val MAX_LABEL_CHARS = 500
         private const val MAX_DESCRIPTOR_CHARS = 20_000
+        private val WALLET_ID_REGEX = Regex("[A-Za-z0-9_-]{1,128}")
         private const val MAX_IDENTICON_BYTES = 4_096
         private val PRIVATE_EXTENDED_KEY_REGEX = Regex("(?i)[xyzuvt]prv[1-9A-HJ-NP-Za-km-z]+")
         private val WIF_REGEX = Regex("(?:^|[^1-9A-HJ-NP-Za-km-z])[KL5c9][1-9A-HJ-NP-Za-km-z]{50,51}(?:$|[^1-9A-HJ-NP-Za-km-z])")

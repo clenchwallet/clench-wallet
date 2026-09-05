@@ -757,18 +757,25 @@ object TapsignerTapProtocol {
         } finally {
             keyMask.fill(0)
         }
-        val responsePubkey = dataItem.bytes("pubkey")
-        responsePubkey?.let { if (it.size != 33) error("SATSCARD returned an invalid public key length") }
-        CoinkiteTapCardVerifier.verifyUnsealedPrivateKey(privateKey, responsePubkey, verifiedSlot)
-        val pubkeyHex = responsePubkey?.toHex()
-        return SatscardUnsealResult(
-            slot = slot,
-            privateKey = privateKey,
-            publicKeyHex = pubkeyHex,
-            address = verifiedSlot.address,
-            isTestnet = verifiedSlot.isTestnet,
-            summary = "SATSCARD slot ${satscardDisplaySlot(slot)} unsealed"
-        )
+        var handedOff = false
+        try {
+            val responsePubkey = dataItem.bytes("pubkey")
+            responsePubkey?.let { if (it.size != 33) error("SATSCARD returned an invalid public key length") }
+            CoinkiteTapCardVerifier.verifyUnsealedPrivateKey(privateKey, responsePubkey, verifiedSlot)
+            val pubkeyHex = responsePubkey?.toHex()
+            val result = SatscardUnsealResult(
+                slot = slot,
+                privateKey = privateKey,
+                publicKeyHex = pubkeyHex,
+                address = verifiedSlot.address,
+                isTestnet = verifiedSlot.isTestnet,
+                summary = "SATSCARD slot ${satscardDisplaySlot(slot)} unsealed"
+            )
+            handedOff = true
+            return result
+        } finally {
+            if (!handedOff) privateKey.fill(0)
+        }
     }
 
     fun parseDumpResponse(response: ByteArray): SatscardSlotState {

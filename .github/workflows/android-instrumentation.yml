@@ -19,9 +19,21 @@ on:
       - 'app/src/main/java/net/clench/wallet/ui/viewmodel/ImportWalletViewModel.kt'
       - 'app/src/main/java/net/clench/wallet/ui/viewmodel/SweepViewModel.kt'
       - 'app/src/main/java/net/clench/wallet/ui/viewmodel/WifPrivateKeyParser.kt'
+      - 'app/src/main/java/net/clench/wallet/security/AuthenticationGateChangeController.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/viewmodel/SettingsViewModel.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/screens/SecurityScreen.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/screens/SecurityOnboardingScreen.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/screens/ConnectionSetupScreen.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/screens/NetworkChoiceScreen.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/util/BiometricHelper.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/MainActivity.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt'
+      - 'app/src/main/java/net/clench/wallet/ui/screens/SettingsScreen.kt'
       - 'app/src/androidTest/**'
       - 'scripts/verification/bdk-wallet-upgrade/**'
       - 'scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh'
+      - 'scripts/verification/run-sqlcipher-upgrade.py'
+      - 'scripts/verification/sqlcipher-upgrade/**'
       - 'scripts/release/verify-release-controls.py'
       - '.github/workflows/android-instrumentation.yml'
   workflow_dispatch:
@@ -120,13 +132,34 @@ jobs:
           test "$(git rev-parse --verify HEAD^{commit})" = "$EXPECTED_SOURCE_COMMIT"
           scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh
 
+      - name: Prove SQLCipher 4.15 to 4.17 encrypted Room and WAL upgrade
+        env:
+          ADB_SERIAL: emulator-5554
+          CLENCH_SQLCIPHER_UPGRADE_DISPOSABLE: 'YES'
+        run: python3 -B scripts/verification/run-sqlcipher-upgrade.py
+
+      - name: Retain SQLCipher upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sqlcipher-inplace-upgrade
+          path: build/reports/sqlcipher-inplace-upgrade
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run migration, BDK persistence, and descriptor instrumentation tests
+        env:
+          ANDROID_SERIAL: emulator-5554
         run: |
+          test "$(adb -s "$ANDROID_SERIAL" shell getprop ro.kernel.qemu | tr -d '\r')" = "1"
+          # Public fixture credential on the fresh CI emulator only; never a maintainer credential.
+          adb -s "$ANDROID_SERIAL" shell locksettings set-pin 246813
           ./gradlew \
             --no-daemon \
             --dependency-verification=strict \
             :app:connectedDebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.data.repository.BdkWalletPersistenceTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest,net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest
+            -Pandroid.testInstrumentationRunnerArguments.clenchDisposableEmulator=YES \
+            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.backup.BackupWalletIdentifierTest,net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest,net.clench.wallet.ui.AuthenticationGateUiTest,net.clench.wallet.data.local.AuthenticationGatePersistenceTest,net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.data.repository.BdkWalletPersistenceTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest,net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest
 
       - name: Require actual instrumentation results
         if: always()
@@ -143,6 +176,49 @@ jobs:
               raise SystemExit('No instrumentation XML result was produced')
 
           expected = {
+              ('net.clench.wallet.data.backup.BackupWalletIdentifierTest', 'unsafeIdentifiersAreRejectedBeforeAnyDatabaseWrite'),
+              ('net.clench.wallet.data.backup.BackupWalletIdentifierTest', 'duplicateIdentifiersAreRejectedBeforeAnyDatabaseWrite'),
+              ('net.clench.wallet.data.backup.BackupWalletIdentifierTest', 'validIdentifiersPreserveRecordAssociations'),
+              (
+                  'net.clench.wallet.ui.AuthenticationGateUiTest',
+                  'freshOfflineOnboardingAndRevisitPreserveAuthenticationPolicy',
+              ),
+              (
+                  'net.clench.wallet.ui.AuthenticationGateUiTest',
+                  'backgroundingPendingAuthenticationPreservesEnabledGates',
+              ),
+              (
+                  'net.clench.wallet.ui.AuthenticationGateUiTest',
+                  'unavailableAuthenticatorDoesNotWeakenExistingGates',
+              ),
+              (
+                  'net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest',
+                  'originalTransactionRemainsRecoverableAfterUnusablePartial',
+              ),
+              (
+                  'net.clench.wallet.ui.AuthenticationGateUiTest',
+                  'seedGateRequiresSystemAuthenticationAndPersistsCancellation',
+              ),
+              (
+                  'net.clench.wallet.ui.AuthenticationGateUiTest',
+                  'sendGateRequiresSystemAuthenticationAndPersistsCancellation',
+              ),
+              (
+                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
+                  'initialDefaultsNeverOverwritePreviouslyEnabledProtection',
+              ),
+              (
+                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
+                  'previouslyConfiguredSingleGatePreventsDefaultDowngrade',
+              ),
+              (
+                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
+                  'initialUnavailableAuthDefaultsAreOneTimeOnly',
+              ),
+              (
+                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
+                  'cancelledControllerDoesNotPersistDowngrade',
+              ),
               (
                   'net.clench.wallet.data.local.ClenchDatabaseMigrationTest',
                   'migrate12To13CreatesAndValidatesSignerVaultSchema',
@@ -198,7 +274,7 @@ jobs:
               'actual': sorted(actual),
           })
           if actual != expected or failures != 0 or errors != 0 or skipped != 0:
-              raise SystemExit('Expected the exact nine named instrumentation tests to pass')
+              raise SystemExit('Expected the exact twenty-two named instrumentation tests to pass')
           PY
 
       - name: Upload BDK cross-version evidence
@@ -210,10 +286,31 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Collect native and UI test evidence
+        if: always()
+        run: |
+          mkdir -p build/reports/android-regression-evidence
+          timeout 30 adb -s emulator-5554 logcat -d \
+            -s ClenchPartialRegression:I ClenchUiRegression:I '*:S' \
+            > build/reports/android-regression-evidence/fixture-logcat.txt 2>&1 || true
+
+      - name: Upload actual Android test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-regression-results
+          path: |
+            app/build/outputs/androidTest-results/connected/debug/
+            build/reports/android-regression-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Collect emulator diagnostics
         if: failure()
         run: |
           mkdir -p "$RUNNER_TEMP/android-instrumentation-diagnostics"
+          adb -s emulator-5554 pull /sdcard/Android/data/net.clench.wallet.debug/files/ui-regression \
+            "$RUNNER_TEMP/android-instrumentation-diagnostics/ui-regression" || true
           adb devices -l \
             > "$RUNNER_TEMP/android-instrumentation-diagnostics/devices.txt" \
             2>&1 || true

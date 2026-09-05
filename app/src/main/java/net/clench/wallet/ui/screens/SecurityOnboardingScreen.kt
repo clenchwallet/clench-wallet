@@ -33,6 +33,8 @@ fun SecurityOnboardingScreen(
     var pinEntry by remember { mutableStateOf("") }
     var pinConfirm by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf<String?>(null) }
+    var setupError by remember { mutableStateOf<String?>(null) }
+    var completing by remember { mutableStateOf(false) }
     val canBiometric = BiometricHelper.canAuthenticate(context)
 
     Scaffold(
@@ -142,8 +144,8 @@ fun SecurityOnboardingScreen(
                 ) {
                     Text(
                         BiometricHelper.authenticationUnavailableGuidance() +
-                            " Continue will turn off seed-view and transaction-signing authentication " +
-                            "gates so the wallet remains usable.",
+                            " On a new installation without wallets, these optional per-action gates " +
+                            "start off. Existing protections are never turned off here.",
                         modifier = Modifier.padding(12.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer
@@ -151,13 +153,20 @@ fun SecurityOnboardingScreen(
                 }
             }
 
+            setupError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(modifier = Modifier.weight(1f))
 
             Button(
                 onClick = {
-                    viewModel.disableAuthenticationGatesWhenUnavailable(canBiometric)
-                    onComplete()
+                    completing = true
+                    setupError = null
+                    viewModel.completeSecurityOnboarding(
+                        canBiometric,
+                        onComplete = { completing = false; onComplete() },
+                        onError = { completing = false; setupError = it }
+                    )
                 },
+                enabled = !completing,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Continue")

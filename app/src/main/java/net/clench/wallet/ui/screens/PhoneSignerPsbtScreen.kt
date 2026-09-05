@@ -47,6 +47,9 @@ fun PhoneSignerPsbtScreen(
     }
     val uiState by viewModel.uiState.collectAsState()
     SecureWindowEffect()
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.cancelPendingAuthentication() }
+    }
     val pickerHost = LocalPickerRoundTripHost.current
     val pickerResume by pickerHost.pickerResume.collectAsState()
     val pickerDestination = pickerResume?.destination as? PickerDestination.PhonePsbt
@@ -219,23 +222,27 @@ fun PhoneSignerPsbtScreen(
 
             if (uiState.signedPsbtBase64 == null) {
                 Button(
-                    onClick = {
+                    onClick = sign@{
+                        val token = viewModel.beginPhoneSigning(walletId) ?: return@sign
                         when {
-                            !uiState.biometricForSendEnabled -> viewModel.signWithPhoneKeys(walletId)
-                            fragmentActivity == null || !BiometricHelper.canAuthenticate(context) ->
+                            !uiState.biometricForSendEnabled -> viewModel.signWithPhoneKeys(token)
+                            fragmentActivity == null || !BiometricHelper.canAuthenticate(context) -> {
+                                viewModel.cancelPhoneSigning(token)
                                 viewModel.setError(BiometricHelper.authenticationUnavailableGuidance())
+                            }
                             else -> {
                                 BiometricHelper.authenticate(
                                     activity = fragmentActivity,
                                     title = "Authenticate phone signer",
                                     subtitle = "Verify your identity before wallet keys sign this transaction",
                                     onSuccess = {
-                                        viewModel.signWithPhoneKeys(walletId)
+                                        viewModel.signWithPhoneKeys(token)
                                     },
                                     onFailure = { message ->
+                                        viewModel.cancelPhoneSigning(token)
                                         viewModel.setError("Authentication failed: $message")
                                     },
-                                    onCancel = { }
+                                    onCancel = { viewModel.cancelPhoneSigning(token) }
                                 )
                             }
                         }

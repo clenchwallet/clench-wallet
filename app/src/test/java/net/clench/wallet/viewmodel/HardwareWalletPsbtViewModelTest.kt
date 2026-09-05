@@ -33,6 +33,90 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class HardwareWalletPsbtViewModelTest {
 
+    @Test
+    fun `restart drops returns and requires review of the exact original before merging again`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = mockk<BitcoinRepository>()
+            val store = mockk<PsbtStore>(relaxed = true)
+            every { store.consume(any(), any(), any(), any()) } returns
+                handoff("wallet", "original", "JADE").copy(currentPsbtBase64 = "partial")
+            coEvery { repository.inspectPsbt("wallet", any()) } returns review("same-transaction")
+            coEvery { repository.mergeSignedPsbt("original", "original", "corrected") } returns
+                PsbtSigningProgress("final", true, "ready")
+            val vm = HardwareWalletPsbtViewModel(repository, store)
+            vm.initFromStore("wallet", "JADE")
+            advanceUntilIdle()
+            vm.acknowledgeReview()
+            assertTrue(vm.uiState.value.canRestartSigning)
+            val restart = checkNotNull(vm.prepareSigningRestart())
+            assertTrue(vm.restartSigningFromOriginal(restart))
+            assertEquals("original", vm.uiState.value.psbtBase64)
+            assertFalse(vm.uiState.value.reviewAcknowledged)
+            assertFalse(vm.uiState.value.readyToBroadcast)
+            assertFalse(vm.uiState.value.canRestartSigning)
+            assertNull(vm.uiState.value.signedPsbtBase64)
+            assertEquals(0, vm.uiState.value.collectedSignerReturns)
+            vm.onSignedPsbtReceived("wallet", "corrected")
+            advanceUntilIdle()
+            coVerify(exactly = 0) { repository.mergeSignedPsbt(any(), any(), any()) }
+            vm.acknowledgeReview()
+            vm.onSignedPsbtReceived("wallet", "corrected")
+            advanceUntilIdle()
+            coVerify(exactly = 1) { repository.mergeSignedPsbt("original", "original", "corrected") }
+            assertTrue(vm.uiState.value.readyToBroadcast)
+            assertFalse(vm.restartSigningFromOriginal(restart))
+            assertEquals("final", vm.uiState.value.psbtBase64)
+            assertTrue(vm.uiState.value.readyToBroadcast)
+            verify(exactly = 1) { store.discardSessionStage("wallet", any()) }
+        } finally { Dispatchers.resetMain() }
+    }
+
+    @Test
+    fun `restart cannot replace an in-flight merge`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = mockk<BitcoinRepository>()
+            val store = mockk<PsbtStore>(relaxed = true)
+            val pending = CompletableDeferred<PsbtSigningProgress>()
+            every { store.consume(any(), any(), any(), any()) } returns
+                handoff("wallet", "original", "JADE").copy(currentPsbtBase64 = "partial")
+            coEvery { repository.inspectPsbt(any(), any()) } returns review("tx")
+            coEvery { repository.mergeSignedPsbt(any(), any(), any()) } coAnswers { pending.await() }
+            val vm = HardwareWalletPsbtViewModel(repository, store)
+            vm.initFromStore("wallet", "JADE"); advanceUntilIdle(); vm.acknowledgeReview()
+            val restart = checkNotNull(vm.prepareSigningRestart())
+            vm.onSignedPsbtReceived("wallet", "next"); runCurrent()
+            assertFalse(vm.prepareSigningRestart() != null)
+            assertFalse(vm.restartSigningFromOriginal(restart))
+            assertEquals("partial", vm.uiState.value.psbtBase64)
+            verify(exactly = 0) { store.discardSessionStage(any(), any()) }
+            pending.complete(PsbtSigningProgress("final", true, "ready")); advanceUntilIdle()
+            assertEquals("final", vm.uiState.value.psbtBase64)
+        } finally { Dispatchers.resetMain() }
+    }
+
+    @Test
+    fun `late inspection cannot restore discarded signer state`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = mockk<BitcoinRepository>()
+            val store = mockk<PsbtStore>(relaxed = true)
+            val pending = CompletableDeferred<BuiltTransactionReview>()
+            every { store.consume(any(), any(), any(), any()) } returns
+                handoff("wallet", "original", "JADE").copy(currentPsbtBase64 = "partial")
+            coEvery { repository.inspectPsbt("wallet", "partial") } coAnswers { pending.await() }
+            coEvery { repository.inspectPsbt("wallet", "original") } returns review("new-review")
+            val vm = HardwareWalletPsbtViewModel(repository, store)
+            vm.initFromStore("wallet", "JADE"); runCurrent()
+            assertTrue(vm.restartSigningFromOriginal(checkNotNull(vm.prepareSigningRestart()))); runCurrent()
+            pending.complete(review("obsolete-review")); advanceUntilIdle()
+            assertEquals("original", vm.uiState.value.psbtBase64)
+            assertEquals("new-review", vm.uiState.value.transactionReview?.txid)
+            assertFalse(vm.uiState.value.reviewAcknowledged)
+        } finally { Dispatchers.resetMain() }
+    }
+
     private fun handoff(walletId: String, psbt: String, device: String) = PsbtHandoff(
         walletId = walletId,
         originalUnsignedPsbtBase64 = psbt,

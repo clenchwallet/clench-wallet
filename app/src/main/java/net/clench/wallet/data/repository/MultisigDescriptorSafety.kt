@@ -80,18 +80,21 @@ internal object MultisigDescriptorSafety {
         return result
     }
 
-    private fun canonicalSigner(raw: String): String {
-        val withoutOrigin = if (raw.startsWith('[')) {
-            val end = raw.indexOf(']')
+    fun canonicalSigner(raw: String): String {
+        val trimmed = raw.trim()
+        val withoutOrigin = if (trimmed.startsWith('[')) {
+            val end = trimmed.indexOf(']')
             require(end > 0) { "Multisig signer has a malformed key origin" }
-            raw.substring(end + 1)
-        } else raw
+            trimmed.substring(end + 1)
+        } else trimmed
         val key = withoutOrigin.substringBefore('/').trim()
         require(key.isNotEmpty()) { "Multisig signer has no public key" }
         val extendedKey = decodeBase58Check(key)
         return when {
             extendedKey?.size == 78 ->
-                "bip32:" + extendedKey.copyOfRange(4, extendedKey.size).toHex()
+                // Version/depth/parent fingerprint/child number are serialization metadata.
+                // Child derivation identity is the chain code and key, starting at byte 13.
+                "bip32:" + extendedKey.copyOfRange(13, extendedKey.size).toHex()
             key.matches(Regex("(?i)^[0-9a-f]{66}$")) -> key.lowercase()
             else -> key
         }

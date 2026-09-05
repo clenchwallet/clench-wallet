@@ -1,0 +1,672 @@
+{
+  "artifacts": [
+    {
+      "artifact": "camera-core-1.6.1.aar",
+      "artifact_sha256": "a36f1c323851b51215ba476640e1eb4153882b0c368c0376e9fb905e689df84a",
+      "native_payloads": [
+        {
+          "bytes": 32528,
+          "path": "jni/arm64-v8a/libimage_processing_util_jni.so",
+          "sha256": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2"
+        },
+        {
+          "bytes": 4896,
+          "path": "jni/arm64-v8a/libsurface_util_jni.so",
+          "sha256": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba"
+        },
+        {
+          "bytes": 24448,
+          "path": "jni/armeabi-v7a/libimage_processing_util_jni.so",
+          "sha256": "05973c0cf8e8dd281c8ec505c41814b78b740461056925bb41120594d7c35dcd"
+        },
+        {
+          "bytes": 3460,
+          "path": "jni/armeabi-v7a/libsurface_util_jni.so",
+          "sha256": "78eb0b10e91b819be97cb7daa8c97fb757fa6d07cb80ccb7e92c113b45bda9be"
+        },
+        {
+          "bytes": 41276,
+          "path": "jni/x86/libimage_processing_util_jni.so",
+          "sha256": "b52f93b57d408b2306071f9de1a4b0b5684c1b86563e34a8711d80a1e6c03f94"
+        },
+        {
+          "bytes": 3812,
+          "path": "jni/x86/libsurface_util_jni.so",
+          "sha256": "3048a535d701579c87c4ad91283cd1246d2c85399a164ee4720642037ea31727"
+        },
+        {
+          "bytes": 49416,
+          "path": "jni/x86_64/libimage_processing_util_jni.so",
+          "sha256": "112703727717651e69e91f3ea2c3c2311737ee5809a909c9d342a811b6c7c069"
+        },
+        {
+          "bytes": 4912,
+          "path": "jni/x86_64/libsurface_util_jni.so",
+          "sha256": "e5311942b4fce0f7f2505d41150cf9921e558a6368929cb73127450f74dd4fe4"
+        }
+      ],
+      "owner_purl": "pkg:maven/androidx.camera/camera-core@1.6.1",
+      "source_dependency_assurance": "NOT_REVIEWED",
+      "source_review": {
+        "advisory_disposition": "SOURCE_BOUND_QUERY_REVIEWED_WITH_COVERAGE_LIMITS",
+        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "evidence": [
+          {
+            "sha256": "6506d3c4353821f4596648008801a81312e2214725297286e067351f8667b286",
+            "url": "https://android.googlesource.com/platform/frameworks/support/+/987b9ac8585b31424a397206c492196dd163997b/camera/camera-core/src/main/cpp/CMakeLists.txt"
+          },
+          {
+            "sha256": "c35a8cc0c3b21e9f3c2b8cba603c2e7f0f74df4ea29504133922886a1e7a880d",
+            "url": "https://android.googlesource.com/platform/frameworks/support/+/987b9ac8585b31424a397206c492196dd163997b/external/libyuv/README.md"
+          },
+          {
+            "sha256": "4eb97c3cbe950ef7f5b9a28e9d3bb9807c2b8fabb2f92f1cb0659693a14c9ca7",
+            "url": "https://android.googlesource.com/platform/frameworks/support/+/987b9ac8585b31424a397206c492196dd163997b/external/libyuv/build.gradle"
+          },
+          {
+            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/METADATA?format=TEXT",
+            "sha256": "53f1c84f656ee31f2acbba634185720224911c3a45933e6eb28659fe823e50d7"
+          },
+          {
+            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/include/libyuv/version.h?format=TEXT",
+            "sha256": "5ff9d453e3d215ab9b5c9d64d2c87cfb366423335320c8ad887cc010028cd37c"
+          },
+          {
+            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/CMakeLists.txt?format=TEXT",
+            "sha256": "12b91b5ef7077d48b2c3469baad360e44ba13cddb6d80d42d6fcfb4fed4c387c"
+          }
+        ],
+        "release_association": "Endpoint of the commit range linked by the official AndroidX release notes; not independent artifact provenance.",
+        "release_notes_url": "https://developer.android.com/jetpack/androidx/releases/camera",
+        "remaining": "Exact external libyuv source revision now established by the matching superproject snapshot. Vendor binary/source reproducibility and complete C advisory coverage remain limitations.",
+        "status": "PARTIAL",
+        "upstream_commit": "987b9ac8585b31424a397206c492196dd163997b",
+        "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/",
+        "libyuv_source_binding": {
+          "superproject_commit": "cda3ca13a9e9be059fe674a8173cae532cfa42c6",
+          "superproject_url": "https://android.googlesource.com/platform/superproject/+/cda3ca13a9e9be059fe674a8173cae532cfa42c6",
+          "ls_tree_sha256": "faeedaf4eec2e1b018d0144592c0eda5815bac09f300d270494e00aad8a6d101",
+          "frameworks_support": "987b9ac8585b31424a397206c492196dd163997b",
+          "external_libyuv": "afae031e789e344bfc34c9e763c83f861a1ff3f1",
+          "metadata_upstream_commit": "b7d97d5f3f8f897b88872b6935e4c996b955bc1f",
+          "header_version": 1915,
+          "scope": "Exact Android superproject snapshot tying both gitlinks; vendor binary not independently rebuilt."
+        },
+        "libyuv_advisory_query": {
+          "checked_on": "2026-09-05",
+          "source": "https://api.osv.dev/v1/querybatch",
+          "query": {
+            "queries": [
+              {
+                "commit": "afae031e789e344bfc34c9e763c83f861a1ff3f1"
+              },
+              {
+                "commit": "b7d97d5f3f8f897b88872b6935e4c996b955bc1f"
+              }
+            ]
+          },
+          "response": {
+            "results": [
+              {},
+              {}
+            ]
+          },
+          "limitation": "No-match results do not establish complete Android/Chromium C advisory coverage."
+        }
+      }
+    },
+    {
+      "artifact": "graphics-path-1.0.1.aar",
+      "artifact_sha256": "8ca4032b6d79b351f0b59ad4b580eddbb9423e1652f7c958830687f1eee2ec03",
+      "native_payloads": [
+        {
+          "bytes": 10096,
+          "path": "jni/arm64-v8a/libandroidx.graphics.path.so",
+          "sha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6"
+        },
+        {
+          "bytes": 7252,
+          "path": "jni/armeabi-v7a/libandroidx.graphics.path.so",
+          "sha256": "41399eba6fc2a60f6f14642375c1824f3cf25eb8fec7397d753730a3ceda3e2b"
+        },
+        {
+          "bytes": 9284,
+          "path": "jni/x86/libandroidx.graphics.path.so",
+          "sha256": "eb0570b41fd3bff25d8204a967c03bd7550719e768b791f680cc40cbe35f29af"
+        },
+        {
+          "bytes": 10760,
+          "path": "jni/x86_64/libandroidx.graphics.path.so",
+          "sha256": "4e56c996f13670e70082658de7880c4020eabf4f25e43387f88ed78a713fc9f0"
+        }
+      ],
+      "owner_purl": "pkg:maven/androidx.graphics/graphics-path@1.0.1",
+      "source_dependency_assurance": "NOT_REVIEWED",
+      "source_review": {
+        "advisory_disposition": "NOT_REVIEWED",
+        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "evidence": [
+          {
+            "sha256": "87a8967586e828d2b1cc6c5745d09f30466036bffbcd780b378c75239d90b173",
+            "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/CMakeLists.txt"
+          }
+        ],
+        "release_association": "Endpoint of the commit range linked by the official AndroidX release notes; not independent artifact provenance.",
+        "release_notes_url": "https://developer.android.com/jetpack/androidx/releases/graphics",
+        "remaining": "Review applicable native advisories and verify vendor binary build correspondence. All native source-directory files and local math headers are pinned; original upstream provenance beyond that snapshot is not established.",
+        "status": "PARTIAL",
+        "upstream_commit": "8a05a22af450d589ef911d772a001a49dcb05b71",
+        "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/",
+        "verified_native_source_directory": {
+          "files": [
+            {
+              "git_blob": "722eb2d68bf63dffefa1eaf0fadae397c23fc6ba",
+              "path": "CMakeLists.txt",
+              "sha256": "87a8967586e828d2b1cc6c5745d09f30466036bffbcd780b378c75239d90b173",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/CMakeLists.txt"
+            },
+            {
+              "git_blob": "e22e2b2c0643d377f21bc92a18458867618296a2",
+              "path": "Conic.cpp",
+              "sha256": "49b3da93aa43480cf9cd481590be48705cb9340c52e5d09635efbd0ece07be83",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/Conic.cpp"
+            },
+            {
+              "git_blob": "2bd34419cd410e0c38391ecf580e068f0fc59191",
+              "path": "Conic.h",
+              "sha256": "cd315ad7c8d030c72e96893e9a0feec463d72d2066209a203dedcf0925398a6f",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/Conic.h"
+            },
+            {
+              "git_blob": "f25d708782be3f13fb77fef6098fdd26e57b10b6",
+              "path": "Path.h",
+              "sha256": "4ee841338063d8c6f71ff4c655ecf52559f6c6df9af79835388dae1ebcd8b982",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/Path.h"
+            },
+            {
+              "git_blob": "cab9c5d1eb14317ee973cf6198a452393fc94fca",
+              "path": "PathIterator.cpp",
+              "sha256": "3705946b43bf894e013f46ccc940f9923f43285340f8fc2128f95c59238ec7f8",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/PathIterator.cpp"
+            },
+            {
+              "git_blob": "414dbdd1d62f4a50fa30d49143edad60ea6d959e",
+              "path": "PathIterator.h",
+              "sha256": "a16e99b0273fb7205607eb0cf51fc7be518a55f3446a304f92ecab353e77be6f",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/PathIterator.h"
+            },
+            {
+              "git_blob": "d1310e52849b7f49928acbd74384c3c7d507a602",
+              "path": "libandroidx.graphics.path.map",
+              "sha256": "bc338abd36eeb27059572903ad167cf4231a36ca92be4eae3574501aa83f0d8c",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/libandroidx.graphics.path.map"
+            },
+            {
+              "git_blob": "ef7e182d804f20d3ecb3b3f5c69409b335ee8d57",
+              "path": "math/TVecHelpers.h",
+              "sha256": "1b0d6b06c5bbd6b438f9d8440ac78cf93fb8a713761badc59a4412b6457c1014",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/math/TVecHelpers.h"
+            },
+            {
+              "git_blob": "d6e18aaae05a3be3e4fe766b38bb1c3046240b40",
+              "path": "math/compiler.h",
+              "sha256": "d53e85383580e5dbf81cbcb24426b0fe1bf419b4837540242dbdca3f1df4cf66",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/math/compiler.h"
+            },
+            {
+              "git_blob": "ae67a2563332513d7b3fe071494d004dc39ae1af",
+              "path": "math/vec2.h",
+              "sha256": "09e1a8eb3f8fdf9c1071500f1a4933f67caeb6d0f765d5c44ba968370de9fcb1",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/math/vec2.h"
+            },
+            {
+              "git_blob": "d3a7d75a447274e8941f327a50593493f495115c",
+              "path": "pathway.cpp",
+              "sha256": "4be68d6fdb6376e95560f7c49a79aa0cd97218d758cf11ea3230ac9124485800",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/pathway.cpp"
+            },
+            {
+              "git_blob": "0342d138393b2bc579e5055fd3ee09e80a6f390d",
+              "path": "scalar.h",
+              "sha256": "b1d2bba80a4c9272d84473b6f09f700972b016f7579842d3a87bdbbdb2af1edc",
+              "url": "https://android.googlesource.com/platform/frameworks/support/+/8a05a22af450d589ef911d772a001a49dcb05b71/graphics/graphics-path/src/main/cpp/scalar.h"
+            }
+          ],
+          "scope": "All 12 native-directory files match Gitiles blob IDs, including three bundled filament::math headers. This pins the source snapshot, not published native binary correspondence.",
+          "source_commit": "8a05a22af450d589ef911d772a001a49dcb05b71"
+        }
+      }
+    },
+    {
+      "artifact": "jna-5.14.0.aar",
+      "artifact_sha256": "81a8b9afc65f9d6b205338c25908af8de0ff8411a00985104c9d83fffdfab380",
+      "native_payloads": [
+        {
+          "bytes": 168176,
+          "path": "jni/arm64-v8a/libjnidispatch.so",
+          "sha256": "3730ce014f7a6807ae74af78c3b9f5a3cba1f5886316b3d3858493df923efe96"
+        },
+        {
+          "bytes": 122296,
+          "path": "jni/armeabi-v7a/libjnidispatch.so",
+          "sha256": "73334a01c209297c131cb746d166128f702b44760c9429c0d91d1e8dfdeaa570"
+        },
+        {
+          "bytes": 122784,
+          "path": "jni/armeabi/libjnidispatch.so",
+          "sha256": "27efc9e8c7320544c8417a1ae4c77d5091702430e6edae9f5dab060430b62ff6"
+        },
+        {
+          "bytes": 150924,
+          "path": "jni/mips/libjnidispatch.so",
+          "sha256": "c6f2d715fc6a91c4a364aba7e277f4302c726984c3d22860e4b80d80634d9e71"
+        },
+        {
+          "bytes": 141904,
+          "path": "jni/mips64/libjnidispatch.so",
+          "sha256": "7a9fe9d0d017deb0195dca3d21ef06a7864b9ad66bcab2608e9ad468a511f697"
+        },
+        {
+          "bytes": 120184,
+          "path": "jni/x86/libjnidispatch.so",
+          "sha256": "06c0d445fc1a216f9735d3e23de2b95682db055824928c4554c9728919092729"
+        },
+        {
+          "bytes": 118584,
+          "path": "jni/x86_64/libjnidispatch.so",
+          "sha256": "a6d3997d3cfc0dba1b00fd2943b41e7395741e88336ed6f6237b594c94083eea"
+        }
+      ],
+      "owner_purl": "pkg:maven/net.java.dev.jna/jna@5.14.0",
+      "source_dependency_assurance": "NOT_REVIEWED",
+      "source_review": {
+        "advisory_disposition": "PARTIAL_SOURCE_QUERY_NO_MATCHES",
+        "advisory_queries": [
+          {
+            "date": "2026-09-05",
+            "limitation": "No commit-query matches; OSV coverage of C libraries is incomplete. Not a native clearance.",
+            "matches": 0,
+            "query": {
+              "commit": "f24180be1367f942824365b131ae894b9c769c7d"
+            },
+            "response_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "source": "https://api.osv.dev/v1/query"
+          }
+        ],
+        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "evidence": [
+          {
+            "sha256": "a06479cd198a8c8c8ed18da4ef45757a19c5fa74332ebdbced6fd4fe5b7c6061",
+            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/build.xml"
+          },
+          {
+            "sha256": "d236071538a8ae12b75a267de2fbec80d3f59f05704d04f55ad2bcf3f41ec563",
+            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/native/README.libffi"
+          },
+          {
+            "sha256": "59bbfa4e75f1f60d36568b1b7f46625be512c75d29aff20830ed2778e344a312",
+            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/native/Makefile"
+          },
+          {
+            "sha256": "b78dbea3292cbe4454c778009dda02b0a41a39fea218f850fd40949e1454e86a",
+            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/native/libffi/configure.ac"
+          }
+        ],
+        "remaining": "Review other applicable native advisories and validate artifact build flags/source correspondence; vendored source tree identity is established.",
+        "status": "PARTIAL",
+        "upstream_commit": "c366bc4fd0c50a30ac8d2475603ec564f6611462",
+        "vendored_libffi": {
+          "declared_version": "3.4.4",
+          "git_tree": "e0e8cdf7495229c7e98265886219315ee61b25c5",
+          "scope": "Pinned JNA vendored tree exactly equals upstream libffi v3.4.4 tree; this establishes source content identity, not native binary correspondence.",
+          "source_path": "native/libffi",
+          "upstream_commit": "f24180be1367f942824365b131ae894b9c769c7d",
+          "upstream_tag": "v3.4.4",
+          "upstream_tree": "e0e8cdf7495229c7e98265886219315ee61b25c5"
+        }
+      }
+    },
+    {
+      "artifact": "sqlcipher-android-4.17.0.aar",
+      "artifact_sha256": "44fc40c33d1de597c8339072a71fa0ff20e12d01ab352d6abe4ad5df668ead94",
+      "native_payloads": [
+        {
+          "bytes": 2100040,
+          "path": "jni/arm64-v8a/libsqlcipher.so",
+          "sha256": "bc018e5d323751c91aec7fca6189d9760060ac0b3f1044dca4c3cf4894310ed0"
+        },
+        {
+          "bytes": 1046404,
+          "path": "jni/armeabi-v7a/libsqlcipher.so",
+          "sha256": "4dd9ec2a839f36517c2d33252655508208ee96656e2567a44b9ff3be0ceb4c98"
+        },
+        {
+          "bytes": 2244588,
+          "path": "jni/x86/libsqlcipher.so",
+          "sha256": "f9123664d6f1ec8f31478baa60b30f15ea78bda909d80380dad9e6f44dc859e2"
+        },
+        {
+          "bytes": 2231416,
+          "path": "jni/x86_64/libsqlcipher.so",
+          "sha256": "337ab86baae3d7b37d6f784773dc6cf036a6406f2b191a35c25b4493feddc9e2"
+        }
+      ],
+      "owner_purl": "pkg:maven/net.zetetic/sqlcipher-android@4.17.0",
+      "source_dependency_assurance": "NOT_REVIEWED",
+      "source_review": {
+        "advisory_disposition": "Vendor 4.17 notes report SQLite FTS and provider CSPRNG/error fixes. Not an independent proof of all fixes or complete native advisory clearance; see native-assurance.md.",
+        "binary_source_correspondence": "NOT_ESTABLISHED: Android v4.17.0 tag pins a SQLCipher 4.16-era submodule, while separate SQLCipher v4.17.0 source and binary strings associate with SQLite 3.53.3. Vendor build manifest required to reconcile; no independent binary reproduction.",
+        "c_advisory_review": "native-c-review.md",
+        "embedded_version_evidence": {
+          "android_tag_sqlcipher_gitlink_VERSION": "3.53.1",
+          "binary_strings": "Verified AAR x86_64 and armeabi-v7a include 3.53.3 and 4.17.0; ARM64/x86 include 4.17.0. String absence is not version proof. Hosted API 35 x86_64 runtime asserted SQLite 3.53.3 and SQLCipher 4.17.0.",
+          "libtomcrypt_declared": "1.18.2",
+          "sqlcipher_417_release_tag_VERSION": "3.53.3"
+        },
+        "evidence": [
+          {
+            "sha256": "a2db8e463932956e6373dd281c31b17291162b394449745b0d6e92bdc3bd284f",
+            "url": "https://raw.githubusercontent.com/sqlcipher/sqlcipher-android/ae57a61052d8c41ce35cd48319b2f6f20f4de6bf/sqlcipher/src/main/jni/Android.mk"
+          },
+          {
+            "sha256": "6161bb1a5e76e3e38ff93016aaeb2da0fa4e0f719cb637201636ee5833c13a7b",
+            "url": "https://raw.githubusercontent.com/sqlcipher/sqlcipher-android/ae57a61052d8c41ce35cd48319b2f6f20f4de6bf/sqlcipher/src/main/jni/sqlcipher/Android.mk"
+          },
+          {
+            "sha256": "3a94f8822a99c2e401e894d8f5475a2e1b115d6b291f096cff3e2efa9edb2ecf",
+            "url": "https://raw.githubusercontent.com/sqlcipher/sqlcipher/e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc/VERSION"
+          },
+          {
+            "sha256": "58b678f86816fefe9958e80e46ee6308edeef798af2700223ce1015c3ec64b3b",
+            "url": "https://raw.githubusercontent.com/sqlcipher/sqlcipher/e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc/src/crypto_libtomcrypt.c"
+          },
+          {
+            "sha256": "16b85a92c5f8032d8b687d336da5a0032dc8fa229e0134d3b0b3837137a31e64",
+            "url": "https://github.com/sqlcipher/sqlcipher/blob/810db22f575ee7cf94ea96a3e91622b5fcece3dc/VERSION"
+          },
+          {
+            "sha256": "7e53c3f50b984307fe5cd281c4e3647d9531c928b635b0711f725105e3814576",
+            "url": "https://github.com/sqlcipher/libtomcrypt/blob/476a9579ae94f32b9ea9e2747bfb04b302370259/src/headers/tomcrypt.h"
+          }
+        ],
+        "gitlinks": [
+          {
+            "commit": "476a9579ae94f32b9ea9e2747bfb04b302370259",
+            "repository": "https://github.com/sqlcipher/libtomcrypt"
+          },
+          {
+            "commit": "e2a6040f2ae5cfff2b3e08eb3320007d93cdf3fc",
+            "repository": "https://github.com/sqlcipher/sqlcipher"
+          }
+        ],
+        "libtomcrypt_advisory_query": {
+          "checked_at": "2026-09-05T11:54:21.127528+00:00",
+          "ids": [],
+          "limitation": "No commit-query matches; incomplete C/fork coverage, not a clearance. Vendor provider changes and source mismatch are tracked separately.",
+          "query": {
+            "commit": "476a9579ae94f32b9ea9e2747bfb04b302370259"
+          },
+          "source": "https://api.osv.dev/v1/querybatch"
+        },
+        "remaining": "Reconcile stale Android gitlink against vendor build source; finish C/libtomcrypt advisory review and source-to-binary assurance. The pinned 4.15 writer/4.17 reader Android gate passed.",
+        "runtime_upgrade_evidence": {
+          "actual_cross_version_cases_passed": 3,
+          "additional_android_cases_passed": 19,
+          "consumer_version": "4.17.0",
+          "producer_version": "4.15.0",
+          "run_url": "https://github.com/clenchwallet/clench-wallet/actions/runs/33960440165",
+          "scope": "Disposable API 35 x86_64 emulator, synthetic Room/WAL data; not physical/OEM-wide evidence or native binary reproducibility.",
+          "source_commit": "b099db055a62f39d1c71b60ae1c1a949bf553242",
+          "sqlite_version_asserted": "3.53.3"
+        },
+        "separate_sqlcipher_release_commit": "810db22f575ee7cf94ea96a3e91622b5fcece3dc",
+        "status": "PARTIAL",
+        "upstream_commit": "ae57a61052d8c41ce35cd48319b2f6f20f4de6bf"
+      }
+    },
+    {
+      "artifact": "bdk-android-3.0.0.aar",
+      "artifact_sha256": "e11f099ab3f7acce9770825d9f431ce0970a30356c46ebed6aef66594491bb1e",
+      "native_payloads": [
+        {
+          "bytes": 15287360,
+          "path": "jni/arm64-v8a/libbdkffi.so",
+          "sha256": "e006df2cc314584ffcfa87dc5f924d433939f0db3123e5eac2106668792a565a"
+        },
+        {
+          "bytes": 10630084,
+          "path": "jni/armeabi-v7a/libbdkffi.so",
+          "sha256": "8404a412bbd14ea20ec256243badc3dc5aeab2c2b5decb36e5b4341480b92cdc"
+        },
+        {
+          "bytes": 14085512,
+          "path": "jni/x86_64/libbdkffi.so",
+          "sha256": "cec0265302d29a727b31213082e14435bcb6fd0f12bd6532b663ed54c45a7465"
+        }
+      ],
+      "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0",
+      "source_dependency_assurance": "NOT_REVIEWED",
+      "source_review": {
+        "advisory_disposition": "EXACT_EXPIRING_SOURCE_CALL_PATH_DISPOSITIONS; not patched-version or binary clearance",
+        "anyhow_source_disposition": {
+          "date": "2026-09-05",
+          "direct_consumers_reviewed": 15,
+          "findings": "Mutable anyhow downcasts found in wit-parser 0.244.0, reached through wasip3 on getrandom 0.4.2 wasm32/wasi/p3 target. UniFFI pipeline downcast_mut is std::any::Any, not anyhow::Error. Pinned BDK Rust source has no matching call.",
+          "remaining": "Exact review now bound to live gate; independent binary correspondence remains a vendor trust boundary.",
+          "status": "NO_AFFECTED_ANDROID_CALL_PATH_ESTABLISHED"
+        },
+        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "bundled_secp256k1_candidate": {
+          "advisory_query": {
+            "checked_at": "2026-09-05T11:54:21.127528+00:00",
+            "disposition": "WRONG_COMPONENT_MAPPING: primary RUSTSEC-2021-0076 concerns paritytech/libsecp256k1 Rust crate, absent from the pinned lock; not the bitcoin-core C implementation. See native-c-review.md.",
+            "ids": [
+              "CVE-2021-38195"
+            ],
+            "query": {
+              "commit": "1ad5185cd42c0636104129fcc9f6a4bf9c67cc40"
+            },
+            "source": "https://api.osv.dev/v1/querybatch"
+          },
+          "crate": "secp256k1-sys 0.10.1",
+          "declared_upstream_version": "0.4.1",
+          "revision_file_sha256": "4d33498fa9f8056d6a2e46bf054ce1c3f7e49db48a2c93641288614bd3efaf0e",
+          "scope": "Vendor revision file in lock-checksum-verified crate; source namespacing/patches are possible, not a pristine-tree or binary equivalence claim.",
+          "upstream_commit": "1ad5185cd42c0636104129fcc9f6a4bf9c67cc40"
+        },
+        "bundled_sqlite_candidate": {
+          "build_script_flags": "Bundled branch enables FTS3/FTS5 and extension-loading support; binary compile-option equivalence is not established. App/FFI entry-point review is recorded in native-c-review.md.",
+          "build_script_sha256": "a3a0c7f409e20573d21448fb53c5a1f168fd04c5983af68671da126cc3bf9ff4",
+          "header_sha256": "0c207567adc631521a353e067cfbc5044ebf11868f3c3fbf3178d6990409740e",
+          "scope": "Header bundled in checksum-verified libsqlite3-sys crate. Build feature/binary confirmation and C advisory review remain open.",
+          "source_id": "2024-01-15 17:01:13 1066602b2b1976fe58b5150777cced894af17c803e068f5918390d6915b46e1d",
+          "version": "3.45.0"
+        },
+        "c_advisory_review": "native-c-review.md",
+        "candidate_advisory_report": "native-cargo-review.md",
+        "evidence": [
+          {
+            "sha256": "8e86d388a119564809fafa5fed1b851357f08d8a5cb03634ec6092aec074476a",
+            "url": "https://github.com/bitcoindevkit/bdk-ffi/blob/cfb3418524d451ba8d1758f0ec27f8443740b422/bdk-ffi/Cargo.lock"
+          },
+          {
+            "sha256": "e6143a1963e9f70f8b37b63f84d9aa0f6265cec7a9a7cc721506fb19718351dd",
+            "url": "https://github.com/bitcoindevkit/bdk-ffi/blob/cfb3418524d451ba8d1758f0ec27f8443740b422/bdk-ffi/Cargo.toml"
+          },
+          {
+            "sha256": "76e8c28692840726a440f962b1f6ef06029504e97ac418cc4518fc901fb28c87",
+            "url": "https://github.com/bitcoindevkit/bdk-ffi/blob/cfb3418524d451ba8d1758f0ec27f8443740b422/bdk-android/lib/build.gradle.kts"
+          }
+        ],
+        "remaining": "Resolve shipped Android target/features versus build/dev/conditional Cargo packages, including C libraries bundled in Rust sys crates; review advisories with reachability evidence.",
+        "source_archive_review": {
+          "archive_sha256": "629e3dc3f17050d500cafb71c17977f35bfaab5a947a3d6d082a7992bf784ec6",
+          "git_blob_files_verified": 106,
+          "scope": "Every archive file matches the recursive GitHub blob listing for the pinned commit. Rust source has no downcast_mut or explicit anyhow use; generated code and published binary correspondence are not established by a text search.",
+          "url": "https://codeload.github.com/bitcoindevkit/bdk-ffi/tar.gz/cfb3418524d451ba8d1758f0ec27f8443740b422"
+        },
+        "status": "PARTIAL",
+        "upstream_commit": "cfb3418524d451ba8d1758f0ec27f8443740b422",
+        "verified_crate_sources": [
+          {
+            "archive_sha256": "f19e3ea99dbfbef0c1ec26d83e69de0c579f6aa6aaac4f44597805fcc27e97af",
+            "bytes": 117599,
+            "files": 7,
+            "package": "esplora-client",
+            "url": "https://static.crates.io/crates/esplora-client/esplora-client-0.12.3.crate",
+            "version": "0.12.3"
+          },
+          {
+            "archive_sha256": "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd",
+            "files": 35,
+            "package": "getrandom",
+            "url": "https://static.crates.io/crates/getrandom/getrandom-0.3.4.crate",
+            "version": "0.3.4"
+          },
+          {
+            "archive_sha256": "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555",
+            "files": 40,
+            "package": "getrandom",
+            "url": "https://static.crates.io/crates/getrandom/getrandom-0.4.2.crate",
+            "version": "0.4.2"
+          },
+          {
+            "archive_sha256": "0c10584274047cb335c23d3e61bcef8e323adae7c5c8c760540f73610177fc3f",
+            "bytes": 20145931,
+            "files": 18,
+            "package": "libsqlite3-sys",
+            "url": "https://static.crates.io/crates/libsqlite3-sys/libsqlite3-sys-0.28.0.crate",
+            "version": "0.28.0"
+          },
+          {
+            "archive_sha256": "05015102dad0f7d61691ca347e9d9d9006685a64aefb3d79eecf62665de2153d",
+            "bytes": 111411,
+            "files": 16,
+            "package": "minreq",
+            "url": "https://static.crates.io/crates/minreq/minreq-2.14.1.crate",
+            "version": "2.14.1"
+          },
+          {
+            "archive_sha256": "d4387882333d3aa8cb20530a17c69a3752e97837832f34f6dccc760e715001d9",
+            "bytes": 5651398,
+            "files": 115,
+            "package": "secp256k1-sys",
+            "url": "https://static.crates.io/crates/secp256k1-sys/secp256k1-sys-0.10.1.crate",
+            "version": "0.10.1"
+          },
+          {
+            "archive_sha256": "c866f627c3f04c3df068b68bb2d725492caaa539dd313e2a9d26bb85b1a32f4e",
+            "bytes": 24730,
+            "files": 11,
+            "package": "uniffi",
+            "url": "https://static.crates.io/crates/uniffi/uniffi-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "7c8ca600167641ebe7c8ba9254af40492dda3397c528cc3b2f511bd23e8541a5",
+            "files": 97,
+            "package": "uniffi_bindgen",
+            "url": "https://static.crates.io/crates/uniffi_bindgen/uniffi_bindgen-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "3e55c05228f4858bb258f651d21d743fcc1fe5a2ec20d3c0f9daefddb105ee4d",
+            "files": 2,
+            "package": "uniffi_build",
+            "url": "https://static.crates.io/crates/uniffi_build/uniffi_build-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "7e7a5a038ebffe8f4cf91416b154ef3c2468b18e828b7009e01b1b99938089f9",
+            "bytes": 177011,
+            "files": 21,
+            "package": "uniffi_core",
+            "url": "https://static.crates.io/crates/uniffi_core/uniffi_core-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "e3c2a6f93e7b73726e2015696ece25ca0ac5a5f1cf8d6a7ab5214dd0a01d2edf",
+            "files": 7,
+            "package": "uniffi_internal_macros",
+            "url": "https://static.crates.io/crates/uniffi_internal_macros/uniffi_internal_macros-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "0a138823392dba19b0aa494872689f97d0ee157de5852e2bec157ce6de9cdc22",
+            "files": 7,
+            "package": "uniffi_meta",
+            "url": "https://static.crates.io/crates/uniffi_meta/uniffi_meta-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "8c27c4b515d25f8e53cc918e238c39a79c3144a40eaf2e51c4a7958973422c29",
+            "files": 5,
+            "package": "uniffi_pipeline",
+            "url": "https://static.crates.io/crates/uniffi_pipeline/uniffi_pipeline-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "a4adb08eb5589849231dc0626ba0f9a1297925fd751f0740fc630ae934dd9c5e",
+            "files": 2,
+            "package": "uniffi_testing",
+            "url": "https://static.crates.io/crates/uniffi_testing/uniffi_testing-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "d0adacdd848aeed7af4f5af7d2f621d5e82531325d405e29463482becfdeafca",
+            "files": 11,
+            "package": "uniffi_udl",
+            "url": "https://static.crates.io/crates/uniffi_udl/uniffi_udl-0.30.0.crate",
+            "version": "0.30.0"
+          },
+          {
+            "archive_sha256": "bb0e353e6a2fbdc176932bbaab493762eb1255a7900fe0fea1a2f96c296cc909",
+            "files": 23,
+            "package": "wasm-metadata",
+            "url": "https://static.crates.io/crates/wasm-metadata/wasm-metadata-0.244.0.crate",
+            "version": "0.244.0"
+          },
+          {
+            "archive_sha256": "ea61de684c3ea68cb082b7a88508a8b27fcc8b797d738bfc99a82facf1d752dc",
+            "files": 8,
+            "package": "wit-bindgen-core",
+            "url": "https://static.crates.io/crates/wit-bindgen-core/wit-bindgen-core-0.51.0.crate",
+            "version": "0.51.0"
+          },
+          {
+            "archive_sha256": "b7c566e0f4b284dd6561c786d9cb0142da491f46a9fbed79ea69cdad5db17f21",
+            "files": 6,
+            "package": "wit-bindgen-rust",
+            "url": "https://static.crates.io/crates/wit-bindgen-rust/wit-bindgen-rust-0.51.0.crate",
+            "version": "0.51.0"
+          },
+          {
+            "archive_sha256": "0c0f9bfd77e6a48eccf51359e3ae77140a7f50b1e2ebfe62422d8afdaffab17a",
+            "files": 3,
+            "package": "wit-bindgen-rust-macro",
+            "url": "https://static.crates.io/crates/wit-bindgen-rust-macro/wit-bindgen-rust-macro-0.51.0.crate",
+            "version": "0.51.0"
+          },
+          {
+            "archive_sha256": "9d66ea20e9553b30172b5e831994e35fbde2d165325bec84fc43dbf6f4eb9cb2",
+            "files": 22,
+            "package": "wit-component",
+            "url": "https://static.crates.io/crates/wit-component/wit-component-0.244.0.crate",
+            "version": "0.244.0"
+          },
+          {
+            "archive_sha256": "ecc8ac4bc1dc3381b7f59c34f00b67e18f910c2c0f50015669dde7def656a736",
+            "files": 15,
+            "package": "wit-parser",
+            "url": "https://static.crates.io/crates/wit-parser/wit-parser-0.244.0.crate",
+            "version": "0.244.0"
+          }
+        ]
+      }
+    }
+  ],
+  "coverage": "native payload identity only; upstream source graph and advisory review required",
+  "lockfile_sha256": "5e40aa62a696d0f3974cdcc2ce65f7ead396b28e8d295999d556f64770d3c5a2",
+  "schemaVersion": 1,
+  "verification_metadata_sha256": "be50fe73ccb590fd0fd3e620b1bebf83a8336a78da531f3eb9398d0e382293fb"
+}
