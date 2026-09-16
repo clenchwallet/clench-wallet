@@ -1,4 +1,101 @@
-# BDK upstream Cargo advisory review — 2026-09-05
+# Locally rebuilt BDK Cargo advisory review — 2026-09-16
+
+The remediation uses **BDK Android 3.0.0-clench.1**, a local build based on
+upstream BDK 3.0.0, rather than claiming that the published vendor AAR changed.
+The exact native archive hash, per-ABI library hashes and local build evidence
+are recorded in `native-dependencies.json`. Build instructions and fixed inputs
+are in `scripts/native/`; the upstream Kotlin bindings and BDK feature selection
+are preserved. The patched Cargo lock is
+`upstream/bdk-ffi-3.0.0-clench-Cargo.lock`; the original upstream lock is retained
+separately and is not relabelled as patched upstream content.
+
+## Dependency decisions
+
+| Dependency | Before | Rebuild | Decision |
+| --- | --- | --- | --- |
+| Rustls, Electrum TLS | 0.23.40 | 0.23.45 | The version-bound fix for [RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html); no call-path exception. |
+| anyhow | 1.0.102 | 1.0.103 | Removes [RUSTSEC-2026-0190](https://rustsec.org/advisories/RUSTSEC-2026-0190.html); previous applicability exception is deleted. |
+| rustls-webpki, unused Esplora TLS | 0.101.7 | 0.101.7 | No patched compatible 0.101.x range exists in the three upstream advisories. Six exact advisory IDs retain newly reviewed, expiring source-call-path dispositions; not a patched-version claim. |
+| rustls-webpki, Electrum TLS | 0.103.13 | 0.103.14 | Required by Rustls 0.23.45; meets the fixed ranges for all three reviewed webpki advisory groups. |
+
+Rustls also requires aws-lc-rs **1.18.0** and aws-lc-sys **0.44.0** in the
+complete lock (previously 1.17.0 / 0.41.0). These five version changes are the
+full package-version delta; package names, source locations and feature
+selection are unchanged. The lock has **198** registry candidates. Its fresh
+September 16 OSV query reports only the six legacy webpki IDs; no matches
+remain for the updated Rustls, anyhow, modern webpki or AWS-LC candidates.
+
+The legacy Esplora dependency cannot be repaired by substituting webpki 0.103
+under Rustls 0.21: those APIs and Cargo compatibility ranges differ. A separate
+Esplora/minreq migration would change the vendor's networking implementation.
+This scoped rebuild preserves its manifests/features and does not pretend that
+unused legacy code is removed. The remaining exact applicability decisions
+are documented in `native-cargo-dispositions.md` and machine-bound in `.json`.
+
+## Gate and binding
+
+```bash
+python3 -B scripts/release/check-native-cargo-advisories.py \
+  --output build/reports/native-cargo-advisories.json
+python3 -B scripts/verification/test-native-cargo-advisories.py
+```
+
+The live query covers **all** registry package/version candidates in the actual
+rebuild lock, including build/dev/conditional dependencies. The source-less
+BDK 3.0.0 root remains the only permitted local package. A new local or Git
+source, duplicate candidate, missing lookup, stale exception or unknown advisory
+fails closed. Raw matches are saved before disposition checking.
+
+The checker separately verifies the original immutable vendor lock and the
+new local lock against their correct evidence types. The local lock is bound
+to the new archive owner; it is never attributed to the original upstream URL.
+Dispositions additionally bind the actual AAR, application production sources,
+Gradle inputs/verification metadata, native build scripts and recipes, both
+review documents and native baseline. Newly added native recipe or production
+files invalidate the review. Every retained advisory is re-fetched and its full
+canonical OSV document checked; changed text requires another applicability
+review. Reviews expire after at most 30 days, even if inputs do not change.
+
+## Verified rebuilt artifact identity
+
+The replacement AAR SHA-256 is
+`f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2`.
+The patched lock SHA-256 is
+`f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2`.
+The retained `upstream/bdk-ffi-3.0.0-clench-reproducibility.json` records
+byte-identical JNI for all three ABIs and identical AAR/POM/module from two
+clean build directories with separate source/Cargo/target paths. Those builds
+used the same host and checksum-verified shared download inputs; this is not
+independent-host reproduction or a complete unsigned-APK blind rebuild.
+The packaging evidence confirms unchanged vendor non-native AAR content.
+
+## September 16 advisory re-review
+
+The RustSec records and all three changed GHSA alias records were fetched and
+read again on September 16. The name-constraint records still require use of
+the affected verifier, with signed/misissued certificates as described upstream.
+The CRL record still requires explicit CRL loading/parsing. Neither describes a
+new path outside the legacy Esplora client identified below. Current production
+source still has no Esplora construction/reference or reflective/direct JNA load
+path; the application native library load is SQLCipher. Minreq 2.14.1's
+checksum-bound Rustls module still constructs a standard root-store client with
+no CRL configuration. The current Electrum factory uses the separately patched
+modern Rustls path. These are source-call-path conclusions, not native-code
+absence or a finding that certificate bugs are harmless in other applications.
+
+No new exception is created for Rustls or anyhow. The repaired component versions
+must be in the actual rebuilt libraries and release inventory, not merely this
+review copy of a lockfile. Gate success is not whole-product security clearance,
+complete native C advisory coverage, or physical-device acceptance. SQLCipher
+source association and other separately recorded audit gaps remain open.
+
+## Historical investigation — September 5 (superseded artifact/status)
+
+The following chronological record concerns the **original vendor 3.0.0 AAR**.
+Its old blocking/passing states and version applicability are retained only as
+history; the current rebuild decisions and gate bindings are above.
+
+### Original BDK upstream Cargo advisory review — 2026-09-05
 
 Status: **exact reviewed call-path dispositions added** in
 `native-cargo-dispositions.md` / `.json`. The chronological investigation below

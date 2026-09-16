@@ -64,37 +64,21 @@
             "url": "https://android.googlesource.com/platform/frameworks/support/+/987b9ac8585b31424a397206c492196dd163997b/external/libyuv/build.gradle"
           },
           {
-            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/METADATA?format=TEXT",
-            "sha256": "53f1c84f656ee31f2acbba634185720224911c3a45933e6eb28659fe823e50d7"
+            "sha256": "53f1c84f656ee31f2acbba634185720224911c3a45933e6eb28659fe823e50d7",
+            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/METADATA?format=TEXT"
           },
           {
-            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/include/libyuv/version.h?format=TEXT",
-            "sha256": "5ff9d453e3d215ab9b5c9d64d2c87cfb366423335320c8ad887cc010028cd37c"
+            "sha256": "5ff9d453e3d215ab9b5c9d64d2c87cfb366423335320c8ad887cc010028cd37c",
+            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/include/libyuv/version.h?format=TEXT"
           },
           {
-            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/CMakeLists.txt?format=TEXT",
-            "sha256": "12b91b5ef7077d48b2c3469baad360e44ba13cddb6d80d42d6fcfb4fed4c387c"
+            "sha256": "12b91b5ef7077d48b2c3469baad360e44ba13cddb6d80d42d6fcfb4fed4c387c",
+            "url": "https://android.googlesource.com/platform/external/libyuv/+/afae031e789e344bfc34c9e763c83f861a1ff3f1/CMakeLists.txt?format=TEXT"
           }
         ],
-        "release_association": "Endpoint of the commit range linked by the official AndroidX release notes; not independent artifact provenance.",
-        "release_notes_url": "https://developer.android.com/jetpack/androidx/releases/camera",
-        "remaining": "Exact external libyuv source revision now established by the matching superproject snapshot. Vendor binary/source reproducibility and complete C advisory coverage remain limitations.",
-        "status": "PARTIAL",
-        "upstream_commit": "987b9ac8585b31424a397206c492196dd163997b",
-        "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/",
-        "libyuv_source_binding": {
-          "superproject_commit": "cda3ca13a9e9be059fe674a8173cae532cfa42c6",
-          "superproject_url": "https://android.googlesource.com/platform/superproject/+/cda3ca13a9e9be059fe674a8173cae532cfa42c6",
-          "ls_tree_sha256": "faeedaf4eec2e1b018d0144592c0eda5815bac09f300d270494e00aad8a6d101",
-          "frameworks_support": "987b9ac8585b31424a397206c492196dd163997b",
-          "external_libyuv": "afae031e789e344bfc34c9e763c83f861a1ff3f1",
-          "metadata_upstream_commit": "b7d97d5f3f8f897b88872b6935e4c996b955bc1f",
-          "header_version": 1915,
-          "scope": "Exact Android superproject snapshot tying both gitlinks; vendor binary not independently rebuilt."
-        },
         "libyuv_advisory_query": {
           "checked_on": "2026-09-05",
-          "source": "https://api.osv.dev/v1/querybatch",
+          "limitation": "No-match results do not establish complete Android/Chromium C advisory coverage.",
           "query": {
             "queries": [
               {
@@ -111,8 +95,24 @@
               {}
             ]
           },
-          "limitation": "No-match results do not establish complete Android/Chromium C advisory coverage."
-        }
+          "source": "https://api.osv.dev/v1/querybatch"
+        },
+        "libyuv_source_binding": {
+          "external_libyuv": "afae031e789e344bfc34c9e763c83f861a1ff3f1",
+          "frameworks_support": "987b9ac8585b31424a397206c492196dd163997b",
+          "header_version": 1915,
+          "ls_tree_sha256": "faeedaf4eec2e1b018d0144592c0eda5815bac09f300d270494e00aad8a6d101",
+          "metadata_upstream_commit": "b7d97d5f3f8f897b88872b6935e4c996b955bc1f",
+          "scope": "Exact Android superproject snapshot tying both gitlinks; vendor binary not independently rebuilt.",
+          "superproject_commit": "cda3ca13a9e9be059fe674a8173cae532cfa42c6",
+          "superproject_url": "https://android.googlesource.com/platform/superproject/+/cda3ca13a9e9be059fe674a8173cae532cfa42c6"
+        },
+        "release_association": "Endpoint of the commit range linked by the official AndroidX release notes; not independent artifact provenance.",
+        "release_notes_url": "https://developer.android.com/jetpack/androidx/releases/camera",
+        "remaining": "Exact external libyuv source revision now established by the matching superproject snapshot. Vendor binary/source reproducibility and complete C advisory coverage remain limitations.",
+        "status": "PARTIAL",
+        "upstream_commit": "987b9ac8585b31424a397206c492196dd163997b",
+        "upstream_repository": "https://android.googlesource.com/platform/frameworks/support/"
       }
     },
     {
@@ -425,37 +425,36 @@
       }
     },
     {
-      "artifact": "bdk-android-3.0.0.aar",
-      "artifact_sha256": "e11f099ab3f7acce9770825d9f431ce0970a30356c46ebed6aef66594491bb1e",
+      "artifact": "bdk-android-3.0.0-clench.1.aar",
+      "artifact_sha256": "f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2",
       "native_payloads": [
         {
-          "bytes": 15287360,
+          "bytes": 14875472,
           "path": "jni/arm64-v8a/libbdkffi.so",
-          "sha256": "e006df2cc314584ffcfa87dc5f924d433939f0db3123e5eac2106668792a565a"
+          "sha256": "ab0d68d7e90bb797becf9de58afc71ac72a5492445891b565d6d033be907db06"
         },
         {
-          "bytes": 10630084,
+          "bytes": 10418596,
           "path": "jni/armeabi-v7a/libbdkffi.so",
-          "sha256": "8404a412bbd14ea20ec256243badc3dc5aeab2c2b5decb36e5b4341480b92cdc"
+          "sha256": "d956c1ddb0c8455203881f80477c5dc8873aa1561dfb3cbc062ee96e706c74f9"
         },
         {
-          "bytes": 14085512,
+          "bytes": 13658608,
           "path": "jni/x86_64/libbdkffi.so",
-          "sha256": "cec0265302d29a727b31213082e14435bcb6fd0f12bd6532b663ed54c45a7465"
+          "sha256": "28f2760a500f4705b80469940d476063f7ba1c974f7b3612d6dacb8d3deb2ea6"
         }
       ],
-      "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0",
+      "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0-clench.1",
       "source_dependency_assurance": "NOT_REVIEWED",
       "source_review": {
-        "advisory_disposition": "EXACT_EXPIRING_SOURCE_CALL_PATH_DISPOSITIONS; not patched-version or binary clearance",
+        "advisory_disposition": "Rustls and anyhow patched in source-built JNI; six exact expiring legacy WebPKI call-path dispositions; not complete native clearance",
         "anyhow_source_disposition": {
-          "date": "2026-09-05",
-          "direct_consumers_reviewed": 15,
-          "findings": "Mutable anyhow downcasts found in wit-parser 0.244.0, reached through wasip3 on getrandom 0.4.2 wasm32/wasi/p3 target. UniFFI pipeline downcast_mut is std::any::Any, not anyhow::Error. Pinned BDK Rust source has no matching call.",
-          "remaining": "Exact review now bound to live gate; independent binary correspondence remains a vendor trust boundary.",
-          "status": "NO_AFFECTED_ANDROID_CALL_PATH_ESTABLISHED"
+          "date": "2026-09-16",
+          "findings": "Rebuild lock upgrades anyhow 1.0.102 to the patched 1.0.103. Previous call-path exception removed.",
+          "remaining": "Full native C and whole-product audit scope remains separate.",
+          "status": "PATCHED_VERSION_1_0_103"
         },
-        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "binary_source_correspondence": "Replacement JNI source-built from pinned upstream source with separately reviewed patched lock. Two clean local build directories produced byte-identical JNI for all three ABIs and byte-identical AAR/POM/module. Same host, not independent-host proof. Original Kotlin wrapper remains vendor-supplied; no reproduction claim for original vendor JNI.",
         "bundled_secp256k1_candidate": {
           "advisory_query": {
             "checked_at": "2026-09-05T11:54:21.127528+00:00",
@@ -496,9 +495,48 @@
           {
             "sha256": "76e8c28692840726a440f962b1f6ef06029504e97ac418cc4518fc901fb28c87",
             "url": "https://github.com/bitcoindevkit/bdk-ffi/blob/cfb3418524d451ba8d1758f0ec27f8443740b422/bdk-android/lib/build.gradle.kts"
+          },
+          {
+            "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-Cargo.lock",
+            "sha256": "f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2"
+          },
+          {
+            "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-provenance.json",
+            "sha256": "ae0bbde1de82c411ae61968354a411b2326c5ac09312de3faf1cef940323176a"
+          },
+          {
+            "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-abi-comparison.json",
+            "sha256": "6288ceaae16aaee886f52b42d997abe108c8d80b0d71983da71b88f33ba2cb0d"
+          },
+          {
+            "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-runtime-linkage.json",
+            "sha256": "374d4d3251e2fb7d909138a5598ecbc7dc47e8acb8bf25c6c7ec7d30550d3001"
+          },
+          {
+            "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-reproducibility.json",
+            "sha256": "e418bb23a4c066b8c977ccb70ec9601ccb86725e1c9c9c7ce64a60d91337006a"
+          },
+          {
+            "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-packaging.json",
+            "sha256": "1e36efbcd14d7328b078a0cd39798d83b541a8af7d294de6b4bf90838885b5d0"
           }
         ],
-        "remaining": "Resolve shipped Android target/features versus build/dev/conditional Cargo packages, including C libraries bundled in Rust sys crates; review advisories with reachability evidence.",
+        "local_build": {
+          "anyhow_version": "1.0.103",
+          "base_lock_sha256": "8e86d388a119564809fafa5fed1b851357f08d8a5cb03634ec6092aec074476a",
+          "local_maven_version": "3.0.0-clench.1",
+          "lockfile": "docs/security/upstream/bdk-ffi-3.0.0-clench-Cargo.lock",
+          "native_bdk_version": "3.0.0",
+          "ndk_version": "28.2.13676358",
+          "packager": "scripts/native/prepare-bdk.py",
+          "recipe": "scripts/native/build-bdk.py",
+          "reproducibility_evidence": "docs/security/upstream/bdk-ffi-3.0.0-clench-reproducibility.json",
+          "rust_version": "1.94.0",
+          "rustls_version": "0.23.45",
+          "source_archive_sha256": "629e3dc3f17050d500cafb71c17977f35bfaab5a947a3d6d082a7992bf784ec6",
+          "upstream_non_native_aar_bytes": "unchanged"
+        },
+        "remaining": "Maintain exact rebuilt input/output and advisory bindings. Complete native C advisory coverage, SQLCipher provenance, physical/OEM/hardware acceptance and whole-product audit remain separate.",
         "source_archive_review": {
           "archive_sha256": "629e3dc3f17050d500cafb71c17977f35bfaab5a947a3d6d082a7992bf784ec6",
           "git_blob_files_verified": 106,
@@ -666,7 +704,7 @@
     }
   ],
   "coverage": "native payload identity only; upstream source graph and advisory review required",
-  "lockfile_sha256": "5e40aa62a696d0f3974cdcc2ce65f7ead396b28e8d295999d556f64770d3c5a2",
+  "lockfile_sha256": "250146f6ed11425b24c7f7c10021a1984dc796fa7439fed0ff725478866e72eb",
   "schemaVersion": 1,
-  "verification_metadata_sha256": "be50fe73ccb590fd0fd3e620b1bebf83a8336a78da531f3eb9398d0e382293fb"
+  "verification_metadata_sha256": "4513208b727cbd47a995bc2b3ca404ee18b320b8fe637f1dd4a7406c687c92dd"
 }

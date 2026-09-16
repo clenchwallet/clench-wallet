@@ -1,74 +1,95 @@
 {
   "schema_version": 1,
-  "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0",
-  "owner_artifact_sha256": "e11f099ab3f7acce9770825d9f431ce0970a30356c46ebed6aef66594491bb1e",
-  "source_lock_sha256": "8e86d388a119564809fafa5fed1b851357f08d8a5cb03634ec6092aec074476a",
-  "application_sha256": "a8f78facf0661c82443b7350bbd1861a0f08ce9d6d974ff3b705c182d06ccee6",
-  "reviewed_on": "2026-09-05",
-  "expires_on": "2026-10-05",
+  "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0-clench.1",
+  "owner_artifact_sha256": "f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2",
+  "source_lock_sha256": "f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2",
+  "application_sha256": "d0987ab282d17bdd97646a62c3351dad9f21adf8b3912bbd570b91c8aae666b5",
+  "reviewed_on": "2026-09-16",
+  "expires_on": "2026-10-16",
   "evidence": [
     {
       "path": "docs/security/native-cargo-dispositions.md",
-      "sha256": "42200ab9d8e3dd0efc28cf0914504ed332c89f5059d76cce256e937c8a366231"
+      "sha256": "7a9179ab0d95f099d01c92747c051b1fe49b795e2e1a95b636a8c56dafb8f646"
     },
     {
       "path": "docs/security/native-cargo-review.md",
-      "sha256": "b4fa721d549297006a910e263188475c3fd5478d1b84463d50c70f14485ca33d"
+      "sha256": "0fae2ffe1f6ea542e3fc95d1f81784fdef6dfc94ee98bcad1fe62ef4b01d36da"
     },
     {
       "path": "docs/security/native-dependencies.json",
-      "sha256": "6159179cc9cb71cd647ae86f8daf06ab3f222d2a6334388e54a2bcd0b55e1ffb"
+      "sha256": "7d474d1d31c101c03bc3c55460b793bed11ac5b93791ea29cd7da9e2125c0e80"
+    },
+    {
+      "path": "docs/security/upstream/bdk-ffi-3.0.0-Cargo.lock",
+      "sha256": "8e86d388a119564809fafa5fed1b851357f08d8a5cb03634ec6092aec074476a"
+    },
+    {
+      "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-Cargo.lock",
+      "sha256": "f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2"
+    },
+    {
+      "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-provenance.json",
+      "sha256": "ae0bbde1de82c411ae61968354a411b2326c5ac09312de3faf1cef940323176a"
+    },
+    {
+      "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-abi-comparison.json",
+      "sha256": "6288ceaae16aaee886f52b42d997abe108c8d80b0d71983da71b88f33ba2cb0d"
+    },
+    {
+      "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-runtime-linkage.json",
+      "sha256": "374d4d3251e2fb7d909138a5598ecbc7dc47e8acb8bf25c6c7ec7d30550d3001"
+    },
+    {
+      "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-reproducibility.json",
+      "sha256": "e418bb23a4c066b8c977ccb70ec9601ccb86725e1c9c9c7ce64a60d91337006a"
+    },
+    {
+      "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-packaging.json",
+      "sha256": "1e36efbcd14d7328b078a0cd39798d83b541a8af7d294de6b4bf90838885b5d0"
     }
   ],
   "entries": [
     {
-      "purl": "pkg:cargo/anyhow@1.0.102",
-      "id": "RUSTSEC-2026-0190",
-      "status": "not_affected_reviewed_call_path",
-      "reason": "The affected mutable anyhow downcast is absent from reviewed Android consumers and macro expansion paths; identified wit-parser use is restricted to WASI p3. See the exact source review and target graph.",
-      "advisory_sha256": "db91857554af6ce5088f723f1b433c179fd35694c0232298f05553e6478704e8"
-    },
-    {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "RUSTSEC-2026-0098",
       "status": "not_affected_reviewed_call_path",
-      "reason": "The affected old Rustls path is exclusive to the unused Esplora client in reviewed Clench production source. Electrum uses webpki 0.103.13. The minreq client also has no CRL configuration. No claim that old code was removed from the binary.",
+      "reason": "Re-reviewed 2026-09-16: the affected legacy Rustls verifier is confined to the Esplora client, which current production source never constructs. Rebuilt BDK source/features are unchanged; Electrum uses patched Rustls 0.23.45 and webpki 0.103.14. Checksum-verified minreq also has no CRL configuration. Legacy code is not claimed removed; see the exact source/advisory review.",
       "advisory_sha256": "9de93cd26800f6cc2556ec8993ee285da99a9b15c884cf9e356dc30caafc6919"
     },
     {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "GHSA-965h-392x-2mh5",
       "status": "not_affected_reviewed_call_path",
-      "reason": "The affected old Rustls path is exclusive to the unused Esplora client in reviewed Clench production source. Electrum uses webpki 0.103.13. The minreq client also has no CRL configuration. No claim that old code was removed from the binary.",
-      "advisory_sha256": "3c7f989f56632008e23557f1a2243657c64255a82b1cd366fa2530dbdd92d7ec"
+      "reason": "Re-reviewed 2026-09-16: the affected legacy Rustls verifier is confined to the Esplora client, which current production source never constructs. Rebuilt BDK source/features are unchanged; Electrum uses patched Rustls 0.23.45 and webpki 0.103.14. Checksum-verified minreq also has no CRL configuration. Legacy code is not claimed removed; see the exact source/advisory review.",
+      "advisory_sha256": "866304cd8bd2aba8af6c1cf29933de27249d17d9940bbeb0e466aa0e16bc98b1"
     },
     {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "RUSTSEC-2026-0099",
       "status": "not_affected_reviewed_call_path",
-      "reason": "The affected old Rustls path is exclusive to the unused Esplora client in reviewed Clench production source. Electrum uses webpki 0.103.13. The minreq client also has no CRL configuration. No claim that old code was removed from the binary.",
+      "reason": "Re-reviewed 2026-09-16: the affected legacy Rustls verifier is confined to the Esplora client, which current production source never constructs. Rebuilt BDK source/features are unchanged; Electrum uses patched Rustls 0.23.45 and webpki 0.103.14. Checksum-verified minreq also has no CRL configuration. Legacy code is not claimed removed; see the exact source/advisory review.",
       "advisory_sha256": "d8cc7d331a3a0c4c7edb4f2b134b20d91328dd625601e2bb0f919a998b7fb385"
     },
     {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "GHSA-xgp8-3hg3-c2mh",
       "status": "not_affected_reviewed_call_path",
-      "reason": "The affected old Rustls path is exclusive to the unused Esplora client in reviewed Clench production source. Electrum uses webpki 0.103.13. The minreq client also has no CRL configuration. No claim that old code was removed from the binary.",
-      "advisory_sha256": "08b009c1ba0931c50b29ae51e62f689ee99aaba20c5da3f1579220b5bf303ab1"
+      "reason": "Re-reviewed 2026-09-16: the affected legacy Rustls verifier is confined to the Esplora client, which current production source never constructs. Rebuilt BDK source/features are unchanged; Electrum uses patched Rustls 0.23.45 and webpki 0.103.14. Checksum-verified minreq also has no CRL configuration. Legacy code is not claimed removed; see the exact source/advisory review.",
+      "advisory_sha256": "cb262c2ece75e02cde61da0658a7de23309f01d1f67b7f8e6c76b4a8204e8a42"
     },
     {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "RUSTSEC-2026-0104",
       "status": "not_affected_reviewed_call_path",
-      "reason": "The affected old Rustls path is exclusive to the unused Esplora client in reviewed Clench production source. Electrum uses webpki 0.103.13. The minreq client also has no CRL configuration. No claim that old code was removed from the binary.",
+      "reason": "Re-reviewed 2026-09-16: the affected legacy Rustls verifier is confined to the Esplora client, which current production source never constructs. Rebuilt BDK source/features are unchanged; Electrum uses patched Rustls 0.23.45 and webpki 0.103.14. Checksum-verified minreq also has no CRL configuration. Legacy code is not claimed removed; see the exact source/advisory review.",
       "advisory_sha256": "bfd0e1f49e92fc2d75048632b6de918243d73796edaecd9bb3fdf40594a43a20"
     },
     {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "GHSA-82j2-j2ch-gfr8",
       "status": "not_affected_reviewed_call_path",
-      "reason": "The affected old Rustls path is exclusive to the unused Esplora client in reviewed Clench production source. Electrum uses webpki 0.103.13. The minreq client also has no CRL configuration. No claim that old code was removed from the binary.",
-      "advisory_sha256": "d536c702b3d7fc6cd516f3872a33df69046510e763a6fc538dc1f0ccfba27e1d"
+      "reason": "Re-reviewed 2026-09-16: the affected legacy Rustls verifier is confined to the Esplora client, which current production source never constructs. Rebuilt BDK source/features are unchanged; Electrum uses patched Rustls 0.23.45 and webpki 0.103.14. Checksum-verified minreq also has no CRL configuration. Legacy code is not claimed removed; see the exact source/advisory review.",
+      "advisory_sha256": "558fbc3ff73800a9002cb84e04dc2f28ecf89f54a499cc274e9469e8ab54705b"
     }
   ]
 }

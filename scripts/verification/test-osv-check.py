@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import json
 import tempfile
 from pathlib import Path
@@ -99,6 +100,47 @@ def main() -> None:
         oversized.payload = b"x" * (MODULE.MAX_RESPONSE_BYTES + 1)
         with mock.patch.object(MODULE.urllib.request, "urlopen", return_value=oversized):
             expect_failure(lambda: MODULE.audit(sbom, allowlist), "32 MiB")
+
+        allowlist.write_text(json.dumps({"schemaVersion": 1, "entries": []}))
+        upstream = "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0"
+        rebuilt = upstream + "-clench.1"
+        component = {
+            "purl": rebuilt,
+            "pedigree": {"ancestors": [{
+                "type": "library", "group": "org.bitcoindevkit", "name": "bdk-android",
+                "version": "3.0.0", "purl": upstream,
+                "hashes": [{"alg": "SHA-256", "content": "e11f099ab3f7acce9770825d9f431ce0970a30356c46ebed6aef66594491bb1e"}],
+            }]},
+        }
+        sbom.write_text(json.dumps({"components": [component]}))
+        assert MODULE.load_purls(sbom) == sorted([upstream, rebuilt])
+
+        def upstream_only_finding(request, timeout):
+            queries = json.loads(request.data)["queries"]
+            assert {q["package"]["purl"] for q in queries} == {upstream, rebuilt}
+            return FakeResponse({"results": [
+                {"vulns": [{"id": "GHSA-upstream-wrapper-issue"}]} if q["package"]["purl"] == upstream else {}
+                for q in queries
+            ]})
+
+        with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=upstream_only_finding):
+            expect_failure(lambda: MODULE.audit(sbom, allowlist), "GHSA-upstream-wrapper-issue")
+
+        for mutation in ("missing", "wrong-version", "wrong-hash", "extra-ancestor"):
+            altered = copy.deepcopy(component)
+            if mutation == "missing":
+                del altered["pedigree"]
+            elif mutation == "wrong-version":
+                altered["pedigree"]["ancestors"][0]["purl"] = upstream.replace("3.0.0", "999.0.0")
+            elif mutation == "wrong-hash":
+                altered["pedigree"]["ancestors"][0]["hashes"][0]["content"] = "0" * 64
+            else:
+                altered["pedigree"]["ancestors"].append(copy.deepcopy(altered["pedigree"]["ancestors"][0]))
+            sbom.write_text(json.dumps({"components": [altered]}))
+            expect_failure(lambda: MODULE.load_purls(sbom), "exact pinned upstream wrapper pedigree")
+        component["purl"] = upstream + "-clench.2"
+        sbom.write_text(json.dumps({"components": [component]}))
+        expect_failure(lambda: MODULE.load_purls(sbom), "upstream advisory mapping is required")
 
     print("OSV release-gate hostile self-tests passed.")
 

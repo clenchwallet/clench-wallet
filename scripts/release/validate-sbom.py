@@ -151,6 +151,22 @@ def expected_components(
                 ],
             ],
         }
+        if (group, name, version) == ("org.bitcoindevkit", "bdk-android", "3.0.0-clench.1"):
+            upstream_hash = "e11f099ab3f7acce9770825d9f431ce0970a30356c46ebed6aef66594491bb1e"
+            upstream_artifacts = artifact_inventory.get(("org.bitcoindevkit", "bdk-android", "3.0.0"), [])
+            if ("bdk-android-3.0.0.aar", upstream_hash) not in upstream_artifacts:
+                raise SystemExit("Rebuilt BDK lacks its pinned upstream wrapper evidence")
+            components[purl]["pedigree"] = {
+                "ancestors": [{
+                    "type": "library",
+                    "group": "org.bitcoindevkit",
+                    "name": "bdk-android",
+                    "version": "3.0.0",
+                    "purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0",
+                    "hashes": [{"alg": "SHA-256", "content": upstream_hash}],
+                }],
+                "notes": "Upstream non-native AAR entries are retained byte-for-byte; JNI is source-rebuilt with the reviewed Cargo lock. Query upstream Maven advisories as well as the rebuilt coordinate.",
+            }
     return [components[key] for key in sorted(components)]
 
 

@@ -108,6 +108,12 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
 
+      - name: Install pinned Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358"'
+
+      - name: Prepare pinned source-built BDK without signing credentials
+        run: python3 -B scripts/native/prepare-bdk.py
+
       - name: Test, lint, and build without signing credentials
         env:
           CLENCH_FUZZ_CASES: 1024
@@ -222,6 +228,9 @@ jobs:
         uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
         with:
           cache-disabled: true
+
+      - name: Install pinned Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358"'
 
       - name: Build the independent unsigned APK before receiving expected bytes
         env:
@@ -518,6 +527,9 @@ jobs:
         uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
         with:
           cache-disabled: true
+
+      - name: Install pinned Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358"'
 
       - name: Build a second independent APK before receiving release artifacts
         env:

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "checked_on": "2026-09-16",
+  "build_directories": [
+    "build/native-bdk",
+    "build/native-bdk-repro"
+  ],
+  "separate_source_and_cargo_and_target_paths": true,
+  "shared_inputs": "Checksum-verified source/compiler/crate archives only; no compiled target outputs shared",
+  "same_host": true,
+  "native_payloads": [
+    {
+      "abi": "arm64-v8a",
+      "bytes": 14875472,
+      "sha256": "ab0d68d7e90bb797becf9de58afc71ac72a5492445891b565d6d033be907db06",
+      "byte_identical": true
+    },
+    {
+      "abi": "armeabi-v7a",
+      "bytes": 10418596,
+      "sha256": "d956c1ddb0c8455203881f80477c5dc8873aa1561dfb3cbc062ee96e706c74f9",
+      "byte_identical": true
+    },
+    {
+      "abi": "x86_64",
+      "bytes": 13658608,
+      "sha256": "28f2760a500f4705b80469940d476063f7ba1c974f7b3612d6dacb8d3deb2ea6",
+      "byte_identical": true
+    }
+  ],
+  "packaged_artifacts": {
+    "bdk-android-3.0.0-clench.1.aar": "f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2",
+    "bdk-android-3.0.0-clench.1.module": "3423ed54d610d00e851f42b71da7aa15657fa9d51332b2d4d985d5182939a20e",
+    "bdk-android-3.0.0-clench.1.pom": "02f5ead449fbc5cfa337b810a7dae7d4817b50c6e6b815644af2c9e458138ef2"
+  },
+  "packaged_artifacts_byte_identical": true,
+  "scope": "Two clean native builds in distinct local directories; not an independent-host or complete unsigned-APK blind rebuild."
+}

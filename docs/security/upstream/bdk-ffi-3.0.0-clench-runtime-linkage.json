@@ -1,0 +1,41 @@
+{
+  "arm64-v8a": {
+    "needed": [
+      "libdl.so",
+      "libm.so",
+      "libc.so"
+    ],
+    "needed_equal_vendor": true,
+    "rustls_0_23_45_marker_present": true,
+    "rustls_0_23_40_marker_absent": true,
+    "webpki_0_103_14_marker_present": true,
+    "anyhow_1_0_103_marker_present": true,
+    "absolute_checkout_path_absent": true
+  },
+  "armeabi-v7a": {
+    "needed": [
+      "libdl.so",
+      "libm.so",
+      "libc.so"
+    ],
+    "needed_equal_vendor": true,
+    "rustls_0_23_45_marker_present": true,
+    "rustls_0_23_40_marker_absent": true,
+    "webpki_0_103_14_marker_present": true,
+    "anyhow_1_0_103_marker_present": true,
+    "absolute_checkout_path_absent": true
+  },
+  "x86_64": {
+    "needed": [
+      "libdl.so",
+      "libm.so",
+      "libc.so"
+    ],
+    "needed_equal_vendor": true,
+    "rustls_0_23_45_marker_present": true,
+    "rustls_0_23_40_marker_absent": true,
+    "webpki_0_103_14_marker_present": true,
+    "anyhow_1_0_103_marker_present": true,
+    "absolute_checkout_path_absent": true
+  }
+}

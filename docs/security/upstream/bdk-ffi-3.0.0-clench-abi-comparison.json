@@ -1,0 +1,26 @@
+{
+  "arm64-v8a": {
+    "vendor_exports": 1289,
+    "rebuilt_exports": 1289,
+    "removed": [],
+    "added": [],
+    "vendor_export_names_sha256": "da678578310457c3453b2d46473c9532389545d39c8a044556b1d1c47e62b1de",
+    "rebuilt_export_names_sha256": "da678578310457c3453b2d46473c9532389545d39c8a044556b1d1c47e62b1de"
+  },
+  "armeabi-v7a": {
+    "vendor_exports": 1289,
+    "rebuilt_exports": 1289,
+    "removed": [],
+    "added": [],
+    "vendor_export_names_sha256": "da678578310457c3453b2d46473c9532389545d39c8a044556b1d1c47e62b1de",
+    "rebuilt_export_names_sha256": "da678578310457c3453b2d46473c9532389545d39c8a044556b1d1c47e62b1de"
+  },
+  "x86_64": {
+    "vendor_exports": 1289,
+    "rebuilt_exports": 1289,
+    "removed": [],
+    "added": [],
+    "vendor_export_names_sha256": "da678578310457c3453b2d46473c9532389545d39c8a044556b1d1c47e62b1de",
+    "rebuilt_export_names_sha256": "da678578310457c3453b2d46473c9532389545d39c8a044556b1d1c47e62b1de"
+  }
+}

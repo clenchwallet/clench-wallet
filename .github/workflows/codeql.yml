@@ -30,6 +30,12 @@ jobs:
           languages: java-kotlin
           queries: security-extended
 
+      - name: Install pinned Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358"'
+
+      - name: Prepare pinned source-built BDK
+        run: python3 -B scripts/native/prepare-bdk.py
+
       - name: Build Kotlin and Java
         uses: github/codeql-action/autobuild@641a925cfafe92d0fdf8b239ba4053e3f8d99d6d # v3
 

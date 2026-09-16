@@ -15,7 +15,7 @@ concurrency:
 jobs:
   deterministic_fuzz:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Check out source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -36,6 +36,12 @@ jobs:
         env:
           CLENCH_REQUIRE_NO_LOCAL_SIGNING_MATERIAL: 1
         run: scripts/release/verify-release-controls.py
+
+      - name: Install pinned Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358"'
+
+      - name: Prepare pinned source-built BDK
+        run: python3 -B scripts/native/prepare-bdk.py
 
       - name: Run deterministic hostile protocol fuzzing
         run: scripts/verification/run-hostile-fuzz.sh 5000

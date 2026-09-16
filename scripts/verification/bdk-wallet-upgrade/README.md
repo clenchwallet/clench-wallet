@@ -2,7 +2,7 @@
 
 This harness proves that an exact BDK Android 2.3.1 Clench debug APK can create a
 production-shaped Testnet3 wallet with deterministic, synthetic offline graph state and that an
-exact BDK Android 3.0.0 APK can replace it with `adb install -r`, load the same Room row and BDK
+exact BDK Android 3.0.0-clench.1 APK can replace it with `adb install -r`, load the same Room row and BDK
 SQLite file through Clench's production repository, and preserve public wallet identity and graph
 state across two separate BDK 3 instrumentation processes.
 
@@ -22,7 +22,7 @@ gate refuses an upgrade candidate that omits protected-main history.
 1. Creates detached worktrees at the exact producer and consumer commits.
 2. Overlays one version-specific instrumentation source into each worktree. No tracked app source
    changes, and neither test fixture enters the application APK.
-3. Builds both debug app/test APK pairs under strict Gradle dependency verification using one
+3. Prepares the source-built BDK in the consumer worktree, then builds both debug app/test APK pairs under strict Gradle dependency verification using one
    newly generated, disposable debug certificate.
 4. Refuses to operate unless `ADB_SERIAL` points to an emulator (`ro.kernel.qemu=1`) and the caller
    explicitly authorizes clearing only `net.clench.wallet.debug`. It requires healthy Android
@@ -64,6 +64,7 @@ clean emulator. This is the authoritative PR gate.
 Start a dedicated emulator separately, then run from a clean harness worktree:
 
 ```bash
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358'
 export ADB_SERIAL=emulator-5554
 export CLENCH_BDK_UPGRADE_ALLOW_EMULATOR_RESET=YES
 scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh

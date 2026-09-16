@@ -119,6 +119,9 @@ def main():
         status = run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=tree)
         if status != "?? " + str(overlay.relative_to(tree)):
             raise RuntimeError("Unexpected test overlay change")
+        if label == "consumer":
+            run(["python3", "-B", "scripts/native/prepare-bdk.py"], cwd=tree, env=env,
+                output=evidence / "consumer-native-build.log", timeout=3600)
         run([str(tree / "gradlew"), "--no-daemon", "--no-build-cache",
              "--dependency-verification=strict", "--max-workers=2",
              ":app:assembleDebug", ":app:assembleDebugAndroidTest"],
