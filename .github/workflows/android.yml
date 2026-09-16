@@ -66,7 +66,15 @@ jobs:
       - name: Build, test, and lint
         env:
           CLENCH_FUZZ_CASES: 1024
-        run: ./gradlew --no-daemon --dependency-verification=strict assembleDebug testDebugUnitTest lint
+        run: ./gradlew --no-daemon --no-build-cache --dependency-verification=strict assembleDebug assembleRelease testDebugUnitTest lint
+
+      - name: Retain full JVM results before fuzz reruns replace them
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: full-jvm-test-results
+          path: app/build/test-results/testDebugUnitTest/TEST-*.xml
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Run extended hostile protocol fuzz lane
         run: scripts/verification/run-hostile-fuzz.sh 5000
