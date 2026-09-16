@@ -91,3 +91,17 @@ Neither this gate nor these dispositions resolve the separate SQLCipher
 source-tag discrepancy, complete embedded C advisory coverage, physical-device
 acceptance or unfinished whole-product audit lanes. No broader native security
 clearance follows from this exact applicability review.
+
+## 0.3.30 application binding re-review — 2026-09-16
+
+The release candidate changes only versionName/versionCode in the application
+build inputs after the imported remediation. Production source still constructs
+Electrum clients through `ElectrumConnectionFactory`; no Esplora reference,
+`Class.forName`, `loadClass` or direct `Native.load` path was found in production
+source. The explicit native load remains SQLCipher. Native source, features,
+recipe and dependency identities are unchanged by versioning. All six complete
+live OSV records were fetched and reviewed again; their canonical content hashes
+match the September 16 dispositions. The version bump adds no path to the legacy
+verifier or CRL parser. Refreshing the application/evidence binding therefore
+retains the same six exact dispositions and the original 2026-10-16 expiry.
+Fresh native/app/runtime and live full-candidate gates remain required.
