@@ -45,3 +45,6 @@ jobs:
 
       - name: Run deterministic hostile protocol fuzzing
         run: scripts/verification/run-hostile-fuzz.sh 5000
+
+      - name: Repeat remediation acceptance with 20000 cases
+        run: scripts/verification/run-hostile-fuzz.sh 20000

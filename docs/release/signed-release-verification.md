@@ -194,3 +194,15 @@ scripts/release/verify-independent-apk.sh \
 - After pinned disposable-key normalization, any APK ZIP entry, compressed byte
   stream, ordering, local ZIP metadata, or archive comment differs.
 - Verification requires weakening a key-isolation, dependency-integrity, attestation, or comparison rule.
+
+## Hosted verification of the downloaded public release
+
+After production publication, dispatch the read-only `verify-public-release.yml`
+workflow from `master` with the immutable tag and expected full source commit.
+It verifies the pinned tag signer, independently rebuilds the tagged source on a
+fresh Linux worker before downloading any expected artifact, anonymously fetches
+the exact public 13-file bundle, and repeats full bundle, attestation, exact SBOM
+predicate, raw APK and every-entry signed-payload checks. It also records the
+actual packaged BDK hashes for all three ABIs against the fresh source rebuild.
+The job has no signing environment, signing credentials or publication access.
+Retain its `public-release-verification` artifact as the public-download receipt.

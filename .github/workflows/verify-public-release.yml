@@ -1,0 +1,107 @@
+name: Verify Public Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing immutable production tag'
+        required: true
+        type: string
+      source_commit:
+        description: 'Expected full source SHA from the completed release'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  attestations: read
+
+env:
+  EXPECTED_RELEASE_SIGNER_SHA256: d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca
+  EXPECTED_SOURCE_TAG_SIGNER_SHA256: Fi/RL+LFB92U1xn1Gd8eq9eXQQgMNrwPMGtXx+CVJyQ
+  APKSIGNER_BUILD_TOOLS_VERSION: 35.0.0
+  EXPECTED_APKSIGNER_SHA256: b47549e373b895ce6ca620d0c7887e674d9615ffa837a86ac601dcfd04adb0f0
+  EXPECTED_APKSIGNER_JAR_SHA256: 00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7
+  EXPECTED_AAPT_SHA256: 393c4c87f675f9555c50921fb53be1f3893cacd29f2270c4863e2e3f99583c39
+
+jobs:
+  verify_public:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable source tag against the external maintainer pin
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/master
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$SOURCE_COMMIT"
+          VERIFY_OUTPUT="$(git -c gpg.format=ssh \
+            -c gpg.ssh.allowedSignersFile=.github/release-signers.allowed \
+            verify-tag --raw "$RELEASE_TAG" 2>&1)"
+          printf '%s\n' "$VERIFY_OUTPUT"
+          grep -Fq 'Good "git" signature for cw@clench.net' <<< "$VERIFY_OUTPUT"
+          grep -Fq "SHA256:$EXPECTED_SOURCE_TAG_SIGNER_SHA256" <<< "$VERIFY_OUTPUT"
+          git checkout --detach "$SOURCE_COMMIT"
+          VERSION="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)"
+          VERSION_CODE="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts)"
+          test "$RELEASE_TAG" = "v$VERSION"
+          test -n "$VERSION_CODE"
+          {
+            echo "VERSION=$VERSION"
+            echo "VERSION_CODE=$VERSION_CODE"
+            echo "RELEASE_TAG=$RELEASE_TAG"
+            echo "SOURCE_COMMIT=$SOURCE_COMMIT"
+            echo "PUBLIC_EVIDENCE_DIR=$RUNNER_TEMP/public-release-evidence"
+            echo "INDEPENDENT_APK=$RUNNER_TEMP/fresh-independent.apk"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate Gradle wrapper JAR
+        uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Install pinned Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358"'
+
+      - name: Fresh independent source rebuild before downloading public artifacts
+        env:
+          CLENCH_REQUIRE_NO_LOCAL_SIGNING_MATERIAL: 1
+          GRADLE_USER_HOME: ${{ runner.temp }}/public-verifier-gradle
+          ACTIONS_RUNTIME_TOKEN: ''
+          ACTIONS_RESULTS_URL: ''
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
+          ACTIONS_ID_TOKEN_REQUEST_URL: ''
+          GH_TOKEN: ''
+          GITHUB_TOKEN: ''
+        run: scripts/release/rebuild-unsigned.sh "$INDEPENDENT_APK"
+
+      - name: Download and independently verify the production release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$PUBLIC_EVIDENCE_DIR"
+          scripts/release/verify-public-release.sh 2>&1 | tee "$PUBLIC_EVIDENCE_DIR/verification.log"
+
+      - name: Retain public verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: public-release-verification
+          path: ${{ runner.temp }}/public-release-evidence/
+          if-no-files-found: error
+          retention-days: 30
