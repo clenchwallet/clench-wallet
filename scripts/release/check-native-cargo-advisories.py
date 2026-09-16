@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scan pinned upstream Cargo candidates; NOT an inventory of shipped native code."""
+"""Scan source-bound rebuilt BDK Cargo candidates; not a shipped-code/C inventory."""
 
 import argparse
 import datetime as dt
@@ -11,8 +11,11 @@ import tomllib
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
-OWNER = "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0"
+OWNER = "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0-clench.1"
 SOURCE = "https://github.com/bitcoindevkit/bdk-ffi/blob/cfb3418524d451ba8d1758f0ec27f8443740b422/bdk-ffi/Cargo.lock"
+BASE_LOCK_SHA256 = "8e86d388a119564809fafa5fed1b851357f08d8a5cb03634ec6092aec074476a"
+BASE_LOCK_RELATIVE = "docs/security/upstream/bdk-ffi-3.0.0-Cargo.lock"
+LOCK_RELATIVE = "docs/security/upstream/bdk-ffi-3.0.0-clench-Cargo.lock"
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 MAX_LOCK_BYTES = 1024 * 1024
 
@@ -27,7 +30,11 @@ def application_hash(root):
     source_root = root / "app/src"
     paths = sorted(p for p in source_root.rglob("*")
                    if p.relative_to(source_root).parts[0] not in ("test", "androidTest"))
-    paths += [root / p for p in ("app/build.gradle.kts", "app/gradle.lockfile", "app/proguard-rules.pro")]
+    paths += sorted(p for p in (root / "scripts/native").rglob("*")
+                    if "__pycache__" not in p.parts and p.suffix != ".pyc")
+    paths += [root / p for p in ("app/build.gradle.kts", "app/gradle.lockfile", "app/proguard-rules.pro",
+                                "build.gradle.kts", "settings.gradle.kts", "gradle/libs.versions.toml",
+                                "gradle/verification-metadata.xml")]
     entries = []
     for path in paths:
         if path.is_symlink():
@@ -100,20 +107,34 @@ def disposition_results(document, owner, lock_digest, findings, root, *, today=N
     return results, sorted(set(findings) - seen)
 
 
-def load_candidates(lock_path, baseline_path):
+def load_candidates(lock_path, baseline_path, *, root=ROOT):
     with Path(lock_path).open("rb") as handle:
         raw = handle.read(MAX_LOCK_BYTES + 1)
     if len(raw) > MAX_LOCK_BYTES:
-        raise ValueError("Upstream lockfile exceeds the size bound")
+        raise ValueError("Native lockfile exceeds the size bound")
     baseline = json.loads(Path(baseline_path).read_text())
     owners = [a for a in baseline["artifacts"] if a["owner_purl"] == OWNER]
     if len(owners) != 1:
         raise ValueError("Expected exactly one pinned BDK native owner")
     owner = owners[0]
     digest = hashlib.sha256(raw).hexdigest()
-    evidence = [e for e in owner["source_review"]["evidence"] if e["url"] == SOURCE]
-    if len(evidence) != 1 or evidence[0]["sha256"] != digest:
-        raise ValueError("Upstream lockfile does not match reviewed source hash")
+    review = owner["source_review"]
+    # A local dependency rebuild is not the unmodified vendor lock. Bind each
+    # independently, and never attribute patched bytes to an upstream URL.
+    base_evidence = [e for e in review["evidence"] if e.get("url") == SOURCE]
+    base_lock = Path(root) / BASE_LOCK_RELATIVE
+    if (len(base_evidence) != 1 or base_evidence[0].get("sha256") != BASE_LOCK_SHA256 or
+            base_lock.is_symlink() or hashlib.sha256(base_lock.read_bytes()).hexdigest() != BASE_LOCK_SHA256):
+        raise ValueError("Native rebuild base lock does not match immutable vendor source")
+    local_build = review.get("local_build", {})
+    evidence = [e for e in review["evidence"] if e.get("path") == LOCK_RELATIVE]
+    checked_in_lock = Path(root) / LOCK_RELATIVE
+    if (local_build.get("base_lock_sha256") != BASE_LOCK_SHA256 or
+            local_build.get("lockfile") != LOCK_RELATIVE or
+            len(evidence) != 1 or "url" in evidence[0] or
+            evidence[0].get("sha256") != digest or checked_in_lock.is_symlink() or
+            hashlib.sha256(checked_in_lock.read_bytes()).hexdigest() != digest):
+        raise ValueError("Rebuilt lockfile does not match reviewed source hash")
     document = tomllib.loads(raw.decode("utf-8"))
     packages = document.get("package", [])
     if not packages or len(packages) > 4096:
@@ -141,7 +162,7 @@ def load_candidates(lock_path, baseline_path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--lockfile", type=Path, default=ROOT / "docs/security/upstream/bdk-ffi-3.0.0-Cargo.lock")
+    parser.add_argument("--lockfile", type=Path, default=ROOT / LOCK_RELATIVE)
     parser.add_argument("--baseline", type=Path, default=ROOT / "docs/security/native-dependencies.json")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--dispositions", type=Path, default=ROOT / "docs/security/native-cargo-dispositions.json")
@@ -156,9 +177,11 @@ def main():
         "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "owner_purl": OWNER,
         "owner_artifact_sha256": owner["artifact_sha256"],
-        "source_url": SOURCE,
+        "base_source_url": SOURCE,
+        "base_source_lock_sha256": BASE_LOCK_SHA256,
+        "source_lock_path": LOCK_RELATIVE,
         "source_lock_sha256": digest,
-        "coverage": "Upstream registry candidates, including build/dev/conditional packages; not proof of shipped code or native C coverage.",
+        "coverage": "Rebuilt-source registry candidates, including build/dev/conditional packages; not proof of shipped code or native C coverage.",
         "query_count": len(purls),
         "purls": purls,
         "findings": [{"purl": p, "id": i} for p, i in findings],

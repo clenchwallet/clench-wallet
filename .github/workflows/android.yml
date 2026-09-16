@@ -57,10 +57,24 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
 
+      - name: Install pinned Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358"'
+
+      - name: Prepare pinned source-built BDK
+        run: python3 -B scripts/native/prepare-bdk.py
+
       - name: Build, test, and lint
         env:
           CLENCH_FUZZ_CASES: 1024
-        run: ./gradlew --no-daemon --dependency-verification=strict assembleDebug testDebugUnitTest lint
+        run: ./gradlew --no-daemon --no-build-cache --dependency-verification=strict assembleDebug assembleRelease testDebugUnitTest lint
+
+      - name: Retain full JVM results before fuzz reruns replace them
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: full-jvm-test-results
+          path: app/build/test-results/testDebugUnitTest/TEST-*.xml
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Run extended hostile protocol fuzz lane
         run: scripts/verification/run-hostile-fuzz.sh 5000
@@ -72,6 +86,7 @@ jobs:
         run: |
           python3 -B scripts/verification/test-native-inventory.py
           python3 -B scripts/verification/test-native-cargo-advisories.py
+          python3 -B scripts/verification/test-native-bdk-packaging.py
           python3 -B scripts/verification/test-signing-secret-scope.py
           python3 -B scripts/verification/test-sqlcipher-upgrade-harness.py
           ./gradlew --no-daemon --dependency-verification=strict \

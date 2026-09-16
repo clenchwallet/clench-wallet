@@ -33,11 +33,51 @@ signature records are forbidden rather than excluded.
 - Release dependency graph: `app/gradle.lockfile`.
 - Settings/plugin dependency graph: `settings-gradle.lockfile`.
 - Artifact integrity: `gradle/verification-metadata.xml`.
+- BDK JNI: the pinned source and patched Cargo lock used by `scripts/native/prepare-bdk.py`, checksum-pinned Rust 1.94.0, and Android NDK 28.2.13676358.
 - Release source: an annotated tag signed by the public key pinned in `.github/release-signers.allowed` and resolving exactly to protected `master`.
 
 The release jobs use `--dependency-verification=strict`. Dependency locks and verification metadata must never be regenerated implicitly during a release.
 
 The build and independent verifier also query the official OSV batch API for every exact Maven PURL in the deterministic SBOM. Network/API failure, malformed responses, new findings, expired exceptions, and stale exceptions all block release. Any temporary exception must identify the exact PURL and advisory, contain a meaningful reachability rationale, and expire in `scripts/release/osv-allowlist.json`.
+
+## Source-built BDK prerequisite
+
+The app selects `org.bitcoindevkit:bdk-android:3.0.0-clench.1`. Its Java/Kotlin
+bindings remain those of the checksum-pinned upstream 3.0.0 AAR, while the three
+JNI libraries (`arm64-v8a`, `armeabi-v7a`, `x86_64`) are rebuilt from the pinned
+BDK source with the reviewed Rustls update. The upstream inputs remain retained
+for comparison; the Clench coordinate identifies the modified native artifact.
+
+Before any ordinary Gradle build in a fresh clone, install the pinned NDK and
+prepare the local dependency on Linux x86_64 (the supported pinned native builder):
+
+```bash
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358'
+python3 -B scripts/native/prepare-bdk.py
+./gradlew --no-daemon --dependency-verification=strict assembleDebug
+```
+
+Preparation downloads verified source/toolchain inputs, compiles the native
+libraries, and deterministically packages the AAR, POM and Gradle module metadata
+under `build/native-bdk/maven`. It does not modify the committed dependency locks
+or verification metadata. Gradle resolves this exact coordinate exclusively from
+that local repository, without remote fallback, and still enforces the committed
+SHA-256 verification metadata. Missing preparation produces an explicit error.
+Keep the generated repository available while Gradle runs; deleting the root
+`build/native-bdk` directory requires preparation again.
+
+The SBOM records the original AAR's pinned identity as the rebuilt component's
+CycloneDX ancestor. The Maven advisory gate queries both the Clench coordinate
+and upstream 3.0.0, so retaining the upstream Kotlin wrapper does not lose its
+advisory coverage when the artifact version changes. Missing or altered pedigree
+fails closed; the separate Cargo gate evaluates the patched native dependency lock.
+
+Each CI build job prepares its own native dependency. Both blind independent
+release builds do so inside `rebuild-unsigned.sh`; they receive no prepared native
+artifact from another builder. The source-free signer never prepares or builds
+native code. The persisted-wallet and SQLCipher migration harnesses also prepare
+the current consumer in their isolated source worktrees, leaving their historical
+producer inputs unchanged. Allow additional time and disk space for those builds.
 
 ## Independent no-secrets rebuild
 
@@ -49,6 +89,7 @@ git fetch --tags origin
 git clone --no-checkout https://github.com/clenchwallet/clench-wallet.git ../clench-verify
 cd ../clench-verify
 git checkout --detach vX.Y.Z
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358'
 APKSIGNER_BUILD_TOOLS_VERSION=PINNED_BUILD_TOOLS_VERSION \
 EXPECTED_APKSIGNER_SHA256=PINNED_APKSIGNER_LAUNCHER_SHA256 \
 EXPECTED_APKSIGNER_JAR_SHA256=PINNED_APKSIGNER_JAR_SHA256 \

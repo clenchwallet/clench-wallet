@@ -22,6 +22,8 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
+python3 -B scripts/native/prepare-bdk.py
+
 ./gradlew --no-daemon --no-build-cache --dependency-verification=strict \
   clean assembleRelease
 

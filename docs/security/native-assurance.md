@@ -3,12 +3,16 @@
 Status: native inventory and Rust applicability controls implemented; remaining
 vendor provenance/C-coverage limits are explicit. **Not a native vulnerability clearance**.
 
-Latest follow-up: the CameraX libyuv source revision is now bound through the
-exact matching Android superproject snapshot. Seven raw Cargo advisory IDs
-have short-lived, evidence-bound call-path dispositions; new or changed inputs
-fail closed. See `native-cargo-dispositions.md`. SQLCipher's published Android
-tag/submodule discrepancy is still unresolved; no independent native rebuild
-or complete transitive C clearance is claimed.
+Latest follow-up (2026-09-16): BDK's three JNI libraries are source-rebuilt under
+the local `3.0.0-clench.1` coordinate with Rustls 0.23.45 and anyhow 1.0.103,
+plus required compatible transitive updates. The actual replacement AAR and
+JNI bytes are pinned, with original Kotlin bindings preserved. See
+[the native rebuild](native-bdk-rebuild.md) and its checked-in input/output
+evidence. Six remaining legacy WebPKI advisory IDs have newly reviewed,
+short-lived source-call-path dispositions; new or changed inputs fail closed.
+SQLCipher's published Android tag/submodule discrepancy and complete transitive
+C coverage remain unresolved. No reproduction of the original vendor binaries
+or whole-product clearance is claimed.
 
 The Maven CycloneDX inventory remains useful for resolved Java/Kotlin coordinates,
 but does not inventory source dependencies embedded in native binaries. Its zero
@@ -19,6 +23,7 @@ active advisory count must not be generalized to those dependencies.
 From the repository root, with the normal supported SDK/JDK:
 
 ```bash
+python3 -B scripts/native/prepare-bdk.py
 ./gradlew --no-daemon --dependency-verification=strict \
   -I scripts/verification/native-artifacts.init.gradle :app:exportNativeRuntimeArtifacts
 python3 -B scripts/release/inventory-native-artifacts.py \
@@ -60,11 +65,13 @@ explicit incomplete review status:
   manifest/build hashes are recorded. That tree exactly matches upstream libffi
   v3.4.4. The dated OSV commit query returned no matches; this is not complete C
   advisory coverage or source-to-binary proof.
-- BDK Android 3.0.0: bdkffi. The vendor's immutable release commit, Cargo manifest,
-  Cargo lockfile and Android build file are identified. The lock contains 199
-  package candidates, including build/dev/conditional entries; this is not a
-  claim that all are shipped. Android feature/target filtering, Rust sys-crate C
-  contents, and applicable advisories still require review.
+- BDK Android 3.0.0-clench.1: locally source-built bdkffi, retaining the original
+  3.0.0 Kotlin wrapper. The immutable vendor source and original lock are retained
+  separately from the patched build lock. All three JNI output identities,
+  toolchain inputs, ABI checks and build evidence are pinned. The lock contains
+  198 registry candidates plus the local BDK root, including build/dev/conditional
+  entries; this is not a claim that all are shipped. Rustls and anyhow are
+  patched; legacy Esplora dispositions and native C coverage limits remain.
 - SQLCipher Android 4.17.0 candidate: sqlcipher JNI. Archive hashes and vendor
   source associations are recorded. The Android tag points to older SQLCipher
   source than the separate SQLCipher release tag and binary version strings;
@@ -82,9 +89,9 @@ dated authoritative advisory results and reviewed dispositions, and those inputs
 are maintained by the release evidence pipeline. The current CI report supplements,
 but does not replace or silently change, the signed release asset contract.
 
-The [dated Cargo candidate review](native-cargo-review.md) records four advisory
-groups found by the new repeatable source-bound scan. No suppressions or native
-clearance have been issued.
+The [dated Cargo candidate review](native-cargo-review.md) records the patched
+dependencies and remaining three legacy WebPKI advisory groups (six IDs).
+Their exact expiring dispositions are not a blanket native clearance.
 
 The [dated embedded C review](native-c-review.md) records the secp256k1 vendor
 revision, an advisory component-mapping mismatch, SQLite build flags and entry

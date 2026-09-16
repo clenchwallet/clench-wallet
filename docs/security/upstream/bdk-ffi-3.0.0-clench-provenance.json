@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "source_url": "https://codeload.github.com/bitcoindevkit/bdk-ffi/tar.gz/cfb3418524d451ba8d1758f0ec27f8443740b422",
+  "source_commit": "cfb3418524d451ba8d1758f0ec27f8443740b422",
+  "source_archive_sha256": "629e3dc3f17050d500cafb71c17977f35bfaab5a947a3d6d082a7992bf784ec6",
+  "original_lock_sha256": "8e86d388a119564809fafa5fed1b851357f08d8a5cb03634ec6092aec074476a",
+  "patched_lock_sha256": "f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2",
+  "rust_toolchain": {
+    "schema_version": 1,
+    "host": "x86_64-unknown-linux-gnu",
+    "rust_version": "1.94.0",
+    "release_date": "2026-03-05",
+    "manifest_url": "https://static.rust-lang.org/dist/channel-rust-1.94.0.toml",
+    "manifest_sha256": "aaa177def36e01d539bee6bde95295230b9ce378f81057845db8d0ebe97898ee",
+    "components": [
+      {
+        "package": "rustc",
+        "target": "x86_64-unknown-linux-gnu",
+        "sha256": "31a0d3ac9383dfdeb4fce86eeed5ade3230131c635264c0eab7252dbf235f28e",
+        "url": "https://static.rust-lang.org/dist/2026-03-05/rustc-1.94.0-x86_64-unknown-linux-gnu.tar.xz"
+      },
+      {
+        "package": "cargo",
+        "target": "x86_64-unknown-linux-gnu",
+        "sha256": "8e17624f3de39e079845bfb25ed15a042f4b50ceca78e37c56c4b9b15949b9f7",
+        "url": "https://static.rust-lang.org/dist/2026-03-05/cargo-1.94.0-x86_64-unknown-linux-gnu.tar.xz"
+      },
+      {
+        "package": "rust-std",
+        "target": "x86_64-unknown-linux-gnu",
+        "sha256": "dd33653107c36e040082050d9e547e64dac5b456ba74069430d838c00c189a05",
+        "url": "https://static.rust-lang.org/dist/2026-03-05/rust-std-1.94.0-x86_64-unknown-linux-gnu.tar.xz"
+      },
+      {
+        "package": "rust-std",
+        "target": "aarch64-linux-android",
+        "sha256": "402c80df672a4b9fc948b6dc8bde21a63e1093eb1c8a2c2bd42221c309d9eba2",
+        "url": "https://static.rust-lang.org/dist/2026-03-05/rust-std-1.94.0-aarch64-linux-android.tar.xz"
+      },
+      {
+        "package": "rust-std",
+        "target": "armv7-linux-androideabi",
+        "sha256": "e0b6883364f939300c281d96d6778ecf7fd97fe867b11936f0aa5c9a29f488ad",
+        "url": "https://static.rust-lang.org/dist/2026-03-05/rust-std-1.94.0-armv7-linux-androideabi.tar.xz"
+      },
+      {
+        "package": "rust-std",
+        "target": "x86_64-linux-android",
+        "sha256": "488c8a581612ac4779a05f05967b76a96e0ff0bdd1ab8d99c13a859c19056b01",
+        "url": "https://static.rust-lang.org/dist/2026-03-05/rust-std-1.94.0-x86_64-linux-android.tar.xz"
+      }
+    ]
+  },
+  "rustc": "rustc 1.94.0 (4a4ef493e 2026-03-02)\nbinary: rustc\ncommit-hash: 4a4ef493e3a1488c6e321570238084b38948f6db\ncommit-date: 2026-03-02\nhost: x86_64-unknown-linux-gnu\nrelease: 1.94.0\nLLVM version: 21.1.8",
+  "cargo": "cargo 1.94.0 (85eff7c80 2026-01-15)",
+  "ndk_version": "28.2.13676358",
+  "clang": "Android (13624864, +pgo, +bolt, +lto, +mlgo, based on r530567e) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project 97a699bf4812a18fb657c2779f5296a4ab2694d2)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /ndk/toolchains/llvm/prebuilt/linux-x86_64/bin",
+  "clang_sha256": "6156dd4e5e466333197a00b8d20bca72c292186643b749dcaaa3aa9164afb1de",
+  "android_api": 24,
+  "profile": "release-smaller",
+  "source_date_epoch": "1779990088",
+  "native_payloads": [
+    {
+      "path": "jni/arm64-v8a/libbdkffi.so",
+      "bytes": 14875472,
+      "sha256": "ab0d68d7e90bb797becf9de58afc71ac72a5492445891b565d6d033be907db06"
+    },
+    {
+      "path": "jni/armeabi-v7a/libbdkffi.so",
+      "bytes": 10418596,
+      "sha256": "d956c1ddb0c8455203881f80477c5dc8873aa1561dfb3cbc062ee96e706c74f9"
+    },
+    {
+      "path": "jni/x86_64/libbdkffi.so",
+      "bytes": 13658608,
+      "sha256": "28f2760a500f4705b80469940d476063f7ba1c974f7b3612d6dacb8d3deb2ea6"
+    }
+  ],
+  "abi_comparison": "abi-comparison.json",
+  "scope": "Source-built replacement BDK JNI only; unchanged vendor Kotlin wrapper, not a whole-product audit."
+}

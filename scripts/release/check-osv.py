@@ -25,7 +25,25 @@ def load_purls(sbom_path: Path) -> list[str]:
         raise SystemExit("SBOM contains a missing or unsupported dependency PURL")
     if len(set(purls)) != len(purls):
         raise SystemExit("SBOM contains duplicate dependency PURLs")
-    return sorted(purls)
+    queried = set(purls)
+    for component in components:
+        purl = component["purl"]
+        if purl.startswith("pkg:maven/org.bitcoindevkit/bdk-android@") and "-clench" in purl:
+            if purl != "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0-clench.1":
+                raise SystemExit("Unrecognized rebuilt BDK coordinate: upstream advisory mapping is required")
+            expected_ancestor = {
+                "type": "library",
+                "group": "org.bitcoindevkit",
+                "name": "bdk-android",
+                "version": "3.0.0",
+                "purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0",
+                "hashes": [{"alg": "SHA-256", "content": "e11f099ab3f7acce9770825d9f431ce0970a30356c46ebed6aef66594491bb1e"}],
+            }
+            pedigree = component.get("pedigree")
+            if not isinstance(pedigree, dict) or pedigree.get("ancestors") != [expected_ancestor]:
+                raise SystemExit("Rebuilt BDK is missing exact pinned upstream wrapper pedigree")
+            queried.add(expected_ancestor["purl"])
+    return sorted(queried)
 
 
 def query_osv(purls: list[str]) -> set[tuple[str, str]]:
@@ -117,7 +135,7 @@ def audit(sbom: Path, allowlist_path: Path) -> None:
             + ", ".join(f"{item[1]} ({item[0]})" for item in sorted(unapproved))
         )
     print(
-        f"OSV audit passed for {len(load_purls(sbom))} exact Maven components "
+        f"OSV audit passed for {len(load_purls(sbom))} exact Maven package identities (including upstream wrapper pedigree) "
         f"with {len(allowed)} active, reviewed exceptions."
     )
 

@@ -540,7 +540,7 @@ private object Bdk3UpgradeVerifier {
     private const val TARGET_PACKAGE = "net.clench.wallet.debug"
     private const val FIXTURE_VERSION = "2"
     private const val PRODUCER_BDK = "2.3.1"
-    private const val CONSUMER_BDK = "3.0.0"
+    private const val CONSUMER_BDK = "3.0.0-clench.1"
     private const val TESTNET = "testnet"
     private const val WALLET_ID = "00000000-0000-4000-8000-000000000326"
     private const val DATABASE_NAME = "wallet_$WALLET_ID.db"

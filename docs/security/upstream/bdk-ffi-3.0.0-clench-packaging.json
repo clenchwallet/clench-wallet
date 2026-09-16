@@ -1,0 +1,20 @@
+{
+  "coordinate": "org.bitcoindevkit:bdk-android:3.0.0-clench.1",
+  "jni": {
+    "arm64-v8a": "ab0d68d7e90bb797becf9de58afc71ac72a5492445891b565d6d033be907db06",
+    "armeabi-v7a": "d956c1ddb0c8455203881f80477c5dc8873aa1561dfb3cbc062ee96e706c74f9",
+    "x86_64": "28f2760a500f4705b80469940d476063f7ba1c974f7b3612d6dacb8d3deb2ea6"
+  },
+  "non_native_vendor_bytes_unchanged": true,
+  "outputs": {
+    "bdk-android-3.0.0-clench.1.aar": "f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2",
+    "bdk-android-3.0.0-clench.1.module": "3423ed54d610d00e851f42b71da7aa15657fa9d51332b2d4d985d5182939a20e",
+    "bdk-android-3.0.0-clench.1.pom": "02f5ead449fbc5cfa337b810a7dae7d4817b50c6e6b815644af2c9e458138ef2"
+  },
+  "scope": "Local rebuilt native artifact; not release signing or complete native vulnerability clearance",
+  "upstream_inputs": {
+    "bdk-android-3.0.0.aar": "e11f099ab3f7acce9770825d9f431ce0970a30356c46ebed6aef66594491bb1e",
+    "bdk-android-3.0.0.module": "89c2093d255b4c653dda57cac3dc026a711cd61c8af656315a1dc0065d62e34d",
+    "bdk-android-3.0.0.pom": "1580a08433701701497960935ba2e6eb84719a63c26e03199f8dbc3dc797c1d8"
+  }
+}

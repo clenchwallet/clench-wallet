@@ -31,6 +31,7 @@ if [[ "${CLENCH_GRADLE_OFFLINE:-0}" == "1" ]]; then
   GRADLE_FLAGS+=(--offline)
 fi
 
+python3 -B scripts/native/prepare-bdk.py
 ./gradlew "${GRADLE_FLAGS[@]}" clean assembleRelease
 
 APK="app/build/outputs/apk/release/app-release.apk"

@@ -67,23 +67,33 @@ new paths; see the v0.3.28 physical-evidence record.
 ## Building
 
 ### Requirements
+
 - Android Studio Ladybug or later
 - JDK 21
 - Android SDK 36
+- Linux x86_64, Python 3.12+, curl, make, GCC, CMake, and Android NDK 28.2.13676358 for the
+  checksum-pinned BDK native rebuild (Rust is installed into the build directory)
 
 ### Build
 ```bash
 git clone https://github.com/clenchwallet/clench-wallet.git
 cd clench-wallet
-./gradlew assembleDebug
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358'
+python3 -B scripts/native/prepare-bdk.py
+./gradlew --dependency-verification=strict assembleDebug
 ```
 
 The debug APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
+The local BDK `3.0.0-clench.1` artifact retains the upstream Kotlin bindings
+and replaces all three Android JNI libraries with the patched source build.
+Native inputs and build instructions are documented in
+[the reproducible-build guide](docs/release/reproducible-builds.md).
 
 ### Unsigned release evidence build
 ```bash
 test ! -e keystore.properties
-./gradlew assembleRelease
+python3 -B scripts/native/prepare-bdk.py
+./gradlew --dependency-verification=strict assembleRelease
 ```
 
 Without `keystore.properties`, this produces unsigned evidence only. Do not

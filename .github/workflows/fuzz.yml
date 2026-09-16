@@ -15,7 +15,7 @@ concurrency:
 jobs:
   deterministic_fuzz:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Check out source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -37,5 +37,30 @@ jobs:
           CLENCH_REQUIRE_NO_LOCAL_SIGNING_MATERIAL: 1
         run: scripts/release/verify-release-controls.py
 
+      - name: Install pinned Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358"'
+
+      - name: Prepare pinned source-built BDK
+        run: python3 -B scripts/native/prepare-bdk.py
+
       - name: Run deterministic hostile protocol fuzzing
         run: scripts/verification/run-hostile-fuzz.sh 5000
+
+      - name: Retain actual 5000-case execution results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hostile-fuzz-5000-results
+          path: app/build/test-results/testDebugUnitTest/TEST-*.xml
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Repeat remediation acceptance with 20000 cases
+        run: scripts/verification/run-hostile-fuzz.sh 20000
+
+      - name: Retain actual 20000-case execution results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hostile-fuzz-20000-results
+          path: app/build/test-results/testDebugUnitTest/TEST-*.xml
+          if-no-files-found: error
+          retention-days: 30

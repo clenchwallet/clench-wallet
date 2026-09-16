@@ -600,6 +600,15 @@ def test_sbom_and_provenance(temp: Path) -> None:
         should_pass=False,
     )
 
+    stripped_pedigree = json.loads(sbom_first.read_text(encoding="utf-8"))
+    rebuilt_bdk = next(component for component in stripped_pedigree["components"]
+                       if component["purl"] == "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0-clench.1")
+    del rebuilt_bdk["pedigree"]
+    stripped_path = temp / "sbom-stripped-upstream-pedigree.json"
+    stripped_path.write_text(json.dumps(stripped_pedigree), encoding="utf-8")
+    run(*PYTHON, "scripts/release/validate-sbom.py", stripped_path,
+        "--version", version, "--commit", commit, should_pass=False)
+
     apk = temp / "provenance-subject.apk"
     write_apk(apk)
     provenance = temp / "provenance.jsonl"
@@ -663,6 +672,27 @@ def test_workflow_control_mutations() -> None:
     controls = load_release_controls()
     workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     controls.verify_release_workflow(workflow)
+
+    prepare_name = "Prepare pinned source-built BDK without signing credentials"
+    prepare_step = controls.named_step_blocks(controls.job_blocks(workflow)["build_unsigned"])[prepare_name]
+    for label, replacement in (
+        ("removed-native-prepare", ""),
+        ("ignored-native-prepare-failure", prepare_step.replace("        run:", "        continue-on-error: true\n        run:")),
+        ("skipped-native-prepare", prepare_step.replace("        run:", "        if: false\n        run:")),
+    ):
+        expect_workflow_failure(
+            controls,
+            replace_once(workflow, prepare_step, replacement, label=label),
+            label,
+            "Release must prepare the pinned native artifact before Gradle",
+        )
+    expect_workflow_failure(
+        controls,
+        swap_named_steps(workflow, controls, "build_unsigned", prepare_name,
+                         "Test, lint, and build without signing credentials"),
+        "native-prepare-after-build",
+        "Release must prepare the pinned native artifact before Gradle",
+    )
 
     native_name = "Require native inventory and Cargo advisory evidence before signing"
     native_step = controls.named_step_blocks(controls.job_blocks(workflow)["build_unsigned"])[native_name]

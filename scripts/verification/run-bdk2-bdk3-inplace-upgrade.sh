@@ -8,7 +8,7 @@ readonly DEFAULT_BDK2_COMMIT="cc2d36132bf6fb4162093e2361f414f63297e1d4"
 # recorded in evidence; a commit self-hash cannot be embedded in the same commit.
 readonly DEFAULT_BDK3_COMMIT="HEAD"
 readonly EXPECTED_BDK2_VERSION="2.3.1"
-readonly EXPECTED_BDK3_VERSION="3.0.0"
+readonly EXPECTED_BDK3_VERSION="3.0.0-clench.1"
 readonly TARGET_PACKAGE="net.clench.wallet.debug"
 readonly TEST_PACKAGE="net.clench.wallet.debug.test"
 readonly TEST_RUNNER="androidx.test.runner.AndroidJUnitRunner"
@@ -246,6 +246,10 @@ build_test_pair() {
   local label="$2"
   (
     cd "$tree"
+    if [[ "$label" == "bdk3" ]]; then
+      python3 -B scripts/native/prepare-bdk.py \
+        2>&1 | tee "$EVIDENCE_DIR/$label.native-build.txt"
+    fi
     ANDROID_USER_HOME="$HARNESS_ANDROID_USER_HOME" \
       ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest "${GRADLE_ARGS[@]}" \
       2>&1 | tee "$EVIDENCE_DIR/$label.gradle.txt"
@@ -433,7 +437,7 @@ require(set(evidence) == expected_keys, "upgrade evidence keys do not match the 
 require(evidence["result"] == "PASS", "upgrade evidence did not report PASS")
 require(evidence["fixture.version"] == "2", "unexpected upgrade fixture version")
 require(evidence["producer.bdk"] == "2.3.1", "unexpected producer BDK version")
-require(evidence["consumer.bdk"] == "3.0.0", "unexpected consumer BDK version")
+require(evidence["consumer.bdk"] == "3.0.0-clench.1", "unexpected consumer BDK version")
 require(evidence["network"] == "testnet", "unexpected upgrade network")
 require(evidence["balance.confirmed_sat"] == "0", "fixture confirmed balance changed")
 require(evidence["balance.trusted_pending_sat"] == "0", "fixture trusted-pending balance changed")

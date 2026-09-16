@@ -167,6 +167,19 @@ def verify_release_workflow(workflow: str) -> None:
     if native_gate.strip() != expected_native_gate.strip():
         raise SystemExit("Release must run the fail-closed native advisory gate before signing")
 
+    prepare_name = "Prepare pinned source-built BDK without signing credentials"
+    prepare_step = named_step_blocks(blocks["build_unsigned"]).get(prepare_name, "")
+    expected_prepare = """      - name: Prepare pinned source-built BDK without signing credentials
+        run: python3 -B scripts/native/prepare-bdk.py
+"""
+    if prepare_step.strip() != expected_prepare.strip():
+        raise SystemExit("Release must prepare the pinned native artifact before Gradle")
+    build_steps = named_step_names(blocks["build_unsigned"])
+    if build_steps.index(prepare_name) >= build_steps.index(
+        "Test, lint, and build without signing credentials"
+    ):
+        raise SystemExit("Release must prepare the pinned native artifact before Gradle")
+
     for job_name, block in blocks.items():
         steps_offset = block.find("\n    steps:\n")
         if steps_offset < 0:
@@ -1293,6 +1306,9 @@ def main() -> None:
     ).read_text(encoding="utf-8")
     if "--no-build-cache" not in rebuild_script:
         raise SystemExit("Independent rebuild script does not disable Gradle build caching")
+    native_prepare = "python3 -B scripts/native/prepare-bdk.py"
+    if native_prepare not in rebuild_script or rebuild_script.index(native_prepare) >= rebuild_script.index("./gradlew"):
+        raise SystemExit("Independent rebuild must prepare its own pinned native artifact before Gradle")
     bundle_verifier = Path(
         "scripts/release/verify-release-bundle.sh"
     ).read_text(encoding="utf-8")
