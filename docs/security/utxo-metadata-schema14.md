@@ -3,8 +3,13 @@
 UTXO labels and frozen state belong to `(walletId, outpoint)`. Overlapping
 watch-only/hot wallet views can describe the same outpoint without replacing
 one another's metadata. DAO reads, field updates and deletes require that wallet
-identity. Label changes and freeze toggles use Room transactions so a concurrent
-label edit cannot overwrite a newer freeze state.
+identity. Legacy equivalent spellings (uppercase txid/zero-padded output index)
+are projected to one canonical coin with **freeze OR** in both UTXO and home
+summaries. Raw rows and their labels remain intact. Label changes and freeze
+toggles use Room transactions so a concurrent label edit cannot overwrite a
+newer freeze state; an explicit freeze/unfreeze updates every equivalent alias
+for that wallet only. An explicit label edit likewise replaces that wallet's
+alias labels, while display-only projection does not modify them.
 
 ## Upgrade and recovery
 
@@ -33,8 +38,12 @@ invent missing labels, ownership or frozen states.
 All metadata references must name a declared, nonempty source wallet ID. Invalid
 or ambiguous mappings reject the import transaction; no partial wallet or
 metadata writes are retained. Metadata outpoints are validated as 32-byte txids
-and unsigned 32-bit indices and canonicalized, with conflicting duplicate
-records rejected.
+and unsigned 32-bit indices. Duplicate exact raw records reject, but distinct
+legacy spellings remain separate stored/exported rows so a schema13 backup can
+roundtrip every surviving label/freeze. Their effective coin identity is
+canonicalized by the shared metadata policy, and any frozen alias freezes the
+coin. Display joins distinct labels into bounded text; unedited originals remain
+losslessly exportable.
 
 Restore matches network **and both receive/change descriptors**. An existing
 exact ID/identity match preserves that view. A single unambiguous full-identity
@@ -53,7 +62,10 @@ policy, including imported metadata, before signing/export/broadcast.
 
 `WalletScopedMetadataTest` exercises the actual importer and Room DAO with
 collisions, same-wallet updates, overlapping descriptors, offline unknown
-outpoints, invalid owner preflight and transactional rollback.
+outpoints, invalid owner preflight and transactional rollback. The actual
+UtxoViewModel + Room case proves a legacy alias is shown frozen and an explicit
+unfreeze clears all aliases only in that wallet. Migration tests also export
+and reimport legacy alias rows without dropping their different labels/freezes.
 `WalletScopedMetadataMigrationTest` exercises supported legacy routes, encrypted
 SQLCipher migration/open/restart/import, injected interruption and retry, and
 unsupported-version fail-closed behavior. Host SQL checks or compilation alone

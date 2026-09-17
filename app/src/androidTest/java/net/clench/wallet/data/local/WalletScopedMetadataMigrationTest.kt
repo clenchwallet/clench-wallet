@@ -68,6 +68,32 @@ class WalletScopedMetadataMigrationTest {
         }
     }
 
+    @Test fun migratedAliasRowsRoundTripBackupWithoutDroppingLabelsOrFreezes() = runBlocking {
+        fixture(13) { name, factory ->
+            val alias = "${"1".repeat(64)}:00"
+            helper(name, 13, factory).use { old ->
+                old.writableDatabase.execSQL("INSERT INTO utxo_metadata (outpoint,walletId,label,isFrozen) VALUES (?, 'a', 'second label', 0)", arrayOf(alias))
+                old.writableDatabase.execSQL("UPDATE wallets SET descriptor=?,changeDescriptor=? WHERE id='a'", arrayOf(
+                    "wpkh(0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798)",
+                    "wpkh(02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5)"))
+            }
+            val db = open(name, factory)
+            try {
+                val manager = ClenchStateBackupManager(db, db.walletDao(), db.transactionLabelDao(), db.utxoMetadataDao(), SettingsManager(context))
+                val original = db.utxoMetadataDao().getForWallet("a").toSet()
+                assertEquals(2, original.size)
+                assertEquals(true, db.utxoMetadataDao().getByOutpoint("a", OUTPOINT)?.isFrozen)
+                val document = manager.exportStateBackupJson()
+                db.utxoMetadataDao().deleteForWallet("a")
+                assertEquals(2, manager.importStateBackupJson(document).importedUtxoMetadata)
+                assertEquals(original, db.utxoMetadataDao().getForWallet("a").toSet())
+                assertFalse(db.utxoMetadataDao().toggleFrozen("a", OUTPOINT))
+                assertTrue(db.utxoMetadataDao().getForWallet("a").none { it.isFrozen })
+                assertEquals(original.map { it.label }.toSet(), db.utxoMetadataDao().getForWallet("a").map { it.label }.toSet())
+            } finally { db.close() }
+        }
+    }
+
     @Test fun unsupportedOldSchemasFailClosedWithoutReset() = runBlocking {
         // The application never supplied 2 -> 3. Do not invent a destructive shortcut.
         for (version in listOf(1, 2)) fixture(version) { name, factory ->

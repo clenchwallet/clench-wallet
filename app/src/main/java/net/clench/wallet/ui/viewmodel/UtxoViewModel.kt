@@ -59,7 +59,7 @@ class UtxoViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val utxos = bitcoinRepository.listUnspent(walletId)
-                val metadata = utxoMetadataDao.getForWallet(walletId).associateBy { it.outpoint }
+                val metadata = utxoMetadataDao.getProjectedForWallet(walletId).associateBy { it.outpoint }
 
                 val items = utxos.map { utxo ->
                     val op = "${utxo.txid}:${utxo.vout}"
@@ -123,7 +123,15 @@ class UtxoViewModel @Inject constructor(
 
     fun saveLabel() {
         val outpoint = _uiState.value.labelDialogOutpoint
-        val label = _uiState.value.labelDialogText.ifBlank { null }
+        val labelText = _uiState.value.labelDialogText
+        val originalLabel = _uiState.value.utxos.find { it.outpoint == outpoint }?.label
+        // Merely saving a projected multi-label display must not replace the raw
+        // legacy notes. Only an explicit text change edits all equivalent aliases.
+        if (labelText == (originalLabel ?: "")) {
+            dismissLabelDialog()
+            return
+        }
+        val label = labelText.ifBlank { null }
         val walletId = _uiState.value.walletId
 
         viewModelScope.launch {

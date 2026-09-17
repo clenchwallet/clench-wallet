@@ -422,7 +422,7 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun loadFrozenUtxoSummary(walletId: String): Pair<Long, Int> = withContext(Dispatchers.IO) {
-        val frozenOutpoints = utxoMetadataDao.getForWallet(walletId)
+        val frozenOutpoints = utxoMetadataDao.getProjectedForWallet(walletId)
             .filter { it.isFrozen }
             .map { it.outpoint }
             .toSet()

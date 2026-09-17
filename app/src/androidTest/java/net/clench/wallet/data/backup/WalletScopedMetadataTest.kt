@@ -7,6 +7,11 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
+import net.clench.wallet.domain.model.UtxoInfo
+import net.clench.wallet.domain.repository.BitcoinRepository
+import net.clench.wallet.ui.viewmodel.UtxoViewModel
 import net.clench.wallet.data.local.ClenchDatabase
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.local.entity.UtxoMetadataEntity
@@ -106,7 +111,7 @@ class WalletScopedMetadataTest {
         assertEquals("changed", db.utxoMetadataDao().getByOutpoint("a", OUTPOINT)?.label)
     }
 
-    @Test fun invalidOwnerAndConflictingCanonicalOutpointsRejectBeforeWrites() = isolated { manager, db ->
+    @Test fun invalidOwnerAndDuplicateRawOutpointsRejectBeforeWrites() = isolated { manager, db ->
         for (invalid in listOf("missing", "", "../a")) {
             val document = backup(wallet("a", FIRST, SECOND), true)
             document.getJSONArray("utxoMetadata").put(JSONObject().put("walletId", invalid).put("outpoint", OUTPOINT))
@@ -114,7 +119,7 @@ class WalletScopedMetadataTest {
             assertTrue(db.walletDao().getAll().isEmpty())
         }
         val document = backup(wallet("a", FIRST, SECOND), true)
-        document.getJSONArray("utxoMetadata").put(JSONObject().put("walletId", "a").put("outpoint", "${"a".repeat(64)}:00"))
+        document.getJSONArray("utxoMetadata").put(JSONObject().put("walletId", "a").put("outpoint", OUTPOINT))
         assertTrue(runCatching { manager.importStateBackupJson(document.toString()) }.isFailure)
         assertTrue(db.walletDao().getAll().isEmpty())
     }
@@ -154,6 +159,35 @@ class WalletScopedMetadataTest {
         invalid.getJSONArray("utxoMetadata").getJSONObject(0).put("outpoint", "${"a".repeat(64)}:4294967296")
         assertTrue(runCatching { manager.importStateBackupJson(invalid.toString()) }.isFailure)
         assertNull(db.walletDao().getById("b"))
+    }
+
+    @Test fun legacyAliasFreezeAppearsInUiAndExplicitUnfreezeClearsOnlyItsWallet() = isolated { _, db ->
+        val alias = "${"A".repeat(64)}:00"
+        db.utxoMetadataDao().upsert(UtxoMetadataEntity(OUTPOINT, "a", "first label", false))
+        db.utxoMetadataDao().upsert(UtxoMetadataEntity(alias, "a", "second label", true))
+        db.utxoMetadataDao().upsert(UtxoMetadataEntity(alias, "b", "other wallet", true))
+        val repository = java.lang.reflect.Proxy.newProxyInstance(BitcoinRepository::class.java.classLoader,
+            arrayOf(BitcoinRepository::class.java)) { _, method, _ ->
+            check(method.name == "listUnspent") { "Unexpected repository access: ${method.name}" }
+            listOf(UtxoInfo("a".repeat(64), 0u, 1000, null, 0, false, "EXTERNAL"))
+        } as BitcoinRepository
+        val viewModel = UtxoViewModel(repository, db.utxoMetadataDao())
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync { viewModel.load("a") }
+        val shown = withTimeout(5000) { viewModel.uiState.first { !it.isLoading && it.utxos.size == 1 } }.utxos.single()
+        assertTrue(shown.isFrozen)
+        assertTrue(shown.label!!.contains("first label") && shown.label.contains("second label"))
+        instrumentation.runOnMainSync { viewModel.showLabelDialog(OUTPOINT); viewModel.saveLabel() }
+        assertEquals(setOf("first label", "second label"), db.utxoMetadataDao().getForWallet("a").map { it.label }.toSet())
+        instrumentation.runOnMainSync { viewModel.toggleFreeze(OUTPOINT) }
+        withTimeout(5000) { viewModel.uiState.first { !it.utxos.single().isFrozen } }
+        assertTrue(db.utxoMetadataDao().getForWallet("a").none { it.isFrozen })
+        assertEquals(setOf("first label", "second label"), db.utxoMetadataDao().getForWallet("a").map { it.label }.toSet())
+        assertEquals(true, db.utxoMetadataDao().getByOutpoint("b", OUTPOINT)?.isFrozen)
+        db.utxoMetadataDao().upsertLabel("a", OUTPOINT, "explicit replacement")
+        assertEquals(setOf("explicit replacement"), db.utxoMetadataDao().getForWallet("a").map { it.label }.toSet())
+        assertEquals("other wallet", db.utxoMetadataDao().getByOutpoint("b", OUTPOINT)?.label)
+        instrumentation.runOnMainSync { viewModel.clear() }
     }
 
     private fun backup(wallet: WalletEntity, frozen: Boolean) = JSONObject()

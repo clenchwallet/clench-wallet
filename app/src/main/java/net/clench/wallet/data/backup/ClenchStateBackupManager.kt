@@ -3,6 +3,7 @@ package net.clench.wallet.data.backup
 import android.util.Base64
 import androidx.room.withTransaction
 import net.clench.wallet.data.local.ClenchDatabase
+import net.clench.wallet.data.local.UtxoMetadataPolicy
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.local.dao.TransactionLabelDao
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
@@ -224,7 +225,7 @@ class ClenchStateBackupManager @Inject constructor(
             val targetWalletId = requireNotNull(walletIdMap[item.getString("walletId")]) { "Backup record has no mapped wallet." }
             // Unknown/spent outpoints are intentionally allowed offline. They are
             // policy/labels for this validated wallet only, not proof of ownership.
-            val outpoint = canonicalOutpoint(item.getString("outpoint"))
+            val outpoint = validatedRawOutpoint(item.getString("outpoint"))
             utxoMetadataDao.upsert(
                 UtxoMetadataEntity(
                     outpoint = outpoint,
@@ -266,9 +267,9 @@ class ClenchStateBackupManager @Inject constructor(
         val seen = mutableSetOf<Pair<String, String>>()
         for (i in 0 until metadata.length()) {
             val item = metadata.getJSONObject(i)
-            val outpoint = canonicalOutpoint(item.getString("outpoint"))
+            val outpoint = validatedRawOutpoint(item.getString("outpoint"))
             require(seen.add(item.getString("walletId") to outpoint)) {
-                "Backup contains duplicate metadata for one wallet outpoint."
+                "Backup contains duplicate metadata for one wallet outpoint spelling."
             }
             require(!item.has("isFrozen") || item.get("isFrozen") is Boolean) {
                 "Backup contains an invalid frozen state."
@@ -276,11 +277,11 @@ class ClenchStateBackupManager @Inject constructor(
         }
     }
 
-    private fun canonicalOutpoint(outpoint: String): String {
-        require(outpoint.matches(OUTPOINT_REGEX)) { "Backup contains an invalid outpoint." }
-        val index = outpoint.substringAfter(':').toLong()
-        require(index <= 0xffffffffL) { "Backup contains an invalid outpoint index." }
-        return "${outpoint.substringBefore(':').lowercase()}:$index"
+    private fun validatedRawOutpoint(outpoint: String): String {
+        requireNotNull(UtxoMetadataPolicy.canonicalOutpoint(outpoint)) { "Backup contains an invalid outpoint." }
+        // Legacy spellings may carry distinct labels. Preserve every raw row for a
+        // lossless roundtrip; DAO/UI/policy project aliases onto canonical coin identity.
+        return outpoint
     }
 
     private fun validateBackupWalletIds(wallets: JSONArray) {
@@ -364,7 +365,6 @@ class ClenchStateBackupManager @Inject constructor(
         private val PRIVATE_EXTENDED_KEY_REGEX = Regex("(?i)[xyzuvt]prv[1-9A-HJ-NP-Za-km-z]+")
         private val WIF_REGEX = Regex("(?:^|[^1-9A-HJ-NP-Za-km-z])[KL5c9][1-9A-HJ-NP-Za-km-z]{50,51}(?:$|[^1-9A-HJ-NP-Za-km-z])")
         private val TXID_REGEX = Regex("(?i)^[0-9a-f]{64}$")
-        private val OUTPOINT_REGEX = Regex("(?i)^[0-9a-f]{64}:[0-9]{1,10}$")
 
         internal fun containsPrivateKeyMaterial(descriptor: String): Boolean =
             PRIVATE_EXTENDED_KEY_REGEX.containsMatchIn(descriptor) || WIF_REGEX.containsMatchIn(descriptor)
