@@ -2,6 +2,7 @@ package net.clench.wallet.data.repository
 
 import java.math.BigInteger
 import java.security.MessageDigest
+import net.clench.wallet.domain.model.MultisigAccountKey
 
 /**
  * Enforces policy invariants that are easy for a descriptor parser to accept
@@ -11,6 +12,24 @@ internal object MultisigDescriptorSafety {
     private val multisigFunction = Regex("""(?i)(?:sortedmulti|multi)\(""")
     private const val BASE58_ALPHABET =
         "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+    /** Call on native-serialized descriptors, before creating files or saving any wallet state. */
+    fun requireExpectedPolicy(descriptor: String, threshold: Int, accountKeys: List<String>, branch: Int) {
+        val match = Regex("""^wsh\(sortedmulti\(([0-9]+),([^()]+)\)\)$""")
+            .matchEntire(descriptor.substringBefore('#'))
+            ?: throw IllegalArgumentException("Native multisig policy is not the requested native SegWit policy")
+        val keys = match.groupValues[2].split(',')
+        require(match.groupValues[1].toIntOrNull() == threshold && keys.size == accountKeys.size) {
+            "Native multisig threshold or signer count differs from the requested policy"
+        }
+        require(keys.all { it.endsWith("/$branch/*") }) { "Native multisig derivation branch differs from the requested policy" }
+        val actual = keys.map { MultisigAccountKey.parse(it) }
+        val expected = accountKeys.map { MultisigAccountKey.parse(it) }
+        require(actual.map { it.identity }.distinct().size == actual.size &&
+            actual.map { it.expression }.toSet() == expected.map { it.expression }.toSet()) {
+            "Native multisig signer set differs from the requested policy"
+        }
+    }
 
     fun validate(descriptor: String) {
         val withoutChecksum = descriptor.substringBefore('#').trim()

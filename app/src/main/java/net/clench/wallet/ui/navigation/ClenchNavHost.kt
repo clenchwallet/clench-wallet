@@ -656,7 +656,7 @@ fun ClenchNavHost(navController: NavHostController) {
                             isCancelling = !isBumping
                             try {
                                 val repo = homeViewModel.bitcoinRepository
-                                repo.broadcastTransaction(homeViewModel.settingsManager.loadElectrumConfig(), reviewedHex)
+                                repo.broadcastTransaction(homeViewModel.settingsManager.loadElectrumConfig(), reviewedHex, walletId)
                                 replacementTxHex = null
                                 replacementReview = null
                                 navController.popBackStack()

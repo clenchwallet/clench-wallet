@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.screens
 
+import net.clench.wallet.domain.model.Bip39Passphrase
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -174,7 +175,7 @@ fun PassphraseUnlockScreen(
             Button(
                 onClick = { viewModel.unlock() },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.passphrase.isNotEmpty() && !uiState.isLoading
+                enabled = Bip39Passphrase.isPresent(uiState.passphrase) && !uiState.isLoading
             ) {
                 if (uiState.isLoading) {
                     CircularProgressIndicator(

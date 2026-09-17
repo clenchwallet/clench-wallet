@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
-import net.clench.wallet.data.local.entity.UtxoMetadataEntity
 import net.clench.wallet.domain.model.UtxoInfo
 import net.clench.wallet.domain.repository.BitcoinRepository
 import javax.inject.Inject
@@ -60,7 +59,7 @@ class UtxoViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val utxos = bitcoinRepository.listUnspent(walletId)
-                val metadata = utxoMetadataDao.getForWallet(walletId).associateBy { it.outpoint }
+                val metadata = utxoMetadataDao.getProjectedForWallet(walletId).associateBy { it.outpoint }
 
                 val items = utxos.map { utxo ->
                     val op = "${utxo.txid}:${utxo.vout}"
@@ -96,16 +95,7 @@ class UtxoViewModel @Inject constructor(
     fun toggleFreeze(outpoint: String) {
         val walletId = _uiState.value.walletId
         viewModelScope.launch {
-            val current = utxoMetadataDao.getByOutpoint(outpoint)
-            val newFrozen = !(current?.isFrozen ?: false)
-            utxoMetadataDao.upsert(
-                UtxoMetadataEntity(
-                    outpoint = outpoint,
-                    walletId = walletId,
-                    label = current?.label,
-                    isFrozen = newFrozen
-                )
-            )
+            val newFrozen = utxoMetadataDao.toggleFrozen(walletId, outpoint)
             _uiState.update { state ->
                 state.copy(utxos = state.utxos.map {
                     if (it.outpoint == outpoint) it.copy(isFrozen = newFrozen, isSelected = false) else it
@@ -133,19 +123,19 @@ class UtxoViewModel @Inject constructor(
 
     fun saveLabel() {
         val outpoint = _uiState.value.labelDialogOutpoint
-        val label = _uiState.value.labelDialogText.ifBlank { null }
+        val labelText = _uiState.value.labelDialogText
+        val originalLabel = _uiState.value.utxos.find { it.outpoint == outpoint }?.label
+        // Merely saving a projected multi-label display must not replace the raw
+        // legacy notes. Only an explicit text change edits all equivalent aliases.
+        if (labelText == (originalLabel ?: "")) {
+            dismissLabelDialog()
+            return
+        }
+        val label = labelText.ifBlank { null }
         val walletId = _uiState.value.walletId
 
         viewModelScope.launch {
-            val current = utxoMetadataDao.getByOutpoint(outpoint)
-            utxoMetadataDao.upsert(
-                UtxoMetadataEntity(
-                    outpoint = outpoint,
-                    walletId = walletId,
-                    label = label,
-                    isFrozen = current?.isFrozen ?: false
-                )
-            )
+            utxoMetadataDao.upsertLabel(walletId, outpoint, label)
             _uiState.update { state ->
                 state.copy(
                     showLabelDialog = false,

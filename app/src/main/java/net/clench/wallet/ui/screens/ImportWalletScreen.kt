@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.screens
 
+import net.clench.wallet.domain.model.Bip39Passphrase
 import android.app.Activity
 import android.net.Uri
 import android.nfc.NfcAdapter
@@ -1216,6 +1217,14 @@ fun ImportWalletScreen(
                             }
                         )
 
+                        if (Bip39Passphrase.isPresent(uiState.passphrase) && uiState.passphrase.isBlank()) {
+                            Text(
+                                "Spaces and tabs are part of this wallet's passphrase. Earlier versions could import whitespace as an empty passphrase. " +
+                                    "Existing wallets are unchanged; verify the fingerprint and receive address before funding.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+
                         // Fingerprint — shown when valid seed is entered
                         uiState.fingerprintBytes?.let { fpBytes ->
                             Spacer(modifier = Modifier.height(16.dp))
@@ -1261,7 +1270,7 @@ fun ImportWalletScreen(
                                 dismissIme()
                                 viewModel.setWalletName(namePromptText.trim())
                                 showNamePrompt = false
-                                if (isSeedPhrase && uiState.passphrase.isNotBlank() && !hardwareWalletMode) {
+                                if (isSeedPhrase && Bip39Passphrase.isPresent(uiState.passphrase) && !hardwareWalletMode) {
                                     showPassphraseConfirmDialog = true
                                 } else {
                                     viewModel.importWallet(onWalletImported)
@@ -1277,7 +1286,7 @@ fun ImportWalletScreen(
                                 dismissIme()
                                 viewModel.setWalletName(suggestedName)
                                 showNamePrompt = false
-                                if (isSeedPhrase && uiState.passphrase.isNotBlank() && !hardwareWalletMode) {
+                                if (isSeedPhrase && Bip39Passphrase.isPresent(uiState.passphrase) && !hardwareWalletMode) {
                                     showPassphraseConfirmDialog = true
                                 } else {
                                     viewModel.importWallet(onWalletImported)
@@ -1341,7 +1350,7 @@ fun ImportWalletScreen(
                     if (uiState.walletName.isBlank()) {
                         namePromptText = suggestedName
                         showNamePrompt = true
-                    } else if (isSeedPhrase && uiState.passphrase.isNotBlank() && !hardwareWalletMode) {
+                    } else if (isSeedPhrase && Bip39Passphrase.isPresent(uiState.passphrase) && !hardwareWalletMode) {
                         showPassphraseConfirmDialog = true
                     } else {
                         viewModel.importWallet(onWalletImported)

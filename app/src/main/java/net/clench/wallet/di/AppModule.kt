@@ -99,7 +99,7 @@ object DatabaseModule {
         }
 
         return builder
-            .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4, ClenchDatabase.MIGRATION_4_5, ClenchDatabase.MIGRATION_5_6, ClenchDatabase.MIGRATION_6_7, ClenchDatabase.MIGRATION_7_8, ClenchDatabase.MIGRATION_8_9, ClenchDatabase.MIGRATION_9_10, ClenchDatabase.MIGRATION_10_11, ClenchDatabase.MIGRATION_11_12, ClenchDatabase.MIGRATION_12_13)
+            .addMigrations(ClenchDatabase.MIGRATION_1_2, ClenchDatabase.MIGRATION_3_4, ClenchDatabase.MIGRATION_4_5, ClenchDatabase.MIGRATION_5_6, ClenchDatabase.MIGRATION_6_7, ClenchDatabase.MIGRATION_7_8, ClenchDatabase.MIGRATION_8_9, ClenchDatabase.MIGRATION_9_10, ClenchDatabase.MIGRATION_10_11, ClenchDatabase.MIGRATION_11_12, ClenchDatabase.MIGRATION_12_13, ClenchDatabase.MIGRATION_13_14)
             // [S-1] SECURITY: remove destructive migration fallback entirely.
             // With Room 2.6.1, the compatible fail-closed approach is simply to avoid
             // fallbackToDestructiveMigration() so missing/invalid migrations throw.

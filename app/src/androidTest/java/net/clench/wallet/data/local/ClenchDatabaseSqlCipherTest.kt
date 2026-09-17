@@ -153,7 +153,8 @@ class ClenchDatabaseSqlCipherTest {
                 ClenchDatabase.MIGRATION_9_10,
                 ClenchDatabase.MIGRATION_10_11,
                 ClenchDatabase.MIGRATION_11_12,
-                ClenchDatabase.MIGRATION_12_13
+                ClenchDatabase.MIGRATION_12_13,
+                ClenchDatabase.MIGRATION_13_14
             )
             .build()
 

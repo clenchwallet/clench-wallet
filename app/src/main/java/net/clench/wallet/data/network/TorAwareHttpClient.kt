@@ -28,28 +28,29 @@ class TorAwareHttpClient @Inject constructor(
         connectTimeoutMs: Int = 5_000,
         readTimeoutMs: Int = 10_000
     ): String {
-        val conn = if (settingsManager.isTorEnabled()) {
-            val proxyHost = settingsManager.getTorProxyHost()
-            val proxyPort = settingsManager.getTorProxyPort()
-            val proxy = java.net.Proxy(
-                java.net.Proxy.Type.SOCKS,
-                java.net.InetSocketAddress(proxyHost, proxyPort)
-            )
-            java.net.URL(url).openConnection(proxy) as java.net.HttpURLConnection
-        } else {
-            java.net.URL(url).openConnection() as java.net.HttpURLConnection
-        }
+        val lease = settingsManager.networkAccess.begin()
+        try {
+        lease.requireCurrent()
+        val target = java.net.URL(url)
+        require(target.protocol == "https" || target.protocol == "http") { "Unsupported HTTP URL" }
+        val upstreamProxy = if (settingsManager.isTorEnabled()) {
+            java.net.Proxy(java.net.Proxy.Type.SOCKS,
+                java.net.InetSocketAddress(settingsManager.getTorProxyHost(), settingsManager.getTorProxyPort()))
+        } else null
+        val tunnel = CancellableHttpTunnel(target, lease, upstreamProxy, connectTimeoutMs, readTimeoutMs)
+        val conn = target.openConnection(tunnel.proxy) as java.net.HttpURLConnection
 
+        lease.register { conn.disconnect() }
+        conn.instanceFollowRedirects = false // Follow-ups require fresh route/admission review.
         conn.connectTimeout = connectTimeoutMs
         conn.readTimeout = readTimeoutMs
-        return fetchWithConnection(conn)
-    }
-
-    private fun fetchWithConnection(conn: java.net.HttpURLConnection): String {
-        return try {
-            conn.inputStream.bufferedReader().use { it.readTextBounded(MAX_HTTP_RESPONSE_CHARS) }
+        lease.requireCurrent()
+        check(conn.responseCode in 200..299) { "HTTP request did not succeed" }
+        val body = conn.inputStream.bufferedReader().use { it.readTextBounded(MAX_HTTP_RESPONSE_CHARS) }
+        lease.requireCurrent()
+        return body
         } finally {
-            conn.disconnect()
+            lease.close()
         }
     }
 

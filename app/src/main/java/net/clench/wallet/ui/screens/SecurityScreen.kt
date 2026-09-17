@@ -21,6 +21,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import net.clench.wallet.security.AuthenticationGate
 import net.clench.wallet.ui.util.BiometricHelper
 import net.clench.wallet.ui.util.SecureWindowEffect
@@ -58,9 +61,26 @@ fun SecurityScreen(
     var verifyPinError by remember { mutableStateOf<String?>(null) }
     var showVerifyPin by remember { mutableStateOf(false) }
     var securityError by remember { mutableStateOf<String?>(null) }
+    var showTimeoutPin by remember { mutableStateOf(false) }
+    var timeoutPin by remember { mutableStateOf("") }
+    var timeoutPinError by remember { mutableStateOf<String?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    DisposableEffect(viewModel) {
-        onDispose { viewModel.cancelAuthenticationGateChange() }
+    DisposableEffect(viewModel, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                viewModel.cancelLockTimeoutChange()
+                showTimeoutPin = false
+                timeoutPin = ""
+                timeoutPinError = null
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.cancelAuthenticationGateChange()
+            viewModel.cancelLockTimeoutChange()
+        }
     }
 
     fun changeGate(gate: AuthenticationGate, enabled: Boolean) {
@@ -74,6 +94,9 @@ fun SecurityScreen(
 
     // Helper: attempt a mode change, verifying current auth first if needed
     fun attemptModeChange(newMode: String) {
+        viewModel.cancelLockTimeoutChange()
+        showTimeoutPin = false
+        timeoutPin = ""
         securityError = null
         when (uiState.appLockMode) {
             "pin" -> {
@@ -340,11 +363,58 @@ fun SecurityScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 listOf("30s" to "30 seconds", "1min" to "1 minute", "5min" to "5 minutes", "never" to "Never").forEach { (key, label) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = uiState.lockTimeoutKey == key, onClick = { viewModel.setLockTimeout(key) })
+                        RadioButton(
+                            selected = uiState.lockTimeoutKey == key,
+                            modifier = Modifier.semantics { contentDescription = "Auto-lock after $label" },
+                            onClick = {
+                                securityError = null
+                                timeoutPin = ""
+                                timeoutPinError = null
+                                showTimeoutPin = false
+                                viewModel.requestLockTimeoutChange(key, fragmentActivity,
+                                    onPinRequired = { showTimeoutPin = true },
+                                    onError = { securityError = it })
+                            }
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(label)
                     }
                 }
+            }
+
+            if (showTimeoutPin) {
+                fun cancelTimeout() {
+                    viewModel.cancelLockTimeoutChange()
+                    showTimeoutPin = false
+                    timeoutPin = ""
+                    timeoutPinError = null
+                }
+                AlertDialog(
+                    onDismissRequest = { cancelTimeout() },
+                    title = { Text("Verify auto-lock change") },
+                    text = {
+                        Column {
+                            Text("Enter your current Clench PIN to delay background locking.")
+                            OutlinedTextField(
+                                value = timeoutPin,
+                                onValueChange = { timeoutPin = it.filter(Char::isDigit).take(12) },
+                                label = { Text("Current PIN") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                singleLine = true
+                            )
+                            timeoutPinError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            timeoutPinError = viewModel.confirmLockTimeoutPin(timeoutPin.toCharArray())
+                            timeoutPin = ""
+                            if (timeoutPinError == null) showTimeoutPin = false
+                        }) { Text("Verify") }
+                    },
+                    dismissButton = { OutlinedButton(onClick = { cancelTimeout() }) { Text("Cancel") } }
+                )
             }
 
             Spacer(modifier = Modifier.height(32.dp))

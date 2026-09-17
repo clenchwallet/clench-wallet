@@ -1,5 +1,6 @@
 package net.clench.wallet.data.repository
 
+import net.clench.wallet.domain.model.Bip39Passphrase
 import android.content.Context
 import android.util.Base64
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -10,6 +11,8 @@ import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.network.BoundedBlockingCall
 import net.clench.wallet.data.network.TorAwareHttpClient
+import net.clench.wallet.domain.model.MultisigAccountKey
+import net.clench.wallet.domain.model.SignerAccountKeyParser
 import net.clench.wallet.domain.model.ScriptType
 import net.clench.wallet.data.local.dao.TransactionDao
 import net.clench.wallet.data.local.dao.TransactionLabelDao
@@ -570,7 +573,7 @@ class BdkBitcoinRepository @Inject constructor(
                 walletMnemonicGenerator.generate(wordCount)
             }
             val walletMnemonicWords = mnemonicWords ?: mnemonic.toString().split(" ")
-            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonic, passphrase ?: "")
+            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonic, Bip39Passphrase.value(passphrase))
             descriptors = createDescriptorPair(
                 createExternal = {
                     ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
@@ -583,8 +586,8 @@ class BdkBitcoinRepository @Inject constructor(
             val changeDescriptor = descriptors.second
             val publicDescriptor = externalDescriptor.toString()
             val publicChangeDescriptor = changeDescriptor.toString()
-            val secretDescriptor = if (passphrase.isNullOrBlank()) externalDescriptor.toStringWithSecret() else null
-            val secretChangeDescriptor = if (passphrase.isNullOrBlank()) changeDescriptor.toStringWithSecret() else null
+            val secretDescriptor = if (!Bip39Passphrase.isPresent(passphrase)) externalDescriptor.toStringWithSecret() else null
+            val secretChangeDescriptor = if (!Bip39Passphrase.isPresent(passphrase)) changeDescriptor.toStringWithSecret() else null
 
             // Generate wallet ID
             val walletId = UUID.randomUUID().toString()
@@ -595,7 +598,10 @@ class BdkBitcoinRepository @Inject constructor(
             descriptors = null
             val entry = createWalletEntryFromDescriptors(
                 descriptors = ownedDescriptors,
-                createPersister = { Persister.newSqlite(dbPath) },
+                createPersister = {
+                    if (Bip39Passphrase.isPresent(passphrase)) Persister.newInMemory()
+                    else Persister.newSqlite(dbPath)
+                },
                 createWallet = { external, change, persister ->
                     Wallet(external, change, network, persister)
                 }
@@ -623,10 +629,13 @@ class BdkBitcoinRepository @Inject constructor(
                 isMultisig = false,
                 createdAtEpochMs = System.currentTimeMillis(),
                 network = activeNetwork,
-                hasPassphrase = !passphrase.isNullOrBlank(),
+                hasPassphrase = Bip39Passphrase.isPresent(passphrase),
                 identiconBytes = identiconBytes
             )
             walletDao.insert(walletEntity)
+            // Import/create returns a locked passphrase wallet; never retain its secret session
+            // or write its derivation-dependent graph to disk before explicit unlock.
+            if (Bip39Passphrase.isPresent(passphrase)) evictWallet(walletId, lease)
 
             val walletData = WalletData(
                 id = walletId,
@@ -637,7 +646,7 @@ class BdkBitcoinRepository @Inject constructor(
                 isMultisig = false,
                 createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
                 network = activeNetwork,
-                hasPassphrase = !passphrase.isNullOrBlank()
+                hasPassphrase = Bip39Passphrase.isPresent(passphrase)
             )
 
             Pair(walletMnemonicWords, walletData)
@@ -668,7 +677,7 @@ class BdkBitcoinRepository @Inject constructor(
         var descriptors: Pair<Descriptor, Descriptor>? = null
         try {
             mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
-            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonicObj, passphrase ?: "")
+            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonicObj, Bip39Passphrase.value(passphrase))
             descriptors = createDescriptorPair(
                 createExternal = {
                     ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
@@ -697,7 +706,10 @@ class BdkBitcoinRepository @Inject constructor(
             descriptors = null
             val entry = createWalletEntryFromDescriptors(
                 descriptors = ownedDescriptors,
-                createPersister = { Persister.newSqlite(dbPath) },
+                createPersister = {
+                    if (Bip39Passphrase.isPresent(passphrase)) Persister.newInMemory()
+                    else Persister.newSqlite(dbPath)
+                },
                 createWallet = { external, change, persister ->
                     Wallet(external, change, network, persister)
                 }
@@ -705,39 +717,44 @@ class BdkBitcoinRepository @Inject constructor(
             cacheWallet(walletId, entry, lease)
 
             try {
-            keystoreManager.storeWalletSecrets(
-                walletId = walletId,
-                mnemonic = mnemonic.joinToString(" "),
-                secretDescriptor = secretDescriptor.takeIf { passphrase.isNullOrBlank() },
-                secretChangeDescriptor = secretChangeDescriptor.takeIf { passphrase.isNullOrBlank() }
-            )
+                keystoreManager.storeWalletSecrets(
+                    walletId = walletId,
+                    mnemonic = mnemonic.joinToString(" "),
+                    secretDescriptor = secretDescriptor.takeIf { !Bip39Passphrase.isPresent(passphrase) },
+                    secretChangeDescriptor = secretChangeDescriptor.takeIf { !Bip39Passphrase.isPresent(passphrase) }
+                )
 
-            val activeNetwork = settingsManager.getNetwork()
-            val identiconBytes = computeIdenticonBytes(publicDescriptor, passphrase)
-            val walletEntity = WalletEntity(
-                id = walletId,
-                name = name,
-                descriptor = publicDescriptor,
-                changeDescriptor = publicChangeDescriptor,
-                isWatchOnly = false,
-                isMultisig = false,
-                createdAtEpochMs = System.currentTimeMillis(),
-                network = activeNetwork,
-                hasPassphrase = !passphrase.isNullOrBlank(),
-                identiconBytes = identiconBytes
-            )
-            walletDao.insert(walletEntity)
+                val activeNetwork = settingsManager.getNetwork()
+                val identiconBytes = computeIdenticonBytes(publicDescriptor, passphrase)
+                val walletEntity = WalletEntity(
+                    id = walletId,
+                    name = name,
+                    descriptor = publicDescriptor,
+                    changeDescriptor = publicChangeDescriptor,
+                    isWatchOnly = false,
+                    isMultisig = false,
+                    createdAtEpochMs = System.currentTimeMillis(),
+                    network = activeNetwork,
+                    hasPassphrase = Bip39Passphrase.isPresent(passphrase),
+                    identiconBytes = identiconBytes
+                )
+                walletDao.insert(walletEntity)
+                // Import/create returns a locked passphrase wallet; never retain its secret session
+                // or write its derivation-dependent graph to disk before explicit unlock.
+                if (Bip39Passphrase.isPresent(passphrase)) {
+                    evictWallet(walletId, lease)
+                }
 
                 WalletData(
-                id = walletId,
-                name = name,
-                descriptor = publicDescriptor,
-                changeDescriptor = publicChangeDescriptor,
-                isWatchOnly = false,
-                isMultisig = false,
-                createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
-                network = activeNetwork,
-                hasPassphrase = !passphrase.isNullOrBlank()
+                    id = walletId,
+                    name = name,
+                    descriptor = publicDescriptor,
+                    changeDescriptor = publicChangeDescriptor,
+                    isWatchOnly = false,
+                    isMultisig = false,
+                    createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
+                    network = activeNetwork,
+                    hasPassphrase = Bip39Passphrase.isPresent(passphrase)
                 )
             } catch (e: Exception) {
                 discardFailedWalletCreation(walletId, lease)
@@ -885,7 +902,7 @@ class BdkBitcoinRepository @Inject constructor(
         var descriptors: Pair<Descriptor, Descriptor>? = null
         try {
             mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
-            val passphraseValue = passphrase.orEmpty()
+            val passphraseValue = Bip39Passphrase.value(passphrase)
             secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonicObj, passphraseValue)
             val scriptType = ScriptType.fromDescriptor(walletEntity.descriptor)
             descriptors = createDescriptorPair(
@@ -915,7 +932,7 @@ class BdkBitcoinRepository @Inject constructor(
                 throw IllegalArgumentException("That seed phrase does not match this watch-only wallet")
             }
 
-            val hasPassphrase = !passphrase.isNullOrBlank()
+            val hasPassphrase = Bip39Passphrase.isPresent(passphrase)
             keystoreManager.storeWalletSecrets(
                 walletId = walletId,
                 mnemonic = mnemonic.joinToString(" "),
@@ -928,6 +945,12 @@ class BdkBitcoinRepository @Inject constructor(
             // Evict the public-only cached wallet so future signing loads the secret descriptors.
             evictWallet(walletId, lease)
             if (hasPassphrase) {
+                // The formerly watch-only view may have a persisted graph. Do not retain it
+                // once the user explicitly chooses passphrase-ephemeral operation.
+                transactionDao.deleteForWallet(walletId)
+                check(PassphraseWalletCacheCleanup.deleteAndFindRemaining(
+                    context.getDatabasePath("wallet_${walletId}.db")
+                ).isEmpty()) { "Passphrase wallet cache cleanup failed; unlock again after restoring storage access" }
                 val ownedDescriptors = checkNotNull(descriptors)
                 descriptors = null
                 val entry = createWalletEntryFromDescriptors(
@@ -1065,6 +1088,8 @@ class BdkBitcoinRepository @Inject constructor(
             return@withContext getBalanceUnderLease(walletId, lease)
         }
 
+        val networkToken = settingsManager.networkAccess.token()
+
         // Passphrase wallet guard — never sync using the public descriptor (xpub) wallet.
         // Syncing the xpub against Electrum reveals real UTXO/tx history in the locked state,
         // which leaks wallet activity before the passphrase is entered. Only sync after unlock.
@@ -1151,6 +1176,7 @@ class BdkBitcoinRepository @Inject constructor(
                 val request = fullScanRequest
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: starting fullScan (stopGap=20, batch=10)")
                 val scanFuture = executor.submit(java.util.concurrent.Callable {
+                    activeConnection.requireCurrent()
                     electrumClient.fullScan(
                         request,
                         stopGap = 20uL,
@@ -1166,10 +1192,10 @@ class BdkBitcoinRepository @Inject constructor(
                 )
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: fullScan complete, applying update")
 
-                wallet.applyUpdate(scanUpdate)
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: update applied, persisting")
-
-                wallet.persist(entry.persister)
+                settingsManager.networkAccess.commit(networkToken) {
+                    wallet.applyUpdate(scanUpdate)
+                    wallet.persist(entry.persister)
+                }
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: persisted OK")
             } catch (e: java.util.concurrent.TimeoutException) {
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: TIMEOUT for $walletId: ${e.message}")
@@ -1221,118 +1247,7 @@ class BdkBitcoinRepository @Inject constructor(
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tipHeight from wallet txs (fallback): $tipHeight")
             }
 
-            // Cache transactions to Room DB
-            val transactionEntities = transactions.map { canonicalTx ->
-                val tx = canonicalTx.transaction
-                val sentAndReceived = wallet.sentAndReceived(tx)
-                val sent = sentAndReceived.sent.toSat()
-                val received = sentAndReceived.received.toSat()
-
-                // Determine direction and amount
-                val (direction, amount) = if (received > sent) {
-                    TxDirection.RECEIVED to (received - sent)
-                } else {
-                    TxDirection.SENT to (sent - received)
-                }
-
-                // R7-4: Get confirmation timestamp and calculate confirmations
-                val (timestampMs, confirmations) = when (val pos = canonicalTx.chainPosition) {
-                    is ChainPosition.Confirmed -> {
-                        val ts = pos.confirmationBlockTime.confirmationTime.toLong() * 1000L
-                        val txHeight = pos.confirmationBlockTime.blockId.height
-                        val confs = if (tipHeight >= txHeight) (tipHeight - txHeight + 1u).toInt() else 1
-                        // [S-4] Gate: txid fragments expose wallet activity
-                        if (logSensitive) {
-                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... CONFIRMED height=$txHeight confs=$confs")
-                        }
-                        Pair(ts, confs)
-                    }
-                    is ChainPosition.Unconfirmed -> {
-                        if (logSensitive) {
-                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNCONFIRMED lastSeen=${pos.timestamp}")
-                        }
-                        Pair(pos.timestamp?.let { it.toLong() * 1000L }, 0)
-                    }
-                    else -> {
-                        if (logSensitive) {
-                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNKNOWN pos=${pos.javaClass.simpleName}")
-                        }
-                        Pair(null, 0)
-                    }
-                }
-
-                // R7-5: Calculate fee if possible (may fail for watch-only wallets)
-                val feeSat: Long? = try {
-                    wallet.calculateFee(tx).toSat().toLong()
-                } catch (_: Exception) {
-                    null
-                }
-
-                TransactionEntity(
-                    txid = tx.computeTxid().toString(),
-                    walletId = walletId,
-                    amountSat = amount.toLong(),
-                    feeSat = feeSat,
-                    timestampEpochMs = timestampMs,
-                    confirmations = confirmations,
-                    direction = direction.name,
-                    address = null
-                )
-            }
-            // For watch-only wallets, BDK may report confirmed transactions as Unconfirmed.
-            // Fix up using Electrum server batch query (single TCP connection) or cached Room data.
-            val walletEntity = walletDao.getById(walletId)
-            val isWatchOnly = walletEntity?.isWatchOnly == true
-            val unconfirmedTxs = transactionEntities.filter { it.confirmations == 0 }
-            val fixedEntities = if (isWatchOnly && unconfirmedTxs.isNotEmpty() && !settingsManager.isOfflineMode()) {
-                // Check Room DB first — skip txs we already know are confirmed
-                val cachedTxs = transactionDao.getForWallet(walletId).associateBy { it.txid }
-                val trulyUnknown = unconfirmedTxs.filter { tx ->
-                    val cached = cachedTxs[tx.txid]
-                    cached == null || cached.confirmations == 0
-                }
-
-                if (trulyUnknown.isNotEmpty()) {
-                    // [S-4] Gate: tx count exposure
-                    if (logSensitive) {
-                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "Watch-only: ${unconfirmedTxs.size} unconfirmed, ${trulyUnknown.size} need lookup")
-                    }
-                    // Batch query via raw Electrum protocol (single socket, all txs)
-                    val txConfirmations = batchElectrumTxLookup(trulyUnknown.map { it.txid }, connectionStr, tipHeight)
-                    transactionEntities.map { txEntity ->
-                        val cached = cachedTxs[txEntity.txid]
-                        if (txEntity.confirmations == 0 && cached != null && cached.confirmations > 0) {
-                            // Use cached confirmation data, update confs relative to current tip
-                            txEntity.copy(
-                                confirmations = cached.confirmations,
-                                timestampEpochMs = cached.timestampEpochMs ?: txEntity.timestampEpochMs
-                            )
-                        } else if (txEntity.confirmations == 0 && txConfirmations.containsKey(txEntity.txid)) {
-                            val (blockHeight, blockTime) = txConfirmations[txEntity.txid]!!
-                            val confs = if (tipHeight > 0u && blockHeight > 0L) {
-                                (tipHeight.toLong() - blockHeight + 1).toInt().coerceAtLeast(1)
-                            } else 1
-                            txEntity.copy(
-                                confirmations = confs,
-                                timestampEpochMs = if (blockTime > 0L) blockTime * 1000L else txEntity.timestampEpochMs
-                            )
-                        } else txEntity
-                    }
-                } else {
-                    // All unconfirmed txs have cached confirmation data
-                    transactionEntities.map { txEntity ->
-                        val cached = cachedTxs[txEntity.txid]
-                        if (txEntity.confirmations == 0 && cached != null && cached.confirmations > 0) {
-                            txEntity.copy(
-                                confirmations = cached.confirmations,
-                                timestampEpochMs = cached.timestampEpochMs ?: txEntity.timestampEpochMs
-                            )
-                        } else txEntity
-                    }
-                }
-            } else transactionEntities
-
-            transactionDao.insertAll(fixedEntities)
+            cacheNativeHistoryFromSuccessfulSync(walletId, wallet, tipHeight, networkToken)
 
             // Return balance
             val balance = wallet.balance()
@@ -1349,6 +1264,83 @@ class BdkBitcoinRepository @Inject constructor(
             )
         }
         }
+    }
+
+    /** Cache the canonical graph after a completed native scan, never after a failed/partial scan.
+     * Kept as the shared production boundary so Android tests exercise native -> projection -> Room.
+     */
+    internal suspend fun cacheNativeHistoryFromSuccessfulSync(
+        walletId: String,
+        wallet: Wallet,
+        tipHeight: UInt,
+        networkToken: Long
+    ) {
+        val transactions = wallet.transactions()
+        // Cache transactions to Room DB
+        val transactionEntities = transactions.map { canonicalTx ->
+            val tx = canonicalTx.transaction
+            val sentAndReceived = wallet.sentAndReceived(tx)
+            val sent = sentAndReceived.sent.toSat()
+            val received = sentAndReceived.received.toSat()
+
+            // Determine direction and amount
+            val (direction, amount) = if (received > sent) {
+                TxDirection.RECEIVED to (received - sent)
+            } else {
+                TxDirection.SENT to (sent - received)
+            }
+
+            // R7-4: Get confirmation timestamp and calculate confirmations
+            val (timestampMs, confirmations) = when (val pos = canonicalTx.chainPosition) {
+                is ChainPosition.Confirmed -> {
+                    val ts = pos.confirmationBlockTime.confirmationTime.toLong() * 1000L
+                    val txHeight = pos.confirmationBlockTime.blockId.height
+                    val confs = if (tipHeight >= txHeight) (tipHeight - txHeight + 1u).toInt() else 1
+                    // [S-4] Gate: txid fragments expose wallet activity
+                    if (logSensitive) {
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... CONFIRMED height=$txHeight confs=$confs")
+                    }
+                    Pair(ts, confs)
+                }
+                is ChainPosition.Unconfirmed -> {
+                    if (logSensitive) {
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNCONFIRMED lastSeen=${pos.timestamp}")
+                    }
+                    Pair(pos.timestamp?.let { it.toLong() * 1000L }, 0)
+                }
+                else -> {
+                    if (logSensitive) {
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNKNOWN pos=${pos.javaClass.simpleName}")
+                    }
+                    Pair(null, 0)
+                }
+            }
+
+            // R7-5: Calculate fee if possible (may fail for watch-only wallets)
+            val feeSat: Long? = try {
+                wallet.calculateFee(tx).toSat().toLong()
+            } catch (_: Exception) {
+                null
+            }
+
+            TransactionEntity(
+                txid = tx.computeTxid().toString(),
+                walletId = walletId,
+                amountSat = amount.toLong(),
+                feeSat = feeSat,
+                timestampEpochMs = timestampMs,
+                confirmations = confirmations,
+                direction = direction.name,
+                address = null
+            )
+        }
+        // This block is reached only after a successful complete native scan.
+        // Canonical native chain positions are authoritative for every wallet type:
+        // never promote Unconfirmed using an old positive Room row or an optional
+        // verbose transaction lookup. A failed scan exits before touching history.
+        // Replace atomically so evicted/replaced transactions cannot survive forever.
+        settingsManager.networkAccess.requireCurrent(networkToken)
+        transactionDao.replaceFromSuccessfulSync(walletId, transactionEntities)
     }
 
     override suspend fun recoverWalletState(walletId: String, stopGap: UInt): WalletStateRecoveryResult =
@@ -1401,6 +1393,7 @@ class BdkBitcoinRepository @Inject constructor(
                     val wallet = replacementEntry.wallet
                     val persister = replacementEntry.persister
                     val electrumConfig = settingsManager.loadElectrumConfig()
+                    val networkToken = settingsManager.networkAccess.token()
                     val connectionTimeoutMs = if (electrumConfig.isCustom) 60_000L else 30_000L
                     val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
                     var activeConnection: net.clench.wallet.data.network.ActiveElectrumConnection? = null
@@ -1434,8 +1427,10 @@ class BdkBitcoinRepository @Inject constructor(
                             operation = "Electrum recovery scan",
                             onTimeout = { connection.cancelTransport() }
                         )
-                        wallet.applyUpdate(scanUpdate)
-                        wallet.persist(persister)
+                        settingsManager.networkAccess.commit(networkToken) {
+                            wallet.applyUpdate(scanUpdate)
+                            wallet.persist(persister)
+                        }
                     } finally {
                         activeConnection?.cancelTransport()
                         BoundedBlockingCall.shutdownAndAwaitTermination(
@@ -1585,6 +1580,64 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
+    private suspend fun frozenOutpoints(walletId: String): Set<String> =
+        utxoMetadataDao.getFrozenForWallet(walletId).map { FrozenInputPolicy.canonicalizeStoredOutpoint(it.outpoint) }.toSet()
+
+    private fun parsePolicyOutpoint(value: String): org.bitcoindevkit.OutPoint {
+        FrozenInputPolicy.requireCanonicalOutpoint(value)
+        val (txid, vout) = value.split(":")
+        return org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(txid), vout.toUInt())
+    }
+
+    private suspend fun applyInputPolicy(
+        walletId: String,
+        wallet: Wallet,
+        builder: TxBuilder,
+        selected: List<String>,
+        utxoTxid: String? = null,
+        utxoVout: UInt? = null,
+        forceManual: Boolean = false
+    ): TxBuilder {
+        require((utxoTxid == null) == (utxoVout == null)) { "Incomplete selected outpoint" }
+        val explicit = selected + listOfNotNull(utxoTxid?.let { "$it:$utxoVout" })
+        val frozen = frozenOutpoints(walletId)
+        FrozenInputPolicy.requireAllowed(explicit, frozen)
+        var restricted = builder.unspendable(frozen.map(::parsePolicyOutpoint))
+        if (explicit.isEmpty() && forceManual) {
+            for (utxo in wallet.listUnspent()) {
+                val outpoint = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
+                if (!utxo.isSpent && outpoint !in frozen) restricted = restricted.addUtxo(utxo.outpoint)
+            }
+            // addUtxo alone only mandates inclusion; it does not restrict optional inputs.
+            restricted = restricted.manuallySelectedOnly()
+        }
+        return restricted
+    }
+
+    private suspend fun signAllowedPsbt(walletId: String, wallet: Wallet, psbt: Psbt) {
+        try {
+            assertPsbtInputsAllowed(walletId, psbt)
+            wallet.sign(psbt)
+        } catch (failure: Exception) {
+            closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
+            throw failure
+        }
+    }
+
+    private suspend fun assertPsbtInputsAllowed(walletId: String, psbt: Psbt) {
+        val tx = psbt.extractTx()
+        try { assertTransactionInputsAllowed(walletId, tx) }
+        finally { closeSecretNativeResources(nativeCloseAction(tx) { it.close() }) }
+    }
+
+    private suspend fun assertTransactionInputsAllowed(walletId: String?, tx: Transaction) {
+        // Raw imports have no wallet identity: conservatively respect every local freeze.
+        // Scoped sends check only their wallet, so overlapping wallet views remain independent.
+        val ids = if (walletId != null) listOf(walletId) else walletDao.getAll().map { it.id }
+        val inputs = tx.input().map { "${it.previousOutput.txid}:${it.previousOutput.vout}" }
+        for (id in ids) FrozenInputPolicy.requireAllowed(inputs, frozenOutpoints(id))
+    }
+
     override suspend fun buildTransaction(
         walletId: String,
         toAddress: String,
@@ -1605,7 +1658,6 @@ class BdkBitcoinRepository @Inject constructor(
         // Must capture return values or chain calls. Never call methods without reassignment.
         val walletEntity = walletDao.getById(walletId)
         val isPassphraseWallet = walletEntity?.hasPassphrase == true
-        val hasManualUtxos = selectedOutpoints.isNotEmpty() || (utxoTxid != null && utxoVout != null)
 
         // Build transaction - handle drain single UTXO, drain selected UTXOs, drain wallet, or send specific amount
         var builder = when {
@@ -1664,38 +1716,18 @@ class BdkBitcoinRepository @Inject constructor(
             builder = builder.manuallySelectedOnly()
         }
 
-        // Passphrase wallets use in-memory BDK persisters (no persisted chain history),
-        // so BDK classifies all their UTXOs as untrustedPending. TxBuilder's default coin
-        // selection ignores untrustedPending UTXOs, causing "insufficient funds: 0 btc".
-        // Apply the same addUtxo() workaround used for watch-only wallets in createPsbt().
-        // Also filter frozen UTXOs when no explicit coin control is active.
-        if (!hasManualUtxos) {
-            val frozenOutpoints = try {
-                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-            } catch (_: Exception) { emptySet() }
-            val needsManualSelection = isPassphraseWallet || frozenOutpoints.isNotEmpty()
-            if (needsManualSelection) {
-                val utxos = wallet.listUnspent()
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "buildTransaction: manual UTXO selection (passphrase=$isPassphraseWallet, ${frozenOutpoints.size} frozen)")
-                for (utxo in utxos) {
-                    val opStr = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
-                    if (!utxo.isSpent && opStr !in frozenOutpoints) {
-                        builder = builder.addUtxo(utxo.outpoint)
-                    }
-                }
-                builder = builder.manuallySelectedOnly()
-            }
-        }
+        builder = applyInputPolicy(walletId, wallet, builder, selectedOutpoints,
+            utxoTxid, utxoVout, isPassphraseWallet)
 
         // Build and sign transaction
         val psbt = builder.finish(wallet)
-        wallet.sign(psbt)
+        signAllowedPsbt(walletId, wallet, psbt)
         return@withContext serializeFinalTransaction(psbt)
         }
         }
     }
 
-    override suspend fun broadcastTransaction(config: ElectrumConfig, txHex: String): String =
+    override suspend fun broadcastTransaction(config: ElectrumConfig, txHex: String, walletId: String?): String =
         withSensitiveWalletOperation { _ -> withContext(Dispatchers.IO) {
         if (settingsManager.isOfflineMode()) {
             throw IllegalStateException("Cannot broadcast in offline mode")
@@ -1706,6 +1738,7 @@ class BdkBitcoinRepository @Inject constructor(
         val tx = Transaction(txBytes)
 
         try {
+            assertTransactionInputsAllowed(walletId, tx)
             broadcastTransactionBounded(config, tx)
         } finally {
             closeSecretNativeResources(nativeCloseAction(tx) { it.close() })
@@ -2197,12 +2230,28 @@ class BdkBitcoinRepository @Inject constructor(
         val wallet = entry.wallet
         val feeRate = validatedFeeRate(newFeeRate)
 
+        // Verify metadata availability before mutating the native builder state.
+        frozenOutpoints(walletId)
         val psbt = org.bitcoindevkit.BumpFeeTxBuilder(org.bitcoindevkit.Txid.fromString(txid), feeRate)
             .finish(wallet)
 
-        // Sign the bumped transaction and durably persist the replacement state.
-        wallet.sign(psbt)
-        wallet.persist(entry.persister)
+        // The pinned fee-bump wrapper cannot exclude optional inputs. Reject the actual
+        // replacement before signing. Reload persisted state on failure (including the
+        // original transaction) so rejected construction cannot leave staged changes.
+        try {
+            assertPsbtInputsAllowed(walletId, psbt)
+            wallet.sign(psbt)
+            wallet.persist(entry.persister)
+        } catch (failure: Exception) {
+            closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
+            val wasPassphraseUnlocked = isPassphraseWalletMarkedUnlocked(walletId)
+            evictWallet(walletId, lease)
+            markPassphraseWalletLocked(walletId, lease)
+            if (wasPassphraseUnlocked) {
+                throw IllegalStateException("Replacement rejected. Unlock and resync this passphrase wallet before rebuilding.", failure)
+            }
+            throw failure
+        }
         serializeFinalTransaction(psbt)
         }
         }
@@ -2271,7 +2320,7 @@ class BdkBitcoinRepository @Inject constructor(
                     builder.manuallySelectedOnly().finish(wallet)
                 }
             )
-            wallet.sign(psbt)
+            signAllowedPsbt(walletId, wallet, psbt)
             wallet.persist(entry.persister)
             serializeFinalTransaction(psbt)
         } finally {
@@ -2316,13 +2365,8 @@ class BdkBitcoinRepository @Inject constructor(
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "listUnspent: tipHeight from wallet txs (fallback): $tipHeight")
         }
 
-        // Load frozen outpoints for this wallet
-        val frozenOutpoints = try {
-            utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-        } catch (e: Exception) {
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "listUnspent: failed to get frozen UTXOs: ${e.message}")
-            emptySet()
-        }
+        // If policy metadata cannot be read, do not advertise coins as spendable.
+        val frozenOutpoints = frozenOutpoints(walletId)
 
         utxos.map { localOutput ->
             val outpoint = localOutput.outpoint
@@ -2419,64 +2463,15 @@ class BdkBitcoinRepository @Inject constructor(
             }
         }
 
-        // For watch-only wallets, BDK classifies all UTXOs as untrustedPending
-        // which makes them invisible to the default coin selection.
-        // Explicitly add all unspent outputs so TxBuilder can use them.
-        // Also filter out frozen UTXOs.
-        if (isWatchOnly && selectedOutpoints.isEmpty() && utxoTxid == null) {
-            val utxos = wallet.listUnspent()
-            val frozenOutpoints = try {
-                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-            } catch (e: Exception) {
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "createPsbt: failed to get frozen UTXOs: ${e.message}")
-                emptySet()
-            }
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: watch-only wallet, adding ${utxos.size} UTXOs (${frozenOutpoints.size} frozen/excluded)")
-            for (utxo in utxos) {
-                val outpointStr = "${utxo.outpoint.txid.toString()}:${utxo.outpoint.vout}"
-                if (!utxo.isSpent && outpointStr !in frozenOutpoints) {
-                    builder = builder.addUtxo(utxo.outpoint)
-                }
-            }
-        }
-
-        // Optionally restrict to specific UTXOs (coin control)
-        // Also filter out frozen UTXOs
-        val frozenOutpointsForCoinControl = try {
-            if (selectedOutpoints.isEmpty() && utxoTxid == null) {
-                // Only fetch frozen list when not using explicit UTXO selection
-                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-            } else emptySet()
-        } catch (e: Exception) {
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "createPsbt: failed to get frozen UTXOs for coin control: ${e.message}")
-            emptySet()
-        }
-        
+        // Explicit selection is an allowlist, never an override of frozen state.
         if (amountSat != null && selectedOutpoints.isNotEmpty()) {
-            for (op in selectedOutpoints) {
-                val parts = op.split(":")
-                if (parts.size == 2) {
-                    val txid = parts[0]
-                    val vout = parts[1].toUIntOrNull() ?: continue
-                    val outpointStr = "$txid:$vout"
-                    // Skip frozen UTXOs
-                    if (outpointStr in frozenOutpointsForCoinControl) {
-                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: skipping frozen UTXO $outpointStr")
-                        continue
-                    }
-                    builder = builder.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(txid), vout))
-                }
-            }
+            for (op in selectedOutpoints) builder = builder.addUtxo(parsePolicyOutpoint(op))
             builder = builder.manuallySelectedOnly()
         } else if (amountSat != null && utxoTxid != null && utxoVout != null) {
-            val outpointStr = "$utxoTxid:$utxoVout"
-            if (outpointStr in frozenOutpointsForCoinControl) {
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "createPsbt: attempted to spend frozen UTXO $outpointStr")
-                throw IllegalArgumentException("Cannot spend frozen UTXO")
-            }
-            builder = builder.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(utxoTxid), utxoVout))
-            builder = builder.manuallySelectedOnly()
+            builder = builder.addUtxo(parsePolicyOutpoint("$utxoTxid:$utxoVout")).manuallySelectedOnly()
         }
+        builder = applyInputPolicy(walletId, wallet, builder, selectedOutpoints,
+            utxoTxid, utxoVout, isWatchOnly || walletEntity?.hasPassphrase == true)
 
         // Include global xpubs in PSBT — hardware wallets use these to verify
         // derivation paths and identify which keys belong to the signing device.
@@ -2493,6 +2488,7 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         try {
+            assertPsbtInputsAllowed(walletId, psbt)
             val serializedPsbt = psbt.serialize()
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: built PSBT for ${if (isWatchOnly) "watch-only" else "full"} wallet, base64 len=${serializedPsbt.length}")
 
@@ -2559,30 +2555,12 @@ class BdkBitcoinRepository @Inject constructor(
             builder = builder.manuallySelectedOnly()
         }
 
-        // Passphrase wallet workaround + frozen UTXO filtering (B-2)
-        // If it's a passphrase wallet OR there are frozen UTXOs, we must iterate
-        // and manually select only the non-frozen UTXOs to avoid spending either.
         val walletEntity = walletDao.getById(walletId)
-        if (selectedOutpoints.isEmpty()) {
-            val frozenOutpoints = try {
-                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-            } catch (_: Exception) { emptySet() }
-
-            val needsManualSelection = (walletEntity?.hasPassphrase == true) || frozenOutpoints.isNotEmpty()
-            if (needsManualSelection) {
-                val utxos = wallet.listUnspent()
-                for (utxo in utxos) {
-                    val opStr = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
-                    if (!utxo.isSpent && opStr !in frozenOutpoints) {
-                        builder = builder.addUtxo(utxo.outpoint)
-                    }
-                }
-                builder = builder.manuallySelectedOnly()
-            }
-        }
+        builder = applyInputPolicy(walletId, wallet, builder, selectedOutpoints,
+            forceManual = walletEntity?.hasPassphrase == true)
 
         val psbt = builder.finish(wallet)
-        wallet.sign(psbt)
+        signAllowedPsbt(walletId, wallet, psbt)
         serializeFinalTransaction(psbt)
         }
         }
@@ -2613,20 +2591,6 @@ class BdkBitcoinRepository @Inject constructor(
             builder = builder.addRecipient(addr.scriptPubkey(), Amount.fromSat(r.amountSat.toULong()))
         }
 
-        // Watch-only: explicitly add all unspent outputs
-        if (isWatchOnly && selectedOutpoints.isEmpty()) {
-            val utxos = wallet.listUnspent()
-            val frozenOutpoints = try {
-                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-            } catch (_: Exception) { emptySet() }
-            for (utxo in utxos) {
-                val opStr = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
-                if (!utxo.isSpent && opStr !in frozenOutpoints) {
-                    builder = builder.addUtxo(utxo.outpoint)
-                }
-            }
-        }
-
         // Coin control
         if (selectedOutpoints.isNotEmpty()) {
             for (op in selectedOutpoints) {
@@ -2640,6 +2604,9 @@ class BdkBitcoinRepository @Inject constructor(
             builder = builder.manuallySelectedOnly()
         }
 
+        builder = applyInputPolicy(walletId, wallet, builder, selectedOutpoints,
+            forceManual = isWatchOnly || walletEntity?.hasPassphrase == true)
+
         val psbt = try {
             val builderWithXpubs = builder.addGlobalXpubs()
             builderWithXpubs.finish(wallet)
@@ -2648,6 +2615,7 @@ class BdkBitcoinRepository @Inject constructor(
             builder.finish(wallet)
         }
         try {
+            assertPsbtInputsAllowed(walletId, psbt)
             psbt.serialize()
         } finally {
             closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
@@ -2704,6 +2672,7 @@ class BdkBitcoinRepository @Inject constructor(
                 // This is deliberately the last step before any network I/O.
                 // Hardware-signing coordinators use it to prove that the exact
                 // reviewed session is still current after parsing/finalization.
+                assertTransactionInputsAllowed(walletId, tx)
                 assertBroadcastAuthorized()
                 broadcastTransactionBounded(config, tx)
             } finally {
@@ -3499,7 +3468,7 @@ class BdkBitcoinRepository @Inject constructor(
         val masterFpMatch = Regex("\\[([0-9a-fA-F]{8})/").find(publicDescriptor) ?: return null
         val hex = masterFpMatch.groupValues[1]
         val masterFpBytes = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-        val input = masterFpBytes + (passphrase ?: "").toByteArray(Charsets.UTF_8)
+        val input = masterFpBytes + (Bip39Passphrase.value(passphrase)).toByteArray(Charsets.UTF_8)
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(input)
         return digest.sliceArray(0 until 8)
     }
@@ -3594,21 +3563,6 @@ class BdkBitcoinRepository @Inject constructor(
         }
         return result
     }
-
-    /**
-     * Simple HTTP GET helper for mempool.space and price API queries.
-     */
-    private fun fetchUrl(url: String, connectTimeoutMs: Int = 5_000, readTimeoutMs: Int = 10_000): String {
-        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-        conn.connectTimeout = connectTimeoutMs
-        conn.readTimeout = readTimeoutMs
-        return try {
-            conn.inputStream.bufferedReader().use { it.readTextBounded(maxHttpResponseChars) }
-        } finally {
-            conn.disconnect()
-        }
-    }
-
 
     // ========== Multisig Wallet Methods ==========
 
@@ -3717,6 +3671,13 @@ class BdkBitcoinRepository @Inject constructor(
         val changeDescriptor = checkNotNull(publicDescriptors).second
         val publicDescriptor = externalDescriptor.toString()
         val publicChangeDescriptor = changeDescriptor.toString()
+        MultisigDescriptorSafety.requireExpectedPolicy(publicDescriptor, threshold, normalizedSignerKeys, 0)
+        MultisigDescriptorSafety.requireExpectedPolicy(publicChangeDescriptor, threshold, normalizedSignerKeys, 1)
+        signingDescriptors?.let { (external, change) ->
+            // A phone secret must resolve to the exact advertised public signer, too.
+            MultisigDescriptorSafety.requireExpectedPolicy(external.toString(), threshold, normalizedSignerKeys, 0)
+            MultisigDescriptorSafety.requireExpectedPolicy(change.toString(), threshold, normalizedSignerKeys, 1)
+        }
         val signingSecretDescriptor = signingDescriptors?.first?.toStringWithSecret()
         val signingSecretChangeDescriptor = signingDescriptors?.second?.toStringWithSecret()
         signingDescriptors?.let(::closeDescriptorPair)
@@ -3878,6 +3839,7 @@ class BdkBitcoinRepository @Inject constructor(
             throw e
         }
         try {
+            assertPsbtInputsAllowed(walletId, psbt)
             signingWallet.sign(psbt)
             psbt.serialize()
         } finally {
@@ -3893,49 +3855,15 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
-    private fun normalizeMultisigSignerKey(raw: String, signerNumber: Int, network: Network): String {
-        val trimmed = raw.trim()
-        require(trimmed.isNotBlank()) { "Signer $signerNumber: extended public key is required" }
-        require(!trimmed.startsWith("wsh(") && !trimmed.startsWith("wpkh(") && !trimmed.startsWith("sh(")) {
-            "Signer $signerNumber: paste the signer public key, not a full descriptor"
+    private fun normalizeMultisigSignerKey(raw: String, signerNumber: Int, network: Network): String =
+        try {
+            MultisigAccountKey.parse(
+                SignerAccountKeyParser.normalizeHardwareExportForMultisig(raw),
+                expectedTestnet = network == Network.TESTNET
+            ).expression
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException("Signer $signerNumber: ${e.message}", e)
         }
-
-        val origin: String
-        val keyWithSuffix: String
-        if (trimmed.startsWith("[")) {
-            val closeBracket = trimmed.indexOf(']')
-            require(closeBracket > 0) { "Signer $signerNumber: malformed key origin — missing closing ']'" }
-            origin = trimmed.substring(0, closeBracket + 1)
-            validateMultisigOriginNetwork(origin, signerNumber, network)
-            keyWithSuffix = trimmed.substring(closeBracket + 1)
-        } else {
-            origin = ""
-            keyWithSuffix = trimmed
-        }
-
-        val suffix = when {
-            keyWithSuffix.endsWith("/0/*") -> "/0/*"
-            keyWithSuffix.endsWith("/1/*") -> "/1/*"
-            else -> ""
-        }
-        val key = keyWithSuffix.removeSuffix("/0/*").removeSuffix("/1/*")
-        validateMultisigSignerNetwork(key, signerNumber, network)
-        require(!key.startsWith("xprv") && !key.startsWith("yprv") &&
-            !key.startsWith("zprv") && !key.startsWith("tprv")) {
-            "Signer $signerNumber: private extended keys are not allowed"
-        }
-        val publicKey = when {
-            key.startsWith("xpub") || key.startsWith("tpub") -> key
-            key.startsWith("ypub") || key.startsWith("zpub") ||
-                key.startsWith("Ypub") || key.startsWith("Zpub") ||
-                key.startsWith("upub") || key.startsWith("vpub") ||
-                key.startsWith("Upub") || key.startsWith("Vpub") -> convertZpubToXpub(key)
-            else -> throw IllegalArgumentException(
-                "Signer $signerNumber: unrecognized key format. Expected xpub, Zpub, tpub, or similar public extended key."
-            )
-        }
-        return "$origin$publicKey$suffix"
-    }
 
     private fun normalizeMultisigSecretSignerKey(raw: String, signerNumber: Int, network: Network): String {
         val trimmed = raw.trim()

@@ -21,7 +21,7 @@ class WalletInfoViewModelTest {
     @Test
     fun `legacy aliased policy remains displayable and warns without changing its descriptor`() {
         val descriptor = "wsh(sortedmulti(2,[01020304/48'/0'/0'/2']$originalKey/0/*,[05060708/48'/0'/1'/2']$aliasedKey/1/*))"
-        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor.replace("/0/*", "/1/*")))
         assertEquals(descriptor, policy.descriptor)
         assertEquals(2, policy.threshold)
         assertEquals(2, policy.keystores.size)
@@ -44,14 +44,14 @@ class WalletInfoViewModelTest {
     @Test
     fun `different chain codes do not produce duplicate material warning`() {
         val descriptor = "wsh(multi(2,[01020304/48'/0'/0'/2']$originalKey/0/*,[05060708/48'/0'/1'/2']$distinctKey/0/*))"
-        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor.replace("/0/*", "/1/*")))
         assertTrue(policy.warnings.isEmpty())
     }
 
     @Test
     fun `renaming legacy cosigners cannot remove the material warning`() {
         val descriptor = "wsh(multi(2,[01020304/48'/0'/0'/2']$originalKey/0/*,[05060708/48'/0'/1'/2']$aliasedKey/0/*))"
-        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor.replace("/0/*", "/1/*")))
         val renamed = policy.keystores.mapIndexed { i, key -> key.copy(label = "Device ${i + 1}") }
         val warning = WalletInfoViewModel.buildMultisigWarnings(renamed).single()
         assertTrue(warning.startsWith("Device 1, Device 2 share"))
@@ -126,7 +126,7 @@ class WalletInfoViewModelTest {
                 "[11223344/48'/0'/0'/1']xpub6Bravo/0/*" +
                 ")))"
 
-        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor.replace("/0/*", "/1/*")))
 
         assertNotNull(policy)
         assertEquals("Multi Signature", policy.policyType)
@@ -143,14 +143,14 @@ class WalletInfoViewModelTest {
                 "[11223344/48'/0'/0'/2']xpub6Bravo/0/*" +
                 "))"
 
-        assertNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        assertNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor.replace("/0/*", "/1/*")))
     }
 
     @Test
     fun `multisig descriptor with no keystores returns null policy`() {
         val descriptor = "wsh(sortedmulti(1))"
 
-        assertNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        assertNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor.replace("/0/*", "/1/*")))
     }
 
     @Test
@@ -160,7 +160,7 @@ class WalletInfoViewModelTest {
                 "[aabbccdd/48'/0'/0'/2']xpub6Alpha/0/*," +
                 "[11223344/48'/0'/0'/2']xpub6Bravo/0/*" +
                 "))"
-        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor.replace("/0/*", "/1/*")))
 
         assertEquals(descriptor, MultisigWalletConfigParser.parse(policy.bsmsDescriptorRecord))
     }
@@ -169,7 +169,7 @@ class WalletInfoViewModelTest {
     fun `keystore without origin exposes health warnings`() {
         val descriptor = "wsh(sortedmulti(1,xpub6Alpha/0/*))"
 
-        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        val policy = requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor.replace("/0/*", "/1/*")))
 
         assertEquals(listOf("Keystore 1: missing master fingerprint", "Keystore 1: missing derivation path"), policy.warnings)
         assertEquals(listOf("Missing master fingerprint", "Missing derivation path"), policy.keystores[0].warnings)
@@ -216,7 +216,7 @@ class WalletInfoViewModelTest {
             isMultisig = false
         )
 
-        assertNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor))
+        assertNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(descriptor, descriptor.replace("/0/*", "/1/*")))
         assertTrue(DescriptorDisplayPolicy.isMultisigDescriptor(descriptor))
         assertTrue(WalletInfoViewModel.buildDescriptorBackupMetadata(wallet).isMultisig)
     }

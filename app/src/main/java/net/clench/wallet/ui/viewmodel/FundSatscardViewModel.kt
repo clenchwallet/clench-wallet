@@ -111,7 +111,9 @@ class FundSatscardViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isCheckingBalance = true, error = null) }
             try {
+                val networkToken = settingsManager.networkAccess.token()
                 val balance = withContext(Dispatchers.IO) { fetchAddressBalance(address, _uiState.value.isTestnet) }
+                settingsManager.networkAccess.requireCurrent(networkToken)
                 _uiState.update {
                     it.copy(
                         isCheckingBalance = false,

@@ -817,7 +817,7 @@ class SendViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val config = settingsManager.loadElectrumConfig()
-                val txid = bitcoinRepository.broadcastTransaction(config, txHex)
+                val txid = bitcoinRepository.broadcastTransaction(config, txHex, state.walletId)
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("SendVM", "Broadcast success: txid=$txid")
                 // Save labels — batch mode: combine all recipient labels; single mode: use label field
                 val isBatch = state.recipients.size > 1

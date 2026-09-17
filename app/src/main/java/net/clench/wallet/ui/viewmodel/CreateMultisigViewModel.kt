@@ -17,6 +17,7 @@ import net.clench.wallet.data.local.entity.WalletKeystoreMetadataEntity
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.domain.model.HardwareWalletType
 import net.clench.wallet.domain.model.PhoneSigner
+import net.clench.wallet.domain.model.MultisigAccountKey
 import net.clench.wallet.domain.model.SignerAccountKeyParser
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.domain.repository.MultisigPhoneSignerSecret
@@ -440,13 +441,12 @@ class CreateMultisigViewModel @Inject constructor(
      */
     fun buildDescriptorPreview(): String {
         val state = _uiState.value
-        val keys = state.signers.joinToString(",") { signer ->
-            val xpub = effectiveSignerXpub(signer)
-            if (xpub.endsWith("/0/*") || xpub.endsWith("/1/*")) {
-                xpub.replace("/1/*", "/0/*")
-            } else {
-                "$xpub/0/*"
+        val keys = try {
+            state.signers.joinToString(",") { signer ->
+                MultisigAccountKey.parse(effectiveSignerXpub(signer), settingsManager.isTestnet()).expression + "/0/*"
             }
+        } catch (_: IllegalArgumentException) {
+            return "Invalid cosigner key — review the signer inputs"
         }
         return "wsh(sortedmulti(${state.threshold},$keys))"
     }
@@ -460,20 +460,8 @@ class CreateMultisigViewModel @Inject constructor(
         return parsed?.keyWithOrigin ?: signer.xpub.trim()
     }
 
-    private fun canonicalSignerKey(raw: String): String {
-        val trimmed = raw.trim()
-        val key = if (trimmed.startsWith("[")) {
-            val closeBracket = trimmed.indexOf(']')
-            if (closeBracket >= 0) trimmed.substring(closeBracket + 1) else trimmed
-        } else trimmed
-        return key
-            .removeSuffix("/0/*")
-            .removeSuffix("/1/*")
-    }
+    private fun canonicalSignerKey(raw: String): String = MultisigAccountKey.parse(raw).identity
 
-    /**
-     * Validate current step before allowing navigation to next.
-     */
     fun validateCurrentStep(): Boolean {
         val state = _uiState.value
         _uiState.update { it.copy(warning = null) }
@@ -506,6 +494,12 @@ class CreateMultisigViewModel @Inject constructor(
 
                     SignerAccountKeyParser.validationError(xpub, settingsManager.isTestnet())?.let { error ->
                         _uiState.update { it.copy(error = "Signer ${index + 1}: $error") }
+                        return false
+                    }
+                    try {
+                        MultisigAccountKey.parse(xpub, settingsManager.isTestnet())
+                    } catch (e: IllegalArgumentException) {
+                        _uiState.update { it.copy(error = "Signer ${index + 1}: ${e.message}") }
                         return false
                     }
                 }
@@ -544,7 +538,9 @@ class CreateMultisigViewModel @Inject constructor(
                 val state = _uiState.value
 
                 // Build xpub list with origin info
-                val signerXpubs = state.signers.map { effectiveSignerXpub(it) }
+                val signerXpubs = state.signers.map {
+                    MultisigAccountKey.parse(effectiveSignerXpub(it), settingsManager.isTestnet()).expression
+                }
                 val localSignerSecrets = state.signers.mapIndexedNotNull { index, signer ->
                     val accountXprv = signer.phoneSignerAccountXprv
                     if (!signer.isLocalKey || accountXprv.isNullOrBlank()) null
@@ -560,7 +556,7 @@ class CreateMultisigViewModel @Inject constructor(
                     signerXpubs = signerXpubs,
                     localSignerSecrets = localSignerSecrets
                 )
-                persistSignerMetadata(walletData.id, state.signers)
+                persistSignerMetadata(walletData.id, state.signers.mapIndexed { index, signer -> signer.copy(xpub = signerXpubs[index]) })
                 saveSignersToVault(state.signers, source = "multisig_create")
                 loadSavedSigners()
 

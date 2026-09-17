@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.screens
 
+import net.clench.wallet.domain.model.Bip39Passphrase
 import android.app.Activity
 import android.net.Uri
 import androidx.fragment.app.FragmentActivity
@@ -806,7 +807,7 @@ fun SweepScreen(
                         }
                         if (sourceType == SweepSourceType.SeedPhrase) {
                             val mnemonic = seedWords.joinToString(" ").toCharArray()
-                            val passphrase = if (showPassphrase && passphraseInput.isNotBlank())
+                            val passphrase = if (showPassphrase && Bip39Passphrase.isPresent(passphraseInput))
                                 passphraseInput.toCharArray() else null
                             seedWords = emptyList()
                             passphraseInput = ""
@@ -919,7 +920,7 @@ fun SweepScreen(
                                         seedError = "Re-enter all $expectedSeedWordCount source words"
                                     } else {
                                         val mnemonic = seedWords.joinToString(" ").toCharArray()
-                                        val passphrase = if (showPassphrase && passphraseInput.isNotBlank()) {
+                                        val passphrase = if (showPassphrase && Bip39Passphrase.isPresent(passphraseInput)) {
                                             passphraseInput.toCharArray()
                                         } else null
                                         seedWords = emptyList()

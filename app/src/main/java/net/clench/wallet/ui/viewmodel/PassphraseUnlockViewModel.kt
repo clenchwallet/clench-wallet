@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.viewmodel
 
+import net.clench.wallet.domain.model.Bip39Passphrase
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -97,7 +98,7 @@ class PassphraseUnlockViewModel @Inject constructor(
         
         // Update fingerprint in real-time as user types
         val walletId = _uiState.value.walletId
-        if (passphrase.isNotEmpty() && walletId.isNotEmpty()) {
+        if (Bip39Passphrase.isPresent(passphrase) && walletId.isNotEmpty()) {
             fingerprintJob = viewModelScope.launch {
                 try {
                     val fingerprint = bitcoinRepository.getPassphraseFingerprint(walletId, passphrase)
@@ -126,7 +127,7 @@ class PassphraseUnlockViewModel @Inject constructor(
 
     fun unlock() {
         val state = _uiState.value
-        if (state.passphrase.isEmpty()) {
+        if (!Bip39Passphrase.isPresent(state.passphrase)) {
             _uiState.update { it.copy(error = "Please enter your passphrase") }
             return
         }

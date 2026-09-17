@@ -203,7 +203,8 @@ interface BitcoinRepository {
      */
     suspend fun broadcastTransaction(
         config: ElectrumConfig,
-        txHex: String
+        txHex: String,
+        walletId: String? = null
     ): String
 
     /**

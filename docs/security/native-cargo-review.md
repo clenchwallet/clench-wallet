@@ -79,8 +79,10 @@ new path outside the legacy Esplora client identified below. Current production
 source still has no Esplora construction/reference or reflective/direct JNA load
 path; the application native library load is SQLCipher. Minreq 2.14.1's
 checksum-bound Rustls module still constructs a standard root-store client with
-no CRL configuration. The current Electrum factory uses the separately patched
-modern Rustls path. These are source-call-path conclusions, not native-code
+no CRL configuration. The current Electrum factory uses a controlled Java upstream relay
+with platform TLS for TLS-required modes. The separately patched modern native
+Rustls/WebPKI capability remains bundled; the dependency repair table is not a
+claim that current upstream connections use that native TLS implementation. These are source-call-path conclusions, not native-code
 absence or a finding that certificate bugs are harmless in other applications.
 
 No new exception is created for Rustls or anyhow. The repaired component versions
@@ -213,3 +215,20 @@ These observations establish **no affected Android call path in the reviewed
 source**, not absence of anyhow from the native binary. The release gate still
 reports the version match and fails; no suppression was introduced. Vendor
 build/source correspondence and the remaining native components remain open.
+
+## Application-path re-review for 0.3.31 — 2026-09-17
+
+The controlled loopback Electrum transport now uses Java upstream sockets,
+including platform trust/hostname checks in TLS-required modes. No production
+Esplora construction, reflection/direct JNA load or CRL input route was added.
+All six complete OSV documents were re-fetched and reviewed; canonical hashes
+remain identical to the September16 review. Checksum-verified minreq2.14.1's TLS
+module still accepts no CRL configuration. Native source, recipe, features,
+Cargo lock and resolved payload identities are unchanged. The six exact
+legacy call-path dispositions retain their original2026-10-16 expiry.
+See [the current disposition evidence](native-cargo-dispositions.md).
+
+Schema14's fixed-name migration and bound metadata imports add no `hexkey` URI
+or `sqlcipher_export` route. This does not fix SQLCipher4.17 by version, resolve
+the vendor source association discrepancy or complete native C assurance.
+Final application/evidence bindings and the full live gate remain mandatory.

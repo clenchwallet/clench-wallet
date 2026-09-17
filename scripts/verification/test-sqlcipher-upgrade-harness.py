@@ -42,6 +42,24 @@ class ResultTests(unittest.TestCase):
                 upgrade.require_one_passing_case(self.good + extra, "example.Fixture")
 
 
+class FixtureSchemaTests(unittest.TestCase):
+    def test_producer_13_and_consumer_14_use_exact_compatible_overlay(self):
+        template = "builder\n// SCHEMA_UPGRADE_MIGRATIONS\n.build()"
+        old, version = upgrade.render_fixture(template, "    version = 13,")
+        self.assertEqual(13, version)
+        self.assertNotIn("MIGRATION_13_14", old)
+        current, version = upgrade.render_fixture(template, "    version = 14,")
+        self.assertEqual(14, version)
+        self.assertIn(".addMigrations(ClenchDatabase.MIGRATION_13_14)", current)
+
+    def test_unreviewed_schema_or_missing_marker_fails_closed(self):
+        for template, schema in (("// SCHEMA_UPGRADE_MIGRATIONS", "    version = 15,"),
+                                 ("builder", "    version = 14,"),
+                                 ("// SCHEMA_UPGRADE_MIGRATIONS", "")):
+            with self.subTest(template=template, schema=schema), self.assertRaises(RuntimeError):
+                upgrade.render_fixture(template, schema)
+
+
 class SourceHistoryTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

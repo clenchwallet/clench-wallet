@@ -39,6 +39,7 @@ class AuthenticationGateUiTest {
         settings.setExternalFeeLookupEnabled(false)
         settings.setOnboarded()
         settings.setAppLockMode("none")
+        settings.setLockTimeout("30s")
         settings.setBiometricForSeedEnabled(true)
         settings.setBiometricForSendEnabled(true)
     }
@@ -46,6 +47,88 @@ class AuthenticationGateUiTest {
     @Test fun seedGateRequiresSystemAuthenticationAndPersistsCancellation() = exerciseGate(seed = true)
 
     @Test fun sendGateRequiresSystemAuthenticationAndPersistsCancellation() = exerciseGate(seed = false)
+
+    @Test fun relockRelaxationRequiresFreshAuthenticationAndSurvivesRestart() {
+        settings.setAppLockMode("biometric")
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            try {
+                awaitSystemPrompt()
+                enterDeviceCredential()
+                openSecurity()
+                clickText("Auto-lock after Never")
+                awaitSystemPrompt()
+                assertEquals("30s", settings.getLockTimeoutKey())
+                cancelSystemPrompt()
+                assertEquals("30s", settings.getLockTimeoutKey())
+                clickText("Auto-lock after Never")
+                awaitSystemPrompt()
+                enterDeviceCredential()
+                await("authenticated relock relaxation") { settings.getLockTimeoutKey() == "never" }
+                scenario.recreate()
+                // Never only relaxes background locking. Activity recreation still locks.
+                awaitSystemPrompt()
+                assertEquals("never", settings.getLockTimeoutKey())
+                enterDeviceCredential()
+                openSecurity()
+                clickText("Auto-lock after 30 seconds")
+                await("stronger timeout without a prompt") { settings.getLockTimeoutKey() == "30s" }
+                assertEquals(context.packageName, automation.rootInActiveWindow?.packageName)
+            } catch (failure: Throwable) {
+                saveHierarchy("relock")
+                throw failure
+            }
+        }
+    }
+
+    @Test fun backgroundedRelockAuthenticationCannotPersistRelaxation() {
+        settings.setAppLockMode("biometric")
+        ActivityScenario.launch(MainActivity::class.java).use {
+            awaitSystemPrompt()
+            enterDeviceCredential()
+            openSecurity()
+            clickText("Auto-lock after Never")
+            awaitSystemPrompt()
+            shell("input keyevent KEYCODE_HOME")
+            await("launcher after relock authentication") {
+                automation.rootInActiveWindow?.packageName?.toString() in
+                    setOf("com.google.android.apps.nexuslauncher", "com.android.launcher3")
+            }
+            assertEquals("30s", settings.getLockTimeoutKey())
+            shell("am start -W -n ${context.packageName}/${MainActivity::class.java.name}")
+            assertEquals("30s", settings.getLockTimeoutKey())
+        }
+    }
+
+    @Test fun relockPinFailureCancellationAndSuccessUseCurrentPin() {
+        val pinManager = net.clench.wallet.data.local.PinManager(context)
+        assertNull(pinManager.setPin("135790".toCharArray()))
+        settings.setAppLockMode("pin")
+        ActivityScenario.launch(MainActivity::class.java).use {
+            enterClenchPin("135790")
+            clickText("Unlock")
+            openSecurity()
+            clickText("Auto-lock after Never")
+            await("timeout PIN dialog") { nodes().any { it.text?.toString() == "Verify auto-lock change" } }
+            enterClenchPin("999999")
+            clickText("Verify")
+            await("incorrect timeout PIN") { nodes().any { it.text?.toString() == "Incorrect PIN" } }
+            assertEquals("30s", settings.getLockTimeoutKey())
+            clickText("Cancel")
+            assertEquals("30s", settings.getLockTimeoutKey())
+            clickText("Auto-lock after Never")
+            enterClenchPin("135790")
+            clickText("Verify")
+            await("PIN-authorized relaxation") { settings.getLockTimeoutKey() == "never" }
+            assertBothEnabled()
+        }
+    }
+
+    private fun enterClenchPin(value: String) = await("Clench PIN field") {
+        val field = nodes().singleOrNull { it.isEditable && it.isVisibleToUser } ?: return@await false
+        field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
+        })
+    }
 
     @Test fun backgroundingPendingAuthenticationPreservesEnabledGates() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -188,6 +271,10 @@ class AuthenticationGateUiTest {
     }
 
     private fun openSecurity() {
+        await("unlocked application window") { automation.rootInActiveWindow?.packageName == context.packageName }
+        awaitNavigationIdle()
+        // A recreated navigation tree may restore Security after app unlock.
+        if (nodes().any { it.text?.toString() in setOf("App Lock", "Authentication Gates") }) return
         clickText("Settings")
         awaitNavigationIdle()
         clickText("Security")

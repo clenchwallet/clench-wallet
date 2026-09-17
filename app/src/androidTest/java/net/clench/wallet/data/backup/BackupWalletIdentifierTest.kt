@@ -80,7 +80,7 @@ class BackupWalletIdentifierTest {
                 } else {
                     assertEquals(id, restored.id)
                     assertEquals("fixture label", db.transactionLabelDao().getByTxid(id, txid)?.label)
-                    assertEquals(id, db.utxoMetadataDao().getByOutpoint("$txid:0")?.walletId)
+                    assertEquals(id, db.utxoMetadataDao().getByOutpoint(id, "$txid:0")?.walletId)
                     assertEquals(1, result.importedLabels)
                     assertEquals(1, result.importedUtxoMetadata)
                 }

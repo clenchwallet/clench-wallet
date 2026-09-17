@@ -32,11 +32,18 @@ on:
       - 'app/src/main/java/net/clench/wallet/ui/MainActivity.kt'
       - 'app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt'
       - 'app/src/main/java/net/clench/wallet/ui/screens/SettingsScreen.kt'
+      - 'app/src/main/java/net/clench/wallet/security/**'
+      - 'app/src/main/java/net/clench/wallet/data/network/**'
+      - 'app/src/main/java/net/clench/wallet/domain/model/**'
+      - 'app/src/main/java/net/clench/wallet/ui/components/NfcIntentDecoder.kt'
       - 'app/src/androidTest/**'
       - 'scripts/verification/bdk-wallet-upgrade/**'
       - 'scripts/verification/run-bdk2-bdk3-inplace-upgrade.sh'
       - 'scripts/verification/run-sqlcipher-upgrade.py'
       - 'scripts/verification/sqlcipher-upgrade/**'
+      - 'scripts/verification/passphrase-process-restart/**'
+      - 'scripts/verification/run-passphrase-process-restart.*'
+      - 'scripts/verification/test-passphrase-process-restart.py'
       - 'scripts/release/verify-release-controls.py'
       - '.github/workflows/android-instrumentation.yml'
   workflow_dispatch:
@@ -131,6 +138,24 @@ jobs:
           test -s "$RUNNER_TEMP/android-packages.txt"
           head -n 1 "$RUNNER_TEMP/android-packages.txt"
 
+      - name: Prove passphrase identity across forced process restart
+        env:
+          ADB_SERIAL: emulator-5554
+          CLENCH_PASSPHRASE_RESTART_DISPOSABLE: 'YES'
+        run: |
+          test "$(git rev-parse --verify HEAD^{commit})" = "$EXPECTED_SOURCE_COMMIT"
+          python3 -B scripts/verification/test-passphrase-process-restart.py
+          scripts/verification/run-passphrase-process-restart.sh
+
+      - name: Retain passphrase process restart evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: passphrase-process-restart
+          path: build/reports/passphrase-process-restart
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Prove exact BDK 2.3.1 to 3.0.0 persisted-wallet upgrade
         env:
           ADB_SERIAL: emulator-5554
@@ -168,7 +193,7 @@ jobs:
             --dependency-verification=strict \
             :app:connectedDebugAndroidTest \
             -Pandroid.testInstrumentationRunnerArguments.clenchDisposableEmulator=YES \
-            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.backup.BackupWalletIdentifierTest,net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest,net.clench.wallet.ui.AuthenticationGateUiTest,net.clench.wallet.data.local.AuthenticationGatePersistenceTest,net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.data.repository.BdkWalletPersistenceTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest,net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest
+            -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.backup.BackupWalletIdentifierTest,net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest,net.clench.wallet.ui.AuthenticationGateUiTest,net.clench.wallet.data.local.AuthenticationGatePersistenceTest,net.clench.wallet.data.local.ClenchDatabaseMigrationTest,net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest,net.clench.wallet.data.repository.BdkWalletPersistenceTest,net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest,net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest,net.clench.wallet.data.backup.WalletScopedMetadataTest,net.clench.wallet.data.local.WalletScopedMetadataMigrationTest,net.clench.wallet.data.repository.MultisigCreationBoundaryTest,net.clench.wallet.data.repository.PassphraseIdentityBoundaryTest,net.clench.wallet.ui.NfcIntentBoundaryTest,net.clench.wallet.data.repository.FrozenInputRepositoryTest,net.clench.wallet.data.repository.TransactionHistorySnapshotTest,net.clench.wallet.data.network.NativeElectrumOfflineTest,net.clench.wallet.data.repository.FrozenSigningBoundaryTest
 
       - name: Require actual instrumentation results
         if: always()
@@ -185,85 +210,64 @@ jobs:
               raise SystemExit('No instrumentation XML result was produced')
 
           expected = {
-              ('net.clench.wallet.data.backup.BackupWalletIdentifierTest', 'unsafeIdentifiersAreRejectedBeforeAnyDatabaseWrite'),
               ('net.clench.wallet.data.backup.BackupWalletIdentifierTest', 'duplicateIdentifiersAreRejectedBeforeAnyDatabaseWrite'),
+              ('net.clench.wallet.data.backup.BackupWalletIdentifierTest', 'unsafeIdentifiersAreRejectedBeforeAnyDatabaseWrite'),
               ('net.clench.wallet.data.backup.BackupWalletIdentifierTest', 'validIdentifiersPreserveRecordAssociations'),
-              (
-                  'net.clench.wallet.ui.AuthenticationGateUiTest',
-                  'freshOfflineOnboardingAndRevisitPreserveAuthenticationPolicy',
-              ),
-              (
-                  'net.clench.wallet.ui.AuthenticationGateUiTest',
-                  'backgroundingPendingAuthenticationPreservesEnabledGates',
-              ),
-              (
-                  'net.clench.wallet.ui.AuthenticationGateUiTest',
-                  'unavailableAuthenticatorDoesNotWeakenExistingGates',
-              ),
-              (
-                  'net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest',
-                  'originalTransactionRemainsRecoverableAfterUnusablePartial',
-              ),
-              (
-                  'net.clench.wallet.ui.AuthenticationGateUiTest',
-                  'seedGateRequiresSystemAuthenticationAndPersistsCancellation',
-              ),
-              (
-                  'net.clench.wallet.ui.AuthenticationGateUiTest',
-                  'sendGateRequiresSystemAuthenticationAndPersistsCancellation',
-              ),
-              (
-                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
-                  'initialDefaultsNeverOverwritePreviouslyEnabledProtection',
-              ),
-              (
-                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
-                  'previouslyConfiguredSingleGatePreventsDefaultDowngrade',
-              ),
-              (
-                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
-                  'initialUnavailableAuthDefaultsAreOneTimeOnly',
-              ),
-              (
-                  'net.clench.wallet.data.local.AuthenticationGatePersistenceTest',
-                  'cancelledControllerDoesNotPersistDowngrade',
-              ),
-              (
-                  'net.clench.wallet.data.local.ClenchDatabaseMigrationTest',
-                  'migrate12To13CreatesAndValidatesSignerVaultSchema',
-              ),
-              (
-                  'net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest',
-                  'encryptedDatabaseRoundTripsWalletWithProductionOpenHelper',
-              ),
-              (
-                  'net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest',
-                  'productionPreflightRejectsCorruptionWithoutMutatingWalletFile',
-              ),
-              (
-                  'net.clench.wallet.data.repository.BdkWalletPersistenceTest',
-                  'sqliteWalletReloadsExactRevealedTestnetAddresses',
-              ),
-              (
-                  'net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest',
-                  'accountZeroMatchesBdkStandardDescriptors',
-              ),
-              (
-                  'net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest',
-                  'accountOneDerivesDifferentAddresses',
-              ),
-              (
-                  'net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest',
-                  'wifDescriptorsUseAValidDistinctNonSpendableChangeDescriptor',
-              ),
-              (
-                  'net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest',
-                  'canonicalMainnetAndTestnetAccountKeysPassTheRealBdkParser',
-              ),
-              (
-                  'net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest',
-                  'preflightRejectsNetworkMismatchAndMalformedOrigin',
-              ),
+              ('net.clench.wallet.data.backup.WalletScopedMetadataTest', 'ambiguousLocalMappingRollsBackEarlierWalletWrites'),
+              ('net.clench.wallet.data.backup.WalletScopedMetadataTest', 'collidingImportsPreserveBothWalletsForFrozenAndUnfrozenState'),
+              ('net.clench.wallet.data.backup.WalletScopedMetadataTest', 'identicalWalletViewsRetainTheirExplicitOwnersOnRoundTrip'),
+              ('net.clench.wallet.data.backup.WalletScopedMetadataTest', 'invalidOwnerAndDuplicateRawOutpointsRejectBeforeWrites'),
+              ('net.clench.wallet.data.backup.WalletScopedMetadataTest', 'legacyAliasFreezeAppearsInUiAndExplicitUnfreezeClearsOnlyItsWallet'),
+              ('net.clench.wallet.data.backup.WalletScopedMetadataTest', 'multipleSourceViewsCannotSilentlyAliasOneExistingWallet'),
+              ('net.clench.wallet.data.backup.WalletScopedMetadataTest', 'offlineUnknownHistoricalOutpointsAreIsolatedAndCanonicalized'),
+              ('net.clench.wallet.data.backup.WalletScopedMetadataTest', 'repeatedSameWalletImportIntentionallyUpdatesOnlyItsOwnRecord'),
+              ('net.clench.wallet.data.backup.WalletScopedMetadataTest', 'sharedReceiveDescriptorDoesNotAliasDifferentChangePolicy'),
+              ('net.clench.wallet.data.backup.WalletScopedMetadataTest', 'singleRowFieldUpdatesNeverReachAnotherWallet'),
+              ('net.clench.wallet.data.local.AuthenticationGatePersistenceTest', 'cancelledControllerDoesNotPersistDowngrade'),
+              ('net.clench.wallet.data.local.AuthenticationGatePersistenceTest', 'initialDefaultsNeverOverwritePreviouslyEnabledProtection'),
+              ('net.clench.wallet.data.local.AuthenticationGatePersistenceTest', 'initialUnavailableAuthDefaultsAreOneTimeOnly'),
+              ('net.clench.wallet.data.local.AuthenticationGatePersistenceTest', 'previouslyConfiguredSingleGatePreventsDefaultDowngrade'),
+              ('net.clench.wallet.data.local.ClenchDatabaseMigrationTest', 'migrate12To13CreatesAndValidatesSignerVaultSchema'),
+              ('net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest', 'encryptedDatabaseRoundTripsWalletWithProductionOpenHelper'),
+              ('net.clench.wallet.data.local.ClenchDatabaseSqlCipherTest', 'productionPreflightRejectsCorruptionWithoutMutatingWalletFile'),
+              ('net.clench.wallet.data.local.WalletScopedMetadataMigrationTest', 'encryptedUpgradeAndRestartPreserveWalletScopedMetadata'),
+              ('net.clench.wallet.data.local.WalletScopedMetadataMigrationTest', 'everySupportedLegacyRoutePreservesSurvivingRowsAndRestarts'),
+              ('net.clench.wallet.data.local.WalletScopedMetadataMigrationTest', 'interruptedMigrationRollsBackDdlAndRowsThenRetriesSuccessfully'),
+              ('net.clench.wallet.data.local.WalletScopedMetadataMigrationTest', 'migratedAliasRowsRoundTripBackupWithoutDroppingLabelsOrFreezes'),
+              ('net.clench.wallet.data.local.WalletScopedMetadataMigrationTest', 'unsupportedOldSchemasFailClosedWithoutReset'),
+              ('net.clench.wallet.data.network.NativeElectrumOfflineTest', 'nativePingWorksThenOfflineClosesCapturedClientTransport'),
+              ('net.clench.wallet.data.network.NativeElectrumOfflineTest', 'upstreamEofClosesNativeRelayWithoutWaitingForOuterDeadline'),
+              ('net.clench.wallet.data.repository.BdkWalletPersistenceTest', 'sqliteWalletReloadsExactRevealedTestnetAddresses'),
+              ('net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest', 'originalTransactionRemainsRecoverableAfterUnusablePartial'),
+              ('net.clench.wallet.data.repository.FrozenInputRepositoryTest', 'explicitFrozenSelectionCannotOverridePolicyAndLegacyAliasesStayFrozen'),
+              ('net.clench.wallet.data.repository.FrozenInputRepositoryTest', 'metadataReadFailureStopsPsbtConstruction'),
+              ('net.clench.wallet.data.repository.FrozenInputRepositoryTest', 'nativeUnconfirmedProjectionReplacesCachedConfirmationAndFailedSyncPreservesIt'),
+              ('net.clench.wallet.data.repository.FrozenInputRepositoryTest', 'retainedDraftRejectsFreezeBeforeAnyBroadcastConnection'),
+              ('net.clench.wallet.data.repository.FrozenInputRepositoryTest', 'singleBatchAndDrainRespectRoomFrozenState'),
+              ('net.clench.wallet.data.repository.FrozenSigningBoundaryTest', 'phoneSignerRejectsFrozenRetainedPsbtAndUnfreezeRestoresSigning'),
+              ('net.clench.wallet.data.repository.FrozenSigningBoundaryTest', 'rejectedPassphraseFeeBumpLocksEphemeralStateAndRecoversAfterExplicitUnlockAndGraphReload'),
+              ('net.clench.wallet.data.repository.MultisigCreationBoundaryTest', 'exactlyOneKeyPerFieldIsRequiredBeforeAnyWalletPersistence'),
+              ('net.clench.wallet.data.repository.MultisigCreationBoundaryTest', 'viewModelToRepositoryNativeAndRoomRetainsTheReviewedReceiveAndChangePolicy'),
+              ('net.clench.wallet.data.repository.PassphraseIdentityBoundaryTest', 'creationAndWatchOnlyConversionPreserveWhitespaceWithoutReinterpretingExistingWallets'),
+              ('net.clench.wallet.data.repository.PassphraseIdentityBoundaryTest', 'importPreviewStorageUnlockAndReopenedRepositoryHaveTheSameIdentity'),
+              ('net.clench.wallet.data.repository.PassphraseIdentityBoundaryTest', 'nativeBip39NormalizationIsTheSameForComposedAndDecomposedInput'),
+              ('net.clench.wallet.data.repository.TransactionHistorySnapshotTest', 'authoritativeUnconfirmedReconfirmationEvictionAndReappearanceSurviveRestart'),
+              ('net.clench.wallet.data.repository.TransactionHistorySnapshotTest', 'invalidOrInterruptedSnapshotCannotPartiallyDemoteHistory'),
+              ('net.clench.wallet.ui.AuthenticationGateUiTest', 'backgroundedRelockAuthenticationCannotPersistRelaxation'),
+              ('net.clench.wallet.ui.AuthenticationGateUiTest', 'backgroundingPendingAuthenticationPreservesEnabledGates'),
+              ('net.clench.wallet.ui.AuthenticationGateUiTest', 'freshOfflineOnboardingAndRevisitPreserveAuthenticationPolicy'),
+              ('net.clench.wallet.ui.AuthenticationGateUiTest', 'relockPinFailureCancellationAndSuccessUseCurrentPin'),
+              ('net.clench.wallet.ui.AuthenticationGateUiTest', 'relockRelaxationRequiresFreshAuthenticationAndSurvivesRestart'),
+              ('net.clench.wallet.ui.AuthenticationGateUiTest', 'seedGateRequiresSystemAuthenticationAndPersistsCancellation'),
+              ('net.clench.wallet.ui.AuthenticationGateUiTest', 'sendGateRequiresSystemAuthenticationAndPersistsCancellation'),
+              ('net.clench.wallet.ui.AuthenticationGateUiTest', 'unavailableAuthenticatorDoesNotWeakenExistingGates'),
+              ('net.clench.wallet.ui.NfcIntentBoundaryTest', 'malformedColdAndLockedWarmIntentsRemainContained'),
+              ('net.clench.wallet.ui.NfcIntentBoundaryTest', 'malformedWarmIntentsAreContainedAndValidInputStillWorks'),
+              ('net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest', 'canonicalMainnetAndTestnetAccountKeysPassTheRealBdkParser'),
+              ('net.clench.wallet.ui.components.TapsignerBdkImportPreflightTest', 'preflightRejectsNetworkMismatchAndMalformedOrigin'),
+              ('net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest', 'accountOneDerivesDifferentAddresses'),
+              ('net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest', 'accountZeroMatchesBdkStandardDescriptors'),
+              ('net.clench.wallet.ui.viewmodel.SweepDescriptorFactoryTest', 'wifDescriptorsUseAValidDistinctNonSpendableChangeDescriptor'),
           }
           actual = set()
           failures = errors = skipped = 0
@@ -283,7 +287,7 @@ jobs:
               'actual': sorted(actual),
           })
           if actual != expected or failures != 0 or errors != 0 or skipped != 0:
-              raise SystemExit('Expected the exact twenty-two named instrumentation tests to pass')
+              raise SystemExit('Expected the exact candidate instrumentation test contract to pass')
           PY
 
       - name: Upload BDK cross-version evidence

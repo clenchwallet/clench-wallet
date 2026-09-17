@@ -45,3 +45,13 @@ debug keystore is never uploaded in the evidence artifact.
 Compilation alone is not upgrade evidence. This fixture also does not reconcile
 the Android vendor tag's stale SQLCipher gitlink or independently reproduce the
 native binary; that source-association gap remains in the native baseline.
+
+## Room schema 14 consumer
+
+The pinned SQLCipher4.15 writer stays at Room13. The exact current consumer
+uses Room14 and the production `MIGRATION_13_14`. The harness renders only this
+explicit migration-list marker into the test-only overlay, recording each
+rendered overlay digest and schema version. Unknown schema versions fail closed
+until reviewed. Surviving frozen metadata is asserted across the original/WAL
+upgrade and process restart as well as wallet rows. This does not replace the
+separate all-route/interruption/offline-import Room regression tests.

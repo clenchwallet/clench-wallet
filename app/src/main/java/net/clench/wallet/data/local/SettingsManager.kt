@@ -162,15 +162,20 @@ class SettingsManager @Inject constructor(
 
     fun getLockTimeoutKey(): String = prefs.getString("lock_timeout", "30s") ?: "30s"
 
-    fun setLockTimeout(key: String) {
-        prefs.edit { putString("lock_timeout", key) }
+    internal fun setLockTimeout(key: String) {
+        net.clench.wallet.security.RelockTimeoutChangeController.duration(key)
+        check(prefs.edit().putString("lock_timeout", key).commit()) { "Could not persist lock timeout" }
     }
 
     // --- Offline mode ---
 
+    val networkAccess = net.clench.wallet.data.network.NetworkAccessGate { isOfflineMode() }
+
     fun isOfflineMode(): Boolean = prefs.getBoolean("offline_mode", false)
     fun setOfflineMode(enabled: Boolean) {
-        prefs.edit { putBoolean("offline_mode", enabled) }
+        if (enabled != isOfflineMode()) {
+            networkAccess.changeMode { prefs.edit { putBoolean("offline_mode", enabled) } }
+        }
     }
 
     // --- Tor proxy settings ---

@@ -29,7 +29,7 @@ import net.clench.wallet.data.local.entity.WalletKeystoreMetadataEntity
         SavedSignerEntity::class,
         WalletKeystoreMetadataEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 abstract class ClenchDatabase : RoomDatabase() {
@@ -156,6 +156,28 @@ abstract class ClenchDatabase : RoomDatabase() {
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_saved_signers_network ON saved_signers(network)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_saved_signers_scriptType ON saved_signers(scriptType)")
                 database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_saved_signers_fingerprint_derivationPath_xpub ON saved_signers(fingerprint, derivationPath, xpub)")
+            }
+        }
+
+        // Room executes migrations inside its upgrade transaction. Preserve every
+        // surviving row verbatim; metadata lost before this upgrade is not recoverable.
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE utxo_metadata_wallet_scoped (
+                        outpoint TEXT NOT NULL,
+                        walletId TEXT NOT NULL,
+                        label TEXT,
+                        isFrozen INTEGER NOT NULL,
+                        PRIMARY KEY(walletId, outpoint)
+                    )
+                """.trimIndent())
+                database.execSQL("""
+                    INSERT INTO utxo_metadata_wallet_scoped (outpoint, walletId, label, isFrozen)
+                    SELECT outpoint, walletId, label, isFrozen FROM utxo_metadata
+                """.trimIndent())
+                database.execSQL("DROP TABLE utxo_metadata")
+                database.execSQL("ALTER TABLE utxo_metadata_wallet_scoped RENAME TO utxo_metadata")
             }
         }
 

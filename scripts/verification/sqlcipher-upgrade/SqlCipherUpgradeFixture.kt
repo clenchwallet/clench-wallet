@@ -10,6 +10,7 @@ import net.clench.wallet.BuildConfig
 import net.clench.wallet.data.local.ClenchDatabase
 import net.clench.wallet.data.local.SqlCipherDatabasePreflight
 import net.clench.wallet.data.local.SettingsManager
+import net.clench.wallet.data.local.entity.UtxoMetadataEntity
 import net.clench.wallet.data.local.entity.WalletEntity
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import org.junit.Assert.*
@@ -42,6 +43,7 @@ private object Fixture {
     fun open() = Room.databaseBuilder(context, ClenchDatabase::class.java, DB)
         .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .openHelperFactory(SupportOpenHelperFactory(key))
+        // SCHEMA_UPGRADE_MIGRATIONS
         .build()
     fun version(db: ClenchDatabase, expected: String) {
         db.openHelper.writableDatabase.query("PRAGMA cipher_version").use {
@@ -58,7 +60,9 @@ private object Fixture {
         check(file.isFile && file.length() in 1..8L * 1024 * 1024)
         return file.readBytes()
     }
+    val metadata = UtxoMetadataEntity("${"1".repeat(64)}:0", wallet.id, "surviving frozen note", true)
     fun assertRows(db: ClenchDatabase) = runBlocking {
+        assertEquals(listOf(metadata), db.utxoMetadataDao().getForWallet(wallet.id))
         assertEquals(wallet, db.walletDao().getById(wallet.id))
         assertEquals(wallet.copy(id = "committed-wal-row", name = "COMMITTED IN WAL"),
             db.walletDao().getById("committed-wal-row"))
@@ -76,6 +80,7 @@ class SqlCipher415WriterTest {
         try {
             Fixture.version(db, "4.15.0")
             db.walletDao().insert(Fixture.wallet)
+            db.utxoMetadataDao().upsert(Fixture.metadata)
             Fixture.checkpoint(db)
             val sql = db.openHelper.writableDatabase
             sql.query("PRAGMA wal_autocheckpoint=0").use { assertTrue(it.moveToFirst()) }

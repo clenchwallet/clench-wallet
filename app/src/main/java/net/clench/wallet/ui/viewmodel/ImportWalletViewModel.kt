@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.viewmodel
 
+import net.clench.wallet.domain.model.Bip39Passphrase
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -436,7 +437,7 @@ class ImportWalletViewModel @Inject constructor(
                         bitcoinRepository.importWallet(
                             name = state.walletName.ifBlank { "Imported Wallet" },
                             mnemonic = words,
-                            passphrase = state.passphrase.ifBlank { null }
+                            passphrase = Bip39Passphrase.optional(state.passphrase)
                         )
                     }
                     DetectedType.XPUB_WATCH_ONLY, DetectedType.DESCRIPTOR -> {
