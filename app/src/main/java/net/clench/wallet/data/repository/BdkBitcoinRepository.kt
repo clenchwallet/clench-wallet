@@ -2229,9 +2229,10 @@ class BdkBitcoinRepository @Inject constructor(
             wallet.persist(entry.persister)
         } catch (failure: Exception) {
             closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
+            val wasPassphraseUnlocked = isPassphraseWalletMarkedUnlocked(walletId)
             evictWallet(walletId, lease)
-            if (walletDao.getById(walletId)?.hasPassphrase == true) {
-                markPassphraseWalletLocked(walletId, lease)
+            markPassphraseWalletLocked(walletId, lease)
+            if (wasPassphraseUnlocked) {
                 throw IllegalStateException("Replacement rejected. Unlock and resync this passphrase wallet before rebuilding.", failure)
             }
             throw failure
