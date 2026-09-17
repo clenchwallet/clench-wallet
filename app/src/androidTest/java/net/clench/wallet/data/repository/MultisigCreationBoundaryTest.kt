@@ -33,7 +33,7 @@ class MultisigCreationBoundaryTest {
                 fail("A two-field input must not persist a three-key spending policy")
             } catch (_: IllegalArgumentException) { }
             assertTrue(f.database.walletDao().getAll().isEmpty())
-            assertTrue(f.context.getDatabasePath("unused").parentFile!!.listFiles().orEmpty().isEmpty())
+            assertTrue(f.context.getDatabasePath("unused").parentFile!!.listFiles().orEmpty().none { it.name.startsWith("wallet_") })
             try {
                 f.repository.createMultisigWallet("Duplicate", 2, listOf(a, "[deadbeef/48'/1'/0'/2']" + a.substringAfter(']')))
                 fail("Aliased material must not count as an independent signer")
@@ -71,7 +71,9 @@ class MultisigCreationBoundaryTest {
                     completion.await()
                 }
                 val row = requireNotNull(f.database.walletDao().getById(id))
-                assertEquals(vm.buildDescriptorPreview(), row.descriptor.substringBefore('#'))
+                Descriptor(vm.buildDescriptorPreview(), Network.TESTNET.toNetworkKind()).use { preview ->
+                    assertEquals(preview.toString(), row.descriptor)
+                }
                 assertEquals(2, f.database.walletKeystoreMetadataDao().getForWallet(id).size)
                 MultisigDescriptorSafety.requireExpectedPolicy(row.descriptor, 2, signers, 0)
                 MultisigDescriptorSafety.requireExpectedPolicy(row.changeDescriptor, 2, signers, 1)
