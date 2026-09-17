@@ -1587,6 +1587,64 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
+    private suspend fun frozenOutpoints(walletId: String): Set<String> =
+        utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
+
+    private fun parsePolicyOutpoint(value: String): org.bitcoindevkit.OutPoint {
+        FrozenInputPolicy.requireCanonicalOutpoint(value)
+        val (txid, vout) = value.split(":")
+        return org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(txid), vout.toUInt())
+    }
+
+    private suspend fun applyInputPolicy(
+        walletId: String,
+        wallet: Wallet,
+        builder: TxBuilder,
+        selected: List<String>,
+        utxoTxid: String? = null,
+        utxoVout: UInt? = null,
+        forceManual: Boolean = false
+    ): TxBuilder {
+        require((utxoTxid == null) == (utxoVout == null)) { "Incomplete selected outpoint" }
+        val explicit = selected + listOfNotNull(utxoTxid?.let { "$it:$utxoVout" })
+        val frozen = frozenOutpoints(walletId)
+        FrozenInputPolicy.requireAllowed(explicit, frozen)
+        var restricted = builder.unspendable(frozen.map(::parsePolicyOutpoint))
+        if (explicit.isEmpty() && forceManual) {
+            for (utxo in wallet.listUnspent()) {
+                val outpoint = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
+                if (!utxo.isSpent && outpoint !in frozen) restricted = restricted.addUtxo(utxo.outpoint)
+            }
+            // addUtxo alone only mandates inclusion; it does not restrict optional inputs.
+            restricted = restricted.manuallySelectedOnly()
+        }
+        return restricted
+    }
+
+    private suspend fun signAllowedPsbt(walletId: String, wallet: Wallet, psbt: Psbt) {
+        try {
+            assertPsbtInputsAllowed(walletId, psbt)
+            wallet.sign(psbt)
+        } catch (failure: Exception) {
+            closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
+            throw failure
+        }
+    }
+
+    private suspend fun assertPsbtInputsAllowed(walletId: String, psbt: Psbt) {
+        val tx = psbt.extractTx()
+        try { assertTransactionInputsAllowed(walletId, tx) }
+        finally { closeSecretNativeResources(nativeCloseAction(tx) { it.close() }) }
+    }
+
+    private suspend fun assertTransactionInputsAllowed(walletId: String?, tx: Transaction) {
+        // Raw imports have no wallet identity: conservatively respect every local freeze.
+        // Scoped sends check only their wallet, so overlapping wallet views remain independent.
+        val ids = if (walletId != null) listOf(walletId) else walletDao.getAll().map { it.id }
+        val inputs = tx.input().map { "${it.previousOutput.txid}:${it.previousOutput.vout}" }
+        for (id in ids) FrozenInputPolicy.requireAllowed(inputs, frozenOutpoints(id))
+    }
+
     override suspend fun buildTransaction(
         walletId: String,
         toAddress: String,
@@ -1607,7 +1665,6 @@ class BdkBitcoinRepository @Inject constructor(
         // Must capture return values or chain calls. Never call methods without reassignment.
         val walletEntity = walletDao.getById(walletId)
         val isPassphraseWallet = walletEntity?.hasPassphrase == true
-        val hasManualUtxos = selectedOutpoints.isNotEmpty() || (utxoTxid != null && utxoVout != null)
 
         // Build transaction - handle drain single UTXO, drain selected UTXOs, drain wallet, or send specific amount
         var builder = when {
@@ -1666,38 +1723,18 @@ class BdkBitcoinRepository @Inject constructor(
             builder = builder.manuallySelectedOnly()
         }
 
-        // Passphrase wallets use in-memory BDK persisters (no persisted chain history),
-        // so BDK classifies all their UTXOs as untrustedPending. TxBuilder's default coin
-        // selection ignores untrustedPending UTXOs, causing "insufficient funds: 0 btc".
-        // Apply the same addUtxo() workaround used for watch-only wallets in createPsbt().
-        // Also filter frozen UTXOs when no explicit coin control is active.
-        if (!hasManualUtxos) {
-            val frozenOutpoints = try {
-                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-            } catch (_: Exception) { emptySet() }
-            val needsManualSelection = isPassphraseWallet || frozenOutpoints.isNotEmpty()
-            if (needsManualSelection) {
-                val utxos = wallet.listUnspent()
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "buildTransaction: manual UTXO selection (passphrase=$isPassphraseWallet, ${frozenOutpoints.size} frozen)")
-                for (utxo in utxos) {
-                    val opStr = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
-                    if (!utxo.isSpent && opStr !in frozenOutpoints) {
-                        builder = builder.addUtxo(utxo.outpoint)
-                    }
-                }
-                builder = builder.manuallySelectedOnly()
-            }
-        }
+        builder = applyInputPolicy(walletId, wallet, builder, selectedOutpoints,
+            utxoTxid, utxoVout, isPassphraseWallet)
 
         // Build and sign transaction
         val psbt = builder.finish(wallet)
-        wallet.sign(psbt)
+        signAllowedPsbt(walletId, wallet, psbt)
         return@withContext serializeFinalTransaction(psbt)
         }
         }
     }
 
-    override suspend fun broadcastTransaction(config: ElectrumConfig, txHex: String): String =
+    override suspend fun broadcastTransaction(config: ElectrumConfig, txHex: String, walletId: String?): String =
         withSensitiveWalletOperation { _ -> withContext(Dispatchers.IO) {
         if (settingsManager.isOfflineMode()) {
             throw IllegalStateException("Cannot broadcast in offline mode")
@@ -1708,6 +1745,7 @@ class BdkBitcoinRepository @Inject constructor(
         val tx = Transaction(txBytes)
 
         try {
+            assertTransactionInputsAllowed(walletId, tx)
             broadcastTransactionBounded(config, tx)
         } finally {
             closeSecretNativeResources(nativeCloseAction(tx) { it.close() })
@@ -2199,12 +2237,23 @@ class BdkBitcoinRepository @Inject constructor(
         val wallet = entry.wallet
         val feeRate = validatedFeeRate(newFeeRate)
 
+        // Verify metadata availability before mutating the native builder state.
+        frozenOutpoints(walletId)
         val psbt = org.bitcoindevkit.BumpFeeTxBuilder(org.bitcoindevkit.Txid.fromString(txid), feeRate)
             .finish(wallet)
 
-        // Sign the bumped transaction and durably persist the replacement state.
-        wallet.sign(psbt)
-        wallet.persist(entry.persister)
+        // The pinned fee-bump wrapper cannot exclude optional inputs. Reject the actual
+        // replacement before signing. Reload persisted state on failure (including the
+        // original transaction) so rejected construction cannot leave staged changes.
+        try {
+            assertPsbtInputsAllowed(walletId, psbt)
+            wallet.sign(psbt)
+            wallet.persist(entry.persister)
+        } catch (failure: Exception) {
+            closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
+            evictWallet(walletId, lease)
+            throw failure
+        }
         serializeFinalTransaction(psbt)
         }
         }
@@ -2273,7 +2322,7 @@ class BdkBitcoinRepository @Inject constructor(
                     builder.manuallySelectedOnly().finish(wallet)
                 }
             )
-            wallet.sign(psbt)
+            signAllowedPsbt(walletId, wallet, psbt)
             wallet.persist(entry.persister)
             serializeFinalTransaction(psbt)
         } finally {
@@ -2318,13 +2367,8 @@ class BdkBitcoinRepository @Inject constructor(
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "listUnspent: tipHeight from wallet txs (fallback): $tipHeight")
         }
 
-        // Load frozen outpoints for this wallet
-        val frozenOutpoints = try {
-            utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-        } catch (e: Exception) {
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "listUnspent: failed to get frozen UTXOs: ${e.message}")
-            emptySet()
-        }
+        // If policy metadata cannot be read, do not advertise coins as spendable.
+        val frozenOutpoints = frozenOutpoints(walletId)
 
         utxos.map { localOutput ->
             val outpoint = localOutput.outpoint
@@ -2421,64 +2465,15 @@ class BdkBitcoinRepository @Inject constructor(
             }
         }
 
-        // For watch-only wallets, BDK classifies all UTXOs as untrustedPending
-        // which makes them invisible to the default coin selection.
-        // Explicitly add all unspent outputs so TxBuilder can use them.
-        // Also filter out frozen UTXOs.
-        if (isWatchOnly && selectedOutpoints.isEmpty() && utxoTxid == null) {
-            val utxos = wallet.listUnspent()
-            val frozenOutpoints = try {
-                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-            } catch (e: Exception) {
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "createPsbt: failed to get frozen UTXOs: ${e.message}")
-                emptySet()
-            }
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: watch-only wallet, adding ${utxos.size} UTXOs (${frozenOutpoints.size} frozen/excluded)")
-            for (utxo in utxos) {
-                val outpointStr = "${utxo.outpoint.txid.toString()}:${utxo.outpoint.vout}"
-                if (!utxo.isSpent && outpointStr !in frozenOutpoints) {
-                    builder = builder.addUtxo(utxo.outpoint)
-                }
-            }
-        }
-
-        // Optionally restrict to specific UTXOs (coin control)
-        // Also filter out frozen UTXOs
-        val frozenOutpointsForCoinControl = try {
-            if (selectedOutpoints.isEmpty() && utxoTxid == null) {
-                // Only fetch frozen list when not using explicit UTXO selection
-                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-            } else emptySet()
-        } catch (e: Exception) {
-            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "createPsbt: failed to get frozen UTXOs for coin control: ${e.message}")
-            emptySet()
-        }
-        
+        // Explicit selection is an allowlist, never an override of frozen state.
         if (amountSat != null && selectedOutpoints.isNotEmpty()) {
-            for (op in selectedOutpoints) {
-                val parts = op.split(":")
-                if (parts.size == 2) {
-                    val txid = parts[0]
-                    val vout = parts[1].toUIntOrNull() ?: continue
-                    val outpointStr = "$txid:$vout"
-                    // Skip frozen UTXOs
-                    if (outpointStr in frozenOutpointsForCoinControl) {
-                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: skipping frozen UTXO $outpointStr")
-                        continue
-                    }
-                    builder = builder.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(txid), vout))
-                }
-            }
+            for (op in selectedOutpoints) builder = builder.addUtxo(parsePolicyOutpoint(op))
             builder = builder.manuallySelectedOnly()
         } else if (amountSat != null && utxoTxid != null && utxoVout != null) {
-            val outpointStr = "$utxoTxid:$utxoVout"
-            if (outpointStr in frozenOutpointsForCoinControl) {
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("BdkRepo", "createPsbt: attempted to spend frozen UTXO $outpointStr")
-                throw IllegalArgumentException("Cannot spend frozen UTXO")
-            }
-            builder = builder.addUtxo(org.bitcoindevkit.OutPoint(org.bitcoindevkit.Txid.fromString(utxoTxid), utxoVout))
-            builder = builder.manuallySelectedOnly()
+            builder = builder.addUtxo(parsePolicyOutpoint("$utxoTxid:$utxoVout")).manuallySelectedOnly()
         }
+        builder = applyInputPolicy(walletId, wallet, builder, selectedOutpoints,
+            utxoTxid, utxoVout, isWatchOnly || walletEntity?.hasPassphrase == true)
 
         // Include global xpubs in PSBT — hardware wallets use these to verify
         // derivation paths and identify which keys belong to the signing device.
@@ -2495,6 +2490,7 @@ class BdkBitcoinRepository @Inject constructor(
         }
 
         try {
+            assertPsbtInputsAllowed(walletId, psbt)
             val serializedPsbt = psbt.serialize()
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "createPsbt: built PSBT for ${if (isWatchOnly) "watch-only" else "full"} wallet, base64 len=${serializedPsbt.length}")
 
@@ -2561,30 +2557,12 @@ class BdkBitcoinRepository @Inject constructor(
             builder = builder.manuallySelectedOnly()
         }
 
-        // Passphrase wallet workaround + frozen UTXO filtering (B-2)
-        // If it's a passphrase wallet OR there are frozen UTXOs, we must iterate
-        // and manually select only the non-frozen UTXOs to avoid spending either.
         val walletEntity = walletDao.getById(walletId)
-        if (selectedOutpoints.isEmpty()) {
-            val frozenOutpoints = try {
-                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-            } catch (_: Exception) { emptySet() }
-
-            val needsManualSelection = (walletEntity?.hasPassphrase == true) || frozenOutpoints.isNotEmpty()
-            if (needsManualSelection) {
-                val utxos = wallet.listUnspent()
-                for (utxo in utxos) {
-                    val opStr = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
-                    if (!utxo.isSpent && opStr !in frozenOutpoints) {
-                        builder = builder.addUtxo(utxo.outpoint)
-                    }
-                }
-                builder = builder.manuallySelectedOnly()
-            }
-        }
+        builder = applyInputPolicy(walletId, wallet, builder, selectedOutpoints,
+            forceManual = walletEntity?.hasPassphrase == true)
 
         val psbt = builder.finish(wallet)
-        wallet.sign(psbt)
+        signAllowedPsbt(walletId, wallet, psbt)
         serializeFinalTransaction(psbt)
         }
         }
@@ -2615,20 +2593,6 @@ class BdkBitcoinRepository @Inject constructor(
             builder = builder.addRecipient(addr.scriptPubkey(), Amount.fromSat(r.amountSat.toULong()))
         }
 
-        // Watch-only: explicitly add all unspent outputs
-        if (isWatchOnly && selectedOutpoints.isEmpty()) {
-            val utxos = wallet.listUnspent()
-            val frozenOutpoints = try {
-                utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
-            } catch (_: Exception) { emptySet() }
-            for (utxo in utxos) {
-                val opStr = "${utxo.outpoint.txid}:${utxo.outpoint.vout}"
-                if (!utxo.isSpent && opStr !in frozenOutpoints) {
-                    builder = builder.addUtxo(utxo.outpoint)
-                }
-            }
-        }
-
         // Coin control
         if (selectedOutpoints.isNotEmpty()) {
             for (op in selectedOutpoints) {
@@ -2642,6 +2606,9 @@ class BdkBitcoinRepository @Inject constructor(
             builder = builder.manuallySelectedOnly()
         }
 
+        builder = applyInputPolicy(walletId, wallet, builder, selectedOutpoints,
+            forceManual = isWatchOnly || walletEntity?.hasPassphrase == true)
+
         val psbt = try {
             val builderWithXpubs = builder.addGlobalXpubs()
             builderWithXpubs.finish(wallet)
@@ -2650,6 +2617,7 @@ class BdkBitcoinRepository @Inject constructor(
             builder.finish(wallet)
         }
         try {
+            assertPsbtInputsAllowed(walletId, psbt)
             psbt.serialize()
         } finally {
             closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
@@ -2706,6 +2674,7 @@ class BdkBitcoinRepository @Inject constructor(
                 // This is deliberately the last step before any network I/O.
                 // Hardware-signing coordinators use it to prove that the exact
                 // reviewed session is still current after parsing/finalization.
+                assertTransactionInputsAllowed(walletId, tx)
                 assertBroadcastAuthorized()
                 broadcastTransactionBounded(config, tx)
             } finally {
