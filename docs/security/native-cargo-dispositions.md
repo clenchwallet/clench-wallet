@@ -132,3 +132,29 @@ blanket exception or a claim that legacy code is absent or patched.
 The Room13-to-14 migration adds fixed-name SQL and bound metadata operations,
 not a SQLCipher URI `hexkey`, arbitrary schema alias or `sqlcipher_export` path.
 SQLCipher4.17's separate source/provenance and maintenance gaps remain open.
+
+## Signer-label correction binding re-review — 2026-09-17
+
+Reviewed correction `71597d9b4f3a601dc7b1acf94c46f1dcfe8d43cd` against
+`20dfb45947629e8f27ff455aa8b1406ec85ea719`. The only production-input change
+is WalletInfoViewModel's lookup of the two existing descriptor-derived metadata
+ID spellings and selection of the newest matching display label. It adds no
+network operation, native entry point, reflection, CRL configuration or dependency
+change. The companion regression-test changes are outside production inputs.
+The existing independent changed-path review is recorded on PR86.
+
+A fresh production-source search found no Esplora construction/reference,
+Class.forName, loadClass or direct Native.load call; the explicit loadLibrary
+remains SQLCipher. ElectrumConnectionFactory still creates the native client
+on controlled loopback TCP and uses Java SSLSocket for upstream TLS. The native
+recipe, features, locks and verification metadata are unchanged from the prior
+review. The correction therefore adds no route to the legacy URI/wildcard-name
+constraint verifier or CRL parser described above.
+
+All six full live OSV records were fetched again and their details re-read;
+canonical hashes match the existing exact dispositions. The same affected
+legacy versions remain reported, and no patched/removed-code claim is made.
+This refresh retains all six exact dispositions and the original October16
+expiry, binding the corrected production inputs and this evidence. A fresh
+full-candidate live query remains required; device acceptance and broader native
+assurance are separate gates.

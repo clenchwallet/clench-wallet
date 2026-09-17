@@ -1,6 +1,9 @@
 package net.clench.wallet.viewmodel
 
 import net.clench.wallet.domain.model.WalletData
+import net.clench.wallet.domain.model.SignerAccountKeyParser
+import net.clench.wallet.data.local.entity.WalletKeystoreMetadataEntity
+import net.clench.wallet.ui.viewmodel.WalletInfoViewModel.Companion.withMetadata
 import net.clench.wallet.ui.components.MultisigWalletConfigParser
 import net.clench.wallet.ui.util.DescriptorDisplayPolicy
 import net.clench.wallet.ui.viewmodel.WalletInfoViewModel
@@ -11,6 +14,62 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WalletInfoViewModelTest {
+
+    private fun metadataPolicy(): WalletInfoViewModel.MultisigPolicyInfo {
+        val descriptor = "wsh(sortedmulti(2,[01020304/48'/0'/0'/2']$originalKey/0/*,[05060708/48'/0'/0'/2']$distinctKey/0/*))"
+        return requireNotNull(WalletInfoViewModel.parseMultisigPolicyForDisplay(
+            descriptor, descriptor.replace("/0/*", "/1/*")
+        ))
+    }
+
+    private fun createdMetadata(policy: WalletInfoViewModel.MultisigPolicyInfo) =
+        policy.keystores.mapIndexed { i, key ->
+            WalletKeystoreMetadataEntity("wallet", SignerAccountKeyParser.stableId(
+                key.masterFingerprint, key.derivationPath, key.xpub
+            ), "Saved signer ${i + 1}", updatedAtEpochMs = 10)
+        }.associateBy { it.keyId }
+
+    @Test fun `newly created signer labels match descriptor without false warning`() {
+        val policy = metadataPolicy()
+        val displayed = policy.withMetadata(createdMetadata(policy))
+        assertEquals(listOf("Saved signer 1", "Saved signer 2"), displayed.keystores.map { it.label })
+        assertTrue(displayed.warnings.isEmpty())
+        assertEquals(policy.descriptor, displayed.descriptor)
+        assertEquals(policy.keystores.map { it.keyId }, displayed.keystores.map { it.keyId })
+    }
+
+    @Test fun `historical renamed labels retain their stored ids`() {
+        val policy = metadataPolicy()
+        val metadata = policy.keystores.map { key ->
+            WalletKeystoreMetadataEntity("wallet", key.keyId, "Renamed ${key.masterFingerprint}", updatedAtEpochMs = 20)
+        }.associateBy { it.keyId }
+        val displayed = policy.withMetadata(metadata)
+        assertEquals(metadata.values.map { it.label }, displayed.keystores.map { it.label })
+        assertTrue(displayed.warnings.isEmpty())
+    }
+
+    @Test fun `newest label wins when creation and rename rows coexist`() {
+        val policy = metadataPolicy()
+        val created = createdMetadata(policy)
+        val renamed = WalletKeystoreMetadataEntity("wallet", policy.keystores[0].keyId,
+            "Later rename", updatedAtEpochMs = 20)
+        val both = created + (renamed.keyId to renamed)
+        val displayed = policy.withMetadata(both)
+        assertEquals("Later rename", displayed.keystores[0].label)
+        assertTrue(displayed.warnings.isEmpty())
+        val updatedCreation = created.values.first().copy(label = "Later import", updatedAtEpochMs = 30)
+        assertEquals("Later import", policy.withMetadata(both + (updatedCreation.keyId to updatedCreation)).keystores[0].label)
+    }
+
+    @Test fun `unmatched and missing signer metadata still warns`() {
+        val policy = metadataPolicy()
+        val created = createdMetadata(policy)
+        val unrelated = WalletKeystoreMetadataEntity("wallet", "unrelated", "Do not apply", updatedAtEpochMs = 99)
+        val displayed = policy.withMetadata(created + (unrelated.keyId to unrelated))
+        assertTrue(displayed.warnings.any { it.contains("actual signer set") })
+        assertEquals(listOf("Saved signer 1", "Saved signer 2"), displayed.keystores.map { it.label })
+        assertTrue(policy.withMetadata(created - created.keys.first()).warnings.any { it.contains("actual signer set") })
+    }
 
     // Synthetic public-only extended keys: generator point and repeated chain bytes.
     // The alias changes version/depth/parent/child metadata, not key or chain code.
