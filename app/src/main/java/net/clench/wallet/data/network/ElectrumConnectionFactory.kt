@@ -214,10 +214,12 @@ class ElectrumConnectionFactory @Inject constructor(
 
                 // Bidirectional relay
                 val t1 = Thread({
-                    relay(localSocket.getInputStream(), upstreamSocket.getOutputStream(), "BDK→upstream")
+                    try { relay(localSocket.getInputStream(), upstreamSocket.getOutputStream(), "BDK→upstream") }
+                    finally { lease.close() }
                 }, "relay-up-${resolved.host}")
                 val t2 = Thread({
-                    relay(upstreamSocket.getInputStream(), localSocket.getOutputStream(), "upstream→BDK")
+                    try { relay(upstreamSocket.getInputStream(), localSocket.getOutputStream(), "upstream→BDK") }
+                    finally { lease.close() }
                 }, "relay-down-${resolved.host}")
 
                 t1.isDaemon = true
@@ -225,7 +227,7 @@ class ElectrumConnectionFactory @Inject constructor(
                 t1.start()
                 t2.start()
 
-                // Wait for either direction to finish
+                // Either direction closes the lease, unblocking its sibling and the native client.
                 t1.join()
                 t2.join()
             } catch (e: Exception) {
@@ -240,7 +242,9 @@ class ElectrumConnectionFactory @Inject constructor(
 
         // BDK connects to local relay via plain TCP
         val url = "tcp://127.0.0.1:$localPort"
-        val client = ElectrumClient(url)
+        // This listener intentionally accepts exactly once. Retrying a failed native
+        // connection would target a closed relay; callers must create a fresh admitted one.
+        val client = ElectrumClient(url, timeout = 15u, retry = 0u)
 
         return ActiveElectrumConnection(
             nativeClient = client,
