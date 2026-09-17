@@ -62,7 +62,8 @@ class WalletInfoViewModel @Inject constructor(
         val keyReplacementWarning: String,
         val recoveryChecklist: List<String>,
         val warnings: List<String>,
-        val keystores: List<MultisigKeystoreInfo>
+        val keystores: List<MultisigKeystoreInfo>,
+        val consistencyWarnings: List<String> = emptyList()
     )
 
     data class DescriptorBackupMetadata(
@@ -253,7 +254,7 @@ class WalletInfoViewModel @Inject constructor(
                         }
                         policy.copy(
                             keystores = updatedKeystores,
-                            warnings = buildMultisigWarnings(updatedKeystores)
+                            warnings = (policy.consistencyWarnings + buildMultisigWarnings(updatedKeystores)).distinct()
                         )
                     }
                     state.copy(multisigPolicy = updatedPolicy)
@@ -479,6 +480,17 @@ class WalletInfoViewModel @Inject constructor(
                 else -> "Unknown"
             }
 
+            val changeCall = extractFunctionArgs(changeDescriptor.substringBefore("#"), "sortedmulti")
+                ?: extractFunctionArgs(changeDescriptor.substringBefore("#"), "multi")
+            val changeArgs = changeCall?.let(::splitDescriptorArgs).orEmpty()
+            val consistencyWarnings = if (
+                changeArgs.firstOrNull()?.toIntOrNull() != threshold ||
+                args.drop(1).map { it.replace("/0/*", "/1/*").lowercase() }.sorted() !=
+                changeArgs.drop(1).map { it.lowercase() }.sorted()
+            ) listOf("Receive and change policies differ. Existing descriptors have not been changed. " +
+                "Keep the original backup, verify both policies with your signers, and create a separately verified wallet before moving funds.")
+            else emptyList()
+
             return MultisigPolicyInfo(
                 policyType = "Multi Signature",
                 scriptType = scriptType,
@@ -488,8 +500,9 @@ class WalletInfoViewModel @Inject constructor(
                 bsmsDescriptorRecord = buildBsmsDescriptorRecord(cleanDescriptor),
                 keyReplacementWarning = "Do not replace a cosigner inside this wallet. Create a new multisig wallet with the replacement signer set, verify its receive addresses, then move funds.",
                 recoveryChecklist = buildRecoveryChecklist(threshold, keystores.size),
-                warnings = buildMultisigWarnings(keystores),
-                keystores = keystores
+                warnings = consistencyWarnings + buildMultisigWarnings(keystores),
+                keystores = keystores,
+                consistencyWarnings = consistencyWarnings
             )
         }
 
@@ -546,7 +559,7 @@ class WalletInfoViewModel @Inject constructor(
             )
         }
 
-        private fun MultisigPolicyInfo.withMetadata(
+        internal fun MultisigPolicyInfo.withMetadata(
             metadataByKey: Map<String, WalletKeystoreMetadataEntity>
         ): MultisigPolicyInfo {
             if (metadataByKey.isEmpty()) return this
@@ -564,9 +577,16 @@ class WalletInfoViewModel @Inject constructor(
                     )
                 }
             }
+            val metadataWarnings = if (metadataByKey.keys != keystores.map { it.keyId }.toSet()) {
+                listOf("Saved signer labels do not match the descriptor's actual signer set. " +
+                    "The displayed policy is derived from the descriptor; no spending authority was changed. " +
+                    "Keep the original backup and verify every signer before funding or using this wallet.")
+            } else emptyList()
+            val retainedWarnings = (consistencyWarnings + metadataWarnings).distinct()
             return copy(
                 keystores = updatedKeystores,
-                warnings = buildMultisigWarnings(updatedKeystores)
+                consistencyWarnings = retainedWarnings,
+                warnings = retainedWarnings + buildMultisigWarnings(updatedKeystores)
             )
         }
 

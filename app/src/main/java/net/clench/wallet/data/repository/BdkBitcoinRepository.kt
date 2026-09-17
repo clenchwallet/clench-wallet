@@ -10,6 +10,8 @@ import net.clench.wallet.data.local.KeystoreManager
 import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.data.network.BoundedBlockingCall
 import net.clench.wallet.data.network.TorAwareHttpClient
+import net.clench.wallet.domain.model.MultisigAccountKey
+import net.clench.wallet.domain.model.SignerAccountKeyParser
 import net.clench.wallet.domain.model.ScriptType
 import net.clench.wallet.data.local.dao.TransactionDao
 import net.clench.wallet.data.local.dao.TransactionLabelDao
@@ -3717,6 +3719,13 @@ class BdkBitcoinRepository @Inject constructor(
         val changeDescriptor = checkNotNull(publicDescriptors).second
         val publicDescriptor = externalDescriptor.toString()
         val publicChangeDescriptor = changeDescriptor.toString()
+        MultisigDescriptorSafety.requireExpectedPolicy(publicDescriptor, threshold, normalizedSignerKeys, 0)
+        MultisigDescriptorSafety.requireExpectedPolicy(publicChangeDescriptor, threshold, normalizedSignerKeys, 1)
+        signingDescriptors?.let { (external, change) ->
+            // A phone secret must resolve to the exact advertised public signer, too.
+            MultisigDescriptorSafety.requireExpectedPolicy(external.toString(), threshold, normalizedSignerKeys, 0)
+            MultisigDescriptorSafety.requireExpectedPolicy(change.toString(), threshold, normalizedSignerKeys, 1)
+        }
         val signingSecretDescriptor = signingDescriptors?.first?.toStringWithSecret()
         val signingSecretChangeDescriptor = signingDescriptors?.second?.toStringWithSecret()
         signingDescriptors?.let(::closeDescriptorPair)
@@ -3893,49 +3902,15 @@ class BdkBitcoinRepository @Inject constructor(
         }
     }
 
-    private fun normalizeMultisigSignerKey(raw: String, signerNumber: Int, network: Network): String {
-        val trimmed = raw.trim()
-        require(trimmed.isNotBlank()) { "Signer $signerNumber: extended public key is required" }
-        require(!trimmed.startsWith("wsh(") && !trimmed.startsWith("wpkh(") && !trimmed.startsWith("sh(")) {
-            "Signer $signerNumber: paste the signer public key, not a full descriptor"
+    private fun normalizeMultisigSignerKey(raw: String, signerNumber: Int, network: Network): String =
+        try {
+            MultisigAccountKey.parse(
+                SignerAccountKeyParser.normalizeHardwareExportForMultisig(raw),
+                expectedTestnet = network == Network.TESTNET
+            ).expression
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException("Signer $signerNumber: ${e.message}", e)
         }
-
-        val origin: String
-        val keyWithSuffix: String
-        if (trimmed.startsWith("[")) {
-            val closeBracket = trimmed.indexOf(']')
-            require(closeBracket > 0) { "Signer $signerNumber: malformed key origin — missing closing ']'" }
-            origin = trimmed.substring(0, closeBracket + 1)
-            validateMultisigOriginNetwork(origin, signerNumber, network)
-            keyWithSuffix = trimmed.substring(closeBracket + 1)
-        } else {
-            origin = ""
-            keyWithSuffix = trimmed
-        }
-
-        val suffix = when {
-            keyWithSuffix.endsWith("/0/*") -> "/0/*"
-            keyWithSuffix.endsWith("/1/*") -> "/1/*"
-            else -> ""
-        }
-        val key = keyWithSuffix.removeSuffix("/0/*").removeSuffix("/1/*")
-        validateMultisigSignerNetwork(key, signerNumber, network)
-        require(!key.startsWith("xprv") && !key.startsWith("yprv") &&
-            !key.startsWith("zprv") && !key.startsWith("tprv")) {
-            "Signer $signerNumber: private extended keys are not allowed"
-        }
-        val publicKey = when {
-            key.startsWith("xpub") || key.startsWith("tpub") -> key
-            key.startsWith("ypub") || key.startsWith("zpub") ||
-                key.startsWith("Ypub") || key.startsWith("Zpub") ||
-                key.startsWith("upub") || key.startsWith("vpub") ||
-                key.startsWith("Upub") || key.startsWith("Vpub") -> convertZpubToXpub(key)
-            else -> throw IllegalArgumentException(
-                "Signer $signerNumber: unrecognized key format. Expected xpub, Zpub, tpub, or similar public extended key."
-            )
-        }
-        return "$origin$publicKey$suffix"
-    }
 
     private fun normalizeMultisigSecretSignerKey(raw: String, signerNumber: Int, network: Network): String {
         val trimmed = raw.trim()
