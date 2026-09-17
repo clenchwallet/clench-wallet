@@ -33,7 +33,7 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 class FrozenInputRepositoryTest {
     private data class Fixture(val repo: BdkBitcoinRepository, val db: ClenchDatabase, val id: String,
-        val allowed: String, val frozen: String, val address: String)
+        val allowed: String, val frozen: String, val address: String, val settings: SettingsManager)
 
     private fun fixture(failMetadata: Boolean = false, block: suspend (Fixture) -> Unit) = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -81,7 +81,7 @@ class FrozenInputRepositoryTest {
                 ElectrumConnectionFactory(settings), TorAwareHttpClient(settings),
                 WalletMnemonicGenerator(SecureRandomWalletEntropySource(), BdkWalletMnemonicFactory()), SensitiveWalletOperationBarrier())
             db.utxoMetadataDao().upsert(UtxoMetadataEntity("$txid:1", id, isFrozen = true))
-            block(Fixture(repo, db, id, "$txid:0", "$txid:1", address))
+            block(Fixture(repo, db, id, "$txid:0", "$txid:1", address, settings))
         } finally {
             repo?.beginSensitiveSessionEviction()
             repo?.completeSensitiveSessionEviction()
@@ -121,6 +121,44 @@ class FrozenInputRepositoryTest {
         assertTrue("Policy must reject before DNS/native connection: $failure", failure is IllegalArgumentException && failure.message!!.contains("frozen"))
         f.db.utxoMetadataDao().upsert(UtxoMetadataEntity(f.allowed, f.id, isFrozen = false))
         assertEquals(listOf(f.allowed), inputs(f.repo.createPsbt(f.id, f.address, 10_000, 1f)))
+    }
+
+    @Test fun nativeUnconfirmedProjectionReplacesCachedConfirmationAndFailedSyncPreservesIt() = fixture { f ->
+        val txid = f.allowed.substringBefore(':')
+        val old = net.clench.wallet.data.local.entity.TransactionEntity(txid, f.id, 200_000, null, 1000, 6, "RECEIVED", null)
+        f.db.transactionDao().insertAll(listOf(old))
+        val entity = checkNotNull(f.db.walletDao().getById(f.id))
+        val descriptor = Descriptor(entity.descriptor, Network.TESTNET.toNetworkKind())
+        val change = Descriptor(entity.changeDescriptor, Network.TESTNET.toNetworkKind())
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val persister = Persister.newSqlite(context.getDatabasePath("wallet_${f.id}.db").absolutePath)
+        val wallet = Wallet.load(descriptor, change, persister)
+        try {
+            assertTrue(wallet.transactions().single().chainPosition is ChainPosition.Unconfirmed)
+            assertEquals(0uL, wallet.balance().confirmed.toSat())
+            f.repo.cacheNativeHistoryFromSuccessfulSync(f.id, wallet, 100u, f.settings.networkAccess.token())
+            val fresh = f.db.transactionDao().getForWallet(f.id).single()
+            assertEquals(0, fresh.confirmations)
+            assertNotEquals(old.timestampEpochMs, fresh.timestampEpochMs)
+            assertEquals(0uL, wallet.balance().confirmed.toSat())
+        } finally { wallet.close(); persister.close(); change.close(); descriptor.close() }
+        // A failed actual sync must not demote the prior display based on failed lookup.
+        f.db.transactionDao().insertAll(listOf(old))
+        val closedPort = java.net.ServerSocket(0).use { it.localPort }
+        assertTrue(runCatching { f.repo.syncWallet(f.id,
+            ElectrumConfig(serverUrl = "127.0.0.1", port = closedPort, useSsl = false)) }.isFailure)
+        assertEquals(listOf(old), f.db.transactionDao().getForWallet(f.id))
+        // Superseded native snapshots cannot commit after an offline cycle.
+        val token = f.settings.networkAccess.token()
+        f.settings.setOfflineMode(true); f.settings.setOfflineMode(false)
+        val reloadDescriptor = Descriptor(entity.descriptor, Network.TESTNET.toNetworkKind())
+        val reloadChange = Descriptor(entity.changeDescriptor, Network.TESTNET.toNetworkKind())
+        val reloadPersister = Persister.newSqlite(context.getDatabasePath("wallet_${f.id}.db").absolutePath)
+        val reload = Wallet.load(reloadDescriptor, reloadChange, reloadPersister)
+        try {
+            assertTrue(runCatching { f.repo.cacheNativeHistoryFromSuccessfulSync(f.id, reload, 100u, token) }.isFailure)
+            assertEquals(listOf(old), f.db.transactionDao().getForWallet(f.id))
+        } finally { reload.close(); reloadPersister.close(); reloadChange.close(); reloadDescriptor.close() }
     }
 
     @Test fun metadataReadFailureStopsPsbtConstruction() = fixture(failMetadata = true) { f ->

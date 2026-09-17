@@ -1245,71 +1245,7 @@ class BdkBitcoinRepository @Inject constructor(
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tipHeight from wallet txs (fallback): $tipHeight")
             }
 
-            // Cache transactions to Room DB
-            val transactionEntities = transactions.map { canonicalTx ->
-                val tx = canonicalTx.transaction
-                val sentAndReceived = wallet.sentAndReceived(tx)
-                val sent = sentAndReceived.sent.toSat()
-                val received = sentAndReceived.received.toSat()
-
-                // Determine direction and amount
-                val (direction, amount) = if (received > sent) {
-                    TxDirection.RECEIVED to (received - sent)
-                } else {
-                    TxDirection.SENT to (sent - received)
-                }
-
-                // R7-4: Get confirmation timestamp and calculate confirmations
-                val (timestampMs, confirmations) = when (val pos = canonicalTx.chainPosition) {
-                    is ChainPosition.Confirmed -> {
-                        val ts = pos.confirmationBlockTime.confirmationTime.toLong() * 1000L
-                        val txHeight = pos.confirmationBlockTime.blockId.height
-                        val confs = if (tipHeight >= txHeight) (tipHeight - txHeight + 1u).toInt() else 1
-                        // [S-4] Gate: txid fragments expose wallet activity
-                        if (logSensitive) {
-                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... CONFIRMED height=$txHeight confs=$confs")
-                        }
-                        Pair(ts, confs)
-                    }
-                    is ChainPosition.Unconfirmed -> {
-                        if (logSensitive) {
-                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNCONFIRMED lastSeen=${pos.timestamp}")
-                        }
-                        Pair(pos.timestamp?.let { it.toLong() * 1000L }, 0)
-                    }
-                    else -> {
-                        if (logSensitive) {
-                            if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNKNOWN pos=${pos.javaClass.simpleName}")
-                        }
-                        Pair(null, 0)
-                    }
-                }
-
-                // R7-5: Calculate fee if possible (may fail for watch-only wallets)
-                val feeSat: Long? = try {
-                    wallet.calculateFee(tx).toSat().toLong()
-                } catch (_: Exception) {
-                    null
-                }
-
-                TransactionEntity(
-                    txid = tx.computeTxid().toString(),
-                    walletId = walletId,
-                    amountSat = amount.toLong(),
-                    feeSat = feeSat,
-                    timestampEpochMs = timestampMs,
-                    confirmations = confirmations,
-                    direction = direction.name,
-                    address = null
-                )
-            }
-            // This block is reached only after a successful complete native scan.
-            // Canonical native chain positions are authoritative for every wallet type:
-            // never promote Unconfirmed using an old positive Room row or an optional
-            // verbose transaction lookup. A failed scan exits before touching history.
-            // Replace atomically so evicted/replaced transactions cannot survive forever.
-            settingsManager.networkAccess.requireCurrent(networkToken)
-            transactionDao.replaceFromSuccessfulSync(walletId, transactionEntities)
+            cacheNativeHistoryFromSuccessfulSync(walletId, wallet, tipHeight, networkToken)
 
             // Return balance
             val balance = wallet.balance()
@@ -1326,6 +1262,83 @@ class BdkBitcoinRepository @Inject constructor(
             )
         }
         }
+    }
+
+    /** Cache the canonical graph after a completed native scan, never after a failed/partial scan.
+     * Kept as the shared production boundary so Android tests exercise native -> projection -> Room.
+     */
+    internal suspend fun cacheNativeHistoryFromSuccessfulSync(
+        walletId: String,
+        wallet: Wallet,
+        tipHeight: UInt,
+        networkToken: Long
+    ) {
+        val transactions = wallet.transactions()
+        // Cache transactions to Room DB
+        val transactionEntities = transactions.map { canonicalTx ->
+            val tx = canonicalTx.transaction
+            val sentAndReceived = wallet.sentAndReceived(tx)
+            val sent = sentAndReceived.sent.toSat()
+            val received = sentAndReceived.received.toSat()
+
+            // Determine direction and amount
+            val (direction, amount) = if (received > sent) {
+                TxDirection.RECEIVED to (received - sent)
+            } else {
+                TxDirection.SENT to (sent - received)
+            }
+
+            // R7-4: Get confirmation timestamp and calculate confirmations
+            val (timestampMs, confirmations) = when (val pos = canonicalTx.chainPosition) {
+                is ChainPosition.Confirmed -> {
+                    val ts = pos.confirmationBlockTime.confirmationTime.toLong() * 1000L
+                    val txHeight = pos.confirmationBlockTime.blockId.height
+                    val confs = if (tipHeight >= txHeight) (tipHeight - txHeight + 1u).toInt() else 1
+                    // [S-4] Gate: txid fragments expose wallet activity
+                    if (logSensitive) {
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... CONFIRMED height=$txHeight confs=$confs")
+                    }
+                    Pair(ts, confs)
+                }
+                is ChainPosition.Unconfirmed -> {
+                    if (logSensitive) {
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNCONFIRMED lastSeen=${pos.timestamp}")
+                    }
+                    Pair(pos.timestamp?.let { it.toLong() * 1000L }, 0)
+                }
+                else -> {
+                    if (logSensitive) {
+                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "tx ${tx.computeTxid().toString().take(12)}... UNKNOWN pos=${pos.javaClass.simpleName}")
+                    }
+                    Pair(null, 0)
+                }
+            }
+
+            // R7-5: Calculate fee if possible (may fail for watch-only wallets)
+            val feeSat: Long? = try {
+                wallet.calculateFee(tx).toSat().toLong()
+            } catch (_: Exception) {
+                null
+            }
+
+            TransactionEntity(
+                txid = tx.computeTxid().toString(),
+                walletId = walletId,
+                amountSat = amount.toLong(),
+                feeSat = feeSat,
+                timestampEpochMs = timestampMs,
+                confirmations = confirmations,
+                direction = direction.name,
+                address = null
+            )
+        }
+        // This block is reached only after a successful complete native scan.
+        // Canonical native chain positions are authoritative for every wallet type:
+        // never promote Unconfirmed using an old positive Room row or an optional
+        // verbose transaction lookup. A failed scan exits before touching history.
+        // Replace atomically so evicted/replaced transactions cannot survive forever.
+        settingsManager.networkAccess.requireCurrent(networkToken)
+        transactionDao.replaceFromSuccessfulSync(walletId, transactionEntities)
     }
 
     override suspend fun recoverWalletState(walletId: String, stopGap: UInt): WalletStateRecoveryResult =
