@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.fragment.app.FragmentActivity
 import net.clench.wallet.security.AuthenticationGate
 import net.clench.wallet.security.AuthenticationGateChangeController
+import net.clench.wallet.security.RelockTimeoutChangeController
+import net.clench.wallet.ui.util.AuthenticationSessionGuard
 import net.clench.wallet.ui.util.BiometricHelper
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -525,17 +527,100 @@ class SettingsViewModel @Inject constructor(
 
     override fun onCleared() {
         gateChanges.cancel()
+        cancelLockTimeoutChange()
         super.onCleared()
     }
 
     fun setAppLockMode(mode: String) {
+        cancelLockTimeoutChange()
         settingsManager.setAppLockMode(mode)
         _uiState.update { it.copy(appLockMode = mode) }
     }
 
-    fun setLockTimeout(key: String) {
-        settingsManager.setLockTimeout(key)
-        _uiState.update { it.copy(lockTimeoutKey = key) }
+    private val timeoutChanges = RelockTimeoutChangeController(
+        currentKey = settingsManager::getLockTimeoutKey,
+        currentMode = settingsManager::getAppLockMode,
+        persist = { key ->
+            settingsManager.setLockTimeout(key)
+            _uiState.update { it.copy(lockTimeoutKey = key) }
+        }
+    )
+    private var pendingTimeoutPin: (() -> Unit)? = null
+    private var timeoutPinSessionCurrent: (() -> Boolean)? = null
+
+    fun cancelLockTimeoutChange() {
+        timeoutChanges.cancel()
+        pendingTimeoutPin = null
+        timeoutPinSessionCurrent = null
+    }
+
+    fun requestLockTimeoutChange(
+        key: String,
+        activity: FragmentActivity?,
+        onPinRequired: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        cancelLockTimeoutChange()
+        val guard = activity as? AuthenticationSessionGuard
+        val session = guard?.captureSensitiveAuthenticationSession()
+        if (guard == null || session == null) {
+            onError("Wallet session is not ready for authentication")
+            return
+        }
+        val current = { guard.isSensitiveAuthenticationSessionCurrent(session) }
+        try {
+            timeoutChanges.request(key, current) { success, abort ->
+                if (settingsManager.getAppLockMode() == "pin") {
+                    pendingTimeoutPin = success
+                    timeoutPinSessionCurrent = current
+                    onPinRequired()
+                } else if (activity != null) {
+                    BiometricHelper.authenticate(
+                        activity = activity,
+                        title = "Change auto-lock timeout",
+                        subtitle = "Authenticate to delay background locking",
+                        onSuccess = {
+                            try { success() } catch (t: Throwable) {
+                                if (t.shouldRethrowForUiBoundary()) throw t
+                                onError("Could not save the auto-lock timeout. Please retry.")
+                            }
+                        },
+                        onFailure = { message -> abort(); onError(message) },
+                        onCancel = abort
+                    )
+                } else {
+                    abort()
+                    onError(BiometricHelper.authenticationUnavailableGuidance())
+                }
+            }
+        } catch (t: Throwable) {
+            if (t.shouldRethrowForUiBoundary()) throw t
+            cancelLockTimeoutChange()
+            onError("Could not change the auto-lock timeout. Please retry.")
+        }
+    }
+
+    fun confirmLockTimeoutPin(pin: CharArray): String? = try {
+        val success = pendingTimeoutPin
+        if (success == null || timeoutPinSessionCurrent?.invoke() != true ||
+            settingsManager.getAppLockMode() != "pin") {
+            cancelLockTimeoutChange()
+            "Authentication expired. Choose the timeout again."
+        } else {
+            val error = pinManager.verifyPin(pin)
+            if (error != null) error else {
+                pendingTimeoutPin = null
+                timeoutPinSessionCurrent = null
+                success()
+                null
+            }
+        }
+    } catch (t: Throwable) {
+        if (t.shouldRethrowForUiBoundary()) throw t
+        cancelLockTimeoutChange()
+        "Could not save the auto-lock timeout. Please retry."
+    } finally {
+        pin.fill('\u0000')
     }
 
     fun setOfflineMode(enabled: Boolean) {

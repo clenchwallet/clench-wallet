@@ -162,8 +162,9 @@ class SettingsManager @Inject constructor(
 
     fun getLockTimeoutKey(): String = prefs.getString("lock_timeout", "30s") ?: "30s"
 
-    fun setLockTimeout(key: String) {
-        prefs.edit { putString("lock_timeout", key) }
+    internal fun setLockTimeout(key: String) {
+        net.clench.wallet.security.RelockTimeoutChangeController.duration(key)
+        check(prefs.edit().putString("lock_timeout", key).commit()) { "Could not persist lock timeout" }
     }
 
     // --- Offline mode ---
