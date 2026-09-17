@@ -199,8 +199,8 @@ class ElectrumConnectionFactory @Inject constructor(
         val upstreamSocket = openUpstreamSocket(resolved, lease)
 
         // Start a local TCP server that BDK will connect to
-        val localServer = ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())
-        lease.register { localServer.close() }
+        val localServer = ServerSocket(0, 1, java.net.InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)))
+        lease.registerTransport { localServer.close() }
         val localPort = localServer.localPort
         if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "relay: listening on 127.0.0.1:$localPort for mode=${resolved.mode}")
 
@@ -209,7 +209,7 @@ class ElectrumConnectionFactory @Inject constructor(
             try {
                 localServer.soTimeout = 30_000  // 30s timeout for BDK to connect
                 val localSocket = localServer.accept()
-                lease.register { localSocket.close() }
+                lease.registerTransport { localSocket.close() }
                 if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "relay: BDK connected to local port $localPort")
 
                 // Bidirectional relay
@@ -258,7 +258,7 @@ class ElectrumConnectionFactory @Inject constructor(
         } else {
             // Direct TCP connection
             Socket().also {
-                lease.register { it.close() }
+                lease.registerTransport { it.close() }
                 lease.requireCurrent()
                 it.connect(InetSocketAddress(resolved.host, resolved.port), SOCKS5_CONNECT_TIMEOUT_MS)
             }
@@ -282,7 +282,7 @@ class ElectrumConnectionFactory @Inject constructor(
      */
     private fun openSocks5Socket(socksHost: String, socksPort: Int, targetHost: String, targetPort: Int, lease: NetworkAccessGate.Lease): Socket {
         val sock = Socket()
-        lease.register { sock.close() }
+        lease.registerTransport { sock.close() }
         lease.requireCurrent()
         try {
             sock.connect(InetSocketAddress(socksHost, socksPort), SOCKS5_CONNECT_TIMEOUT_MS)

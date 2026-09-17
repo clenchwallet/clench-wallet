@@ -17,13 +17,14 @@ internal class CancellableHttpTunnel(
     private val lease: NetworkAccessGate.Lease,
     private val upstreamProxy: Proxy?,
     private val connectTimeoutMs: Int,
-    private val readTimeoutMs: Int
+    private val readTimeoutMs: Int,
+    private val beforeUpstreamConnect: () -> Unit = {}
 ) {
     private val listener = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
     val proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress(InetAddress.getLoopbackAddress(), listener.localPort))
 
     init {
-        lease.register { listener.close() }
+        lease.registerTransport { listener.close() }
         Thread({
             try { serve() } catch (_: Exception) { lease.close() }
         }, "clench-http-tunnel").apply { isDaemon = true; start() }
@@ -31,7 +32,7 @@ internal class CancellableHttpTunnel(
 
     private fun serve() {
         val local = listener.accept()
-        lease.register { local.close() }
+        lease.registerTransport { local.close() }
         listener.close() // One request/connection only; no reconnect or reuse after cancellation.
         local.soTimeout = readTimeoutMs
         val input = local.getInputStream()
@@ -54,10 +55,11 @@ internal class CancellableHttpTunnel(
         if (!isTls && !firstLine.startsWith("GET ")) throw IOException("Unexpected HTTP method")
         lease.requireCurrent()
         val upstream = if (upstreamProxy == null) Socket() else Socket(upstreamProxy)
-        lease.register { upstream.close() }
+        lease.registerTransport { upstream.close() }
         val address = if (upstreamProxy == null) InetSocketAddress(url.host, port())
             else InetSocketAddress.createUnresolved(url.host, port())
         lease.requireCurrent()
+        beforeUpstreamConnect()
         upstream.connect(address, connectTimeoutMs)
         upstream.soTimeout = readTimeoutMs
         lease.requireCurrent()
