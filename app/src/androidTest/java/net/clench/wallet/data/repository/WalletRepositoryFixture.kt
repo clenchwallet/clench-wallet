@@ -32,14 +32,30 @@ internal class WalletRepositoryFixture : AutoCloseable {
             return base.getSharedPreferences(scoped, mode)
         }
     }
-    val database = Room.inMemoryDatabaseBuilder(context, ClenchDatabase::class.java).build()
+    private fun openDatabase() = Room.databaseBuilder(context, ClenchDatabase::class.java, "fixture-room.db").build()
+    var database = openDatabase()
+        private set
     val settings = SettingsManager(context).apply { setNetwork("testnet"); setOfflineMode(true) }
-    val keystore = KeystoreManager(context)
-    val barrier = SensitiveWalletOperationBarrier()
-    val repository = BdkBitcoinRepository(context, database.walletDao(), database.transactionDao(),
+    var keystore = KeystoreManager(context)
+        private set
+    var barrier = SensitiveWalletOperationBarrier()
+        private set
+    private fun newRepository() = BdkBitcoinRepository(context, database.walletDao(), database.transactionDao(),
         database.transactionLabelDao(), database.utxoMetadataDao(), database.addressBookDao(), keystore,
         settings, ElectrumConnectionFactory(settings), TorAwareHttpClient(settings),
         WalletMnemonicGenerator(SecureRandomWalletEntropySource(), BdkWalletMnemonicFactory()), barrier)
+    var repository = newRepository()
+        private set
+
+    suspend fun restartRepositoryAndRoom() {
+        repository.beginSensitiveSessionEviction()
+        repository.completeSensitiveSessionEviction()
+        database.close()
+        database = openDatabase()
+        barrier = SensitiveWalletOperationBarrier()
+        keystore = KeystoreManager(context)
+        repository = newRepository()
+    }
 
     override fun close() {
         runBlocking { database.walletDao().getAll().forEach { repository.deleteWallet(it.id) } }

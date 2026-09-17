@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.screens
 
+import net.clench.wallet.domain.model.Bip39Passphrase
 import android.app.Activity
 import android.net.Uri
 import android.nfc.NfcAdapter
@@ -1594,7 +1595,7 @@ private fun AddSeedPhraseToWalletSheet(
                         return@Button
                     }
                     val mnemonic = seedWords.joinToString(" ").toCharArray()
-                    val passphrase = if (showPassphrase && passphraseInput.isNotBlank()) passphraseInput.toCharArray() else null
+                    val passphrase = if (showPassphrase && Bip39Passphrase.isPresent(passphraseInput)) passphraseInput.toCharArray() else null
                     seedWords = emptyList()
                     passphraseInput = ""
                     onConfirm(mnemonic, passphrase)

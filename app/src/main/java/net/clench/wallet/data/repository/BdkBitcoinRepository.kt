@@ -1,5 +1,6 @@
 package net.clench.wallet.data.repository
 
+import net.clench.wallet.domain.model.Bip39Passphrase
 import android.content.Context
 import android.util.Base64
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -572,7 +573,7 @@ class BdkBitcoinRepository @Inject constructor(
                 walletMnemonicGenerator.generate(wordCount)
             }
             val walletMnemonicWords = mnemonicWords ?: mnemonic.toString().split(" ")
-            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonic, passphrase ?: "")
+            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonic, Bip39Passphrase.value(passphrase))
             descriptors = createDescriptorPair(
                 createExternal = {
                     ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
@@ -585,8 +586,8 @@ class BdkBitcoinRepository @Inject constructor(
             val changeDescriptor = descriptors.second
             val publicDescriptor = externalDescriptor.toString()
             val publicChangeDescriptor = changeDescriptor.toString()
-            val secretDescriptor = if (passphrase.isNullOrBlank()) externalDescriptor.toStringWithSecret() else null
-            val secretChangeDescriptor = if (passphrase.isNullOrBlank()) changeDescriptor.toStringWithSecret() else null
+            val secretDescriptor = if (!Bip39Passphrase.isPresent(passphrase)) externalDescriptor.toStringWithSecret() else null
+            val secretChangeDescriptor = if (!Bip39Passphrase.isPresent(passphrase)) changeDescriptor.toStringWithSecret() else null
 
             // Generate wallet ID
             val walletId = UUID.randomUUID().toString()
@@ -597,7 +598,10 @@ class BdkBitcoinRepository @Inject constructor(
             descriptors = null
             val entry = createWalletEntryFromDescriptors(
                 descriptors = ownedDescriptors,
-                createPersister = { Persister.newSqlite(dbPath) },
+                createPersister = {
+                    if (Bip39Passphrase.isPresent(passphrase)) Persister.newInMemory()
+                    else Persister.newSqlite(dbPath)
+                },
                 createWallet = { external, change, persister ->
                     Wallet(external, change, network, persister)
                 }
@@ -625,10 +629,13 @@ class BdkBitcoinRepository @Inject constructor(
                 isMultisig = false,
                 createdAtEpochMs = System.currentTimeMillis(),
                 network = activeNetwork,
-                hasPassphrase = !passphrase.isNullOrBlank(),
+                hasPassphrase = Bip39Passphrase.isPresent(passphrase),
                 identiconBytes = identiconBytes
             )
             walletDao.insert(walletEntity)
+            // Import/create returns a locked passphrase wallet; never retain its secret session
+            // or write its derivation-dependent graph to disk before explicit unlock.
+            if (Bip39Passphrase.isPresent(passphrase)) evictWallet(walletId, lease)
 
             val walletData = WalletData(
                 id = walletId,
@@ -639,7 +646,7 @@ class BdkBitcoinRepository @Inject constructor(
                 isMultisig = false,
                 createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
                 network = activeNetwork,
-                hasPassphrase = !passphrase.isNullOrBlank()
+                hasPassphrase = Bip39Passphrase.isPresent(passphrase)
             )
 
             Pair(walletMnemonicWords, walletData)
@@ -670,7 +677,7 @@ class BdkBitcoinRepository @Inject constructor(
         var descriptors: Pair<Descriptor, Descriptor>? = null
         try {
             mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
-            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonicObj, passphrase ?: "")
+            secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonicObj, Bip39Passphrase.value(passphrase))
             descriptors = createDescriptorPair(
                 createExternal = {
                     ScriptType.createDescriptor(secretKey, scriptType, KeychainKind.EXTERNAL, network)
@@ -699,7 +706,10 @@ class BdkBitcoinRepository @Inject constructor(
             descriptors = null
             val entry = createWalletEntryFromDescriptors(
                 descriptors = ownedDescriptors,
-                createPersister = { Persister.newSqlite(dbPath) },
+                createPersister = {
+                    if (Bip39Passphrase.isPresent(passphrase)) Persister.newInMemory()
+                    else Persister.newSqlite(dbPath)
+                },
                 createWallet = { external, change, persister ->
                     Wallet(external, change, network, persister)
                 }
@@ -710,8 +720,8 @@ class BdkBitcoinRepository @Inject constructor(
             keystoreManager.storeWalletSecrets(
                 walletId = walletId,
                 mnemonic = mnemonic.joinToString(" "),
-                secretDescriptor = secretDescriptor.takeIf { passphrase.isNullOrBlank() },
-                secretChangeDescriptor = secretChangeDescriptor.takeIf { passphrase.isNullOrBlank() }
+                secretDescriptor = secretDescriptor.takeIf { !Bip39Passphrase.isPresent(passphrase) },
+                secretChangeDescriptor = secretChangeDescriptor.takeIf { !Bip39Passphrase.isPresent(passphrase) }
             )
 
             val activeNetwork = settingsManager.getNetwork()
@@ -725,10 +735,13 @@ class BdkBitcoinRepository @Inject constructor(
                 isMultisig = false,
                 createdAtEpochMs = System.currentTimeMillis(),
                 network = activeNetwork,
-                hasPassphrase = !passphrase.isNullOrBlank(),
+                hasPassphrase = Bip39Passphrase.isPresent(passphrase),
                 identiconBytes = identiconBytes
             )
             walletDao.insert(walletEntity)
+            // Import/create returns a locked passphrase wallet; never retain its secret session
+            // or write its derivation-dependent graph to disk before explicit unlock.
+            if (Bip39Passphrase.isPresent(passphrase)) evictWallet(walletId, lease)
 
                 WalletData(
                 id = walletId,
@@ -739,7 +752,7 @@ class BdkBitcoinRepository @Inject constructor(
                 isMultisig = false,
                 createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
                 network = activeNetwork,
-                hasPassphrase = !passphrase.isNullOrBlank()
+                hasPassphrase = Bip39Passphrase.isPresent(passphrase)
                 )
             } catch (e: Exception) {
                 discardFailedWalletCreation(walletId, lease)
@@ -887,7 +900,7 @@ class BdkBitcoinRepository @Inject constructor(
         var descriptors: Pair<Descriptor, Descriptor>? = null
         try {
             mnemonicObj = Mnemonic.fromString(mnemonic.joinToString(" "))
-            val passphraseValue = passphrase.orEmpty()
+            val passphraseValue = Bip39Passphrase.value(passphrase)
             secretKey = DescriptorSecretKey(network.toNetworkKind(), mnemonicObj, passphraseValue)
             val scriptType = ScriptType.fromDescriptor(walletEntity.descriptor)
             descriptors = createDescriptorPair(
@@ -917,7 +930,7 @@ class BdkBitcoinRepository @Inject constructor(
                 throw IllegalArgumentException("That seed phrase does not match this watch-only wallet")
             }
 
-            val hasPassphrase = !passphrase.isNullOrBlank()
+            val hasPassphrase = Bip39Passphrase.isPresent(passphrase)
             keystoreManager.storeWalletSecrets(
                 walletId = walletId,
                 mnemonic = mnemonic.joinToString(" "),
@@ -930,6 +943,12 @@ class BdkBitcoinRepository @Inject constructor(
             // Evict the public-only cached wallet so future signing loads the secret descriptors.
             evictWallet(walletId, lease)
             if (hasPassphrase) {
+                // The formerly watch-only view may have a persisted graph. Do not retain it
+                // once the user explicitly chooses passphrase-ephemeral operation.
+                transactionDao.deleteForWallet(walletId)
+                check(PassphraseWalletCacheCleanup.deleteAndFindRemaining(
+                    context.getDatabasePath("wallet_${walletId}.db")
+                ).isEmpty()) { "Passphrase wallet cache cleanup failed; unlock again after restoring storage access" }
                 val ownedDescriptors = checkNotNull(descriptors)
                 descriptors = null
                 val entry = createWalletEntryFromDescriptors(
@@ -3470,7 +3489,7 @@ class BdkBitcoinRepository @Inject constructor(
         val masterFpMatch = Regex("\\[([0-9a-fA-F]{8})/").find(publicDescriptor) ?: return null
         val hex = masterFpMatch.groupValues[1]
         val masterFpBytes = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-        val input = masterFpBytes + (passphrase ?: "").toByteArray(Charsets.UTF_8)
+        val input = masterFpBytes + (Bip39Passphrase.value(passphrase)).toByteArray(Charsets.UTF_8)
         val digest = java.security.MessageDigest.getInstance("SHA-256").digest(input)
         return digest.sliceArray(0 until 8)
     }

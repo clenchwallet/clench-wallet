@@ -1,5 +1,6 @@
 package net.clench.wallet.ui.viewmodel
 
+import net.clench.wallet.domain.model.Bip39Passphrase
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -268,7 +269,7 @@ class WalletInfoViewModel @Inject constructor(
     fun convertWatchOnlyToHot(mnemonicWords: CharArray, passphrase: CharArray?) {
         val walletId = _uiState.value.walletId
         val words = String(mnemonicWords).trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
-        val passphraseString = passphrase?.let { String(it) }?.ifBlank { null }
+        val passphraseString = Bip39Passphrase.optional(passphrase?.let { String(it) })
         if (words.size != 12 && words.size != 24) {
             mnemonicWords.fill('0')
             passphrase?.fill('0')
