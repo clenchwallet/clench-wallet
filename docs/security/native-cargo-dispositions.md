@@ -1,4 +1,4 @@
-# Exact-candidate Cargo applicability dispositions — 2026-09-16
+# Exact-candidate Cargo applicability dispositions — 2026-09-17
 
 These are six source-call-path dispositions for locally rebuilt **BDK Android
 3.0.0-clench.1**, not claims that all native dependency versions are patched or
@@ -23,8 +23,12 @@ not the upstream manifest, feature set or Esplora/UniFFI interface.
 
 Current Clench production source (including additional source sets) has no
 Esplora reference or construction path. `ElectrumConnectionFactory.kt`
-constructs BDK `ElectrumClient` instances; `BdkBitcoinRepository.kt` obtains
-sync/broadcast connections through that factory. No application `Class.forName`,
+constructs BDK `ElectrumClient` instances on controlled loopback TCP;
+`BdkBitcoinRepository.kt` obtains sync/broadcast connections through that factory.
+All current upstream Electrum transports use the controlled Java relay.
+TLS-required modes use Java `SSLSocket` with trust and hostname verification;
+plain modes remain plain. Patched modern native Rustls/WebPKI stays bundled,
+but is no longer the ordinary application upstream TLS transport. No application `Class.forName`,
 `loadClass` or direct JNA `Native.load` call is present; the application
 `System.loadLibrary` call loads SQLCipher. These are static application-path
 observations, not a claim that a compromised app process cannot invoke unused
@@ -105,3 +109,26 @@ match the September 16 dispositions. The version bump adds no path to the legacy
 verifier or CRL parser. Refreshing the application/evidence binding therefore
 retains the same six exact dispositions and the original 2026-10-16 expiry.
 Fresh native/app/runtime and live full-candidate gates remain required.
+
+## 0.3.31 application binding re-review — 2026-09-17
+
+The eight-finding remediation changes application behavior, including network
+admission and cancellation, but adds no Esplora construction/reference,
+reflection/direct JNA load or CRL configuration path. All active Electrum
+connections use the controlled loopback relay described above; this supersedes
+the earlier release's active native-TLS description. The legacy
+Esplora/minreq/Rustls0.21/WebPKI0.101.7 dependency remains present but unconstructed
+by reviewed production paths. Checksum-verified minreq2.14.1's TLS module still
+constructs a trusted-root client without CRL input.
+
+All six complete live OSV records were fetched and read on September17; their
+canonical hashes match the September16 records. The native recipe, features,
+locks, verification metadata and native payload identities are unchanged. The
+same exact call-path dispositions remain justified with the original
+2026-10-16 expiry. The JSON binds the final candidate source and these documents;
+the full live query must pass on that binding before release. This is not a
+blanket exception or a claim that legacy code is absent or patched.
+
+The Room13-to-14 migration adds fixed-name SQL and bound metadata operations,
+not a SQLCipher URI `hexkey`, arbitrary schema alias or `sqlcipher_export` path.
+SQLCipher4.17's separate source/provenance and maintenance gaps remain open.
