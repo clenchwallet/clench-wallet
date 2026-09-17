@@ -271,6 +271,10 @@ class AuthenticationGateUiTest {
     }
 
     private fun openSecurity() {
+        await("unlocked application window") { automation.rootInActiveWindow?.packageName == context.packageName }
+        awaitNavigationIdle()
+        // A recreated navigation tree may restore Security after app unlock.
+        if (nodes().any { it.text?.toString() in setOf("App Lock", "Authentication Gates") }) return
         clickText("Settings")
         awaitNavigationIdle()
         clickText("Security")
