@@ -17,6 +17,17 @@ interface TransactionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(transactions: List<TransactionEntity>)
 
+    /** Only a complete successful native scan may replace display history.
+     * Missing/failed optional explorer lookups are not authoritative evidence.
+     */
+    @Transaction
+    suspend fun replaceFromSuccessfulSync(walletId: String, snapshot: List<TransactionEntity>) {
+        require(snapshot.all { it.walletId == walletId }) { "History snapshot belongs to a different wallet" }
+        require(snapshot.map { it.txid }.distinct().size == snapshot.size) { "Duplicate transaction in history snapshot" }
+        deleteForWallet(walletId)
+        insertAll(snapshot)
+    }
+
     @Query("DELETE FROM transactions WHERE walletId = :walletId")
     suspend fun deleteForWallet(walletId: String)
 }

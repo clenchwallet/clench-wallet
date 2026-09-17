@@ -1303,61 +1303,13 @@ class BdkBitcoinRepository @Inject constructor(
                     address = null
                 )
             }
-            // For watch-only wallets, BDK may report confirmed transactions as Unconfirmed.
-            // Fix up using Electrum server batch query (single TCP connection) or cached Room data.
-            val walletEntity = walletDao.getById(walletId)
-            val isWatchOnly = walletEntity?.isWatchOnly == true
-            val unconfirmedTxs = transactionEntities.filter { it.confirmations == 0 }
-            val fixedEntities = if (isWatchOnly && unconfirmedTxs.isNotEmpty() && !settingsManager.isOfflineMode()) {
-                // Check Room DB first — skip txs we already know are confirmed
-                val cachedTxs = transactionDao.getForWallet(walletId).associateBy { it.txid }
-                val trulyUnknown = unconfirmedTxs.filter { tx ->
-                    val cached = cachedTxs[tx.txid]
-                    cached == null || cached.confirmations == 0
-                }
-
-                if (trulyUnknown.isNotEmpty()) {
-                    // [S-4] Gate: tx count exposure
-                    if (logSensitive) {
-                        if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "Watch-only: ${unconfirmedTxs.size} unconfirmed, ${trulyUnknown.size} need lookup")
-                    }
-                    // Batch query via raw Electrum protocol (single socket, all txs)
-                    val txConfirmations = batchElectrumTxLookup(trulyUnknown.map { it.txid }, connectionStr, tipHeight)
-                    transactionEntities.map { txEntity ->
-                        val cached = cachedTxs[txEntity.txid]
-                        if (txEntity.confirmations == 0 && cached != null && cached.confirmations > 0) {
-                            // Use cached confirmation data, update confs relative to current tip
-                            txEntity.copy(
-                                confirmations = cached.confirmations,
-                                timestampEpochMs = cached.timestampEpochMs ?: txEntity.timestampEpochMs
-                            )
-                        } else if (txEntity.confirmations == 0 && txConfirmations.containsKey(txEntity.txid)) {
-                            val (blockHeight, blockTime) = txConfirmations[txEntity.txid]!!
-                            val confs = if (tipHeight > 0u && blockHeight > 0L) {
-                                (tipHeight.toLong() - blockHeight + 1).toInt().coerceAtLeast(1)
-                            } else 1
-                            txEntity.copy(
-                                confirmations = confs,
-                                timestampEpochMs = if (blockTime > 0L) blockTime * 1000L else txEntity.timestampEpochMs
-                            )
-                        } else txEntity
-                    }
-                } else {
-                    // All unconfirmed txs have cached confirmation data
-                    transactionEntities.map { txEntity ->
-                        val cached = cachedTxs[txEntity.txid]
-                        if (txEntity.confirmations == 0 && cached != null && cached.confirmations > 0) {
-                            txEntity.copy(
-                                confirmations = cached.confirmations,
-                                timestampEpochMs = cached.timestampEpochMs ?: txEntity.timestampEpochMs
-                            )
-                        } else txEntity
-                    }
-                }
-            } else transactionEntities
-
+            // This block is reached only after a successful complete native scan.
+            // Canonical native chain positions are authoritative for every wallet type:
+            // never promote Unconfirmed using an old positive Room row or an optional
+            // verbose transaction lookup. A failed scan exits before touching history.
+            // Replace atomically so evicted/replaced transactions cannot survive forever.
             settingsManager.networkAccess.requireCurrent(networkToken)
-            transactionDao.insertAll(fixedEntities)
+            transactionDao.replaceFromSuccessfulSync(walletId, transactionEntities)
 
             // Return balance
             val balance = wallet.balance()
