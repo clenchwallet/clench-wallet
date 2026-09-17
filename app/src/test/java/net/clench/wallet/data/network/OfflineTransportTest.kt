@@ -169,39 +169,59 @@ class OfflineTransportTest {
     }
 
     @Test fun `HTTPS tunnel preserves certificate trust and original hostname verification`() {
-        // Public test-only key/certificate, generated solely for this loopback fixture.
-        val store = java.security.KeyStore.getInstance("PKCS12")
-        javaClass.getResourceAsStream("/network/public-localhost-fixture.p12")!!.use {
-            store.load(it, "public-test-fixture".toCharArray())
-        }
-        val keys = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm())
-        keys.init(store, "public-test-fixture".toCharArray())
-        val trust = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
-        trust.init(store)
-        val tls = javax.net.ssl.SSLContext.getInstance("TLS")
-        tls.init(keys.keyManagers, trust.trustManagers, null)
-        val originalFactory = javax.net.ssl.HttpsURLConnection.getDefaultSSLSocketFactory()
-        javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(tls.socketFactory)
+        // Generate public synthetic TLS material per run. No stored signing material is
+        // shipped in this repository or test artifacts. keytool comes from the test JDK.
+        val temporary = java.nio.file.Files.createTempDirectory("clench-loopback-tls-")
+        val keystore = temporary.resolve("fixture.p12")
+        val generationLog = temporary.resolve("keytool.log")
         try {
-            (tls.serverSocketFactory.createServerSocket(0) as javax.net.ssl.SSLServerSocket).use { server ->
-                val worker = Executors.newSingleThreadExecutor()
-                try {
-                    val served = worker.submit {
-                        server.accept().use { peer ->
-                            val reader = peer.getInputStream().bufferedReader()
-                            while (reader.readLine()?.isNotEmpty() == true) { }
-                            peer.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\ntls".toByteArray())
-                        }
-                    }
-                    assertEquals("tls", TorAwareHttpClient(settings).fetchText("https://localhost:${server.localPort}/"))
-                    served.get(5, TimeUnit.SECONDS)
-                    val rejected = worker.submit { runCatching { server.accept().use { it.getInputStream().read() } } }
-                    // The proxy uses loopback too; verification must still use original URL host.
-                    assertTrue(runCatching { TorAwareHttpClient(settings).fetchText("https://127.0.0.1:${server.localPort}/") }.isFailure)
-                    rejected.get(5, TimeUnit.SECONDS)
-                } finally { worker.shutdownNow() }
+            val keytool = java.nio.file.Path.of(System.getProperty("java.home"), "bin", "keytool").toString()
+            val generator = ProcessBuilder(keytool, "-genkeypair", "-alias", "loopback", "-keyalg", "RSA",
+                "-keysize", "2048", "-storetype", "PKCS12", "-keystore", keystore.toString(),
+                "-storepass", "public-test-fixture", "-keypass", "public-test-fixture", "-dname", "CN=localhost",
+                "-ext", "SAN=dns:localhost", "-validity", "3650", "-noprompt")
+                .redirectErrorStream(true).redirectOutput(generationLog.toFile()).start()
+            try {
+                assertTrue("Ephemeral TLS fixture generation timed out", generator.waitFor(20, TimeUnit.SECONDS))
+                assertEquals("Ephemeral TLS fixture generation failed", 0, generator.exitValue())
+            } finally {
+                if (generator.isAlive) generator.destroyForcibly().waitFor()
             }
-        } finally { javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(originalFactory) }
+            val store = java.security.KeyStore.getInstance("PKCS12")
+            java.nio.file.Files.newInputStream(keystore).use { store.load(it, "public-test-fixture".toCharArray()) }
+            val keys = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm())
+            keys.init(store, "public-test-fixture".toCharArray())
+            val trust = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
+            trust.init(store)
+            val tls = javax.net.ssl.SSLContext.getInstance("TLS")
+            tls.init(keys.keyManagers, trust.trustManagers, null)
+            val originalFactory = javax.net.ssl.HttpsURLConnection.getDefaultSSLSocketFactory()
+            javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(tls.socketFactory)
+            try {
+                (tls.serverSocketFactory.createServerSocket(0) as javax.net.ssl.SSLServerSocket).use { server ->
+                    val worker = Executors.newSingleThreadExecutor()
+                    try {
+                        val served = worker.submit {
+                            server.accept().use { peer ->
+                                val reader = peer.getInputStream().bufferedReader()
+                                while (reader.readLine()?.isNotEmpty() == true) { }
+                                peer.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\ntls".toByteArray())
+                            }
+                        }
+                        assertEquals("tls", TorAwareHttpClient(settings).fetchText("https://localhost:${server.localPort}/"))
+                        served.get(5, TimeUnit.SECONDS)
+                        val rejected = worker.submit { runCatching { server.accept().use { it.getInputStream().read() } } }
+                        // The proxy uses loopback too; verification must still use original URL host.
+                        assertTrue(runCatching { TorAwareHttpClient(settings).fetchText("https://127.0.0.1:${server.localPort}/") }.isFailure)
+                        rejected.get(5, TimeUnit.SECONDS)
+                    } finally { worker.shutdownNow() }
+                }
+            } finally { javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(originalFactory) }
+        } finally {
+            java.nio.file.Files.deleteIfExists(keystore)
+            java.nio.file.Files.deleteIfExists(generationLog)
+            java.nio.file.Files.deleteIfExists(temporary)
+        }
     }
 
     @Test fun `HTTP response arriving after offline is discarded`() {
