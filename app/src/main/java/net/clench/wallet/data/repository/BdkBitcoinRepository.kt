@@ -717,42 +717,44 @@ class BdkBitcoinRepository @Inject constructor(
             cacheWallet(walletId, entry, lease)
 
             try {
-            keystoreManager.storeWalletSecrets(
-                walletId = walletId,
-                mnemonic = mnemonic.joinToString(" "),
-                secretDescriptor = secretDescriptor.takeIf { !Bip39Passphrase.isPresent(passphrase) },
-                secretChangeDescriptor = secretChangeDescriptor.takeIf { !Bip39Passphrase.isPresent(passphrase) }
-            )
+                keystoreManager.storeWalletSecrets(
+                    walletId = walletId,
+                    mnemonic = mnemonic.joinToString(" "),
+                    secretDescriptor = secretDescriptor.takeIf { !Bip39Passphrase.isPresent(passphrase) },
+                    secretChangeDescriptor = secretChangeDescriptor.takeIf { !Bip39Passphrase.isPresent(passphrase) }
+                )
 
-            val activeNetwork = settingsManager.getNetwork()
-            val identiconBytes = computeIdenticonBytes(publicDescriptor, passphrase)
-            val walletEntity = WalletEntity(
-                id = walletId,
-                name = name,
-                descriptor = publicDescriptor,
-                changeDescriptor = publicChangeDescriptor,
-                isWatchOnly = false,
-                isMultisig = false,
-                createdAtEpochMs = System.currentTimeMillis(),
-                network = activeNetwork,
-                hasPassphrase = Bip39Passphrase.isPresent(passphrase),
-                identiconBytes = identiconBytes
-            )
-            walletDao.insert(walletEntity)
-            // Import/create returns a locked passphrase wallet; never retain its secret session
-            // or write its derivation-dependent graph to disk before explicit unlock.
-            if (Bip39Passphrase.isPresent(passphrase)) evictWallet(walletId, lease)
+                val activeNetwork = settingsManager.getNetwork()
+                val identiconBytes = computeIdenticonBytes(publicDescriptor, passphrase)
+                val walletEntity = WalletEntity(
+                    id = walletId,
+                    name = name,
+                    descriptor = publicDescriptor,
+                    changeDescriptor = publicChangeDescriptor,
+                    isWatchOnly = false,
+                    isMultisig = false,
+                    createdAtEpochMs = System.currentTimeMillis(),
+                    network = activeNetwork,
+                    hasPassphrase = Bip39Passphrase.isPresent(passphrase),
+                    identiconBytes = identiconBytes
+                )
+                walletDao.insert(walletEntity)
+                // Import/create returns a locked passphrase wallet; never retain its secret session
+                // or write its derivation-dependent graph to disk before explicit unlock.
+                if (Bip39Passphrase.isPresent(passphrase)) {
+                    evictWallet(walletId, lease)
+                }
 
                 WalletData(
-                id = walletId,
-                name = name,
-                descriptor = publicDescriptor,
-                changeDescriptor = publicChangeDescriptor,
-                isWatchOnly = false,
-                isMultisig = false,
-                createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
-                network = activeNetwork,
-                hasPassphrase = Bip39Passphrase.isPresent(passphrase)
+                    id = walletId,
+                    name = name,
+                    descriptor = publicDescriptor,
+                    changeDescriptor = publicChangeDescriptor,
+                    isWatchOnly = false,
+                    isMultisig = false,
+                    createdAt = java.time.Instant.ofEpochMilli(walletEntity.createdAtEpochMs),
+                    network = activeNetwork,
+                    hasPassphrase = Bip39Passphrase.isPresent(passphrase)
                 )
             } catch (e: Exception) {
                 discardFailedWalletCreation(walletId, lease)
