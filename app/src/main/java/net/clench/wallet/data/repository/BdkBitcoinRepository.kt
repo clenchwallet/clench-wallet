@@ -1614,7 +1614,7 @@ class BdkBitcoinRepository @Inject constructor(
     }
 
     private suspend fun frozenOutpoints(walletId: String): Set<String> =
-        utxoMetadataDao.getFrozenForWallet(walletId).map { it.outpoint }.toSet()
+        utxoMetadataDao.getFrozenForWallet(walletId).map { FrozenInputPolicy.canonicalizeStoredOutpoint(it.outpoint) }.toSet()
 
     private fun parsePolicyOutpoint(value: String): org.bitcoindevkit.OutPoint {
         FrozenInputPolicy.requireCanonicalOutpoint(value)
@@ -2278,6 +2278,10 @@ class BdkBitcoinRepository @Inject constructor(
         } catch (failure: Exception) {
             closeSecretNativeResources(nativeCloseAction(psbt) { it.close() })
             evictWallet(walletId, lease)
+            if (walletDao.getById(walletId)?.hasPassphrase == true) {
+                markPassphraseWalletLocked(walletId, lease)
+                throw IllegalStateException("Replacement rejected. Unlock and resync this passphrase wallet before rebuilding.", failure)
+            }
             throw failure
         }
         serializeFinalTransaction(psbt)
@@ -3867,6 +3871,7 @@ class BdkBitcoinRepository @Inject constructor(
             throw e
         }
         try {
+            assertPsbtInputsAllowed(walletId, psbt)
             signingWallet.sign(psbt)
             psbt.serialize()
         } finally {

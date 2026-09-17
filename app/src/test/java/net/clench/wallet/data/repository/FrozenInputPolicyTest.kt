@@ -7,6 +7,16 @@ class FrozenInputPolicyTest {
     private val allowed = "11".repeat(32) + ":0"
     private val frozen = "22".repeat(32) + ":1"
 
+    @Test fun `legacy uppercase and padded metadata still freezes the native outpoint`() {
+        val legacy = "AB".repeat(32) + ":0001"
+        val actual = "ab".repeat(32) + ":1"
+        val frozen = setOf(FrozenInputPolicy.canonicalizeStoredOutpoint(legacy))
+        assertTrue(runCatching { FrozenInputPolicy.requireAllowed(listOf(actual), frozen) }.isFailure)
+        for (invalid in listOf("bad:1", "ab".repeat(32) + ":4294967296", "ab".repeat(32) + ":+1")) {
+            assertTrue(runCatching { FrozenInputPolicy.canonicalizeStoredOutpoint(invalid) }.isFailure)
+        }
+    }
+
     @Test fun `allowed inputs and empty freeze set remain usable`() {
         FrozenInputPolicy.requireAllowed(listOf(allowed), setOf(frozen))
         FrozenInputPolicy.requireAllowed(listOf(allowed, frozen), emptySet())
