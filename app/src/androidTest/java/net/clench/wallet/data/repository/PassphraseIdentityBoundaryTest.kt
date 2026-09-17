@@ -11,6 +11,8 @@ import kotlinx.coroutines.withTimeout
 import net.clench.wallet.domain.model.ScriptType
 import net.clench.wallet.domain.model.toNetworkKind
 import net.clench.wallet.ui.viewmodel.ImportWalletViewModel
+import net.clench.wallet.ui.lifehash.LifeHash
+import net.clench.wallet.ui.lifehash.LifeHashVersion
 import org.bitcoindevkit.Descriptor
 import org.bitcoindevkit.DescriptorSecretKey
 import org.bitcoindevkit.KeychainKind
@@ -103,7 +105,14 @@ class PassphraseIdentityBoundaryTest {
     }
 
     @Test fun nativeBip39NormalizationIsTheSameForComposedAndDecomposedInput() {
-        assertEquals(derive("é"), derive("e\u0301"))
+        val composed = derive("é")
+        val decomposed = derive("e\u0301")
+        assertEquals(composed, decomposed)
+        fun image(identity: Identity) = LifeHash.makeFromData(
+            identity.fingerprint.chunked(2).map { it.toInt(16).toByte() }.toByteArray(),
+            LifeHashVersion.VERSION2, 1, false
+        ).colors()
+        assertEquals(image(composed), image(decomposed))
         assertEquals(derive(" "), derive("\u3000"))
         assertNotEquals(derive(""), derive(" "))
     }

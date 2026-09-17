@@ -88,6 +88,9 @@ class CreateWalletViewModel @Inject constructor(
             return hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         }
 
+        // Legacy fallback only: retain the original byte-based image for saved older wallets.
+        // Current WalletFingerprint renders LifeHash from the native BIP32 master fingerprint,
+        // so native BIP39-equivalent spellings have identical current images and text.
         fun computeFingerprint(masterFingerprintBytes: ByteArray, passphrase: String): ByteArray {
             val passphraseBytes = passphrase.toByteArray(Charsets.UTF_8)
             return try {
