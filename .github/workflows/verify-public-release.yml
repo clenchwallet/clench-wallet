@@ -62,7 +62,7 @@ jobs:
             echo "RELEASE_TAG=$RELEASE_TAG"
             echo "SOURCE_COMMIT=$SOURCE_COMMIT"
             echo "PUBLIC_EVIDENCE_DIR=$RUNNER_TEMP/public-release-evidence"
-            echo "INDEPENDENT_APK=$RUNNER_TEMP/fresh-independent.apk"
+            echo "INDEPENDENT_APK=$RUNNER_TEMP/clench-$VERSION-independent-unsigned.apk"
           } >> "$GITHUB_ENV"
 
       - name: Validate Gradle wrapper JAR
