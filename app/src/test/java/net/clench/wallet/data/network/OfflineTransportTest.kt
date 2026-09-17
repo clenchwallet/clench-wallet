@@ -98,6 +98,24 @@ class OfflineTransportTest {
         }
     }
 
+    @Test fun `online HTTP response succeeds through cancellable tunnel`() {
+        ServerSocket(0).use { server ->
+            val worker = Executors.newSingleThreadExecutor()
+            try {
+                val served = worker.submit {
+                    server.accept().use { peer ->
+                        val reader = peer.getInputStream().bufferedReader()
+                        assertTrue(reader.readLine().startsWith("GET "))
+                        while (reader.readLine()?.isNotEmpty() == true) { }
+                        peer.getOutputStream().write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nok\r\n0\r\n\r\n".toByteArray())
+                    }
+                }
+                assertEquals("ok", TorAwareHttpClient(settings).fetchText("http://127.0.0.1:${server.localPort}/"))
+                served.get(5, TimeUnit.SECONDS)
+            } finally { worker.shutdownNow() }
+        }
+    }
+
     @Test fun `HTTP response arriving after offline is discarded`() {
         ServerSocket(0).use { server ->
             val worker = Executors.newSingleThreadExecutor()
