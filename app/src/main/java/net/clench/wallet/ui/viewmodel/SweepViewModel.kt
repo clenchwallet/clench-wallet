@@ -348,6 +348,7 @@ class SweepViewModel @Inject constructor(
         viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 withContext(Dispatchers.IO) {
+                    val networkToken = settingsManager.networkAccess.token()
                     val snapshot = withSeedWallet(
                         mnemonicWords = ownedMnemonic,
                         passphrase = ownedPassphrase,
@@ -358,6 +359,7 @@ class SweepViewModel @Inject constructor(
                         readBalanceSnapshot(wallet)
                     }
                     currentCoroutineContext().ensureActive()
+                    settingsManager.networkAccess.requireCurrent(networkToken)
                     _uiState.update {
                         it.copy(
                             isLoadingBalance = false,
@@ -388,6 +390,7 @@ class SweepViewModel @Inject constructor(
         viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 withContext(Dispatchers.IO) {
+                    val networkToken = settingsManager.networkAccess.token()
                     val snapshot = operationBarrier.withLease {
                         withWifWallet(ownedWif, _uiState.value.wifScriptType) { tempWallet ->
                             syncWifWallet(tempWallet)
@@ -395,6 +398,7 @@ class SweepViewModel @Inject constructor(
                         }
                     }
                     currentCoroutineContext().ensureActive()
+                    settingsManager.networkAccess.requireCurrent(networkToken)
                     _uiState.update {
                         it.copy(
                             isLoadingBalance = false,
@@ -788,6 +792,7 @@ class SweepViewModel @Inject constructor(
     }
 
     private fun fullScanWallet(wallet: Wallet, operation: String) {
+        val networkToken = settingsManager.networkAccess.token()
         var builder: org.bitcoindevkit.FullScanRequestBuilder? = null
         var request: org.bitcoindevkit.FullScanRequest? = null
         var update: org.bitcoindevkit.Update? = null
@@ -803,7 +808,7 @@ class SweepViewModel @Inject constructor(
                     fetchPrevTxouts = false
                 )
             }
-            wallet.applyUpdate(update)
+            settingsManager.networkAccess.commit(networkToken) { wallet.applyUpdate(update) }
         } finally {
             operationBarrier.closeNativeResourcesOrFail(
                 listOfNotNull(
@@ -858,12 +863,14 @@ class SweepViewModel @Inject constructor(
             val operationFuture = executor.submit(java.util.concurrent.Callable {
                 block(connection)
             })
-            return BoundedBlockingCall.await(
+            val result = BoundedBlockingCall.await(
                 future = operationFuture,
                 timeoutMs = timeoutMs,
                 operation = operation,
                 onTimeout = { connection.cancelTransport() }
             )
+            connection.requireCurrent()
+            return result
         } finally {
             activeConnection?.cancelTransport()
             BoundedBlockingCall.shutdownAndAwaitTermination(
@@ -878,6 +885,7 @@ class SweepViewModel @Inject constructor(
     }
 
     private fun syncWifWallet(wallet: Wallet) {
+        val networkToken = settingsManager.networkAccess.token()
         // A WIF controls one fixed, non-wildcard script. Reveal that script and use
         // BDK's bounded sync request; gap-based full scans are intended for ranged
         // descriptors rather than this one fixed script.
@@ -899,7 +907,7 @@ class SweepViewModel @Inject constructor(
                     fetchPrevTxouts = false
                 )
             }
-            wallet.applyUpdate(update)
+            settingsManager.networkAccess.commit(networkToken) { wallet.applyUpdate(update) }
         } finally {
             operationBarrier.closeNativeResourcesOrFail(
                 listOfNotNull(

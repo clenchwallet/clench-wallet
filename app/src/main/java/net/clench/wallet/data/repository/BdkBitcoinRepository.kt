@@ -1086,6 +1086,8 @@ class BdkBitcoinRepository @Inject constructor(
             return@withContext getBalanceUnderLease(walletId, lease)
         }
 
+        val networkToken = settingsManager.networkAccess.token()
+
         // Passphrase wallet guard — never sync using the public descriptor (xpub) wallet.
         // Syncing the xpub against Electrum reveals real UTXO/tx history in the locked state,
         // which leaks wallet activity before the passphrase is entered. Only sync after unlock.
@@ -1172,6 +1174,7 @@ class BdkBitcoinRepository @Inject constructor(
                 val request = fullScanRequest
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: starting fullScan (stopGap=20, batch=10)")
                 val scanFuture = executor.submit(java.util.concurrent.Callable {
+                    activeConnection.requireCurrent()
                     electrumClient.fullScan(
                         request,
                         stopGap = 20uL,
@@ -1187,10 +1190,10 @@ class BdkBitcoinRepository @Inject constructor(
                 )
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: fullScan complete, applying update")
 
-                wallet.applyUpdate(scanUpdate)
-                if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: update applied, persisting")
-
-                wallet.persist(entry.persister)
+                settingsManager.networkAccess.commit(networkToken) {
+                    wallet.applyUpdate(scanUpdate)
+                    wallet.persist(entry.persister)
+                }
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("BdkRepo", "syncWallet: persisted OK")
             } catch (e: java.util.concurrent.TimeoutException) {
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.e("BdkRepo", "syncWallet: TIMEOUT for $walletId: ${e.message}")
@@ -1353,6 +1356,7 @@ class BdkBitcoinRepository @Inject constructor(
                 }
             } else transactionEntities
 
+            settingsManager.networkAccess.requireCurrent(networkToken)
             transactionDao.insertAll(fixedEntities)
 
             // Return balance
@@ -1422,6 +1426,7 @@ class BdkBitcoinRepository @Inject constructor(
                     val wallet = replacementEntry.wallet
                     val persister = replacementEntry.persister
                     val electrumConfig = settingsManager.loadElectrumConfig()
+                    val networkToken = settingsManager.networkAccess.token()
                     val connectionTimeoutMs = if (electrumConfig.isCustom) 60_000L else 30_000L
                     val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
                     var activeConnection: net.clench.wallet.data.network.ActiveElectrumConnection? = null
@@ -1455,8 +1460,10 @@ class BdkBitcoinRepository @Inject constructor(
                             operation = "Electrum recovery scan",
                             onTimeout = { connection.cancelTransport() }
                         )
-                        wallet.applyUpdate(scanUpdate)
-                        wallet.persist(persister)
+                        settingsManager.networkAccess.commit(networkToken) {
+                            wallet.applyUpdate(scanUpdate)
+                            wallet.persist(persister)
+                        }
                     } finally {
                         activeConnection?.cancelTransport()
                         BoundedBlockingCall.shutdownAndAwaitTermination(
@@ -3584,21 +3591,6 @@ class BdkBitcoinRepository @Inject constructor(
         }
         return result
     }
-
-    /**
-     * Simple HTTP GET helper for mempool.space and price API queries.
-     */
-    private fun fetchUrl(url: String, connectTimeoutMs: Int = 5_000, readTimeoutMs: Int = 10_000): String {
-        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-        conn.connectTimeout = connectTimeoutMs
-        conn.readTimeout = readTimeoutMs
-        return try {
-            conn.inputStream.bufferedReader().use { it.readTextBounded(maxHttpResponseChars) }
-        } finally {
-            conn.disconnect()
-        }
-    }
-
 
     // ========== Multisig Wallet Methods ==========
 

@@ -193,26 +193,15 @@ class ElectrumConnectionFactory @Inject constructor(
      * For native modes (plain TCP, system TLS), returns a simple wrapper.
      */
     fun createConnection(config: ElectrumConfig): ActiveElectrumConnection {
-        val resolved = resolveConnection(config)
-        if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "createConnection: mode=${resolved.mode} host=${resolved.host}:${resolved.port}")
-
-        return when (resolved.mode) {
-            ConnectionMode.PLAIN_TCP -> {
-                val url = "tcp://${resolved.host}:${resolved.port}"
-                val client = ElectrumClient(url)
-                ActiveElectrumConnection(client, mode = resolved.mode)
-            }
-            ConnectionMode.TLS_SYSTEM -> {
-                val url = "ssl://${resolved.host}:${resolved.port}"
-                val client = ElectrumClient(url)
-                ActiveElectrumConnection(client, mode = resolved.mode)
-            }
-            ConnectionMode.TLS_PINNED -> {
-                createRelayedConnection(resolved)
-            }
-            ConnectionMode.TOR_PLAIN, ConnectionMode.TOR_TLS -> {
-                createRelayedConnection(resolved)
-            }
+        val lease = settingsManager.networkAccess.begin()
+        try {
+            lease.requireCurrent()
+            // Use the controllable upstream relay for every mode. Native direct sockets
+            // cannot be interrupted safely without freeing a live native wrapper.
+            return createRelayedConnection(resolveConnection(config), lease)
+        } catch (failure: Exception) {
+            lease.close()
+            throw failure
         }
     }
 
@@ -241,12 +230,13 @@ class ElectrumConnectionFactory @Inject constructor(
 
     // ─── Internal relay implementation ───
 
-    private fun createRelayedConnection(resolved: ResolvedConnection): ActiveElectrumConnection {
+    private fun createRelayedConnection(resolved: ResolvedConnection, lease: NetworkAccessGate.Lease): ActiveElectrumConnection {
         // Open the upstream socket (SOCKS5 or direct + TLS)
-        val upstreamSocket = openUpstreamSocket(resolved)
+        val upstreamSocket = openUpstreamSocket(resolved, lease)
 
         // Start a local TCP server that BDK will connect to
         val localServer = ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())
+        lease.register { localServer.close() }
         val localPort = localServer.localPort
         if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "relay: listening on 127.0.0.1:$localPort for mode=${resolved.mode}")
 
@@ -255,6 +245,7 @@ class ElectrumConnectionFactory @Inject constructor(
             try {
                 localServer.soTimeout = 30_000  // 30s timeout for BDK to connect
                 val localSocket = localServer.accept()
+                lease.register { localSocket.close() }
                 if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "relay: BDK connected to local port $localPort")
 
                 // Bidirectional relay
@@ -288,19 +279,23 @@ class ElectrumConnectionFactory @Inject constructor(
         val client = ElectrumClient(url)
 
         return ActiveElectrumConnection(
-            client = client,
+            nativeClient = client,
             mode = resolved.mode,
-            relayResources = RelayResources(localServer, upstreamSocket, relayThread)
+            relayResources = RelayResources(localServer, upstreamSocket, relayThread),
+            lease = lease
         )
     }
 
-    private fun openUpstreamSocket(resolved: ResolvedConnection): Socket {
+    private fun openUpstreamSocket(resolved: ResolvedConnection, lease: NetworkAccessGate.Lease): Socket {
+        lease.requireCurrent()
         val socket: Socket = if (resolved.socksHost != null && resolved.socksPort != null) {
             // SOCKS5 connection through Tor
-            openSocks5Socket(resolved.socksHost, resolved.socksPort, resolved.host, resolved.port)
+            openSocks5Socket(resolved.socksHost, resolved.socksPort, resolved.host, resolved.port, lease)
         } else {
             // Direct TCP connection
             Socket().also {
+                lease.register { it.close() }
+                lease.requireCurrent()
                 it.connect(InetSocketAddress(resolved.host, resolved.port), SOCKS5_CONNECT_TIMEOUT_MS)
             }
         }
@@ -309,19 +304,22 @@ class ElectrumConnectionFactory @Inject constructor(
         socket.soTimeout = SOCKET_NEGOTIATION_TIMEOUT_MS
 
         // Wrap in TLS if needed
-        return if (resolved.mode.requiresRawSocketTls()) {
+        lease.requireCurrent()
+        val upstream = if (resolved.mode.requiresRawSocketTls()) {
             wrapTls(socket, resolved.host, resolved.pinnedCertDer)
-        } else {
-            socket
-        }
+        } else socket
+        lease.register { upstream.close() }
+        return GatedSocket(upstream, lease)
     }
 
     /**
      * Open a SOCKS5 connection through the proxy (Orbot).
      * Implements SOCKS5 protocol with domain-name resolution at proxy (for .onion support).
      */
-    private fun openSocks5Socket(socksHost: String, socksPort: Int, targetHost: String, targetPort: Int): Socket {
+    private fun openSocks5Socket(socksHost: String, socksPort: Int, targetHost: String, targetPort: Int, lease: NetworkAccessGate.Lease): Socket {
         val sock = Socket()
+        lease.register { sock.close() }
+        lease.requireCurrent()
         try {
             sock.connect(InetSocketAddress(socksHost, socksPort), SOCKS5_CONNECT_TIMEOUT_MS)
             sock.soTimeout = SOCKET_NEGOTIATION_TIMEOUT_MS
@@ -329,7 +327,7 @@ class ElectrumConnectionFactory @Inject constructor(
             throw ElectrumConnectionException.TorProxyUnavailable(socksHost, socksPort, e)
         }
 
-        val os = sock.getOutputStream()
+        val os = GatedOutputStream(sock.getOutputStream(), lease)
         val ins = sock.getInputStream()
 
         // SOCKS5 greeting: version=5, 1 auth method (no auth)
@@ -477,8 +475,13 @@ class ElectrumConnectionFactory @Inject constructor(
      * Caller is responsible for closing the returned socket.
      */
     fun createRawSocket(config: ElectrumConfig): Socket {
-        val resolved = resolveConnection(config)
-        return openUpstreamSocket(resolved)
+        val lease = settingsManager.networkAccess.begin()
+        try {
+            return openUpstreamSocket(resolveConnection(config), lease)
+        } catch (failure: Exception) {
+            lease.close()
+            throw failure
+        }
     }
 
     private fun readFully(input: InputStream, buf: ByteArray) {
@@ -506,15 +509,21 @@ data class RelayResources(
  * Always call [close] when done.
  */
 class ActiveElectrumConnection(
-    val client: ElectrumClient,
+    private val nativeClient: ElectrumClient,
     val mode: ConnectionMode,
-    private val relayResources: RelayResources? = null
+    private val relayResources: RelayResources? = null,
+    private val lease: NetworkAccessGate.Lease? = null
 ) : AutoCloseable {
     /**
      * Interrupt only transport resources owned independently of the native client wrapper.
      * The client itself is closed only after the dedicated worker has actually terminated.
      */
+    val client: ElectrumClient get() { requireCurrent(); return nativeClient }
+
+    fun requireCurrent() { lease?.requireCurrent() }
+
     fun cancelTransport() {
+        lease?.close()
         relayResources?.let {
             try { it.upstreamSocket.close() } catch (_: Exception) {}
             try { it.localServer.close() } catch (_: Exception) {}
@@ -524,9 +533,31 @@ class ActiveElectrumConnection(
 
     override fun close() {
         try {
-            client.close()
+            nativeClient.close()
         } finally {
             cancelTransport()
         }
     }
+}
+
+/** Guard writes on reused raw sockets and native relays, not just socket creation. */
+private class GatedOutputStream(
+    private val delegate: OutputStream,
+    private val lease: NetworkAccessGate.Lease
+) : OutputStream() {
+    override fun write(b: Int) { lease.requireCurrent(); delegate.write(b) }
+    override fun write(b: ByteArray, off: Int, len: Int) { lease.requireCurrent(); delegate.write(b, off, len) }
+    override fun flush() { lease.requireCurrent(); delegate.flush() }
+}
+
+private class GatedSocket(
+    private val delegate: Socket,
+    private val lease: NetworkAccessGate.Lease
+) : Socket() {
+    override fun getInputStream(): InputStream { lease.requireCurrent(); return delegate.getInputStream() }
+    override fun getOutputStream(): OutputStream { lease.requireCurrent(); return GatedOutputStream(delegate.getOutputStream(), lease) }
+    override fun setSoTimeout(timeout: Int) = delegate.setSoTimeout(timeout)
+    override fun getSoTimeout(): Int = delegate.soTimeout
+    override fun close() { try { delegate.close() } finally { lease.close() } }
+    override fun isClosed(): Boolean = delegate.isClosed
 }

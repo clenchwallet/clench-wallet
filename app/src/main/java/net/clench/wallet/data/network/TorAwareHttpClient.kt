@@ -28,6 +28,9 @@ class TorAwareHttpClient @Inject constructor(
         connectTimeoutMs: Int = 5_000,
         readTimeoutMs: Int = 10_000
     ): String {
+        val lease = settingsManager.networkAccess.begin()
+        try {
+        lease.requireCurrent()
         val conn = if (settingsManager.isTorEnabled()) {
             val proxyHost = settingsManager.getTorProxyHost()
             val proxyPort = settingsManager.getTorProxyPort()
@@ -40,16 +43,17 @@ class TorAwareHttpClient @Inject constructor(
             java.net.URL(url).openConnection() as java.net.HttpURLConnection
         }
 
+        lease.register { conn.disconnect() }
+        conn.instanceFollowRedirects = false // Follow-ups require fresh route/admission review.
         conn.connectTimeout = connectTimeoutMs
         conn.readTimeout = readTimeoutMs
-        return fetchWithConnection(conn)
-    }
-
-    private fun fetchWithConnection(conn: java.net.HttpURLConnection): String {
-        return try {
-            conn.inputStream.bufferedReader().use { it.readTextBounded(MAX_HTTP_RESPONSE_CHARS) }
+        lease.requireCurrent()
+        check(conn.responseCode in 200..299) { "HTTP request did not succeed" }
+        val body = conn.inputStream.bufferedReader().use { it.readTextBounded(MAX_HTTP_RESPONSE_CHARS) }
+        lease.requireCurrent()
+        return body
         } finally {
-            conn.disconnect()
+            lease.close()
         }
     }
 

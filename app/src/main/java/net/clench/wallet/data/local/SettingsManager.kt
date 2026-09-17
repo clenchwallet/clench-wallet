@@ -169,9 +169,13 @@ class SettingsManager @Inject constructor(
 
     // --- Offline mode ---
 
+    val networkAccess = net.clench.wallet.data.network.NetworkAccessGate { isOfflineMode() }
+
     fun isOfflineMode(): Boolean = prefs.getBoolean("offline_mode", false)
     fun setOfflineMode(enabled: Boolean) {
-        prefs.edit { putBoolean("offline_mode", enabled) }
+        if (enabled != isOfflineMode()) {
+            networkAccess.changeMode { prefs.edit { putBoolean("offline_mode", enabled) } }
+        }
     }
 
     // --- Tor proxy settings ---
