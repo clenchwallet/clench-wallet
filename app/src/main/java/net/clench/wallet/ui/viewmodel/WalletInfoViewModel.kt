@@ -1,6 +1,7 @@
 package net.clench.wallet.ui.viewmodel
 
 import net.clench.wallet.domain.model.Bip39Passphrase
+import net.clench.wallet.domain.model.SignerAccountKeyParser
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -564,8 +565,18 @@ class WalletInfoViewModel @Inject constructor(
             metadataByKey: Map<String, WalletKeystoreMetadataEntity>
         ): MultisigPolicyInfo {
             if (metadataByKey.isEmpty()) return this
+            val matchedMetadataKeys = mutableSetOf<String>()
+            var missingMetadata = false
             val updatedKeystores = keystores.map { keystore ->
-                val metadata = metadataByKey[keystore.keyId]
+                // Creation/import includes m/ in the origin path; historical Wallet Info
+                // renames use the descriptor path without it. Preserve both stored IDs.
+                val creationKeyId = SignerAccountKeyParser.stableId(
+                    keystore.masterFingerprint, keystore.derivationPath, keystore.xpub
+                )
+                val candidates = listOf(keystore.keyId, creationKeyId).distinct()
+                    .mapNotNull { key -> metadataByKey[key]?.also { matchedMetadataKeys += key } }
+                val metadata = candidates.maxByOrNull { it.updatedAtEpochMs }
+                if (metadata == null) missingMetadata = true
                 val label = metadata?.label
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
@@ -578,7 +589,7 @@ class WalletInfoViewModel @Inject constructor(
                     )
                 }
             }
-            val metadataWarnings = if (metadataByKey.keys != keystores.map { it.keyId }.toSet()) {
+            val metadataWarnings = if (missingMetadata || metadataByKey.keys != matchedMetadataKeys) {
                 listOf("Saved signer labels do not match the descriptor's actual signer set. " +
                     "The displayed policy is derived from the descriptor; no spending authority was changed. " +
                     "Keep the original backup and verify every signer before funding or using this wallet.")
