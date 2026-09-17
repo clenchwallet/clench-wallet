@@ -51,6 +51,18 @@ def require_source_history(root, producer, consumer, source_base):
         run(["git", "merge-base", "--is-ancestor", source_base, commit], cwd=root)
 
 
+def render_fixture(template, database_source):
+    """Bind the overlay to the exact producer/consumer Room schema; no reflection/fallback."""
+    versions = re.findall(r"(?m)^\s*version = (\d+),$", database_source)
+    if len(versions) != 1 or versions[0] not in ("13", "14"):
+        raise RuntimeError("Explicit fixture update required for this Room schema")
+    marker = "// SCHEMA_UPGRADE_MIGRATIONS"
+    if template.count(marker) != 1:
+        raise RuntimeError("Missing or duplicate migration overlay marker")
+    migration = ".addMigrations(ClenchDatabase.MIGRATION_13_14)" if versions[0] == "14" else ""
+    return template.replace(marker, migration), int(versions[0])
+
+
 def main():
     if os.environ.get("CLENCH_SQLCIPHER_UPGRADE_DISPOSABLE") != "YES":
         raise RuntimeError("Explicit disposable-emulator authorization required")
@@ -106,6 +118,7 @@ def main():
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=90).stdout
     cert_hash = hashlib.sha256(cert).hexdigest()
     apks = {}
+    overlays = {}
     for label, commit in (("producer", PRODUCER), ("consumer", consumer)):
         tree = work / label
         run(["git", "worktree", "add", "--detach", str(tree), commit], cwd=root)
@@ -115,7 +128,10 @@ def main():
             raise RuntimeError("Source unexpectedly contains signing material")
         overlay = tree / "app/src/androidTest/java/net/clench/wallet/verification/sqlcipherupgrade/SqlCipherUpgradeFixture.kt"
         overlay.parent.mkdir(parents=True)
-        overlay.write_bytes(fixture.read_bytes())
+        database_source = run(["git", "show", commit + ":app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt"], cwd=root)
+        rendered, schema_version = render_fixture(fixture.read_text(), database_source)
+        overlay.write_text(rendered)
+        overlays[label] = {"room_schema": schema_version, "overlay_sha256": hashlib.sha256(overlay.read_bytes()).hexdigest()}
         status = run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=tree)
         if status != "?? " + str(overlay.relative_to(tree)):
             raise RuntimeError("Unexpected test overlay change")
@@ -159,6 +175,7 @@ def main():
             "producer_commit": PRODUCER, "consumer_commit": consumer,
             "producer_version": "4.15.0", "consumer_version": "4.17.0",
             "fixture_sha256": hashlib.sha256(fixture.read_bytes()).hexdigest(),
+            "overlays": overlays,
             "disposable_signer_sha256": cert_hash, "tests_passed": 3,
             "scope": "Encrypted Room/WAL snapshot recovery and in-place debug APK upgrade on disposable emulator, not real-wallet or OEM-wide evidence."
         }, indent=2) + "\n")

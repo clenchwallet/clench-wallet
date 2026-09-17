@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.clench.wallet.data.local.dao.UtxoMetadataDao
-import net.clench.wallet.data.local.entity.UtxoMetadataEntity
 import net.clench.wallet.domain.model.UtxoInfo
 import net.clench.wallet.domain.repository.BitcoinRepository
 import javax.inject.Inject
@@ -96,16 +95,7 @@ class UtxoViewModel @Inject constructor(
     fun toggleFreeze(outpoint: String) {
         val walletId = _uiState.value.walletId
         viewModelScope.launch {
-            val current = utxoMetadataDao.getByOutpoint(outpoint)
-            val newFrozen = !(current?.isFrozen ?: false)
-            utxoMetadataDao.upsert(
-                UtxoMetadataEntity(
-                    outpoint = outpoint,
-                    walletId = walletId,
-                    label = current?.label,
-                    isFrozen = newFrozen
-                )
-            )
+            val newFrozen = utxoMetadataDao.toggleFrozen(walletId, outpoint)
             _uiState.update { state ->
                 state.copy(utxos = state.utxos.map {
                     if (it.outpoint == outpoint) it.copy(isFrozen = newFrozen, isSelected = false) else it
@@ -137,15 +127,7 @@ class UtxoViewModel @Inject constructor(
         val walletId = _uiState.value.walletId
 
         viewModelScope.launch {
-            val current = utxoMetadataDao.getByOutpoint(outpoint)
-            utxoMetadataDao.upsert(
-                UtxoMetadataEntity(
-                    outpoint = outpoint,
-                    walletId = walletId,
-                    label = label,
-                    isFrozen = current?.isFrozen ?: false
-                )
-            )
+            utxoMetadataDao.upsertLabel(walletId, outpoint, label)
             _uiState.update { state ->
                 state.copy(
                     showLabelDialog = false,

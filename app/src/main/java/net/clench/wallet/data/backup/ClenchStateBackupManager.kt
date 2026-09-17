@@ -126,11 +126,18 @@ class ClenchStateBackupManager @Inject constructor(
 
         validateBackupWalletIds(wallets)
         validateBackupWallets(wallets)
+        validateRecordOwners(wallets, labels, utxoMetadata)
 
         val result = database.withTransaction {
 
         val existingWallets = walletDao.getAll()
-        val knownByDescriptor = existingWallets.associateBy { descriptorKey(it.descriptor, it.network) }.toMutableMap()
+        // Match both branches and network, never just a shared receive descriptor.
+        // Explicit existing IDs take priority so overlapping wallet views stay distinct.
+        val existingById = existingWallets.associateBy { it.id }
+        val knownByDescriptor = existingWallets.groupBy {
+            descriptorKey(it.descriptor, it.changeDescriptor, it.network)
+        }
+        val mappedTargets = mutableSetOf<String>()
         val existingIds = existingWallets.map { it.id }.toMutableSet()
         val walletIdMap = mutableMapOf<String, String>()
 
@@ -144,9 +151,17 @@ class ClenchStateBackupManager @Inject constructor(
             val descriptor = item.getString("descriptor")
             val changeDescriptor = item.getString("changeDescriptor")
             val network = item.optString("network", "mainnet")
-            val descriptorKey = descriptorKey(descriptor, network)
-            val duplicate = knownByDescriptor[descriptorKey]
+            val descriptorKey = descriptorKey(descriptor, changeDescriptor, network)
+            val exactId = existingById[originalId]?.takeIf {
+                descriptorKey(it.descriptor, it.changeDescriptor, it.network) == descriptorKey
+            }
+            val matching = knownByDescriptor[descriptorKey].orEmpty().filter { it.id !in mappedTargets }
+            require(exactId != null || matching.size <= 1) {
+                "Backup wallet matches multiple local wallets; restore using their original identifiers."
+            }
+            val duplicate = exactId ?: matching.singleOrNull()
             if (duplicate != null) {
+                require(mappedTargets.add(duplicate.id)) { "Backup wallet mapping is ambiguous." }
                 walletIdMap[originalId] = duplicate.id
                 skippedWallets++
                 continue
@@ -155,6 +170,7 @@ class ClenchStateBackupManager @Inject constructor(
             val restoredId = if (originalId in existingIds) UUID.randomUUID().toString() else originalId
             existingIds += restoredId
             walletIdMap[originalId] = restoredId
+            mappedTargets += restoredId
 
             val originallyHot = item.optBoolean("restoreRequiresSeedPhrase", false)
             if (originallyHot) hotWalletsNeedingSeed++
@@ -180,14 +196,13 @@ class ClenchStateBackupManager @Inject constructor(
                 importedViaDevice = item.optNullableString("importedViaDevice")
             )
             walletDao.insert(restoredWallet)
-            knownByDescriptor[descriptorKey] = restoredWallet
             importedWallets++
         }
 
         var importedLabels = 0
         for (i in 0 until labels.length()) {
             val item = labels.getJSONObject(i)
-            val targetWalletId = walletIdMap[item.optString("walletId")] ?: continue
+            val targetWalletId = requireNotNull(walletIdMap[item.getString("walletId")]) { "Backup record has no mapped wallet." }
             val txid = item.optString("txid")
             val label = item.optString("label")
             if (!txid.matches(TXID_REGEX) || label.isBlank()) continue
@@ -206,9 +221,10 @@ class ClenchStateBackupManager @Inject constructor(
         var importedUtxoMetadata = 0
         for (i in 0 until utxoMetadata.length()) {
             val item = utxoMetadata.getJSONObject(i)
-            val targetWalletId = walletIdMap[item.optString("walletId")] ?: continue
-            val outpoint = item.optString("outpoint")
-            if (!outpoint.matches(OUTPOINT_REGEX)) continue
+            val targetWalletId = requireNotNull(walletIdMap[item.getString("walletId")]) { "Backup record has no mapped wallet." }
+            // Unknown/spent outpoints are intentionally allowed offline. They are
+            // policy/labels for this validated wallet only, not proof of ownership.
+            val outpoint = canonicalOutpoint(item.getString("outpoint"))
             utxoMetadataDao.upsert(
                 UtxoMetadataEntity(
                     outpoint = outpoint,
@@ -234,6 +250,37 @@ class ClenchStateBackupManager @Inject constructor(
         // explicit changes in Settings and are never silently replaced by a backup file.
         root.optJSONObject("settings")?.let { settingsManager.importBackupSettings(it) }
         return result
+    }
+
+    private fun validateRecordOwners(wallets: JSONArray, labels: JSONArray, metadata: JSONArray) {
+        val ids = (0 until wallets.length()).map { wallets.getJSONObject(it).optString("id") }
+            .filter { it.isNotBlank() }.toSet()
+        for (records in listOf(labels, metadata)) {
+            for (i in 0 until records.length()) {
+                val item = records.getJSONObject(i)
+                require(item.optString("walletId") in ids) {
+                    "Backup record refers to a missing or ambiguous wallet."
+                }
+            }
+        }
+        val seen = mutableSetOf<Pair<String, String>>()
+        for (i in 0 until metadata.length()) {
+            val item = metadata.getJSONObject(i)
+            val outpoint = canonicalOutpoint(item.getString("outpoint"))
+            require(seen.add(item.getString("walletId") to outpoint)) {
+                "Backup contains duplicate metadata for one wallet outpoint."
+            }
+            require(!item.has("isFrozen") || item.get("isFrozen") is Boolean) {
+                "Backup contains an invalid frozen state."
+            }
+        }
+    }
+
+    private fun canonicalOutpoint(outpoint: String): String {
+        require(outpoint.matches(OUTPOINT_REGEX)) { "Backup contains an invalid outpoint." }
+        val index = outpoint.substringAfter(':').toLong()
+        require(index <= 0xffffffffL) { "Backup contains an invalid outpoint index." }
+        return "${outpoint.substringBefore(':').lowercase()}:$index"
     }
 
     private fun validateBackupWalletIds(wallets: JSONArray) {
@@ -290,8 +337,8 @@ class ClenchStateBackupManager @Inject constructor(
         else -> throw IllegalArgumentException("Backup wallet has an invalid network.")
     }
 
-    private fun descriptorKey(descriptor: String, network: String): String {
-        return "${descriptor.substringBefore("#").trim()}|$network"
+    private fun descriptorKey(descriptor: String, changeDescriptor: String, network: String): String {
+        return "${descriptor.substringBefore("#").trim()}|${changeDescriptor.substringBefore("#").trim()}|$network"
     }
 
     private fun JSONObject.putNullable(name: String, value: String?) {

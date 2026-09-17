@@ -22,9 +22,10 @@ class ClenchDatabaseMigrationTest {
 
         helper.runMigrationsAndValidate(
             TEST_DATABASE,
-            13,
+            14,
             true,
-            ClenchDatabase.MIGRATION_12_13
+            ClenchDatabase.MIGRATION_12_13,
+            ClenchDatabase.MIGRATION_13_14
         ).use { database ->
             database.query("SELECT COUNT(*) FROM saved_signers").use { cursor ->
                 check(cursor.moveToFirst())
