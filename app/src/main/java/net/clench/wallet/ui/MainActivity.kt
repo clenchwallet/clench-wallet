@@ -3,8 +3,6 @@ package net.clench.wallet.ui
 import android.content.Intent
 import android.content.ContentResolver
 import android.app.Activity.RESULT_OK
-import android.nfc.NdefMessage
-import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.os.Build
 import android.os.Bundle
@@ -54,7 +52,7 @@ import net.clench.wallet.ui.picker.PickerRequest
 import net.clench.wallet.ui.picker.PickerResult
 import net.clench.wallet.ui.picker.PickerRoundTripBroker
 import net.clench.wallet.ui.picker.PickerRoundTripHost
-import net.clench.wallet.ui.components.ColdcardNfcPayload
+import net.clench.wallet.ui.components.NfcIntentDecoder
 import net.clench.wallet.ui.screens.PinUnlockScreen
 import net.clench.wallet.ui.theme.ClenchTheme
 import net.clench.wallet.ui.util.AuthenticationSessionGuard
@@ -280,24 +278,17 @@ class MainActivity : FragmentActivity(), AuthenticationSessionGuard {
             if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("MainActivity", "NFC intent received while locked — ignored")
             return
         }
-        @Suppress("DEPRECATION")
-        runCatching { intent.getParcelableExtra<Tag>(NfcAdapter.EXTRA_TAG) }.getOrNull()?.let { tag ->
-            _nfcTagFlow.tryEmit(tag)
-        }
-
-        if (NfcAdapter.ACTION_NDEF_DISCOVERED == intent.action ||
-            NfcAdapter.ACTION_TECH_DISCOVERED == intent.action ||
-            NfcAdapter.ACTION_TAG_DISCOVERED == intent.action
-        ) {
-            @Suppress("DEPRECATION")
-            val ndefMessage = runCatching {
-                intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES)
-                    ?.firstNotNullOfOrNull { it as? NdefMessage }
-            }.getOrNull()
-            if (ndefMessage != null) {
-                ColdcardNfcPayload.extractSigningPayload(ndefMessage)?.let { payload ->
-                    _nfcPsbtFlow.tryEmit(payload)
-                }
+        val authorization = captureSensitiveAuthenticationSession() ?: return
+        val decoded = NfcIntentDecoder.decode(intent)
+        if (!isSensitiveAuthenticationSessionCurrent(authorization)) return
+        when (decoded) {
+            NfcIntentDecoder.Result.Ignored -> Unit
+            NfcIntentDecoder.Result.Rejected -> android.widget.Toast.makeText(
+                this, "Invalid NFC payload. Scan again to retry.", android.widget.Toast.LENGTH_SHORT
+            ).show()
+            is NfcIntentDecoder.Result.Decoded -> {
+                decoded.tag?.let { _nfcTagFlow.tryEmit(it) }
+                decoded.signingPayload?.let { _nfcPsbtFlow.tryEmit(it) }
             }
         }
     }
