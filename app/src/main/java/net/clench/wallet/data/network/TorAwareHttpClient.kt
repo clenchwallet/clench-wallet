@@ -31,17 +31,14 @@ class TorAwareHttpClient @Inject constructor(
         val lease = settingsManager.networkAccess.begin()
         try {
         lease.requireCurrent()
-        val conn = if (settingsManager.isTorEnabled()) {
-            val proxyHost = settingsManager.getTorProxyHost()
-            val proxyPort = settingsManager.getTorProxyPort()
-            val proxy = java.net.Proxy(
-                java.net.Proxy.Type.SOCKS,
-                java.net.InetSocketAddress(proxyHost, proxyPort)
-            )
-            java.net.URL(url).openConnection(proxy) as java.net.HttpURLConnection
-        } else {
-            java.net.URL(url).openConnection() as java.net.HttpURLConnection
-        }
+        val target = java.net.URL(url)
+        require(target.protocol == "https" || target.protocol == "http") { "Unsupported HTTP URL" }
+        val upstreamProxy = if (settingsManager.isTorEnabled()) {
+            java.net.Proxy(java.net.Proxy.Type.SOCKS,
+                java.net.InetSocketAddress(settingsManager.getTorProxyHost(), settingsManager.getTorProxyPort()))
+        } else null
+        val tunnel = CancellableHttpTunnel(target, lease, upstreamProxy, connectTimeoutMs, readTimeoutMs)
+        val conn = target.openConnection(tunnel.proxy) as java.net.HttpURLConnection
 
         lease.register { conn.disconnect() }
         conn.instanceFollowRedirects = false // Follow-ups require fresh route/admission review.

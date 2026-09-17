@@ -64,7 +64,41 @@ class OfflineTransportTest {
         }
     }
 
-    @Test fun `HTTP response arriving after offline is discarded and redirect is not followed`() {
+    @Test fun `delayed URLConnection cannot connect remotely after tunnel cancellation`() {
+        ServerSocket(0).use { server ->
+            server.soTimeout = 250
+            val target = java.net.URL("http://127.0.0.1:${server.localPort}/")
+            val lease = gate.begin()
+            val tunnel = CancellableHttpTunnel(target, lease, null, 1000, 1000)
+            val connection = target.openConnection(tunnel.proxy) as java.net.HttpURLConnection
+            lease.register { connection.disconnect() }
+            gate.changeMode { offline = true }
+            gate.changeMode { offline = false }
+            // This is the old race: disconnect before responseCode. It may reconnect only
+            // to the already-closed loopback listener, never to the Internet destination.
+            assertTrue(runCatching { connection.responseCode }.isFailure)
+            assertTrue(runCatching { server.accept() }.exceptionOrNull() is java.net.SocketTimeoutException)
+        }
+    }
+
+    @Test fun `HTTP redirects cannot launch an unreviewed follow-up request`() {
+        ServerSocket(0).use { server ->
+            val worker = Executors.newSingleThreadExecutor()
+            try {
+                val served = worker.submit {
+                    server.accept().use { peer ->
+                        val reader = peer.getInputStream().bufferedReader()
+                        while (reader.readLine()?.isNotEmpty() == true) { }
+                        peer.getOutputStream().write("HTTP/1.1 302 Found\r\nContent-Length: 0\r\nLocation: http://must-not-resolve.invalid/\r\n\r\n".toByteArray())
+                    }
+                }
+                assertTrue(runCatching { TorAwareHttpClient(settings).fetchText("http://127.0.0.1:${server.localPort}/") }.isFailure)
+                served.get(5, TimeUnit.SECONDS)
+            } finally { worker.shutdownNow() }
+        }
+    }
+
+    @Test fun `HTTP response arriving after offline is discarded`() {
         ServerSocket(0).use { server ->
             val worker = Executors.newSingleThreadExecutor()
             try {

@@ -19,18 +19,23 @@ class NetworkAccessGate(private val isOffline: () -> Boolean) {
         if (isOffline() || token != generation) throw IOException("Network operation was cancelled by an offline-mode change")
     }
 
-    fun <T> commit(token: Long, block: () -> T): T = synchronized(monitor) { requireCurrent(token); block() }
+    // Admission is short. A local commit already admitted before a toggle may finish;
+    // never hold the mode-change monitor across native work, database fsync or I/O.
+    fun <T> commit(token: Long, block: () -> T): T { requireCurrent(token); return block() }
 
     fun begin(): Lease = synchronized(monitor) { Lease(token()).also { leases.add(it) } }
 
     /** Persist the preference and close admission atomically, before closing transports. */
     fun changeMode(persist: () -> Unit) {
-        val cancelled = synchronized(monitor) {
+        val actions = synchronized(monitor) {
             persist()
             generation++
-            leases.toList().also { leases.clear() }
+            leases.toList().flatMap { it.invalidateLocked() }
         }
-        cancelled.forEach { it.close() }
+        // Cancellation markers are terminal and already visible. Socket/disconnect cleanup
+        // may wait on a vendor implementation; never make the settings UI wait for it.
+        if (actions.isNotEmpty()) Thread({ actions.asReversed().forEach { runCatching(it) } },
+            "clench-offline-cleanup").apply { isDaemon = true; start() }
     }
 
     inner class Lease internal constructor(private val epoch: Long) : AutoCloseable {
@@ -43,26 +48,29 @@ class NetworkAccessGate(private val isOffline: () -> Boolean) {
         }
 
         fun register(cancel: () -> Unit) {
-            synchronized(monitor) {
-                try { requireCurrent() } catch (failure: IOException) {
-                    runCatching(cancel)
-                    throw failure
-                }
-                cleanup.add(cancel)
+            val accepted = synchronized(monitor) {
+                if (closed || isOffline() || epoch != generation) false
+                else { cleanup.add(cancel); true }
+            }
+            if (!accepted) {
+                runCatching(cancel)
+                throw IOException("Network operation was cancelled")
             }
         }
 
-        /** Admission and a short write/commit share the toggle boundary. Never use for reads. */
-        fun <T> admit(block: () -> T): T = synchronized(monitor) { requireCurrent(); block() }
+        fun <T> admit(block: () -> T): T { requireCurrent(); return block() }
+
+        internal fun invalidateLocked(): List<() -> Unit> {
+            if (closed) return emptyList()
+            closed = true
+            leases.remove(this)
+            return cleanup.toList().also { cleanup.clear() }
+        }
 
         override fun close() {
-            val actions = synchronized(monitor) {
-                if (closed) return
-                closed = true
-                leases.remove(this)
-                cleanup.toList().also { cleanup.clear() }
-            }
+            val actions = synchronized(monitor) { invalidateLocked() }
             actions.asReversed().forEach { runCatching(it) }
         }
+
     }
 }

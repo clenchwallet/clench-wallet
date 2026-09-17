@@ -39,9 +39,8 @@ enum class ConnectionMode {
 
 /**
  * Whether a raw upstream socket must be upgraded to TLS before any Electrum
- * JSON-RPC bytes are sent. BDK handles [ConnectionMode.TLS_SYSTEM] itself for
- * its native client, but Clench's direct JSON-RPC helpers use this raw-socket
- * path and therefore must perform the TLS handshake here.
+ * JSON-RPC bytes are sent. Both direct JSON-RPC and the native-client relay
+ * perform their upstream TLS handshake through this policy.
  */
 internal fun ConnectionMode.requiresRawSocketTls(): Boolean = when (this) {
     ConnectionMode.TLS_SYSTEM,
@@ -91,15 +90,10 @@ internal fun isOnionElectrumHost(rawHost: String): Boolean =
     normalizedElectrumHost(rawHost).endsWith(".onion")
 
 /**
- * Factory that creates BDK ElectrumClient instances supporting three connection modes:
- *
- * 1. **Plain TCP** — direct socket, passed to BDK as `tcp://host:port`
- * 2. **TLS** (system or pinned cert) — for pinned certs, we run a local TCP relay
- *    that terminates TLS with a custom TrustManager, and BDK connects to `tcp://127.0.0.1:localPort`
- * 3. **Tor/SOCKS5** — we open a SOCKS5 connection through Orbot, then run a local TCP relay
- *    so BDK connects to `tcp://127.0.0.1:localPort`
- *
- * For standard TLS (system trust store, no pinning), BDK handles it natively via `ssl://host:port`.
+ * All BDK connections use a cancellable local relay. The application upstream socket
+ * provides TCP, system/pinned TLS, or Tor/SOCKS as resolved below. Java/platform TLS
+ * always verifies the original host. BDK connects only to the local TCP listener;
+ * patched native Rustls remains bundled but is not this factory's active TLS route.
  */
 @Singleton
 class ElectrumConnectionFactory @Inject constructor(
@@ -169,13 +163,13 @@ class ElectrumConnectionFactory @Inject constructor(
                 port = config.port,
                 pinnedCertDer = pinnedCertDer
             )
-            // Standard TLS → BDK handles natively
+            // Standard TLS → platform trust and hostname checks at upstream socket
             config.useSsl -> ResolvedConnection(
                 mode = ConnectionMode.TLS_SYSTEM,
                 host = host,
                 port = config.port
             )
-            // Plain TCP → BDK handles natively
+            // Plain TCP → cancellable upstream socket
             else -> ResolvedConnection(
                 mode = ConnectionMode.PLAIN_TCP,
                 host = host,
@@ -184,14 +178,7 @@ class ElectrumConnectionFactory @Inject constructor(
         }
     }
 
-    /**
-     * Create a BDK ElectrumClient using the resolved connection mode.
-     *
-     * For modes that need a relay (TLS pinned, Tor), this starts a background relay
-     * and returns an [ActiveElectrumConnection] wrapping the client + relay resources.
-     *
-     * For native modes (plain TCP, system TLS), returns a simple wrapper.
-     */
+    /** Create a native client using the admitted, cancellable application transport. */
     fun createConnection(config: ElectrumConfig): ActiveElectrumConnection {
         val lease = settingsManager.networkAccess.begin()
         try {
@@ -203,29 +190,6 @@ class ElectrumConnectionFactory @Inject constructor(
             lease.close()
             throw failure
         }
-    }
-
-    /**
-     * Build a BDK-compatible URL string for modes that BDK handles natively.
-     * Falls back to relay for modes that need custom socket handling.
-     */
-    fun buildBdkUrl(config: ElectrumConfig): String {
-        val resolved = resolveConnection(config)
-        return when (resolved.mode) {
-            ConnectionMode.PLAIN_TCP -> "tcp://${resolved.host}:${resolved.port}"
-            ConnectionMode.TLS_SYSTEM -> "ssl://${resolved.host}:${resolved.port}"
-            // These modes need a relay — this method shouldn't be called for them
-            // but return a fallback that will fail with a clear error
-            else -> "tcp://${resolved.host}:${resolved.port}"
-        }
-    }
-
-    /**
-     * Check if the current config requires a relay (non-native BDK mode).
-     */
-    fun needsRelay(config: ElectrumConfig): Boolean {
-        val resolved = resolveConnection(config)
-        return resolved.mode != ConnectionMode.PLAIN_TCP && resolved.mode != ConnectionMode.TLS_SYSTEM
     }
 
     // ─── Internal relay implementation ───
