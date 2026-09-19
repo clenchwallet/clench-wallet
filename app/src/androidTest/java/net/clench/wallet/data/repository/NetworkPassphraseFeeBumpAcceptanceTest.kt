@@ -31,7 +31,7 @@ class NetworkPassphraseFeeBumpAcceptanceTest {
                 val config = ElectrumConfig("127.0.0.1", 51041, false, true)
                 f.settings.saveElectrumConfig(config)
                 f.settings.setOfflineMode(false)
-                control("reset", funding.serialize().joinToString("") { "%02x".format(it.toInt() and 0xff) })
+                control("transaction", funding.serialize().joinToString("") { "%02x".format(it.toInt() and 0xff) })
                 f.repository.syncWallet(wallet.id, config)
                 assertTrue("Funding must arrive over native Electrum sync", native.transactions().isNotEmpty())
                 val destination = outsideAddress()
@@ -141,11 +141,19 @@ class NetworkPassphraseFeeBumpAcceptanceTest {
 
     private fun funding(wallet: Wallet): Transaction {
         val script = revealFirstAddress(wallet)
-        return Transaction(ByteArrayOutputStream().apply {
-            write(le(2, 4)); write(1); write(ByteArray(32) { 0x43 }); write(le(0, 4))
-            write(0); write(le(0xffff_fffdL, 4)); write(1)
-            write(le(300_000, 8)); write(script.size); write(script); write(le(0, 4))
+        val parent = Transaction(ByteArrayOutputStream().apply {
+            write(le(2, 4)); write(1); write(ByteArray(32)); write(le(0xffff_ffffL, 4))
+            write(2); write(byteArrayOf(1, 1)); write(le(0xffff_ffffL, 4)); write(1)
+            write(le(301_000, 8)); write(1); write(0x51); write(le(0, 4))
         }.toByteArray())
+        return parent.use {
+            control("reset", parent.serialize().joinToString("") { "%02x".format(it.toInt() and 0xff) })
+            Transaction(ByteArrayOutputStream().apply {
+                write(le(2, 4)); write(1); write(decodeHex(parent.computeTxid().toString()).reversedArray()); write(le(0, 4))
+                write(0); write(le(0xffff_fffdL, 4)); write(1)
+                write(le(300_000, 8)); write(script.size); write(script); write(le(0, 4))
+            }.toByteArray())
+        }
     }
 
     private fun outsideAddress(): String = Descriptor(
