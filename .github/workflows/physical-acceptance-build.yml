@@ -1,0 +1,63 @@
+name: Isolated physical acceptance APK build
+on:
+  push:
+    branches: [qa/physical-acceptance-0331-20260919]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: c742179aa50bc6abd7553ca3cacd0625fbec0edf
+          persist-credentials: false
+      - uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          java-version: '21'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - name: Build unchanged candidate classes in isolated disposable package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = c742179aa50bc6abd7553ca3cacd0625fbec0edf
+          test -z "$(git status --porcelain)"
+          test ! -e keystore.properties
+          export ANDROID_USER_HOME="$RUNNER_TEMP/physical-android-home"
+          mkdir -p "$ANDROID_USER_HOME" "$RUNNER_TEMP/physical-artifacts"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;28.2.13676358'
+          python3 -B scripts/native/prepare-bdk.py
+          cat > "$RUNNER_TEMP/physical-package.gradle" <<'GRADLE'
+          gradle.beforeProject { p ->
+            p.plugins.withId('com.android.application') {
+              p.extensions.getByName('androidComponents').finalizeDsl { dsl ->
+                dsl.defaultConfig.applicationId = 'net.clench.wallet.acceptance0331'
+                dsl.buildTypes.getByName('debug').applicationIdSuffix = ''
+                dsl.buildTypes.getByName('debug').manifestPlaceholders['appLabel'] = 'Clench Acceptance 0331'
+              }
+            }
+          }
+          GRADLE
+          ./gradlew --no-daemon --no-build-cache --dependency-verification=strict --max-workers=2 -I "$RUNNER_TEMP/physical-package.gradle" :app:assembleDebug :app:assembleDebugAndroidTest
+          test -z "$(git status --porcelain)"
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/physical-artifacts/candidate.apk"
+          cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk "$RUNNER_TEMP/physical-artifacts/tests.apk"
+          cp "$RUNNER_TEMP/physical-package.gradle" "$RUNNER_TEMP/physical-artifacts/"
+          git rev-parse HEAD > "$RUNNER_TEMP/physical-artifacts/SOURCE.txt"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/physical-artifacts/TREE.txt"
+          cp build/native-bdk/provenance.json "$RUNNER_TEMP/physical-artifacts/native-provenance.json"
+          cd "$RUNNER_TEMP/physical-artifacts"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs candidate.apk > candidate-signature.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs tests.apk > tests-signature.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging candidate.apk > candidate-badging.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging tests.apk > tests-badging.txt
+          sha256sum * > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: isolated-physical-acceptance-apks
+          path: ${{ runner.temp }}/physical-artifacts/
+          if-no-files-found: error
+          retention-days: 14
