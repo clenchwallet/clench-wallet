@@ -158,3 +158,25 @@ This refresh retains all six exact dispositions and the original October16
 expiry, binding the corrected production inputs and this evidence. A fresh
 full-candidate live query remains required; device acceptance and broader native
 assurance are separate gates.
+
+## SeedSigner return correction binding re-review — 2026-09-19
+
+Reviewed production correction 9783cc8 against merged c742179. The sole
+production change validates the retained canonical PSBT before a signature-only
+merge instead of extracting the metadata-trimmed return. Exact unsigned-byte
+comparison, signature policy and full merged/final transaction validation remain.
+This adds no network transport, Esplora construction, reflection, native loading,
+CRL input, native feature or dependency change. ElectrumConnectionFactory still
+uses controlled loopback and Java upstream TLS; the explicit application native
+load remains SQLCipher. No new path reaches the legacy verifier/CRL parser.
+
+All six complete live OSV documents were fetched and re-read on September19.
+Their canonical hashes changed, so the old content hashes were not reused.
+The live ranges still include legacy0.101.7: URI/wildcard fixes begin0.103.12,
+CRL fix0.103.13, with separate prerelease ranges. URI/wildcard constraints still
+require the affected verifier path; CRL panic can precede signature verification
+but requires CRL parsing. The existing absent Esplora construction and unchanged
+minreq no-CRL configuration evidence continues to apply. The six exact call-path
+dispositions retain their original October16 expiry; legacy code is not claimed
+patched or removed. Physical acceptance and independent review of the correction
+remain separate outstanding gates. The full live candidate query remains required.
