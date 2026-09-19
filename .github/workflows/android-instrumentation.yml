@@ -239,6 +239,7 @@ jobs:
               ('net.clench.wallet.data.network.NativeElectrumOfflineTest', 'upstreamEofClosesNativeRelayWithoutWaitingForOuterDeadline'),
               ('net.clench.wallet.data.repository.BdkWalletPersistenceTest', 'sqliteWalletReloadsExactRevealedTestnetAddresses'),
               ('net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest', 'originalTransactionRemainsRecoverableAfterUnusablePartial'),
+              ('net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest', 'trimmedSignerReturnUsesOnlyCanonicalMetadata'),
               ('net.clench.wallet.data.repository.FrozenInputRepositoryTest', 'explicitFrozenSelectionCannotOverridePolicyAndLegacyAliasesStayFrozen'),
               ('net.clench.wallet.data.repository.FrozenInputRepositoryTest', 'metadataReadFailureStopsPsbtConstruction'),
               ('net.clench.wallet.data.repository.FrozenInputRepositoryTest', 'nativeUnconfirmedProjectionReplacesCachedConfirmationAndFailedSyncPreservesIt'),
