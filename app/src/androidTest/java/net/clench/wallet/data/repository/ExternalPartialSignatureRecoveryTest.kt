@@ -32,15 +32,7 @@ import java.util.Base64
 @RunWith(AndroidJUnit4::class)
 class ExternalPartialSignatureRecoveryTest {
     @Test fun originalTransactionRemainsRecoverableAfterUnusablePartial() = runBlocking {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val settings = SettingsManager(context)
-        val repository = BdkBitcoinRepository(
-            context, unused<WalletDao>(), unused<TransactionDao>(), unused<TransactionLabelDao>(),
-            unused<UtxoMetadataDao>(), unused<AddressBookDao>(), KeystoreManager(context), settings,
-            ElectrumConnectionFactory(settings), TorAwareHttpClient(settings),
-            WalletMnemonicGenerator({ error("No entropy access in this fixture") },
-                { error("No mnemonic access in this fixture") }), SensitiveWalletOperationBarrier()
-        )
+        val repository = repository()
         val fixture = Fixture()
         val original = fixture.psbt(emptyList())
         val invalid = fixture.psbt(listOf(1 to 3)) // canonical DER, but signed by a different fixture key
@@ -72,6 +64,54 @@ class ExternalPartialSignatureRecoveryTest {
         assertEquals("The reviewed source must remain untouched", fixture.psbt(emptyList()), original)
     }
 
+    @Test fun trimmedSignerReturnUsesOnlyCanonicalMetadata() = runBlocking {
+        val repository = repository()
+        val fixture = Fixture()
+        val original = fixture.psbt(emptyList())
+        // SeedSigner 0.8.7 PSBTParser.trim retains only unsigned tx + signatures.
+        val trimmed = fixture.psbt(listOf(1 to 1, 2 to 2), trimmed = true)
+        val nativeTrimmed = org.bitcoindevkit.Psbt(trimmed)
+        try {
+            var extractionFailed = false
+            try {
+                nativeTrimmed.extractTx().close()
+            } catch (_: Exception) {
+                extractionFailed = true
+            }
+            assertTrue("Standalone native extraction lacks the trimmed UTXO fee metadata", extractionFailed)
+        } finally {
+            nativeTrimmed.close()
+        }
+        val recovered = repository.mergeSignedPsbt(original, original, trimmed)
+        assertTrue("Trimmed physical-signer format must finalize", recovered.readyToBroadcast)
+        assertEquals(fixture.psbt(emptyList()), original)
+
+        // Both the returned and retained transaction must still match the review.
+        for ((current, returned) in listOf(
+            original to fixture.psbt(listOf(1 to 1, 2 to 2), trimmed = true, changedTransaction = true),
+            fixture.psbt(emptyList(), changedTransaction = true) to trimmed
+        )) {
+            try {
+                repository.mergeSignedPsbt(original, current, returned)
+                fail("A changed transaction must not be accepted with trimmed signatures")
+            } catch (_: SecurityException) {
+                // Exact original transaction policy remains mandatory.
+            }
+        }
+    }
+
+    private fun repository(): BdkBitcoinRepository {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val settings = SettingsManager(context)
+        return BdkBitcoinRepository(
+            context, unused<WalletDao>(), unused<TransactionDao>(), unused<TransactionLabelDao>(),
+            unused<UtxoMetadataDao>(), unused<AddressBookDao>(), KeystoreManager(context), settings,
+            ElectrumConnectionFactory(settings), TorAwareHttpClient(settings),
+            WalletMnemonicGenerator({ error("No entropy access in this fixture") },
+                { error("No mnemonic access in this fixture") }), SensitiveWalletOperationBarrier()
+        )
+    }
+
     private inline fun <reified T> unused(): T = Proxy.newProxyInstance(
         T::class.java.classLoader, arrayOf(T::class.java)
     ) { _, method, _ -> error("Unexpected persistence access: ${method.name}") } as T
@@ -93,12 +133,14 @@ class ExternalPartialSignatureRecoveryTest {
         }
         private val digest = TapsignerPsbtSigning.bip143SighashAll(transaction, 0, script, le(50_000, 8))
 
-        fun psbt(partials: List<Pair<Int, Int>>): String = Base64.getEncoder().encodeToString(bytes {
+        fun psbt(partials: List<Pair<Int, Int>>, trimmed: Boolean = false, changedTransaction: Boolean = false): String = Base64.getEncoder().encodeToString(bytes {
             write(byteArrayOf(0x70, 0x73, 0x62, 0x74, 0xff.toByte()))
-            entry(byteArrayOf(0), transaction); write(0)
+            entry(byteArrayOf(0), transaction.copyOf().also { if (changedTransaction) it[0] = 1 }); write(0)
             val program = byteArrayOf(0, 0x20) + MessageDigest.getInstance("SHA-256").digest(script)
-            entry(byteArrayOf(1), le(50_000, 8) + byteArrayOf(program.size.toByte()) + program)
-            entry(byteArrayOf(5), script)
+            if (!trimmed) {
+                entry(byteArrayOf(1), le(50_000, 8) + byteArrayOf(program.size.toByte()) + program)
+                entry(byteArrayOf(5), script)
+            }
             partials.forEach { (publicIndex, signingIndex) ->
                 entry(byteArrayOf(2) + key(publicIndex), signature(signingIndex))
             }
