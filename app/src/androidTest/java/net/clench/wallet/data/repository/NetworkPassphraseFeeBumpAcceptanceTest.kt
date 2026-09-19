@@ -5,6 +5,9 @@ import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.runBlocking
 import net.clench.wallet.domain.model.ElectrumConfig
 import org.json.JSONObject
+import net.clench.wallet.data.network.TorAwareHttpClient
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.net.Socket
 import java.net.InetSocketAddress
 import net.clench.wallet.data.local.entity.UtxoMetadataEntity
@@ -86,6 +89,53 @@ class NetworkPassphraseFeeBumpAcceptanceTest {
                 }
             }
         }
+    }
+
+    @Test fun systemTrustedHttpsDelayedBodyIsCancelledAndFreshRequestRecovers() {
+        WalletRepositoryFixture().use { f ->
+            f.settings.setTorProxyHost("127.0.0.1")
+            f.settings.setTorProxyPort(59051)
+            f.settings.setTorEnabled(true)
+            f.settings.setOfflineMode(false)
+            val client = TorAwareHttpClient(f.settings)
+            val url = "https://pbmbpro.tail7d2b0.ts.net:52443"
+            httpControl("reset")
+            assertEquals("fresh", client.fetchText("$url/fast"))
+            val executor = Executors.newSingleThreadExecutor()
+            try {
+                val result = executor.submit<Boolean> {
+                    runCatching { client.fetchText("$url/delayed", 10_000, 40_000) }.isFailure
+                }
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+                var entered = false
+                while (System.nanoTime() < deadline) {
+                    if (httpControl("status").getBoolean("entered")) { entered = true; break }
+                    Thread.sleep(100)
+                }
+                assertTrue("Actual trusted HTTPS response body must be pending", entered)
+                f.settings.setOfflineMode(true)
+                httpControl("release")
+                assertTrue("Offline must reject late HTTPS completion", result.get(10, TimeUnit.SECONDS))
+                assertTrue(runCatching { client.fetchText("$url/fast") }.isFailure)
+                f.settings.setOfflineMode(false)
+                assertEquals("fresh", client.fetchText("$url/fast"))
+            } finally {
+                f.settings.setOfflineMode(true)
+                httpControl("release")
+                executor.shutdownNow()
+            }
+        }
+    }
+
+    private fun httpControl(path: String): JSONObject = Socket().use { socket ->
+        socket.connect(InetSocketAddress("127.0.0.1", 51044), 10_000)
+        socket.soTimeout = 10_000
+        socket.getOutputStream().apply {
+            write("GET /$path HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n".toByteArray()); flush()
+        }
+        val response = socket.getInputStream().bufferedReader().readText()
+        check(response.startsWith("HTTP/1.0 200"))
+        JSONObject(response.substringAfter("\r\n\r\n"))
     }
 
     private fun control(path: String, raw: String) {
