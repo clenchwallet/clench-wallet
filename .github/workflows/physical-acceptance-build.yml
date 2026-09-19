@@ -13,6 +13,15 @@ jobs:
         with:
           ref: c742179aa50bc6abd7553ca3cacd0625fbec0edf
           persist-credentials: false
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          path: acceptance-overlay
+          persist-credentials: false
+      - name: Copy isolated test overlay only
+        run: |
+          cp acceptance-overlay/app/src/androidTest/java/net/clench/wallet/data/repository/NetworkPassphraseFeeBumpAcceptanceTest.kt app/src/androidTest/java/net/clench/wallet/data/repository/
+          rm -rf acceptance-overlay
       - uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
@@ -24,7 +33,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = c742179aa50bc6abd7553ca3cacd0625fbec0edf
-          test -z "$(git status --porcelain)"
+          test -z "$(git diff --name-only)"
+          test "$(git ls-files --others --exclude-standard)" = app/src/androidTest/java/net/clench/wallet/data/repository/NetworkPassphraseFeeBumpAcceptanceTest.kt
           test ! -e keystore.properties
           export ANDROID_USER_HOME="$RUNNER_TEMP/physical-android-home"
           mkdir -p "$ANDROID_USER_HOME" "$RUNNER_TEMP/physical-artifacts"
@@ -34,15 +44,17 @@ jobs:
           gradle.beforeProject { p ->
             p.plugins.withId('com.android.application') {
               p.extensions.getByName('androidComponents').finalizeDsl { dsl ->
-                dsl.defaultConfig.applicationId = 'net.clench.wallet.acceptance0331'
+                dsl.defaultConfig.applicationId = 'net.clench.wallet.acceptancerbf0331'
                 dsl.buildTypes.getByName('debug').applicationIdSuffix = ''
-                dsl.buildTypes.getByName('debug').manifestPlaceholders['appLabel'] = 'Clench Acceptance 0331'
+                dsl.buildTypes.getByName('debug').manifestPlaceholders['appLabel'] = 'Clench RBF Acceptance 0331'
               }
             }
           }
           GRADLE
           ./gradlew --no-daemon --no-build-cache --dependency-verification=strict --max-workers=2 -I "$RUNNER_TEMP/physical-package.gradle" :app:assembleDebug :app:assembleDebugAndroidTest
-          test -z "$(git status --porcelain)"
+          test -z "$(git diff --name-only)"
+          test "$(git ls-files --others --exclude-standard)" = app/src/androidTest/java/net/clench/wallet/data/repository/NetworkPassphraseFeeBumpAcceptanceTest.kt
+          cp app/src/androidTest/java/net/clench/wallet/data/repository/NetworkPassphraseFeeBumpAcceptanceTest.kt "$RUNNER_TEMP/physical-artifacts/"
           cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/physical-artifacts/candidate.apk"
           cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk "$RUNNER_TEMP/physical-artifacts/tests.apk"
           cp "$RUNNER_TEMP/physical-package.gradle" "$RUNNER_TEMP/physical-artifacts/"
