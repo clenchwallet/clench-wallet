@@ -12,6 +12,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
+import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.util.Locale
 import javax.inject.Inject
@@ -19,7 +20,6 @@ import javax.inject.Singleton
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManagerFactory
-import javax.net.ssl.X509TrustManager
 
 /**
  * Connection mode for Electrum server.
@@ -129,10 +129,13 @@ class ElectrumConnectionFactory @Inject constructor(
 
         val socksHost = settingsManager.getTorProxyHost()
         val socksPort = settingsManager.getTorProxyPort()
+        // An explicit certificate pin always requires TLS, including when a saved
+        // plaintext preference or mandatory onion routing would otherwise win.
+        val requiresTls = config.useSsl || pinnedCertDer != null
 
         return when {
-            // .onion addresses: must use Tor, plain TCP to the onion service
-            isOnion -> ResolvedConnection(
+            // Onion services always use Tor, but retain explicitly requested TLS/pins.
+            isOnion && !requiresTls -> ResolvedConnection(
                 mode = ConnectionMode.TOR_PLAIN,
                 host = host,
                 port = config.port,
@@ -140,7 +143,7 @@ class ElectrumConnectionFactory @Inject constructor(
                 socksPort = socksPort
             )
             // Tor enabled for clearnet address with TLS
-            useTor && config.useSsl -> ResolvedConnection(
+            useTor && requiresTls -> ResolvedConnection(
                 mode = ConnectionMode.TOR_TLS,
                 host = host,
                 port = config.port,
@@ -410,6 +413,16 @@ class ElectrumConnectionFactory @Inject constructor(
             sslParameters.endpointIdentificationAlgorithm = "HTTPS"
             sslSocket.sslParameters = sslParameters
             sslSocket.startHandshake()
+            if (pinnedCertDer != null) {
+                val leaf = sslSocket.session.peerCertificates.firstOrNull() as? X509Certificate
+                    ?: throw CertificateException("Missing server certificate")
+                if (!java.security.MessageDigest.isEqual(pinnedCertDer, leaf.encoded)) {
+                    throw CertificateException("Server certificate does not match configured pin")
+                }
+                // PKIX may exempt trust anchors from validity checks. Enforce the
+                // pinned server certificate's validity too, before any RPC bytes.
+                leaf.checkValidity()
+            }
             if (net.clench.wallet.BuildConfig.DEBUG) Log.d(TAG, "TLS handshake complete with $host (pinned=${pinnedCertDer != null})")
             sslSocket
         } catch (e: Exception) {

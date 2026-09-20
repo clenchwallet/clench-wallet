@@ -107,6 +107,12 @@ class NetworkTrustAuditTest {
             assertEquals("fixture.invalid", proxy.destination.get(5, TimeUnit.SECONDS))
         }
     }
+    private fun assertTlsRejection(label: String, failure: Throwable?) {
+        assertNotNull("Expected TLS rejection: $label", failure)
+        val causes = generateSequence(failure) { it.cause }.take(12).toList()
+        assertTrue("Must reject at TLS/certificate boundary: $label: ${failure?.javaClass?.simpleName}",
+            causes.any { it is SSLHandshakeException || it is SSLPeerUnverifiedException || it is java.security.cert.CertificateException })
+    }
     private fun raw(name: String, pin: String?, accepted: Boolean, tor: Boolean) = settings { settings ->
         Endpoint(name).use { endpoint -> route(settings, endpoint, tor) { host, port ->
             val result = runCatching {
@@ -116,7 +122,7 @@ class NetworkTrustAuditTest {
                     assertEquals("OK", socket.getInputStream().bufferedReader().readLine())
                 }
             }
-            if (accepted) result.getOrThrow() else assertTrue("Expected rejection: $name/$pin/tor=$tor", result.isFailure)
+            if (accepted) result.getOrThrow() else assertTlsRejection("$name/$pin/tor=$tor", result.exceptionOrNull())
         } }
     }
     @Test fun pinnedExpectedLeafWorksDirectAndThroughSocks() { for (tor in listOf(false,true)) raw("valid","valid",true,tor) }
@@ -136,7 +142,7 @@ class NetworkTrustAuditTest {
                 Endpoint(name).use { endpoint -> route(settings, endpoint, tor) { host, port ->
                     val result=runCatching { TorAwareHttpClient(settings).fetchText("https://$host:$port/",5000,5000) }
                     if (name=="valid") assertEquals("OK",result.getOrThrow())
-                    else assertTrue("Expected HTTP TLS rejection: $name/tor=$tor",result.isFailure)
+                    else assertTlsRejection("HTTP $name/tor=$tor",result.exceptionOrNull())
                 } }
             }
         } finally { HttpsURLConnection.setDefaultSSLSocketFactory(previous) }
