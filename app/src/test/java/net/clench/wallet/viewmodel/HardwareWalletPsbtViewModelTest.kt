@@ -64,7 +64,10 @@ class HardwareWalletPsbtViewModelTest {
                 PsbtSigningProgress(original, true, "finalized", finalizedTransactionPayload = raw)
             val broadcast = CompletableDeferred<String>()
             coEvery { repository.applyAndBroadcastPsbt("wallet", raw, original, any()) } coAnswers {
-                lastArg<() -> Unit>().invoke()
+                // Suspend mocks also carry a continuation after the declared arguments.
+                @Suppress("UNCHECKED_CAST")
+                val authorize = invocation.args[3] as () -> Unit
+                authorize()
                 broadcast.await()
             }
             val vm = HardwareWalletPsbtViewModel(repository, store)
@@ -79,7 +82,7 @@ class HardwareWalletPsbtViewModelTest {
             assertTrue(vm.uiState.value.readyToBroadcast)
             assertTrue(exportFrames(vm.uiState.value).isEmpty())
             vm.broadcastSignedPsbt("wallet"); runCurrent()
-            assertTrue(vm.uiState.value.isBroadcasting)
+            assertTrue(vm.uiState.value.error ?: "Mock broadcast must remain in flight", vm.uiState.value.isBroadcasting)
             assertTrue(exportFrames(vm.uiState.value).isEmpty())
             broadcast.complete("local-mocked-receipt"); advanceUntilIdle()
             assertEquals("local-mocked-receipt", vm.uiState.value.txid)
