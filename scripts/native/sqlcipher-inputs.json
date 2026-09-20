@@ -18,7 +18,14 @@
     "sqlite3.c": "8640c653acadf665cce6331646f60b5b74a4690746f2c4a2d8f688a0570a0c0c",
     "sqlite3.h": "8a9d1bff44d75174ca6dea3ea9bac50a6104d86facb566647b8bb839375b7b3a"
   },
-  "ndk_version": "28.2.13676358",
+  "ndk_version": "25.2.9519653",
   "android_api": 23,
-  "scope": "Experimental4.19core/4.17JNI; no application dependency replacement or compatibility claim"
+  "scope": "Experimental4.19core/4.17JNI; no application dependency replacement or compatibility claim",
+  "ndk_archive": {
+    "url": "https://dl.google.com/android/repository/android-ndk-r25c-linux.zip",
+    "sha1": "53af80a1cce9144025b81c78c8cd556bff42bd0e",
+    "bytes": 531118193,
+    "sha256": "769ee342ea75f80619d985c2da990c48b3d8eaf45f48783a2d48870d04b46108",
+    "clang_sha256": "4e3f5ab4aed2139f942d2bfbab57bcb5daf33a24189658d01f28d37c91ada79a"
+  }
 }

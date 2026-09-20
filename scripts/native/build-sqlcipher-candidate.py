@@ -23,7 +23,7 @@ def main():
     env.update(LC_ALL='C',TZ='UTC',SOURCE_DATE_EPOCH='1788825600')
     roots={}
     for name,spec in INPUTS.items():
-        if not isinstance(spec,dict) or 'url' not in spec: continue
+        if name not in ('android','core','libtomcrypt'): continue
         archive=download(spec['url'],out/(name+'.tar.gz'),spec['sha256'])
         dest=out/name;dest.mkdir()
         with tarfile.open(archive) as tar: tar.extractall(dest,filter='data')
@@ -39,10 +39,14 @@ def main():
     target=jni/'libtomcrypt/src'
     if target.exists(): shutil.rmtree(target)
     shutil.copytree(roots['libtomcrypt'],target)
-    ndk=Path(os.environ['ANDROID_HOME'])/'ndk'/INPUTS['ndk_version'];llvm=ndk/'toolchains/llvm/prebuilt/linux-x86_64/bin'
+    # Match the vendor's NDK revision and verify the entire toolchain archive,
+    # not merely a nearby SDK installation or compiler version string.
+    ndk_spec=INPUTS['ndk_archive']
+    archive=download(ndk_spec['url'],out/'ndk.zip',ndk_spec['sha256'])
+    subprocess.run(['unzip','-q',str(archive),'-d',str(out/'toolchain')],check=True)
+    ndk=out/'toolchain/android-ndk-r25c';llvm=ndk/'toolchains/llvm/prebuilt/linux-x86_64/bin'
     if 'Pkg.Revision = '+INPUTS['ndk_version'] not in (ndk/'source.properties').read_text():raise ValueError('NDK drift')
-    expected=json.loads((ROOT/'docs/security/upstream/bdk-ffi-3.0.0-clench-provenance.json').read_text())['clang_sha256']
-    if sha(llvm/'clang')!=expected:raise ValueError('Pinned NDK compiler drift')
+    if sha(llvm/'clang')!=ndk_spec['clang_sha256']:raise ValueError('Pinned NDK compiler drift')
     # Preserve the reviewed Android JNI default defines, with deterministic path remapping.
     makefile=(jni/'sqlcipher/Android.mk').read_text();defs=re.findall(r'-D[A-Z0-9_]+(?:=[A-Za-z0-9_]+)?',makefile.split('endif')[0])
     flags=' '.join(defs+[f'-ffile-prefix-map={out}=/sqlcipher-build',f'-ffile-prefix-map={ndk}=/ndk'])
