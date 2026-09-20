@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: 9783cc8ae75f03fdbffa99821f1f9fa6dc51d461
+          ref: f46dd95b7d71802457c04e00af76ca307b935154
           persist-credentials: false
       - uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 9783cc8ae75f03fdbffa99821f1f9fa6dc51d461
+          test "$(git rev-parse HEAD)" = f46dd95b7d71802457c04e00af76ca307b935154
           test -z "$(git diff --name-only)"
           test -z "$(git ls-files --others --exclude-standard)"
           test ! -e keystore.properties
@@ -35,9 +35,9 @@ jobs:
           gradle.beforeProject { p ->
             p.plugins.withId('com.android.application') {
               p.extensions.getByName('androidComponents').finalizeDsl { dsl ->
-                dsl.defaultConfig.applicationId = 'net.clench.wallet.acceptancess0331'
+                dsl.defaultConfig.applicationId = 'net.clench.wallet.acceptancecc0331'
                 dsl.buildTypes.getByName('debug').applicationIdSuffix = ''
-                dsl.buildTypes.getByName('debug').manifestPlaceholders['appLabel'] = 'Clench SeedSigner Acceptance 0331'
+                dsl.buildTypes.getByName('debug').manifestPlaceholders['appLabel'] = 'Clench Coldcard Acceptance 0331'
               }
             }
           }
