@@ -1,5 +1,7 @@
 name: Network trust audit
 on:
+  push:
+    branches: [audit/native-assurance-20260920]
   workflow_dispatch:
 permissions:
   contents: read
