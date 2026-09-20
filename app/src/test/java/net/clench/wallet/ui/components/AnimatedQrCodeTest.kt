@@ -10,6 +10,19 @@ import org.junit.Test
 class AnimatedQrCodeTest {
 
     @Test
+    fun `absent export payload emits no QR and invalid pending export stays strict`() {
+        for (device in listOf(HardwareWalletType.COLDCARD_Q, HardwareWalletType.SEEDSIGNER)) {
+            assertTrue(encodePendingPsbtForDevice(null, device).isEmpty())
+            assertThrows(IllegalArgumentException::class.java) {
+                encodePendingPsbtForDevice("020000000001", device)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                encodePendingPsbtForDevice("", device)
+            }
+        }
+    }
+
+    @Test
     fun `generic UR PSBT can use single static frame`() {
         val psbtBytes = ByteArray(300) { it.toByte() }
         val frames = psbtBytesToUrFrames(psbtBytes)

@@ -890,6 +890,7 @@ def main() -> None:
         "wifDescriptorsUseAValidDistinctNonSpendableChangeDescriptor",
         "net.clench.wallet.data.repository.ExternalPartialSignatureRecoveryTest",
         "originalTransactionRemainsRecoverableAfterUnusablePartial",
+        "trimmedSignerReturnUsesOnlyCanonicalMetadata",
         "android-regression-results",
         "ClenchPartialRegression:I ClenchUiRegression:I",
         "net.clench.wallet.ui.AuthenticationGateUiTest",

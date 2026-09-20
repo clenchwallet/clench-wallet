@@ -2697,9 +2697,12 @@ class BdkBitcoinRepository @Inject constructor(
             try {
                 validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, tx, signatureContext)
                 return@withContext PsbtSigningProgress(
-                    psbtBase64 = signedPsbtPayload.trim(),
+                    // Retain the reviewed canonical PSBT for replacement signing/export.
+                    // Finalized transaction bytes are a distinct broadcast-only payload.
+                    psbtBase64 = unsignedPsbtBase64,
                     readyToBroadcast = true,
-                    message = "Clench imported a finalized transaction and verified it matches the original PSBT."
+                    message = "Clench imported a finalized transaction and verified it matches the original PSBT.",
+                    finalizedTransactionPayload = signedPsbtPayload.trim()
                 )
             } finally {
                 closeSecretNativeResources(nativeCloseAction(tx) { it.close() })
@@ -2718,7 +2721,14 @@ class BdkBitcoinRepository @Inject constructor(
                 signatureContext.inputKinds,
                 signatureContext.outputCount
             )
-            validatePsbtMatchesUnsignedPsbt(unsignedPsbtBase64, returnedPsbt, signatureContext)
+            // SeedSigner returns the unsigned transaction and signatures without UTXO
+            // metadata. Native extractTx() performs fee checks and cannot extract
+            // that trimmed return by itself. Validate the retained canonical PSBT
+            // against the reviewed original first. The signature-only merge below
+            // requires byte-identical unsigned transactions before importing any
+            // signatures, and discards all other returned metadata. Validate the
+            // resulting complete PSBT again before native finalization.
+            validatePsbtMatchesUnsignedPsbt(unsignedPsbtBase64, currentPsbt, signatureContext)
             val signatureOnlyMerge = ExternalSignaturePolicy.mergeSignatureMaterial(
                 current = currentPsbtPayload,
                 returned = returnedPsbt.serialize(),

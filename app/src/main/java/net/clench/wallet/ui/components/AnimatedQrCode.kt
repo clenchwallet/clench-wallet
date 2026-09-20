@@ -64,6 +64,14 @@ internal fun psbtBytesToUrFrames(
     return frames
 }
 
+internal fun encodePendingPsbtForDevice(
+    exportablePsbtBase64: String?,
+    deviceType: HardwareWalletType
+): List<String> {
+    if (exportablePsbtBase64 == null || !deviceType.supportsQr) return emptyList()
+    return encodePsbtForDevice(exportablePsbtBase64, deviceType)
+}
+
 /**
  * Encode a PSBT for QR display, using the appropriate format for the target device.
  * - Coldcard Q: BBQr format (Base32/Hex per Coinkite BBQr)

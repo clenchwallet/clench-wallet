@@ -158,3 +158,66 @@ This refresh retains all six exact dispositions and the original October16
 expiry, binding the corrected production inputs and this evidence. A fresh
 full-candidate live query remains required; device acceptance and broader native
 assurance are separate gates.
+
+## SeedSigner return correction binding re-review — 2026-09-19
+
+Reviewed production correction 9783cc8 against merged c742179. The sole
+production change validates the retained canonical PSBT before a signature-only
+merge instead of extracting the metadata-trimmed return. Exact unsigned-byte
+comparison, signature policy and full merged/final transaction validation remain.
+This adds no network transport, Esplora construction, reflection, native loading,
+CRL input, native feature or dependency change. ElectrumConnectionFactory still
+uses controlled loopback and Java upstream TLS; the explicit application native
+load remains SQLCipher. No new path reaches the legacy verifier/CRL parser.
+
+All six complete live OSV documents were fetched and re-read on September19.
+Their canonical hashes changed, so the old content hashes were not reused.
+The live ranges still include legacy0.101.7: URI/wildcard fixes begin0.103.12,
+CRL fix0.103.13, with separate prerelease ranges. URI/wildcard constraints still
+require the affected verifier path; CRL panic can precede signature verification
+but requires CRL parsing. The existing absent Esplora construction and unchanged
+minreq no-CRL configuration evidence continues to apply. The six exact call-path
+dispositions retain their original October16 expiry; legacy code is not claimed
+patched or removed. Physical acceptance and independent review of the correction
+remain separate outstanding gates. The full live candidate query remains required.
+
+## Coldcard finalized-return display correction re-review — 2026-09-19
+
+Physical Coldcard Q NFC acceptance exposed a Compose crash after a finalized
+raw transaction passed repository policy validation: outbound PSBT QR generation
+ran even though the completed-signing screen does not display that QR. The
+correction skips outbound encoding in the completed state and keeps strict PSBT
+validation for pending exports. It changes no transaction validation, native
+entry point, dependency, transport or signing/broadcast policy. Production
+searches still find no Esplora/reflection/direct JNA entry point; SQLCipher is
+the explicit native load and Electrum uses the existing controlled relay.
+
+All six complete live OSV records were fetched and their descriptions/ranges
+re-read. Their canonical hashes match the earlier September19 review; legacy
+0.101.7 remains affected in the same three groups. No new path reaches the
+legacy verifier or CRL parser. Retain the six exact call-path dispositions and
+the original October16 expiry, with a new application/evidence binding. This
+is not a native clearance; regression, physical retest and independent review
+of this display correction remain required.
+
+## Coldcard lifecycle correction delta re-review — 2026-09-19
+
+Independent review found that the initial display guard at f46dd95 was incomplete:
+readiness clears after broadcast and replacement attempts. The delta separates
+validated finalized transaction data from canonical PSBT data in repository
+progress. Raw returns retain the reviewed original PSBT for export/replacement;
+only the distinct signed payload reaches the existing explicit broadcast method.
+The ViewModel exposes a pending export payload, preserves canonical recovery and
+requires a fresh review after restart. Restart snapshots also bind the signed
+payload and return count. The signature/transaction equality, freeze, session
+and network authorization boundaries are unchanged.
+
+This data-flow correction adds no native entry point, TLS/CRL input, Esplora or
+reflection path, dependency, feature or native recipe change. Fresh production
+searches retain the earlier no-Esplora/reflection/direct-JNA findings. All six
+full live OSV documents were fetched again; their canonical hashes and affected
+ranges match the previously reviewed records. The same exact six call-path
+dispositions remain applicable, with the original October16 expiry and refreshed
+application/evidence hashes. New lifecycle regressions, native raw-return
+contract assertions, independent delta review and physical retry are separate
+gates; the prior f46dd95 review is not an approval of this delta.

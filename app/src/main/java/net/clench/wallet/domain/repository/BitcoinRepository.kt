@@ -57,9 +57,12 @@ data class MultisigPhoneSignerSecret(
 )
 
 data class PsbtSigningProgress(
+    /** Canonical PSBT retained for export, replacement signing and recovery. */
     val psbtBase64: String,
     val readyToBroadcast: Boolean,
-    val message: String
+    val message: String,
+    /** Validated raw transaction, when the signer returned a transaction instead of a PSBT. */
+    val finalizedTransactionPayload: String? = null
 )
 
 data class WalletStateRecoveryResult(
