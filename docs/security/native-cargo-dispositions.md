@@ -180,3 +180,22 @@ minreq no-CRL configuration evidence continues to apply. The six exact call-path
 dispositions retain their original October16 expiry; legacy code is not claimed
 patched or removed. Physical acceptance and independent review of the correction
 remain separate outstanding gates. The full live candidate query remains required.
+
+## Coldcard finalized-return display correction re-review — 2026-09-19
+
+Physical Coldcard Q NFC acceptance exposed a Compose crash after a finalized
+raw transaction passed repository policy validation: outbound PSBT QR generation
+ran even though the completed-signing screen does not display that QR. The
+correction skips outbound encoding in the completed state and keeps strict PSBT
+validation for pending exports. It changes no transaction validation, native
+entry point, dependency, transport or signing/broadcast policy. Production
+searches still find no Esplora/reflection/direct JNA entry point; SQLCipher is
+the explicit native load and Electrum uses the existing controlled relay.
+
+All six complete live OSV records were fetched and their descriptions/ranges
+re-read. Their canonical hashes match the earlier September19 review; legacy
+0.101.7 remains affected in the same three groups. No new path reaches the
+legacy verifier or CRL parser. Retain the six exact call-path dispositions and
+the original October16 expiry, with a new application/evidence binding. This
+is not a native clearance; regression, physical retest and independent review
+of this display correction remain required.

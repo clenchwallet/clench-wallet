@@ -40,7 +40,7 @@ import net.clench.wallet.ui.components.TapsignerPinInput
 import net.clench.wallet.ui.components.TransactionReviewCard
 import net.clench.wallet.ui.components.SignerProgressPresentation
 import net.clench.wallet.ui.components.SignerProgressStepper
-import net.clench.wallet.ui.components.encodePsbtForDevice
+import net.clench.wallet.ui.components.encodePendingPsbtForDevice
 import net.clench.wallet.ui.components.psbtQrFrameDelayMs
 import net.clench.wallet.ui.components.isValidTapsignerPin
 import net.clench.wallet.ui.components.rememberImeDismissAction
@@ -535,10 +535,8 @@ fun HardwareWalletPsbtScreen(
 
     // Pre-compute QR frames: BBQr for Coldcard Q, BC-UR for other QR devices.
     // Coldcard Mk4/Mk5 do not have a camera; use NFC or SD card file transfer.
-    val qrFrames = remember(psbtBase64, deviceType) {
-        if (psbtBase64.isNotEmpty() && deviceType.supportsQr) {
-            encodePsbtForDevice(psbtBase64, deviceType)
-        } else emptyList()
+    val qrFrames = remember(psbtBase64, deviceType, uiState.readyToBroadcast) {
+        encodePendingPsbtForDevice(psbtBase64, deviceType, uiState.readyToBroadcast)
     }
 
     // Manual frame advance state for BBQr

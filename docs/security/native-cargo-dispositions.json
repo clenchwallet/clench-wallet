@@ -3,13 +3,13 @@
   "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0-clench.1",
   "owner_artifact_sha256": "f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2",
   "source_lock_sha256": "f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2",
-  "application_sha256": "731542dcde7d6fad53a78373bb5d7ecb11020c5394f9215e29c11ea444d7a51c",
+  "application_sha256": "61c9937060521a18dbd5dc48fe5a53a4f390d85cede31e33ae2edb88bee7dfc1",
   "reviewed_on": "2026-09-19",
   "expires_on": "2026-10-16",
   "evidence": [
     {
       "path": "docs/security/native-cargo-dispositions.md",
-      "sha256": "977fa36199238fbda7bd58e94b8e24914f26c93b3aebc7d59d9df11668ae3658"
+      "sha256": "a11e7c95babe2cc03453cde538af032e386d2d969b136fc57ad7ed3e3c6b61e1"
     },
     {
       "path": "docs/security/native-cargo-review.md",
