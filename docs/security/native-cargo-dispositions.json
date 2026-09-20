@@ -3,13 +3,13 @@
   "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0-clench.1",
   "owner_artifact_sha256": "f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2",
   "source_lock_sha256": "f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2",
-  "application_sha256": "2a843ae2b99cee169e6980ac7b3b002514fb81f2f8d79bb0a27539a1e2a82825",
-  "reviewed_on": "2026-09-19",
+  "application_sha256": "1c7412302f8da11e8ebd098d7a81c57d5de8ba30167b37345bf2b73218d54dcf",
+  "reviewed_on": "2026-09-20",
   "expires_on": "2026-10-16",
   "evidence": [
     {
       "path": "docs/security/native-cargo-dispositions.md",
-      "sha256": "b93bdd7266594ab303dc08f13ac0f8a200f50aae05758abc0b6f6e459c1e275a"
+      "sha256": "74c0b9a5f599548ef7c4f4a7619d625eca1a35cf3628bfa6325bc553692933ac"
     },
     {
       "path": "docs/security/native-cargo-review.md",
@@ -53,42 +53,42 @@
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "RUSTSEC-2026-0098",
       "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-19: the affected legacy Rustls/WebPKI verifier remains confined to the Esplora client, which reviewed production source never constructs. Native source/features/dependency identities are unchanged. Active Electrum connections use a controlled loopback relay with Java TLS for TLS-required modes; the patched modern native Rustls/WebPKI capability remains bundled. Checksum-verified minreq exposes no CRL configuration in its TLS module. Legacy code is not claimed removed; see exact source and full-advisory review.",
+      "reason": "Re-reviewed 2026-09-20: explicit Electrum TLS/pins now survive SOCKS/onion routing and peer leaf/validity are checked before RPC. Platform TLS remains active. No Esplora construction, CRL route, native source/features or dependency identity changes. The six full live advisory records retain their reviewed hashes. Legacy code remains bundled and the original expiry is unchanged; see source-bound evidence.",
       "advisory_sha256": "284db215d88b037e0d130bb510b36c047383e8dc26b121fa75b01aff0d4570d3"
     },
     {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "GHSA-965h-392x-2mh5",
       "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-19: the affected legacy Rustls/WebPKI verifier remains confined to the Esplora client, which reviewed production source never constructs. Native source/features/dependency identities are unchanged. Active Electrum connections use a controlled loopback relay with Java TLS for TLS-required modes; the patched modern native Rustls/WebPKI capability remains bundled. Checksum-verified minreq exposes no CRL configuration in its TLS module. Legacy code is not claimed removed; see exact source and full-advisory review.",
+      "reason": "Re-reviewed 2026-09-20: explicit Electrum TLS/pins now survive SOCKS/onion routing and peer leaf/validity are checked before RPC. Platform TLS remains active. No Esplora construction, CRL route, native source/features or dependency identity changes. The six full live advisory records retain their reviewed hashes. Legacy code remains bundled and the original expiry is unchanged; see source-bound evidence.",
       "advisory_sha256": "0077f82e7ccde86e6f0f3c7659081c6f5287ce70062f68bb86080e9629131f9f"
     },
     {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "RUSTSEC-2026-0099",
       "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-19: the affected legacy Rustls/WebPKI verifier remains confined to the Esplora client, which reviewed production source never constructs. Native source/features/dependency identities are unchanged. Active Electrum connections use a controlled loopback relay with Java TLS for TLS-required modes; the patched modern native Rustls/WebPKI capability remains bundled. Checksum-verified minreq exposes no CRL configuration in its TLS module. Legacy code is not claimed removed; see exact source and full-advisory review.",
+      "reason": "Re-reviewed 2026-09-20: explicit Electrum TLS/pins now survive SOCKS/onion routing and peer leaf/validity are checked before RPC. Platform TLS remains active. No Esplora construction, CRL route, native source/features or dependency identity changes. The six full live advisory records retain their reviewed hashes. Legacy code remains bundled and the original expiry is unchanged; see source-bound evidence.",
       "advisory_sha256": "d012c9ae6486f484e459e41f5c8ab273d09bfc206fba9cef10b290aeea517929"
     },
     {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "GHSA-xgp8-3hg3-c2mh",
       "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-19: the affected legacy Rustls/WebPKI verifier remains confined to the Esplora client, which reviewed production source never constructs. Native source/features/dependency identities are unchanged. Active Electrum connections use a controlled loopback relay with Java TLS for TLS-required modes; the patched modern native Rustls/WebPKI capability remains bundled. Checksum-verified minreq exposes no CRL configuration in its TLS module. Legacy code is not claimed removed; see exact source and full-advisory review.",
+      "reason": "Re-reviewed 2026-09-20: explicit Electrum TLS/pins now survive SOCKS/onion routing and peer leaf/validity are checked before RPC. Platform TLS remains active. No Esplora construction, CRL route, native source/features or dependency identity changes. The six full live advisory records retain their reviewed hashes. Legacy code remains bundled and the original expiry is unchanged; see source-bound evidence.",
       "advisory_sha256": "5cff7d64cac82fcbac4b1fdf266703ea98e772a1c16bafa7c9be3f3fd063ae4c"
     },
     {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "RUSTSEC-2026-0104",
       "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-19: the affected legacy Rustls/WebPKI verifier remains confined to the Esplora client, which reviewed production source never constructs. Native source/features/dependency identities are unchanged. Active Electrum connections use a controlled loopback relay with Java TLS for TLS-required modes; the patched modern native Rustls/WebPKI capability remains bundled. Checksum-verified minreq exposes no CRL configuration in its TLS module. Legacy code is not claimed removed; see exact source and full-advisory review.",
+      "reason": "Re-reviewed 2026-09-20: explicit Electrum TLS/pins now survive SOCKS/onion routing and peer leaf/validity are checked before RPC. Platform TLS remains active. No Esplora construction, CRL route, native source/features or dependency identity changes. The six full live advisory records retain their reviewed hashes. Legacy code remains bundled and the original expiry is unchanged; see source-bound evidence.",
       "advisory_sha256": "5cf866fd63f4c62cd339170f0c64cb64593ea8c9699e1557f33920bcc90e41f5"
     },
     {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "GHSA-82j2-j2ch-gfr8",
       "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-19: the affected legacy Rustls/WebPKI verifier remains confined to the Esplora client, which reviewed production source never constructs. Native source/features/dependency identities are unchanged. Active Electrum connections use a controlled loopback relay with Java TLS for TLS-required modes; the patched modern native Rustls/WebPKI capability remains bundled. Checksum-verified minreq exposes no CRL configuration in its TLS module. Legacy code is not claimed removed; see exact source and full-advisory review.",
+      "reason": "Re-reviewed 2026-09-20: explicit Electrum TLS/pins now survive SOCKS/onion routing and peer leaf/validity are checked before RPC. Platform TLS remains active. No Esplora construction, CRL route, native source/features or dependency identity changes. The six full live advisory records retain their reviewed hashes. Legacy code remains bundled and the original expiry is unchanged; see source-bound evidence.",
       "advisory_sha256": "618f5df0622d59166bab25d1cee15147b98dc0bd90348935fb130f77dc3b07d5"
     }
   ]

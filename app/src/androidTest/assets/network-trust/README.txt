@@ -1,0 +1,1 @@
+PUBLIC SYNTHETIC TLS FIXTURES. Keys are disposable test-only material, not credentials. Never package these assets in production. Valid 2020-2040; expired fixtures end 2021. Root signs valid/expired/wrong-host/other. unknown and expired-self are self-signed. Generated using generate-tls-fixtures.py in durable audit workspace.

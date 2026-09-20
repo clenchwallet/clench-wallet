@@ -221,3 +221,17 @@ dispositions remain applicable, with the original October16 expiry and refreshed
 application/evidence hashes. New lifecycle regressions, native raw-return
 contract assertions, independent delta review and physical retry are separate
 gates; the prior f46dd95 review is not an approval of this delta.
+
+## Network audit source re-review — 2026-09-20
+
+The Electrum policy correction preserves explicit TLS and certificate pins when
+routing through SOCKS/onion, and checks exact peer-leaf DER and validity after
+the platform handshake, before application RPC writes. It retains the platform
+trust manager and HTTPS endpoint identification. This adds no Esplora client,
+CRL configuration, native dependency or direct native TLS call. The six complete
+OSV records were fetched again and their canonical hashes remain identical.
+Their original 2026-10-16 expiry is retained. The legacy 0.101.7 branch is still
+bundled: current advisory fixed ranges begin at 0.103.12/0.103.13, so a compatible
+0.101-only resolution is not established. Removing Esplora from BDK would alter
+exported UniFFI capabilities and needs its own wrapper/ABI review. These are
+retained call-path dispositions, not removal or patched-version claims.

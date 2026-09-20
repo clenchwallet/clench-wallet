@@ -10,6 +10,24 @@ import org.junit.Test
 
 class ElectrumConnectionFactoryTest {
 
+    @Test
+    fun `configured certificate cannot be dropped by global Tor or plaintext preference`() {
+        val config = ElectrumConfig(serverUrl = "electrum.example.com", port = 50002,
+            useSsl = false, pinnedCert = "AQID")
+        val resolved = factory(globalTorEnabled = true).resolveConnection(config)
+        assertEquals(ConnectionMode.TOR_TLS, resolved.mode)
+        assertTrue(resolved.pinnedCertDer!!.contentEquals(byteArrayOf(1, 2, 3)))
+    }
+
+    @Test
+    fun `onion configured TLS and certificate survive mandatory Tor routing`() {
+        val resolved = factory().resolveConnection(ElectrumConfig(
+            serverUrl = "exampleabcdefghijklmnop.onion", port = 50002,
+            useSsl = true, pinnedCert = "AQID"))
+        assertEquals(ConnectionMode.TOR_TLS, resolved.mode)
+        assertTrue(resolved.pinnedCertDer!!.contentEquals(byteArrayOf(1, 2, 3)))
+    }
+
     private fun factory(globalTorEnabled: Boolean = false): ElectrumConnectionFactory {
         val settingsManager = mockk<SettingsManager>()
         every { settingsManager.isTorEnabled() } returns globalTorEnabled
