@@ -1,0 +1,33 @@
+name: Network trust audit
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  network-trust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          java-version: '21'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - name: Install pinned native toolchain
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358"'
+      - name: Prepare unchanged strict native dependency
+        run: python3 -B scripts/native/prepare-bdk.py
+      - name: Targeted route policy regressions
+        run: ./gradlew --no-daemon --dependency-verification=strict :app:testDebugUnitTest --tests net.clench.wallet.data.network.ElectrumConnectionFactoryTest
+      - name: Retain actual results and pinned local Maven for Mac tests
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: network-trust-audit
+          path: |
+            app/build/test-results/testDebugUnitTest
+            build/native-bdk/maven
+            build/native-bdk/provenance.json
+          if-no-files-found: error
+          retention-days: 14
