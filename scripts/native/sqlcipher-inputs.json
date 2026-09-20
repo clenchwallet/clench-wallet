@@ -1,0 +1,24 @@
+{
+  "android": {
+    "url": "https://codeload.github.com/sqlcipher/sqlcipher-android/tar.gz/ae57a61052d8c41ce35cd48319b2f6f20f4de6bf",
+    "commit": "ae57a61052d8c41ce35cd48319b2f6f20f4de6bf",
+    "sha256": "74c623ba6ad33a423c0d2e06b56a346398eee93d8caf4a51b6e9f9c01efd76ab"
+  },
+  "core": {
+    "url": "https://codeload.github.com/sqlcipher/sqlcipher/tar.gz/c4b275a47932888216bade83aff2bbc73df0ff85",
+    "commit": "c4b275a47932888216bade83aff2bbc73df0ff85",
+    "sha256": "e56d1f43cb18ec90d68b4b52d54c00b8b1c11605a27fbbba4249a1d6fc042a6f"
+  },
+  "libtomcrypt": {
+    "url": "https://codeload.github.com/sqlcipher/libtomcrypt/tar.gz/476a9579ae94f32b9ea9e2747bfb04b302370259",
+    "commit": "476a9579ae94f32b9ea9e2747bfb04b302370259",
+    "sha256": "d4c18f3ad1acb4c13ebde0f0956e792465f0c9cbd5d4862a327e5f0926f523fb"
+  },
+  "generated": {
+    "sqlite3.c": "8640c653acadf665cce6331646f60b5b74a4690746f2c4a2d8f688a0570a0c0c",
+    "sqlite3.h": "8a9d1bff44d75174ca6dea3ea9bac50a6104d86facb566647b8bb839375b7b3a"
+  },
+  "ndk_version": "28.2.13676358",
+  "android_api": 23,
+  "scope": "Experimental4.19core/4.17JNI; no application dependency replacement or compatibility claim"
+}
