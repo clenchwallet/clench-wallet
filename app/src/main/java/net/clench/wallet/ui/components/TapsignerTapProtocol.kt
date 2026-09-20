@@ -1213,10 +1213,11 @@ data class SatscardSlotState(
 internal fun satscardDisplaySlot(protocolSlot: Long): Long = protocolSlot + 1
 
 object CoinkiteTapCardNfcReader {
-    fun readStatus(tag: Tag): CoinkiteTapCardStatus {
+    fun readStatus(tag: Tag, onConnected: (IsoDep) -> Unit = {}): CoinkiteTapCardStatus {
         val isoDep = IsoDep.get(tag) ?: error("Coinkite Tap Protocol cards require ISO-DEP NFC, not NDEF")
-        isoDep.connect()
         try {
+            isoDep.connect()
+            onConnected(isoDep)
             isoDep.timeout = 5000
             val selectResponse = isoDep.transceive(TapsignerTapProtocol.selectAppletCommand())
             if (!TapsignerTapProtocol.isSuccessResponse(selectResponse)) {
@@ -1548,8 +1549,8 @@ object SatscardNfcReader {
 object TapsignerNfcReader {
     private const val HARDENED_FLAG = 0x80000000L
 
-    fun readStatus(tag: Tag): CoinkiteTapCardStatus {
-        val status = CoinkiteTapCardNfcReader.readStatus(tag)
+    fun readStatus(tag: Tag, onConnected: (IsoDep) -> Unit = {}): CoinkiteTapCardStatus {
+        val status = CoinkiteTapCardNfcReader.readStatus(tag, onConnected)
         if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
         return status
     }
@@ -1755,14 +1756,19 @@ object TapsignerNfcReader {
         cvc: CharArray,
         isTestnet: Boolean,
         setPathIfNeeded: Boolean,
-        initializeIfNeeded: Boolean
+        initializeIfNeeded: Boolean,
+        onConnected: (IsoDep) -> Unit = {},
+        checkCancelled: () -> Unit = {}
     ): TapsignerAccountXpubResult {
         val targetPath = multisigAccountPath(isTestnet)
         val targetPathDisplay = formatDerivationPath(targetPath)
         val isoDep = IsoDep.get(tag) ?: error("TAPSIGNER requires ISO-DEP NFC, not NDEF")
-        isoDep.connect()
         var expectedMasterChainCode: ByteArray? = null
         try {
+            checkCancelled()
+            isoDep.connect()
+            onConnected(isoDep)
+            checkCancelled()
             isoDep.timeout = 10000
             var status = selectOrReadStatus(isoDep)
             if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
@@ -1810,6 +1816,7 @@ object TapsignerNfcReader {
                     error("This TAPSIGNER is currently set to $currentPath. Multisig import needs $targetPathDisplay. Use Set up as multisig cosigner if you want Clench to set that path.")
                 }
             }
+            checkCancelled()
             val deriveNonce = randomNonce()
             val previousCardNonce = latestCardNonce
             val derive = TapsignerTapProtocol.parseTapsignerDeriveResponse(
@@ -1823,6 +1830,7 @@ object TapsignerNfcReader {
                     )
                 )
             )
+            checkCancelled()
             latestCardNonce = proveCurrentDerivedKey(
                 isoDep = isoDep,
                 cardPubkey = cardPubkey,
@@ -1832,6 +1840,7 @@ object TapsignerNfcReader {
                 deriveProof = derive
             )
 
+            checkCancelled()
             return readVerifiedAccountXpub(
                 isoDep = isoDep,
                 cardPubkey = cardPubkey,
@@ -1847,9 +1856,10 @@ object TapsignerNfcReader {
                 expectedIsTestnet = isTestnet
             )
         } finally {
-            isoDep.close()
-            expectedMasterChainCode?.fill(0)
-            cvc.fill('0')
+            try { isoDep.close() } finally {
+                expectedMasterChainCode?.fill(0)
+                cvc.fill('0')
+            }
         }
     }
 
