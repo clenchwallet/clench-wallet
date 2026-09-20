@@ -535,8 +535,8 @@ fun HardwareWalletPsbtScreen(
 
     // Pre-compute QR frames: BBQr for Coldcard Q, BC-UR for other QR devices.
     // Coldcard Mk4/Mk5 do not have a camera; use NFC or SD card file transfer.
-    val qrFrames = remember(psbtBase64, deviceType, uiState.readyToBroadcast) {
-        encodePendingPsbtForDevice(psbtBase64, deviceType, uiState.readyToBroadcast)
+    val qrFrames = remember(uiState.exportablePsbtBase64, deviceType) {
+        encodePendingPsbtForDevice(uiState.exportablePsbtBase64, deviceType)
     }
 
     // Manual frame advance state for BBQr

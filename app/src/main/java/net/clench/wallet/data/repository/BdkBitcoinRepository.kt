@@ -2697,9 +2697,12 @@ class BdkBitcoinRepository @Inject constructor(
             try {
                 validateTransactionMatchesUnsignedPsbt(unsignedPsbtBase64, tx, signatureContext)
                 return@withContext PsbtSigningProgress(
-                    psbtBase64 = signedPsbtPayload.trim(),
+                    // Retain the reviewed canonical PSBT for replacement signing/export.
+                    // Finalized transaction bytes are a distinct broadcast-only payload.
+                    psbtBase64 = unsignedPsbtBase64,
                     readyToBroadcast = true,
-                    message = "Clench imported a finalized transaction and verified it matches the original PSBT."
+                    message = "Clench imported a finalized transaction and verified it matches the original PSBT.",
+                    finalizedTransactionPayload = signedPsbtPayload.trim()
                 )
             } finally {
                 closeSecretNativeResources(nativeCloseAction(tx) { it.close() })

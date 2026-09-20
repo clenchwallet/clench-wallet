@@ -4,6 +4,8 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +18,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import java.io.ByteArrayOutputStream
 import java.util.Base64
+import net.clench.wallet.domain.model.HardwareWalletType
+import net.clench.wallet.ui.components.encodePendingPsbtForDevice
 import net.clench.wallet.domain.repository.BitcoinRepository
 import net.clench.wallet.domain.repository.BuiltTransactionReview
 import net.clench.wallet.domain.repository.PsbtSigningProgress
@@ -32,6 +36,118 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HardwareWalletPsbtViewModelTest {
+
+    private fun exportFrames(state: HardwareWalletPsbtViewModel.UiState) =
+        encodePendingPsbtForDevice(state.exportablePsbtBase64, HardwareWalletType.COLDCARD_Q)
+
+    private fun mockAndroidQrPrimitives() {
+        mockkStatic(android.util.Base64::class)
+        every { android.util.Base64.decode(any<String>(), any()) } answers {
+            Base64.getMimeDecoder().decode(firstArg<String>())
+        }
+        mockkStatic(android.util.Log::class)
+        every { android.util.Log.d(any(), any()) } returns 0
+    }
+
+    @Test
+    fun `finalized raw return and mocked broadcast success never export raw data`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        mockAndroidQrPrimitives()
+        try {
+            val original = validEnvelope(1)
+            val raw = "020000000001"
+            val repository = mockk<BitcoinRepository>()
+            val store = mockk<PsbtStore>(relaxed = true)
+            every { store.consume(any(), any(), any(), any()) } returns handoff("wallet", original, "COLDCARD_Q")
+            coEvery { repository.inspectPsbt(any(), any()) } returns review("original")
+            coEvery { repository.mergeSignedPsbt(original, original, raw) } returns
+                PsbtSigningProgress(original, true, "finalized", finalizedTransactionPayload = raw)
+            val broadcast = CompletableDeferred<String>()
+            coEvery { repository.applyAndBroadcastPsbt("wallet", raw, original, any()) } coAnswers {
+                lastArg<() -> Unit>().invoke()
+                broadcast.await()
+            }
+            val vm = HardwareWalletPsbtViewModel(repository, store)
+            vm.initFromStore("wallet", "COLDCARD_Q"); advanceUntilIdle()
+            assertTrue(exportFrames(vm.uiState.value).isEmpty())
+            vm.acknowledgeReview()
+            assertEquals(original, vm.uiState.value.exportablePsbtBase64)
+            assertTrue(exportFrames(vm.uiState.value).isNotEmpty())
+            vm.onSignedPsbtReceived("wallet", raw); advanceUntilIdle()
+            assertEquals(original, vm.uiState.value.psbtBase64)
+            assertEquals(raw, vm.uiState.value.signedPsbtBase64)
+            assertTrue(vm.uiState.value.readyToBroadcast)
+            assertTrue(exportFrames(vm.uiState.value).isEmpty())
+            vm.broadcastSignedPsbt("wallet"); runCurrent()
+            assertTrue(vm.uiState.value.isBroadcasting)
+            assertTrue(exportFrames(vm.uiState.value).isEmpty())
+            broadcast.complete("local-mocked-receipt"); advanceUntilIdle()
+            assertEquals("local-mocked-receipt", vm.uiState.value.txid)
+            assertFalse(vm.uiState.value.readyToBroadcast)
+            assertEquals(original, vm.uiState.value.psbtBase64)
+            assertNull(vm.uiState.value.signedPsbtBase64)
+            assertTrue(exportFrames(vm.uiState.value).isEmpty())
+            assertNull(vm.prepareSigningRestart())
+            coVerify(exactly = 1) { repository.applyAndBroadcastPsbt("wallet", raw, original, any()) }
+        } finally {
+            unmockkStatic(android.util.Base64::class, android.util.Log::class)
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `rejected replacement keeps canonical export and restart requires fresh review`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        mockAndroidQrPrimitives()
+        try {
+            val original = validEnvelope(1)
+            val raw = "020000000001"
+            val repository = mockk<BitcoinRepository>()
+            val store = mockk<PsbtStore>(relaxed = true)
+            every { store.consume(any(), any(), any(), any()) } returns handoff("wallet", original, "COLDCARD_Q")
+            coEvery { repository.inspectPsbt(any(), any()) } returns review("original")
+            coEvery { repository.mergeSignedPsbt(original, original, raw) } returns
+                PsbtSigningProgress(original, true, "finalized", finalizedTransactionPayload = raw)
+            val replacement = CompletableDeferred<PsbtSigningProgress>()
+            coEvery { repository.mergeSignedPsbt(original, original, "bad-return") } coAnswers { replacement.await() }
+            val vm = HardwareWalletPsbtViewModel(repository, store)
+            vm.initFromStore("wallet", "COLDCARD_Q"); advanceUntilIdle(); vm.acknowledgeReview()
+            vm.onSignedPsbtReceived("wallet", raw); advanceUntilIdle()
+            val staleRestart = checkNotNull(vm.prepareSigningRestart())
+            vm.onSignedPsbtReceived("wallet", "bad-return"); runCurrent()
+            assertTrue(vm.uiState.value.isProcessingSignedPsbt)
+            assertEquals(original, vm.uiState.value.psbtBase64)
+            assertNull(vm.uiState.value.signedPsbtBase64)
+            assertTrue(exportFrames(vm.uiState.value).isEmpty())
+            assertNull(vm.prepareSigningRestart())
+            replacement.completeExceptionally(SecurityException("replacement rejected")); advanceUntilIdle()
+            assertTrue(vm.uiState.value.error.orEmpty().contains("replacement rejected"))
+            assertFalse(vm.uiState.value.readyToBroadcast)
+            assertEquals(original, vm.uiState.value.exportablePsbtBase64)
+            assertTrue(exportFrames(vm.uiState.value).isNotEmpty())
+            assertFalse(vm.restartSigningFromOriginal(staleRestart))
+            assertTrue(vm.restartSigningFromOriginal(checkNotNull(vm.prepareSigningRestart())))
+            assertEquals(original, vm.uiState.value.psbtBase64)
+            assertFalse(vm.uiState.value.reviewAcknowledged)
+            assertNull(vm.uiState.value.signedPsbtBase64)
+            assertEquals(0, vm.uiState.value.collectedSignerReturns)
+            assertTrue(exportFrames(vm.uiState.value).isEmpty())
+            advanceUntilIdle()
+            vm.onSignedPsbtReceived("wallet", raw); advanceUntilIdle()
+            coVerify(exactly = 1) { repository.mergeSignedPsbt(original, original, raw) }
+            vm.acknowledgeReview()
+            assertTrue(exportFrames(vm.uiState.value).isNotEmpty())
+            vm.onSignedPsbtReceived("wallet", raw); advanceUntilIdle()
+            assertTrue(vm.uiState.value.readyToBroadcast)
+            assertEquals(raw, vm.uiState.value.signedPsbtBase64)
+            assertTrue(exportFrames(vm.uiState.value).isEmpty())
+            coVerify(exactly = 2) { repository.mergeSignedPsbt(original, original, raw) }
+            coVerify(exactly = 0) { repository.applyAndBroadcastPsbt(any(), any(), any(), any()) }
+        } finally {
+            unmockkStatic(android.util.Base64::class, android.util.Log::class)
+            Dispatchers.resetMain()
+        }
+    }
 
     @Test
     fun `restart drops returns and requires review of the exact original before merging again`() = runTest {

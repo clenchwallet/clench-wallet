@@ -65,14 +65,11 @@ internal fun psbtBytesToUrFrames(
 }
 
 internal fun encodePendingPsbtForDevice(
-    payload: String,
-    deviceType: HardwareWalletType,
-    readyToBroadcast: Boolean
+    exportablePsbtBase64: String?,
+    deviceType: HardwareWalletType
 ): List<String> {
-    // Completed signer returns may be finalized raw transactions rather than PSBTs.
-    // The completed review has no outbound QR; never feed its payload to a PSBT encoder.
-    if (readyToBroadcast || payload.isEmpty() || !deviceType.supportsQr) return emptyList()
-    return encodePsbtForDevice(payload, deviceType)
+    if (exportablePsbtBase64 == null || !deviceType.supportsQr) return emptyList()
+    return encodePsbtForDevice(exportablePsbtBase64, deviceType)
 }
 
 /**

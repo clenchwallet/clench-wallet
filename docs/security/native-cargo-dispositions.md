@@ -199,3 +199,25 @@ legacy verifier or CRL parser. Retain the six exact call-path dispositions and
 the original October16 expiry, with a new application/evidence binding. This
 is not a native clearance; regression, physical retest and independent review
 of this display correction remain required.
+
+## Coldcard lifecycle correction delta re-review — 2026-09-19
+
+Independent review found that the initial display guard at f46dd95 was incomplete:
+readiness clears after broadcast and replacement attempts. The delta separates
+validated finalized transaction data from canonical PSBT data in repository
+progress. Raw returns retain the reviewed original PSBT for export/replacement;
+only the distinct signed payload reaches the existing explicit broadcast method.
+The ViewModel exposes a pending export payload, preserves canonical recovery and
+requires a fresh review after restart. Restart snapshots also bind the signed
+payload and return count. The signature/transaction equality, freeze, session
+and network authorization boundaries are unchanged.
+
+This data-flow correction adds no native entry point, TLS/CRL input, Esplora or
+reflection path, dependency, feature or native recipe change. Fresh production
+searches retain the earlier no-Esplora/reflection/direct-JNA findings. All six
+full live OSV documents were fetched again; their canonical hashes and affected
+ranges match the previously reviewed records. The same exact six call-path
+dispositions remain applicable, with the original October16 expiry and refreshed
+application/evidence hashes. New lifecycle regressions, native raw-return
+contract assertions, independent delta review and physical retry are separate
+gates; the prior f46dd95 review is not an approval of this delta.

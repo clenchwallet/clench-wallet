@@ -85,6 +85,18 @@ class ExternalPartialSignatureRecoveryTest {
         val recovered = repository.mergeSignedPsbt(original, original, trimmed)
         assertTrue("Trimmed physical-signer format must finalize", recovered.readyToBroadcast)
         assertEquals(fixture.psbt(emptyList()), original)
+        assertNull(recovered.finalizedTransactionPayload)
+
+        // Coldcard may return the finalized transaction instead of a PSBT. Keep
+        // that payload separate from the canonical PSBT used for further exports.
+        val raw = org.bitcoindevkit.Psbt(recovered.psbtBase64).use { psbt ->
+            psbt.extractTx().use { tx -> tx.serialize().joinToString("") { "%02x".format(it) } }
+        }
+        val rawReturn = repository.mergeSignedPsbt(original, recovered.psbtBase64, raw)
+        assertTrue(rawReturn.readyToBroadcast)
+        assertEquals(original, rawReturn.psbtBase64)
+        assertEquals(raw, rawReturn.finalizedTransactionPayload)
+        net.clench.wallet.security.PsbtSafety.inspectBase64(rawReturn.psbtBase64)
 
         // Both the returned and retained transaction must still match the review.
         for ((current, returned) in listOf(

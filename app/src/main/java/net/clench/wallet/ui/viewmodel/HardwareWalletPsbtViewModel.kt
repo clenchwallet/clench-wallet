@@ -39,7 +39,14 @@ class HardwareWalletPsbtViewModel @Inject constructor(
         val reviewAcknowledged: Boolean = false,
         val requiresHighFeeConfirmation: Boolean = false,
         val highFeeAcknowledged: Boolean = false
-    )
+    ) {
+        // This field contains only canonical PSBT data, never a finalized transaction.
+        val exportablePsbtBase64: String?
+            get() = psbtBase64.takeIf {
+                it.isNotBlank() && reviewAcknowledged && !isReviewLoading &&
+                    !isProcessingSignedPsbt && !isBroadcasting && !readyToBroadcast && txid == null
+            }
+    }
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
@@ -197,15 +204,17 @@ class HardwareWalletPsbtViewModel @Inject constructor(
 
     class SigningRestartToken internal constructor(
         internal val sessionIdentity: Any,
-        internal val currentPsbtBase64: String
+        internal val currentPsbtBase64: String,
+        internal val signedPayload: String?,
+        internal val collectedSignerReturns: Int
     )
 
     fun prepareSigningRestart(): SigningRestartToken? = synchronized(sessionLock) {
         val session = activeSession ?: return@synchronized null
         val current = _uiState.value
         if (signingOperationActive.get() || current.txid != null ||
-            current.psbtBase64 == session.unsignedPsbtBase64) return@synchronized null
-        SigningRestartToken(session, current.psbtBase64)
+            !current.canRestartSigning) return@synchronized null
+        SigningRestartToken(session, current.psbtBase64, current.signedPsbtBase64, current.collectedSignerReturns)
     }
 
     /** Discard only the confirmed snapshot, never conflicting fields or a replacement session. */
@@ -213,7 +222,9 @@ class HardwareWalletPsbtViewModel @Inject constructor(
         val replacement = synchronized(sessionLock) {
             val session = activeSession ?: return false
             val current = _uiState.value
-            if (session !== token.sessionIdentity || current.psbtBase64 != token.currentPsbtBase64) {
+            if (session !== token.sessionIdentity || current.psbtBase64 != token.currentPsbtBase64 ||
+                current.signedPsbtBase64 != token.signedPayload ||
+                current.collectedSignerReturns != token.collectedSignerReturns) {
                 _uiState.update { it.copy(error = "The signing session changed; review the restart request again") }
                 return false
             }
@@ -221,7 +232,7 @@ class HardwareWalletPsbtViewModel @Inject constructor(
                 _uiState.update { it.copy(error = "Wait for the current signer operation before restarting") }
                 return false
             }
-            if (current.psbtBase64 == session.unsignedPsbtBase64) return false
+            if (!current.canRestartSigning) return false
             val generation = sessionGeneration.updateAndGet {
                 check(it < Long.MAX_VALUE) { "Signing session generation is exhausted" }
                 it + 1L
@@ -443,11 +454,14 @@ class HardwareWalletPsbtViewModel @Inject constructor(
                     it.copy(
                         isProcessingSignedPsbt = false,
                         psbtBase64 = progress.psbtBase64,
-                        signedPsbtBase64 = if (progress.readyToBroadcast) progress.psbtBase64 else null,
+                        signedPsbtBase64 = if (progress.readyToBroadcast) {
+                            progress.finalizedTransactionPayload ?: progress.psbtBase64
+                        } else null,
                         readyToBroadcast = progress.readyToBroadcast,
                         hasCollectedSignature = true,
                         collectedSignerReturns = it.collectedSignerReturns + 1,
-                        canRestartSigning = progress.psbtBase64 != session.unsignedPsbtBase64,
+                        canRestartSigning = progress.finalizedTransactionPayload != null ||
+                            progress.psbtBase64 != session.unsignedPsbtBase64,
                         signingMessage = progress.message,
                         error = null
                     )

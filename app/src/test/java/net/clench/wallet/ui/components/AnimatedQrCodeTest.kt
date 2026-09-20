@@ -10,14 +10,14 @@ import org.junit.Test
 class AnimatedQrCodeTest {
 
     @Test
-    fun `finalized transaction return does not enter outbound PSBT encoder`() {
-        // Raw transactions are accepted only after repository policy validation.
-        val finalizedPayload = "020000000001"
+    fun `absent export payload emits no QR and invalid pending export stays strict`() {
         for (device in listOf(HardwareWalletType.COLDCARD_Q, HardwareWalletType.SEEDSIGNER)) {
-            assertTrue(encodePendingPsbtForDevice(finalizedPayload, device, true).isEmpty())
-            // Returning to pending state must restore strict PSBT validation.
+            assertTrue(encodePendingPsbtForDevice(null, device).isEmpty())
             assertThrows(IllegalArgumentException::class.java) {
-                encodePendingPsbtForDevice(finalizedPayload, device, false)
+                encodePendingPsbtForDevice("020000000001", device)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                encodePendingPsbtForDevice("", device)
             }
         }
     }
