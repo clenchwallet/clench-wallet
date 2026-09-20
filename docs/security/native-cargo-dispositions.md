@@ -221,3 +221,9 @@ dispositions remain applicable, with the original October16 expiry and refreshed
 application/evidence hashes. New lifecycle regressions, native raw-return
 contract assertions, independent delta review and physical retry are separate
 gates; the prior f46dd95 review is not an approval of this delta.
+
+## Multisig NFC import cancellation delta review — 2026-09-20
+
+The production delta adds explicit ownership of the pending credential and active ISO-DEP connection for the multisig import screen. Cancellation and backgrounding close the connection, invalidate old callbacks, and require a fresh PIN entry. Card factory, network, path, derive, child-proof and xpub checks remain in place. No automatic retry or new native/TLS/CRL/Esplora/reflection entry point is added.
+
+The six legacy WebPKI applicability dispositions remain tied to the same BDK artifact, Cargo lock and input paths. Their original 2026-10-16 expiry is retained. The live gate re-fetches each complete advisory and rejects changed content; a matching gate is not a native clearance or independent approval of this change. Source and evidence hashes are refreshed for this bounded delta.
