@@ -147,4 +147,49 @@ class NetworkTrustAuditTest {
             }
         } finally { HttpsURLConnection.setDefaultSSLSocketFactory(previous) }
     }
+
+    @Test fun unavailableSocksCannotFallBackToDirectElectrum() = settings { settings ->
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { target ->
+            val proxyPort = ServerSocket(0).use { it.localPort }
+            settings.setTorEnabled(true)
+            settings.setTorProxyHost("127.0.0.1")
+            settings.setTorProxyPort(proxyPort)
+            val failure = runCatching {
+                ElectrumConnectionFactory(settings).createRawSocket(
+                    ElectrumConfig(serverUrl="127.0.0.1", port=target.localPort, useSsl=false))
+            }.exceptionOrNull()
+            assertTrue(failure is ElectrumConnectionException.TorProxyUnavailable)
+            target.soTimeout=300
+            assertTrue(runCatching { target.accept().close() }.exceptionOrNull() is SocketTimeoutException)
+        }
+    }
+
+    @Test fun offlineInterruptsTlsHandshakeAndFreshConnectionRecovers() = settings { settings ->
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { stalled ->
+            val executor=java.util.concurrent.Executors.newSingleThreadExecutor()
+            val factory=ElectrumConnectionFactory(settings)
+            try {
+                val pending=executor.submit<Boolean> {
+                    runCatching { factory.createRawSocket(ElectrumConfig(
+                        serverUrl="127.0.0.1",port=stalled.localPort,useSsl=true)).close() }.isFailure
+                }
+                stalled.soTimeout=5000
+                stalled.accept().use { peer ->
+                    peer.soTimeout=5000
+                    assertTrue("TLS ClientHello reached the fixture",peer.getInputStream().read()>=0)
+                    settings.setOfflineMode(true)
+                    assertTrue(pending.get(3,TimeUnit.SECONDS))
+                }
+                settings.setOfflineMode(false)
+                Endpoint("valid").use { endpoint ->
+                    factory.createRawSocket(ElectrumConfig(serverUrl="127.0.0.1",port=endpoint.server.localPort,
+                        useSsl=true,pinnedCert=Base64.getEncoder().encodeToString(bytes("valid.der")))).use { socket ->
+                        socket.soTimeout=5000
+                        socket.getOutputStream().write("fresh\n".toByteArray());socket.getOutputStream().flush()
+                        assertEquals("OK",socket.getInputStream().bufferedReader().readLine())
+                    }
+                }
+            } finally { executor.shutdownNow() }
+        }
+    }
 }
