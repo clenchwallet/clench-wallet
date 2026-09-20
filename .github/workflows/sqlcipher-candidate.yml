@@ -23,6 +23,12 @@ jobs:
           sudo apt-get install -y tcl-dev
       - name: Build all shipped ABIs from pinned sources
         run: python3 scripts/native/build-sqlcipher-candidate.py --output build/sqlcipher-candidate
+      - name: Package unchanged Android bindings with rebuilt JNI
+        run: |
+          mkdir -p build/native-sqlcipher
+          cp -R build/sqlcipher-candidate/libs build/native-sqlcipher/jni
+          cp build/sqlcipher-candidate/provenance.json build/native-sqlcipher/provenance.json
+          python3 scripts/native/prepare-sqlcipher.py --package-only
       - name: Retain experimental output and failures
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -34,5 +40,7 @@ jobs:
             build/sqlcipher-candidate/*.log
             build/sqlcipher-candidate/*-readelf.txt
             build/sqlcipher-candidate/*-exports.json
+            build/native-sqlcipher/maven
+            build/native-sqlcipher/packaging-manifest.json
           if-no-files-found: error
           retention-days: 14
