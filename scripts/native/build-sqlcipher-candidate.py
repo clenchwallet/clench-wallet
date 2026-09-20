@@ -58,8 +58,9 @@ def main():
             loads=[x for x in metadata.splitlines() if x.strip().startswith('LOAD ')];assert loads and all(int(x.split()[-1],16)>=16384 for x in loads)
             assert 'GNU_RELRO' in metadata and 'BIND_NOW' in metadata and 'TEXTREL' not in metadata
             abi[arch]={'sha256':sha(lib),'removed_exports':sorted(prev-new),'added_exports':sorted(new-prev),'exports_sha256':hashlib.sha256(('\n'.join(sorted(new))+'\n').encode()).hexdigest()}
-            if prev-new:raise ValueError('Removed JNI/native exports: '+arch)
+            (out/(arch+'-exports.json')).write_text(json.dumps({'vendor':sorted(prev),'candidate':sorted(new),'removed':sorted(prev-new),'added':sorted(new-prev)},indent=2))
     report={'inputs':INPUTS,'abi':abi,'compiler_sha256':sha(llvm/'clang'),'compiler':run([llvm/'clang','--version']),'command':command,'host':platform.platform(),'generator_tools':{'make':run(['make','--version']).splitlines()[0],'cc':run(['cc','--version']).splitlines()[0]},'scope':'Experimental4.19core with4.17JNI wrapper; not integrated, reviewed or runtime accepted. No reproduction claim for vendor binary.'}
     (out/'provenance.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(abi,indent=2))
+    if any(a['removed_exports'] for a in abi.values()): raise ValueError('Native export removals require review; candidate NOT ACCEPTED')
 if __name__=='__main__':main()
