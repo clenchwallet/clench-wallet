@@ -15,6 +15,8 @@ internal class NfcImportSession {
 
     fun isCurrent(attempt: Attempt): Boolean = active.get() === attempt && !attempt.cancelled
 
+    fun hasActiveAttempt(): Boolean = active.get()?.let { !it.cancelled } == true
+
     fun cancel() { active.getAndSet(null)?.cancel() }
 
     class Attempt internal constructor(private val pendingPin: CharArray) {

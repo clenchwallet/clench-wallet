@@ -3,7 +3,7 @@
   "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0-clench.1",
   "owner_artifact_sha256": "f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2",
   "source_lock_sha256": "f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2",
-  "application_sha256": "6e71e325775f876870f663d498628c4fddb5a531dab5baac3ec81b04973a5ccc",
+  "application_sha256": "f6d559a32d3fa12ddc3b7544387499d27937cdf1328c539ec6c7bd3c51ef7a53",
   "reviewed_on": "2026-09-20",
   "expires_on": "2026-10-16",
   "evidence": [
@@ -13,7 +13,7 @@
     },
     {
       "path": "docs/security/native-cargo-review.md",
-      "sha256": "3d4792d56ff5afbf13f96f49b62e99069ef25207433ebcab32323a56eafc3966"
+      "sha256": "cd8c711b4f37fe290861838c0d03ee0d1e41419b2b06f0a2c27d1c86ef689b74"
     },
     {
       "path": "docs/security/native-dependencies.json",

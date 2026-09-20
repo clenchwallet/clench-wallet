@@ -80,7 +80,7 @@ fun CreateMultisigScreen(
     val tapsignerPinInputs = remember { mutableStateMapOf<Int, String>() }
     val tapsignerNfcStatuses = remember { mutableStateMapOf<Int, String>() }
     val tapsignerNfcErrors = remember { mutableStateMapOf<Int, String>() }
-    val tapsignerSessions = remember { NfcImportSession() }
+    val tapsignerSessions = viewModel.nfcImportSession
     val pickerHost = LocalPickerRoundTripHost.current
     val pickerResume by pickerHost.pickerResume.collectAsState()
 
@@ -128,6 +128,16 @@ fun CreateMultisigScreen(
         }
     }
 
+    LaunchedEffect(uiState.nfcDraftRevision) {
+        // ViewModel revokes synchronously. Only clean up the old reader here;
+        // an intervening fresh attempt must keep its connection and UI state.
+        if (tapsignerReaderActiveIndex != null && !tapsignerSessions.hasActiveAttempt()) {
+            stopTapsignerNfcReader()
+            tapsignerNfcStatuses.clear()
+            tapsignerNfcErrors.clear()
+        }
+    }
+
     fun processTapsignerMultisigTag(
         tag: Tag,
         hostActivity: Activity,
@@ -168,8 +178,8 @@ fun CreateMultisigScreen(
                     )
                     hostActivity.runOnUiThread {
                         if (!tapsignerSessions.isCurrent(attempt)) return@runOnUiThread
+                        if (!viewModel.completeNfcSignerImport(attempt, signerIndex, result.originWrappedXpub)) return@runOnUiThread
                         stopTapsignerNfcReader(clearPin = true)
-                        viewModel.updateSigner(signerIndex, label = "TAPSIGNER", xpub = result.originWrappedXpub)
                         tapsignerNfcStatuses[signerIndex] = if (action == TapsignerMultisigNfcAction.SETUP_BIP48) {
                             result.summary + " Save an encrypted TAPSIGNER backup before funding; backup is a separate PIN, file save, and NFC tap action."
                         } else {
