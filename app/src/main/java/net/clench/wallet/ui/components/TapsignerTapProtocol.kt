@@ -1562,13 +1562,22 @@ object TapsignerNfcReader {
      * returned PSBT still passes through Clench's normal signature-only merge,
      * finalization, and transaction-policy validation.
      */
-    fun signPsbt(tag: Tag, cvc: CharArray, psbtBase64: String): TapsignerPsbtSignResult {
+    fun signPsbt(
+        tag: Tag,
+        cvc: CharArray,
+        psbtBase64: String,
+        onConnected: (IsoDep) -> Unit = {},
+        checkCancelled: () -> Unit = {}
+    ): TapsignerPsbtSignResult {
         try {
             val isoDep = IsoDep.get(tag) ?: error("TAPSIGNER requires ISO-DEP NFC, not NDEF")
             var plan: TapsignerPsbtSigning.Plan? = null
             val signatures = mutableListOf<TapsignerPsbtSigning.Signature>()
             try {
+                checkCancelled()
                 isoDep.connect()
+                onConnected(isoDep)
+                checkCancelled()
                 isoDep.timeout = 20_000
                 var status = selectOrReadStatus(isoDep)
             if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
@@ -1591,6 +1600,7 @@ object TapsignerNfcReader {
             plan = TapsignerPsbtSigning.prepare(psbtBase64, accountPath)
 
             plan.requests.forEach { request ->
+                checkCancelled()
                 var signed = false
                 for (attempt in 0 until 5) {
                     var command: ByteArray? = null
@@ -1604,6 +1614,7 @@ object TapsignerNfcReader {
                             cardNonce = latestCardNonce,
                             cvc = cvc
                         )
+                        checkCancelled()
                         response = isoDep.transceive(command)
                         proof = TapsignerTapProtocol.parseTapsignerSignProof(response)
                         if (proof.slot != 0L) error("TAPSIGNER signed with an unexpected slot")
@@ -1628,6 +1639,7 @@ object TapsignerNfcReader {
                         break
                     } catch (e: CoinkiteTapCardException) {
                         if (e.code != 205L || attempt == 4) throw e
+                        checkCancelled()
                         val refreshed = TapsignerTapProtocol.parseStatusResponse(
                             isoDep.transceive(TapsignerTapProtocol.statusCommand())
                         )
@@ -1651,6 +1663,7 @@ object TapsignerNfcReader {
                 if (!signed) error("TAPSIGNER could not sign input ${request.inputIndex + 1}")
             }
 
+            checkCancelled()
             val finalStatus = TapsignerTapProtocol.parseStatusResponse(
                 isoDep.transceive(TapsignerTapProtocol.statusCommand())
             )
@@ -1662,6 +1675,7 @@ object TapsignerNfcReader {
                 expectedCardNonce = latestCardNonce
             )
             finalNonce.fill(0)
+            checkCancelled()
             val signedPsbt = TapsignerPsbtSigning.inject(plan, signatures)
             return TapsignerPsbtSignResult(
                 signedPsbtBase64 = signedPsbt,

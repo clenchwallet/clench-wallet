@@ -361,6 +361,7 @@ class HardwareWalletPsbtViewModel @Inject constructor(
             if (reserved?.operationId == token.operationId) {
                 reservedTapsignerOperation = null
                 signingOperationActive.set(false)
+                _uiState.update { it.copy(reviewAcknowledged = false, highFeeAcknowledged = false) }
             }
         }
     }
@@ -373,7 +374,7 @@ class HardwareWalletPsbtViewModel @Inject constructor(
         val operation = synchronized(sessionLock) {
             val reserved = reservedTapsignerOperation
             if (reserved == null || reserved.operationId != token.operationId) {
-                _uiState.update { it.copy(error = "Security: stale TAPSIGNER NFC result was discarded") }
+                // An obsolete callback owns neither this state nor a newer reservation.
                 return false
             }
             if (
