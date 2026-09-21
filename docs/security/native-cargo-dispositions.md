@@ -223,16 +223,8 @@ contract assertions, independent delta review and physical retry are separate
 gates; the prior f46dd95 review is not an approval of this delta.
 
 
-## Network audit source re-review — 2026-09-20
+## Unsigned PSBT asynchronous completion delta review — 2026-09-20
 
-The Electrum policy correction preserves explicit TLS and certificate pins when
-routing through SOCKS/onion, and checks exact peer-leaf DER and validity after
-the platform handshake, before application RPC writes. It retains the platform
-trust manager and HTTPS endpoint identification. This adds no Esplora client,
-CRL configuration, native dependency or direct native TLS call. The six complete
-OSV records were fetched again and their canonical hashes remain identical.
-Their original 2026-10-16 expiry is retained. The legacy 0.101.7 branch is still
-bundled: current advisory fixed ranges begin at 0.103.12/0.103.13, so a compatible
-0.101-only resolution is not established. Removing Esplora from BDK would alter
-exported UniFFI capabilities and needs its own wrapper/ABI review. These are
-retained call-path dispositions, not removal or patched-version claims.
+The production delta reserves one createPsbt operation synchronously and binds completion to its request, draft revision and proposal fingerprint. Edited, ABA-edited, superseded-wallet and duplicate requests cannot navigate with an obsolete PSBT. Repository/native invocation signatures and TLS/CRL/Esplora reachability are unchanged.
+
+The six legacy WebPKI applicability dispositions remain tied to the same BDK artifact, Cargo lock and input paths. Their original 2026-10-16 expiry is retained. The live gate re-fetches each complete advisory and rejects changed content; a matching gate is not a native clearance or independent approval of this change. Source and evidence hashes are refreshed for this bounded delta.

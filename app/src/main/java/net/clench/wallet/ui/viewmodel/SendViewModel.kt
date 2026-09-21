@@ -104,8 +104,11 @@ class SendViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
+    private var draftRevision = 0L
+    private var psbtRequestId = 0L
 
     private inline fun updateDraft(crossinline transform: (UiState) -> UiState) {
+        draftRevision++
         _uiState.update { state ->
             transform(state).copy(
                 txHex = null,
@@ -123,8 +126,11 @@ class SendViewModel @Inject constructor(
         preselectedUtxoVout: Int? = null,
         preselectedOutpoints: List<String> = emptyList()
     ) {
+        draftRevision++
+        psbtRequestId++
         _uiState.update { it.copy(
             walletId = walletId,
+            isLoading = false,
             biometricForSendEnabled = settingsManager.isBiometricForSendEnabled()
         ) }
         viewModelScope.launch {
@@ -754,14 +760,19 @@ class SendViewModel @Inject constructor(
      * Validates inputs the same way as buildTx, but produces a PSBT instead of signing.
      */
     fun createPsbt(onPsbtReady: (psbtBase64: String) -> Unit) {
+        if (_uiState.value.isLoading) return
         if (!validatePsbtInputs()) return
 
         val state = _uiState.value
         val isBatch = state.recipients.size > 1
         val feeRate = state.feeRate.toFloatOrNull() ?: return
+        val revision = draftRevision
+        val fingerprint = proposalFingerprint(state)
+        val request = ++psbtRequestId
+        // Reserve synchronously: two UI callbacks must not queue two operations.
+        _uiState.update { it.copy(isLoading = true, error = null) }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val psbtBase64 = if (isBatch) {
                     val recipients = state.recipients.map { r ->
@@ -788,9 +799,16 @@ class SendViewModel @Inject constructor(
                         selectedOutpoints = state.selectedUtxoOutpoints
                     )
                 }
+                if (request != psbtRequestId) return@launch
+                if (revision != draftRevision || fingerprint != proposalFingerprint(_uiState.value)) {
+                    _uiState.update { it.copy(error = "Transaction details changed. Review the updated draft and try again.") }
+                    return@launch
+                }
                 _uiState.update { it.copy(isLoading = false) }
                 onPsbtReady(psbtBase64)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (request != psbtRequestId) return@launch
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.w("SendVM", "createPsbt failed: ${e.javaClass.simpleName}: ${e.message}", e)
                 _uiState.update {
                     it.copy(
@@ -798,6 +816,8 @@ class SendViewModel @Inject constructor(
                         error = "Could not create the unsigned transaction. Check the recipient, amount, fee rate, and selected UTXO, then try again."
                     )
                 }
+            } finally {
+                if (request == psbtRequestId) _uiState.update { it.copy(isLoading = false) }
             }
         }
     }
