@@ -55,22 +55,6 @@ import net.clench.wallet.ui.picker.PickerRequest
 
 private enum class ColdcardNfcMode { Idle, SendUnsigned, ReceiveSigned }
 
-private sealed interface TapsignerNfcAttempt {
-    val id: Long
-
-    data class Status(override val id: Long) : TapsignerNfcAttempt
-
-    data class Sign(
-        override val id: Long,
-        val token: HardwareWalletPsbtViewModel.TapsignerSigningToken,
-        val cvc: CharArray
-    ) : TapsignerNfcAttempt
-}
-
-private fun TapsignerNfcAttempt.clearSecret() {
-    if (this is TapsignerNfcAttempt.Sign) cvc.fill('0')
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HardwareWalletPsbtScreen(
@@ -413,17 +397,27 @@ fun HardwareWalletPsbtScreen(
                 hostActivity,
                 { tag ->
                     if (tagHandled.compareAndSet(false, true)) {
+                        val workerCvc = attempt.io.claimPin() ?: return@enableReaderMode
                         try {
+                            attempt.io.requireActive()
                             val signingResult = when (attempt) {
                                 is TapsignerNfcAttempt.Sign -> TapsignerNfcReader.signPsbt(
                                     tag = tag,
-                                    cvc = attempt.cvc,
-                                    psbtBase64 = attempt.token.psbtBase64
+                                    cvc = workerCvc,
+                                    psbtBase64 = attempt.token.psbtBase64,
+                                    onConnected = { connection ->
+                                        attempt.io.attach { connection.close() }
+                                        attempt.io.requireActive()
+                                    },
+                                    checkCancelled = attempt.io::requireActive
                                 )
                                 is TapsignerNfcAttempt.Status -> null
                             }
                             val status = if (signingResult == null) {
-                                TapsignerNfcReader.readStatus(tag).summary()
+                                TapsignerNfcReader.readStatus(tag) { connection ->
+                                    attempt.io.attach { connection.close() }
+                                    attempt.io.requireActive()
+                                }.summary()
                             } else {
                                 signingResult.summary
                             }
@@ -457,6 +451,8 @@ fun HardwareWalletPsbtScreen(
                                     tapsignerAttempt = null
                                 }
                             }
+                        } finally {
+                            workerCvc.fill('0')
                         }
                     }
                 },

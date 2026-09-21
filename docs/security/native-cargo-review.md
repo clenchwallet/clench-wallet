@@ -232,3 +232,10 @@ Schema14's fixed-name migration and bound metadata imports add no `hexkey` URI
 or `sqlcipher_export` route. This does not fix SQLCipher4.17 by version, resolve
 the vendor source association discrepancy or complete native C assurance.
 Final application/evidence bindings and the full live gate remain mandatory.
+
+### 2026-09-20 NFC draft-destination delta
+
+Re-reviewed the PR90 destination-revocation correction: ViewModel-owned NFC attempt invalidation and guarded signer publication add no native/network/Esplora/CRL call paths, dependency changes, TLS configuration or feature changes. Existing six exact WebPKI dispositions and their rationale still apply to this source; expiry remains2026-10-16. This is an applicability binding refresh, not native provenance or physical TAPSIGNER clearance. Independent delta review remains required.
+
+### TAPSIGNER signing-cancellation delta, 2026-09-20
+Re-reviewed credential/connection ownership, cancellation checks and stale-callback isolation. This delta adds no native, network, Esplora or CRL call paths and changes no dependencies/features. Six exact WebPKI applicability dispositions remain unchanged; expiry2026-10-16 is preserved. This is not provenance or physical acceptance clearance.

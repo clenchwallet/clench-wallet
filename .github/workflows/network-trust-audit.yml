@@ -1,0 +1,108 @@
+name: Network trust audit
+on:
+  push:
+    branches: [master, audit/native-assurance-20260920, audit/network-contract-20260920]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  network-trust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          java-version: '21'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+      - name: Install pinned native toolchain
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358"'
+      - name: Prepare unchanged strict native dependency
+        id: native
+        run: python3 -B scripts/native/prepare-bdk.py
+      - name: Targeted route policy regressions
+        run: ./gradlew --no-daemon --dependency-verification=strict :app:testDebugUnitTest --tests net.clench.wallet.data.network.ElectrumConnectionFactoryTest
+      - name: Install Android emulator image
+        if: always() && steps.native.outcome == 'success'
+        run: |
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          AVDMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager"
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/android-avd"
+          test -x "$SDKMANAGER"
+          test -x "$AVDMANAGER"
+          mkdir -p "$ANDROID_AVD_HOME"
+          "$SDKMANAGER" --install \
+            'platform-tools' \
+            'emulator' \
+            'system-images;android-35;google_apis;x86_64'
+          echo no | "$AVDMANAGER" create avd \
+            --force \
+            --name clench-ci \
+            --package 'system-images;android-35;google_apis;x86_64'
+          test -f "$ANDROID_AVD_HOME/clench-ci.ini"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/emulator" >> "$GITHUB_PATH"
+
+      - name: Start KVM-backed emulator
+        if: always() && steps.native.outcome == 'success'
+        run: |
+          test -e /dev/kvm
+          sudo chmod 0666 /dev/kvm
+          nohup emulator \
+            -avd clench-ci \
+            -no-window \
+            -no-audio \
+            -no-boot-anim \
+            -no-snapshot \
+            -gpu swiftshader_indirect \
+            > "$RUNNER_TEMP/clench-emulator.log" 2>&1 &
+
+          timeout 90 adb wait-for-device
+          # shellcheck disable=SC2016
+          timeout 300 bash -c '
+            until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = "1" ]; do
+              sleep 5
+            done
+          '
+          # shellcheck disable=SC2016
+          timeout 60 bash -c '
+            for service_name in package settings activity; do
+              until [ "$(adb shell service check "$service_name" 2>/dev/null | tr -d "\r")" = "Service $service_name: found" ]; do
+                sleep 2
+              done
+            done
+          '
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+          adb shell cmd package list packages > "$RUNNER_TEMP/android-packages.txt"
+          test -s "$RUNNER_TEMP/android-packages.txt"
+          head -n 1 "$RUNNER_TEMP/android-packages.txt"
+
+      - name: Actual Android TLS matrix
+        if: always() && steps.native.outcome == 'success'
+        run: |
+          ./gradlew --no-daemon --dependency-verification=strict :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.network.NetworkTrustAuditTest
+      - name: Enforce complete network regression results
+        run: |
+          python3 -B scripts/verification/test-network-results.py
+          python3 -B scripts/verification/verify-network-results.py app/build/outputs/androidTest-results
+      - name: Retain actual results and pinned local Maven for Mac tests
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: network-trust-audit
+          path: |
+            app/build/test-results/testDebugUnitTest
+            app/build/outputs/androidTest-results
+            app/build/outputs/apk
+            build/native-bdk/maven
+            build/native-bdk/provenance.json
+          if-no-files-found: error
+          retention-days: 14
