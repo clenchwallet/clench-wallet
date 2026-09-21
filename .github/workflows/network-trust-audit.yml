@@ -1,7 +1,11 @@
 name: Network trust audit
 on:
   push:
-    branches: [audit/native-assurance-20260920]
+    branches: [master, audit/native-assurance-20260920, audit/network-contract-20260920]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
@@ -60,11 +64,13 @@ jobs:
             > "$RUNNER_TEMP/clench-emulator.log" 2>&1 &
 
           timeout 90 adb wait-for-device
+          # shellcheck disable=SC2016
           timeout 300 bash -c '
             until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = "1" ]; do
               sleep 5
             done
           '
+          # shellcheck disable=SC2016
           timeout 60 bash -c '
             for service_name in package settings activity; do
               until [ "$(adb shell service check "$service_name" 2>/dev/null | tr -d "\r")" = "Service $service_name: found" ]; do
@@ -83,6 +89,10 @@ jobs:
         if: always() && steps.native.outcome == 'success'
         run: |
           ./gradlew --no-daemon --dependency-verification=strict :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=net.clench.wallet.data.network.NetworkTrustAuditTest
+      - name: Enforce complete network regression results
+        run: |
+          python3 -B scripts/verification/test-network-results.py
+          python3 -B scripts/verification/verify-network-results.py app/build/outputs/androidTest-results
       - name: Retain actual results and pinned local Maven for Mac tests
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
