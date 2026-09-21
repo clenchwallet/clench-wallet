@@ -49,7 +49,7 @@ import net.clench.wallet.ui.picker.LocalPickerRoundTripHost
 import net.clench.wallet.ui.picker.PickerDestination
 import net.clench.wallet.ui.picker.PickerPurpose
 import net.clench.wallet.ui.picker.PickerRequest
-import java.util.concurrent.atomic.AtomicBoolean
+import net.clench.wallet.ui.components.NfcImportSession
 
 private enum class TapsignerMultisigNfcAction {
     READ_STATUS,
@@ -75,14 +75,12 @@ fun CreateMultisigScreen(
     SecureWindowEffect()
     var devicePickerTargetIndex by remember { mutableStateOf<Int?>(null) }
     var tapsignerReaderActiveIndex by remember { mutableStateOf<Int?>(null) }
-    var tapsignerPendingAction by remember { mutableStateOf<TapsignerMultisigNfcAction?>(null) }
-    var tapsignerPendingCvc by remember { mutableStateOf<CharArray?>(null) }
     var tapsignerPathConfirmIndex by remember { mutableStateOf<Int?>(null) }
     var savedSignerPickerTargetIndex by remember { mutableStateOf<Int?>(null) }
     val tapsignerPinInputs = remember { mutableStateMapOf<Int, String>() }
     val tapsignerNfcStatuses = remember { mutableStateMapOf<Int, String>() }
     val tapsignerNfcErrors = remember { mutableStateMapOf<Int, String>() }
-    val tapsignerNfcProcessing = remember { AtomicBoolean(false) }
+    val tapsignerSessions = viewModel.nfcImportSession
     val pickerHost = LocalPickerRoundTripHost.current
     val pickerResume by pickerHost.pickerResume.collectAsState()
 
@@ -115,12 +113,7 @@ fun CreateMultisigScreen(
         }
     }
 
-    fun clearTapsignerPendingCvc() {
-        tapsignerPendingCvc?.fill('0')
-        tapsignerPendingCvc = null
-    }
-
-    fun stopTapsignerNfcReader(clearPin: Boolean = false) {
+    fun stopTapsignerNfcReader(clearPin: Boolean = true) {
         val hostActivity = activity
         val adapter = nfcAdapter
         if (hostActivity != null && adapter != null) {
@@ -128,9 +121,21 @@ fun CreateMultisigScreen(
         }
         val index = tapsignerReaderActiveIndex
         tapsignerReaderActiveIndex = null
-        tapsignerPendingAction = null
-        clearTapsignerPendingCvc()
-        if (clearPin && index != null) tapsignerPinInputs.remove(index)
+        tapsignerSessions.cancel()
+        if (index != null) {
+            tapsignerNfcStatuses.remove(index)
+            if (clearPin) tapsignerPinInputs.remove(index)
+        }
+    }
+
+    LaunchedEffect(uiState.nfcDraftRevision) {
+        // ViewModel revokes synchronously. Only clean up the old reader here;
+        // an intervening fresh attempt must keep its connection and UI state.
+        if (tapsignerReaderActiveIndex != null && !tapsignerSessions.hasActiveAttempt()) {
+            stopTapsignerNfcReader()
+            tapsignerNfcStatuses.clear()
+            tapsignerNfcErrors.clear()
+        }
     }
 
     fun processTapsignerMultisigTag(
@@ -138,50 +143,61 @@ fun CreateMultisigScreen(
         hostActivity: Activity,
         signerIndex: Int,
         action: TapsignerMultisigNfcAction,
-        cvc: CharArray?,
+        attempt: NfcImportSession.Attempt,
         isTestnet: Boolean
     ) {
-        if (!tapsignerNfcProcessing.compareAndSet(false, true)) return
+        val readerCvc = attempt.claimPin() ?: return
         try {
+            attempt.requireActive()
             when (action) {
                 TapsignerMultisigNfcAction.READ_STATUS -> {
-                    val status = TapsignerNfcReader.readStatus(tag)
+                    val status = TapsignerNfcReader.readStatus(tag) { connection ->
+                        attempt.attach { connection.close() }
+                        attempt.requireActive()
+                    }
                     hostActivity.runOnUiThread {
+                        if (!tapsignerSessions.isCurrent(attempt)) return@runOnUiThread
+                        stopTapsignerNfcReader()
                         tapsignerNfcStatuses[signerIndex] = status.summary()
                         tapsignerNfcErrors.remove(signerIndex)
-                        stopTapsignerNfcReader()
                     }
                 }
                 TapsignerMultisigNfcAction.IMPORT_BIP48,
                 TapsignerMultisigNfcAction.SETUP_BIP48 -> {
-                    val readerCvc = cvc ?: error("Enter the TAPSIGNER PIN before importing this cosigner")
                     val result = TapsignerNfcReader.readMultisigAccountXpub(
                         tag = tag,
                         cvc = readerCvc,
                         isTestnet = isTestnet,
                         setPathIfNeeded = action == TapsignerMultisigNfcAction.SETUP_BIP48,
-                        initializeIfNeeded = action == TapsignerMultisigNfcAction.SETUP_BIP48
+                        initializeIfNeeded = action == TapsignerMultisigNfcAction.SETUP_BIP48,
+                        onConnected = { connection ->
+                            attempt.attach { connection.close() }
+                            attempt.requireActive()
+                        },
+                        checkCancelled = attempt::requireActive
                     )
                     hostActivity.runOnUiThread {
-                        viewModel.updateSigner(signerIndex, label = "TAPSIGNER", xpub = result.originWrappedXpub)
+                        if (!tapsignerSessions.isCurrent(attempt)) return@runOnUiThread
+                        if (!viewModel.completeNfcSignerImport(attempt, signerIndex, result.originWrappedXpub)) return@runOnUiThread
+                        stopTapsignerNfcReader(clearPin = true)
                         tapsignerNfcStatuses[signerIndex] = if (action == TapsignerMultisigNfcAction.SETUP_BIP48) {
                             result.summary + " Save an encrypted TAPSIGNER backup before funding; backup is a separate PIN, file save, and NFC tap action."
                         } else {
                             result.summary
                         }
                         tapsignerNfcErrors.remove(signerIndex)
-                        stopTapsignerNfcReader(clearPin = true)
                     }
                 }
             }
         } catch (t: Throwable) {
             hostActivity.runOnUiThread {
+                if (!tapsignerSessions.isCurrent(attempt)) return@runOnUiThread
                 tapsignerNfcErrors[signerIndex] = t.message ?: "TAPSIGNER NFC action failed"
                 tapsignerNfcStatuses.remove(signerIndex)
                 stopTapsignerNfcReader()
             }
         } finally {
-            tapsignerNfcProcessing.set(false)
+            readerCvc.fill('0')
         }
     }
 
@@ -211,11 +227,10 @@ fun CreateMultisigScreen(
             }
         }
 
-        stopTapsignerNfcReader()
+        stopTapsignerNfcReader(clearPin = false)
         val isTestnet = viewModel.isTestnet()
+        val attempt = viewModel.beginNfcSignerImport(signerIndex, cvc) ?: return
         tapsignerReaderActiveIndex = signerIndex
-        tapsignerPendingAction = action
-        tapsignerPendingCvc = cvc
         tapsignerNfcErrors.remove(signerIndex)
         tapsignerNfcStatuses[signerIndex] = when (action) {
             TapsignerMultisigNfcAction.READ_STATUS -> "Ready to read status. Hold TAPSIGNER against the phone."
@@ -230,7 +245,7 @@ fun CreateMultisigScreen(
                     hostActivity = hostActivity,
                     signerIndex = signerIndex,
                     action = action,
-                    cvc = tapsignerPendingCvc,
+                    attempt = attempt,
                     isTestnet = isTestnet
                 )
             },
@@ -239,8 +254,14 @@ fun CreateMultisigScreen(
         )
     }
 
-    DisposableEffect(activity, nfcAdapter) {
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(activity, nfcAdapter, lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) stopTapsignerNfcReader()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             stopTapsignerNfcReader()
         }
     }

@@ -221,3 +221,17 @@ dispositions remain applicable, with the original October16 expiry and refreshed
 application/evidence hashes. New lifecycle regressions, native raw-return
 contract assertions, independent delta review and physical retry are separate
 gates; the prior f46dd95 review is not an approval of this delta.
+
+## Multisig NFC import cancellation delta review — 2026-09-20
+
+The production delta adds explicit ownership of the pending credential and active ISO-DEP connection for the multisig import screen. Cancellation and backgrounding close the connection, invalidate old callbacks, and require a fresh PIN entry. Card factory, network, path, derive, child-proof and xpub checks remain in place. No automatic retry or new native/TLS/CRL/Esplora/reflection entry point is added.
+
+The six legacy WebPKI applicability dispositions remain tied to the same BDK artifact, Cargo lock and input paths. Their original 2026-10-16 expiry is retained. The live gate re-fetches each complete advisory and rejects changed content; a matching gate is not a native clearance or independent approval of this change. Source and evidence hashes are refreshed for this bounded delta.
+
+## Phone-signer asynchronous completion re-review — 2026-09-21
+
+The bounded CreateMultisigViewModel correction binds pending phone-key generation to an operation identity, draft revision and selected network. Draft mutation revokes that ownership; stale success, failure and cleanup cannot overwrite a newer signer destination or operation. Key generation algorithms, storage, native interfaces and wallet identities are unchanged. This change introduces no Esplora, reflection, native loading, TLS or CRL input and does not alter native recipes, features, dependencies or transport construction. The six existing legacy WebPKI call-path dispositions retain the original 2026-10-16 expiry and advisory-content hashes. The live applicability gate must re-fetch and match every advisory and query all candidates; any mismatch still blocks. This refresh is not native provenance clearance or independent changed-path approval.
+
+### Phone/NFC admission overlap delta — 2026-09-21
+
+Independent review of658c630 identified a newer NFC admission without a draft edit that could leave older phone generation current. The screen now admits through a ViewModel boundary that revokes pending phone ownership/loading before starting the existing NFC session. Existing draft revision, credential ownership, card validation, and protocol commands are unchanged. No native, TLS/CRL, Esplora, reflection, dependency or build-recipe input path is added. Retain all six exact advisory dispositions/content hashes and the original2026-10-16 expiry; refresh production/evidence binding and require the live gate and independent delta review.

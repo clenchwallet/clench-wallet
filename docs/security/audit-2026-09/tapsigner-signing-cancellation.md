@@ -1,0 +1,7 @@
+# TAPSIGNER signing cancellation
+
+The signing screen passed its credential buffer directly to the worker, then zeroed it on cancellation without closing the active IsoDep. This could corrupt an authenticated command or allow more card work after cancellation, despite result-token rejection. An obsolete completion also changed a newer session's error state; the retained baseline regression reproduces that mutation.
+
+The screen attempt now uses the existing connection/credential ownership primitive. The worker claims one private copy and clears it in finally. Cancellation revokes the attempt and closes only its connection; protocol checks cancellation before connection, each signing request/retry, final status and result injection. No card validation is removed and no retry is added. Closing cannot undo a delivered command. Cancelled reservations require fresh review; unrelated stale success/error/cancellation cannot change the newer reservation or UI state.
+
+Regressions exercise actual screen-attempt ownership, late connection arrival, obsolete cleanup, ViewModel cancellation/review and stale completion isolation, alongside existing protocol and PSBT tests. The independent physical two-input signing receipt at8fe8641 remains applicable to unchanged signing validation, but is not acceptance of this cancellation delta. Independent changed-path review and exact-source physical acceptance remain required. Diagnostic checkpoint code belongs only in an external fixture worktree, never this release source.

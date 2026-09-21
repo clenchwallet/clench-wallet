@@ -24,6 +24,7 @@ import net.clench.wallet.domain.repository.MultisigPhoneSignerSecret
 import net.clench.wallet.ui.util.shouldRethrowForUiBoundary
 import net.clench.wallet.ui.util.walletRuntimeMessage
 import javax.inject.Inject
+import net.clench.wallet.ui.components.NfcImportSession
 
 @HiltViewModel
 class CreateMultisigViewModel @Inject constructor(
@@ -63,6 +64,7 @@ class CreateMultisigViewModel @Inject constructor(
         val signers: List<SignerInfo> = emptyList(),
         val walletName: String = "",
         val currentStep: Int = 1,
+        val nfcDraftRevision: Long = 0,
         val isCreating: Boolean = false,
         val error: String? = null,
         val warning: String? = null,
@@ -74,6 +76,9 @@ class CreateMultisigViewModel @Inject constructor(
         val savedSignerOptions: List<SavedSignerOption> = emptyList()
     )
 
+    internal val nfcImportSession = NfcImportSession()
+    private var activePhoneGeneration: Any? = null
+
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
     private val initialSignerId = savedStateHandle.get<String>("signerId")?.takeIf { it.isNotBlank() }
@@ -82,6 +87,21 @@ class CreateMultisigViewModel @Inject constructor(
 
     companion object {
         const val PRESET_SECURE_VAULT = "secure_vault"
+    }
+
+    /** Main-thread draft mutations revoke workers before their destination can change. */
+    private fun invalidateNfcDestination() {
+        nfcImportSession.cancel()
+        activePhoneGeneration = null
+        _uiState.update {
+            it.copy(nfcDraftRevision = it.nfcDraftRevision + 1, generatingPhoneSignerIndex = null)
+        }
+    }
+
+    override fun onCleared() {
+        activePhoneGeneration = null
+        nfcImportSession.cancel()
+        super.onCleared()
     }
 
     fun isTestnet(): Boolean = settingsManager.isTestnet()
@@ -99,6 +119,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     private fun initializeSigners() {
+        invalidateNfcDestination()
         val total = _uiState.value.totalSigners
         val isTestnet = settingsManager.isTestnet()
         val defaultPath = SignerAccountKeyParser.expectedMultisigPath(isTestnet)
@@ -139,6 +160,7 @@ class CreateMultisigViewModel @Inject constructor(
         if (initialSignerApplied) return
         val signerId = initialSignerId ?: return
         val option = options.find { it.id == signerId } ?: return
+        invalidateNfcDestination()
         initialSignerApplied = true
         val defaultPath = SignerAccountKeyParser.expectedMultisigPath(settingsManager.isTestnet())
         _uiState.update { state ->
@@ -187,6 +209,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun setThreshold(threshold: Int) {
+        invalidateNfcDestination()
         _uiState.update {
             val newThreshold = threshold.coerceIn(1, it.totalSigners)
             it.copy(threshold = newThreshold)
@@ -194,6 +217,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun setTotalSigners(total: Int) {
+        invalidateNfcDestination()
         val newTotal = total.coerceIn(2, 7)
         _uiState.update {
             val newThreshold = it.threshold.coerceAtMost(newTotal)
@@ -203,6 +227,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun setPreset(m: Int, n: Int) {
+        invalidateNfcDestination()
         _uiState.update { it.copy(threshold = m, totalSigners = n) }
         initializeSigners()
     }
@@ -211,7 +236,26 @@ class CreateMultisigViewModel @Inject constructor(
         _uiState.update { it.copy(walletName = name) }
     }
 
+    internal fun beginNfcSignerImport(index: Int, pin: CharArray?): NfcImportSession.Attempt? {
+        if (index !in _uiState.value.signers.indices || _uiState.value.currentStep != 2) {
+            pin?.fill('0')
+            return null
+        }
+        // NFC admission supersedes pending phone generation even without a draft edit.
+        // Do not advance nfcDraftRevision here: the screen observes it to stop readers.
+        activePhoneGeneration = null
+        _uiState.update { it.copy(generatingPhoneSignerIndex = null) }
+        return nfcImportSession.begin(pin)
+    }
+
+    internal fun completeNfcSignerImport(attempt: NfcImportSession.Attempt, index: Int, xpub: String): Boolean {
+        if (!nfcImportSession.isCurrent(attempt)) return false
+        updateSigner(index, label = "TAPSIGNER", xpub = xpub)
+        return true
+    }
+
     fun updateSigner(index: Int, label: String? = null, xpub: String? = null) {
+        invalidateNfcDestination()
         _uiState.update { state ->
             val signers = state.signers.toMutableList()
             if (index in signers.indices) {
@@ -243,6 +287,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun updateSignerMetadata(index: Int, fingerprint: String? = null, derivationPath: String? = null) {
+        invalidateNfcDestination()
         _uiState.update { state ->
             val signers = state.signers.toMutableList()
             if (index in signers.indices) {
@@ -258,6 +303,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun applySavedSigner(index: Int, signerId: String) {
+        invalidateNfcDestination()
         _uiState.update { state ->
             val option = state.savedSignerOptions.find { it.id == signerId } ?: return@update state
             val signers = state.signers.toMutableList()
@@ -281,6 +327,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun setSignerDevice(index: Int, device: HardwareWalletType?) {
+        invalidateNfcDestination()
         _uiState.update { state ->
             val signers = state.signers.toMutableList()
             if (index in signers.indices) {
@@ -305,10 +352,22 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun generatePhoneSigner(index: Int) {
+        if (index !in _uiState.value.signers.indices) return
+        invalidateNfcDestination()
+        // Main-thread ownership is established before launch, including queued starts.
+        val operation = Any()
+        activePhoneGeneration = operation
+        val revision = _uiState.value.nfcDraftRevision
+        val testnet = settingsManager.isTestnet()
+        _uiState.update { it.copy(generatingPhoneSignerIndex = index, error = null) }
+        fun isCurrent() = activePhoneGeneration === operation &&
+            _uiState.value.nfcDraftRevision == revision && settingsManager.isTestnet() == testnet
         viewModelScope.launch {
-            _uiState.update { it.copy(generatingPhoneSignerIndex = index, error = null) }
             try {
+                if (!isCurrent()) return@launch
                 val generated = bitcoinRepository.generateMultisigPhoneSigner()
+                if (!isCurrent()) return@launch
+                invalidateNfcDestination()
                 _uiState.update { state ->
                     val signers = state.signers.toMutableList()
                     if (index in signers.indices) {
@@ -333,17 +392,24 @@ class CreateMultisigViewModel @Inject constructor(
                 }
             } catch (t: Throwable) {
                 if (t.shouldRethrowForUiBoundary()) throw t
+                if (!isCurrent()) return@launch
                 _uiState.update {
                     it.copy(
                         generatingPhoneSignerIndex = null,
                         error = "Could not generate phone signer: ${t.walletRuntimeMessage("creating the multisig phone signer")}"
                     )
                 }
+            } finally {
+                if (activePhoneGeneration === operation) {
+                    activePhoneGeneration = null
+                    _uiState.update { it.copy(generatingPhoneSignerIndex = null) }
+                }
             }
         }
     }
 
     fun setPhoneSignerBackedUp(index: Int, backedUp: Boolean) {
+        invalidateNfcDestination()
         _uiState.update { state ->
             val signers = state.signers.toMutableList()
             if (index in signers.indices && signers[index].isLocalKey) {
@@ -354,6 +420,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun clearPhoneSigner(index: Int) {
+        invalidateNfcDestination()
         _uiState.update { state ->
             val signers = state.signers.toMutableList()
             if (index in signers.indices) {
@@ -368,6 +435,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun removeSigner(index: Int) {
+        invalidateNfcDestination()
         _uiState.update { state ->
             val signers = state.signers.toMutableList()
             if (index in signers.indices && signers.size > 2) {
@@ -384,6 +452,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun showQrScanner(signerIndex: Int) {
+        invalidateNfcDestination()
         _uiState.update { it.copy(showQrScanner = true, qrScannerTargetIndex = signerIndex) }
     }
 
@@ -411,6 +480,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun nextStep() {
+        invalidateNfcDestination()
         _uiState.update { state ->
             val next = (state.currentStep + 1).coerceAtMost(3)
             state.copy(currentStep = next, error = null, warning = null)
@@ -418,6 +488,7 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun previousStep() {
+        invalidateNfcDestination()
         _uiState.update { state ->
             val prev = (state.currentStep - 1).coerceAtLeast(1)
             state.copy(currentStep = prev, error = null, warning = null)
