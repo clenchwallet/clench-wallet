@@ -236,6 +236,18 @@ class CreateMultisigViewModel @Inject constructor(
         _uiState.update { it.copy(walletName = name) }
     }
 
+    internal fun beginNfcSignerImport(index: Int, pin: CharArray?): NfcImportSession.Attempt? {
+        if (index !in _uiState.value.signers.indices || _uiState.value.currentStep != 2) {
+            pin?.fill('0')
+            return null
+        }
+        // NFC admission supersedes pending phone generation even without a draft edit.
+        // Do not advance nfcDraftRevision here: the screen observes it to stop readers.
+        activePhoneGeneration = null
+        _uiState.update { it.copy(generatingPhoneSignerIndex = null) }
+        return nfcImportSession.begin(pin)
+    }
+
     internal fun completeNfcSignerImport(attempt: NfcImportSession.Attempt, index: Int, xpub: String): Boolean {
         if (!nfcImportSession.isCurrent(attempt)) return false
         updateSigner(index, label = "TAPSIGNER", xpub = xpub)

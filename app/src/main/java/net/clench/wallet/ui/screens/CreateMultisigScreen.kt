@@ -229,8 +229,8 @@ fun CreateMultisigScreen(
 
         stopTapsignerNfcReader(clearPin = false)
         val isTestnet = viewModel.isTestnet()
+        val attempt = viewModel.beginNfcSignerImport(signerIndex, cvc) ?: return
         tapsignerReaderActiveIndex = signerIndex
-        val attempt = tapsignerSessions.begin(cvc)
         tapsignerNfcErrors.remove(signerIndex)
         tapsignerNfcStatuses[signerIndex] = when (action) {
             TapsignerMultisigNfcAction.READ_STATUS -> "Ready to read status. Hold TAPSIGNER against the phone."
