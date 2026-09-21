@@ -1213,10 +1213,11 @@ data class SatscardSlotState(
 internal fun satscardDisplaySlot(protocolSlot: Long): Long = protocolSlot + 1
 
 object CoinkiteTapCardNfcReader {
-    fun readStatus(tag: Tag): CoinkiteTapCardStatus {
+    fun readStatus(tag: Tag, onConnected: (IsoDep) -> Unit = {}): CoinkiteTapCardStatus {
         val isoDep = IsoDep.get(tag) ?: error("Coinkite Tap Protocol cards require ISO-DEP NFC, not NDEF")
-        isoDep.connect()
         try {
+            isoDep.connect()
+            onConnected(isoDep)
             isoDep.timeout = 5000
             val selectResponse = isoDep.transceive(TapsignerTapProtocol.selectAppletCommand())
             if (!TapsignerTapProtocol.isSuccessResponse(selectResponse)) {
@@ -1548,8 +1549,8 @@ object SatscardNfcReader {
 object TapsignerNfcReader {
     private const val HARDENED_FLAG = 0x80000000L
 
-    fun readStatus(tag: Tag): CoinkiteTapCardStatus {
-        val status = CoinkiteTapCardNfcReader.readStatus(tag)
+    fun readStatus(tag: Tag, onConnected: (IsoDep) -> Unit = {}): CoinkiteTapCardStatus {
+        val status = CoinkiteTapCardNfcReader.readStatus(tag, onConnected)
         if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
         return status
     }
@@ -1561,13 +1562,22 @@ object TapsignerNfcReader {
      * returned PSBT still passes through Clench's normal signature-only merge,
      * finalization, and transaction-policy validation.
      */
-    fun signPsbt(tag: Tag, cvc: CharArray, psbtBase64: String): TapsignerPsbtSignResult {
+    fun signPsbt(
+        tag: Tag,
+        cvc: CharArray,
+        psbtBase64: String,
+        onConnected: (IsoDep) -> Unit = {},
+        checkCancelled: () -> Unit = {}
+    ): TapsignerPsbtSignResult {
         try {
             val isoDep = IsoDep.get(tag) ?: error("TAPSIGNER requires ISO-DEP NFC, not NDEF")
             var plan: TapsignerPsbtSigning.Plan? = null
             val signatures = mutableListOf<TapsignerPsbtSigning.Signature>()
             try {
+                checkCancelled()
                 isoDep.connect()
+                onConnected(isoDep)
+                checkCancelled()
                 isoDep.timeout = 20_000
                 var status = selectOrReadStatus(isoDep)
             if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
@@ -1590,6 +1600,7 @@ object TapsignerNfcReader {
             plan = TapsignerPsbtSigning.prepare(psbtBase64, accountPath)
 
             plan.requests.forEach { request ->
+                checkCancelled()
                 var signed = false
                 for (attempt in 0 until 5) {
                     var command: ByteArray? = null
@@ -1603,6 +1614,7 @@ object TapsignerNfcReader {
                             cardNonce = latestCardNonce,
                             cvc = cvc
                         )
+                        checkCancelled()
                         response = isoDep.transceive(command)
                         proof = TapsignerTapProtocol.parseTapsignerSignProof(response)
                         if (proof.slot != 0L) error("TAPSIGNER signed with an unexpected slot")
@@ -1627,6 +1639,7 @@ object TapsignerNfcReader {
                         break
                     } catch (e: CoinkiteTapCardException) {
                         if (e.code != 205L || attempt == 4) throw e
+                        checkCancelled()
                         val refreshed = TapsignerTapProtocol.parseStatusResponse(
                             isoDep.transceive(TapsignerTapProtocol.statusCommand())
                         )
@@ -1650,6 +1663,7 @@ object TapsignerNfcReader {
                 if (!signed) error("TAPSIGNER could not sign input ${request.inputIndex + 1}")
             }
 
+            checkCancelled()
             val finalStatus = TapsignerTapProtocol.parseStatusResponse(
                 isoDep.transceive(TapsignerTapProtocol.statusCommand())
             )
@@ -1661,6 +1675,7 @@ object TapsignerNfcReader {
                 expectedCardNonce = latestCardNonce
             )
             finalNonce.fill(0)
+            checkCancelled()
             val signedPsbt = TapsignerPsbtSigning.inject(plan, signatures)
             return TapsignerPsbtSignResult(
                 signedPsbtBase64 = signedPsbt,
@@ -1755,14 +1770,19 @@ object TapsignerNfcReader {
         cvc: CharArray,
         isTestnet: Boolean,
         setPathIfNeeded: Boolean,
-        initializeIfNeeded: Boolean
+        initializeIfNeeded: Boolean,
+        onConnected: (IsoDep) -> Unit = {},
+        checkCancelled: () -> Unit = {}
     ): TapsignerAccountXpubResult {
         val targetPath = multisigAccountPath(isTestnet)
         val targetPathDisplay = formatDerivationPath(targetPath)
         val isoDep = IsoDep.get(tag) ?: error("TAPSIGNER requires ISO-DEP NFC, not NDEF")
-        isoDep.connect()
         var expectedMasterChainCode: ByteArray? = null
         try {
+            checkCancelled()
+            isoDep.connect()
+            onConnected(isoDep)
+            checkCancelled()
             isoDep.timeout = 10000
             var status = selectOrReadStatus(isoDep)
             if (!status.isTapsigner) error("Coinkite NFC card is not reporting TAPSIGNER mode")
@@ -1810,6 +1830,7 @@ object TapsignerNfcReader {
                     error("This TAPSIGNER is currently set to $currentPath. Multisig import needs $targetPathDisplay. Use Set up as multisig cosigner if you want Clench to set that path.")
                 }
             }
+            checkCancelled()
             val deriveNonce = randomNonce()
             val previousCardNonce = latestCardNonce
             val derive = TapsignerTapProtocol.parseTapsignerDeriveResponse(
@@ -1823,6 +1844,7 @@ object TapsignerNfcReader {
                     )
                 )
             )
+            checkCancelled()
             latestCardNonce = proveCurrentDerivedKey(
                 isoDep = isoDep,
                 cardPubkey = cardPubkey,
@@ -1832,6 +1854,7 @@ object TapsignerNfcReader {
                 deriveProof = derive
             )
 
+            checkCancelled()
             return readVerifiedAccountXpub(
                 isoDep = isoDep,
                 cardPubkey = cardPubkey,
@@ -1847,9 +1870,10 @@ object TapsignerNfcReader {
                 expectedIsTestnet = isTestnet
             )
         } finally {
-            isoDep.close()
-            expectedMasterChainCode?.fill(0)
-            cvc.fill('0')
+            try { isoDep.close() } finally {
+                expectedMasterChainCode?.fill(0)
+                cvc.fill('0')
+            }
         }
     }
 

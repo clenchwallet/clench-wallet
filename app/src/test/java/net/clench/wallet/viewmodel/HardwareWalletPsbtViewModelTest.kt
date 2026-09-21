@@ -413,6 +413,11 @@ class HardwareWalletPsbtViewModelTest {
             assertFalse(viewModel.completeTapsignerSigning(cancelled, "stale-return"))
             coVerify(exactly = 0) { repository.mergeSignedPsbt(any(), any(), any()) }
 
+            assertFalse(viewModel.uiState.value.readyToBroadcast)
+            assertFalse(viewModel.uiState.value.isProcessingSignedPsbt)
+            assertFalse(viewModel.uiState.value.reviewAcknowledged)
+            assertNull(viewModel.beginTapsignerSigning("wallet-a"))
+            viewModel.acknowledgeReview()
             val active = checkNotNull(viewModel.beginTapsignerSigning("wallet-a"))
             assertTrue(viewModel.completeTapsignerSigning(active, "signed-return"))
             assertFalse(viewModel.completeTapsignerSigning(active, "duplicate-return"))
@@ -459,7 +464,10 @@ class HardwareWalletPsbtViewModelTest {
                 replacement.operationId + 1,
                 replacement.psbtBase64
             )
+            val beforeStale = viewModel.uiState.value
             assertFalse(viewModel.completeTapsignerSigning(unrelatedStale, "stale-return"))
+            viewModel.cancelTapsignerSigning(first)
+            assertEquals("An obsolete callback must not alter the newer session", beforeStale, viewModel.uiState.value)
             assertTrue(viewModel.completeTapsignerSigning(replacement, "signed-return"))
             advanceUntilIdle()
 
