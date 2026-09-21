@@ -77,6 +77,7 @@ class CreateMultisigViewModel @Inject constructor(
     )
 
     internal val nfcImportSession = NfcImportSession()
+    private var activePhoneGeneration: Any? = null
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState = _uiState.asStateFlow()
@@ -91,10 +92,14 @@ class CreateMultisigViewModel @Inject constructor(
     /** Main-thread draft mutations revoke workers before their destination can change. */
     private fun invalidateNfcDestination() {
         nfcImportSession.cancel()
-        _uiState.update { it.copy(nfcDraftRevision = it.nfcDraftRevision + 1) }
+        activePhoneGeneration = null
+        _uiState.update {
+            it.copy(nfcDraftRevision = it.nfcDraftRevision + 1, generatingPhoneSignerIndex = null)
+        }
     }
 
     override fun onCleared() {
+        activePhoneGeneration = null
         nfcImportSession.cancel()
         super.onCleared()
     }
@@ -335,11 +340,21 @@ class CreateMultisigViewModel @Inject constructor(
     }
 
     fun generatePhoneSigner(index: Int) {
+        if (index !in _uiState.value.signers.indices) return
         invalidateNfcDestination()
+        // Main-thread ownership is established before launch, including queued starts.
+        val operation = Any()
+        activePhoneGeneration = operation
+        val revision = _uiState.value.nfcDraftRevision
+        val testnet = settingsManager.isTestnet()
+        _uiState.update { it.copy(generatingPhoneSignerIndex = index, error = null) }
+        fun isCurrent() = activePhoneGeneration === operation &&
+            _uiState.value.nfcDraftRevision == revision && settingsManager.isTestnet() == testnet
         viewModelScope.launch {
-            _uiState.update { it.copy(generatingPhoneSignerIndex = index, error = null) }
             try {
+                if (!isCurrent()) return@launch
                 val generated = bitcoinRepository.generateMultisigPhoneSigner()
+                if (!isCurrent()) return@launch
                 invalidateNfcDestination()
                 _uiState.update { state ->
                     val signers = state.signers.toMutableList()
@@ -365,11 +380,17 @@ class CreateMultisigViewModel @Inject constructor(
                 }
             } catch (t: Throwable) {
                 if (t.shouldRethrowForUiBoundary()) throw t
+                if (!isCurrent()) return@launch
                 _uiState.update {
                     it.copy(
                         generatingPhoneSignerIndex = null,
                         error = "Could not generate phone signer: ${t.walletRuntimeMessage("creating the multisig phone signer")}"
                     )
+                }
+            } finally {
+                if (activePhoneGeneration === operation) {
+                    activePhoneGeneration = null
+                    _uiState.update { it.copy(generatingPhoneSignerIndex = null) }
                 }
             }
         }
