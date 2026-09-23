@@ -45,14 +45,46 @@ Dated OSV queries for JNA 5.19.1 and the libffi base commit returned no matches.
 This does not establish full C advisory coverage or independently reproduce
 upstream's native binaries. Those existing assurance limits remain explicit.
 
-## Acceptance gates
+## Executed acceptance
 
-Strict release build, JVM/lint, native inventory, deterministic SBOM, live Maven
-and Cargo gates, APK ZIP plus internal ELF checks, and disposable release-mode
-16 KB / focused 4 KB runtime checks are required. Runtime acceptance must include
-offline creation/import, receive-address derivation, encrypted DB persistence,
-background reopen and fresh-process wallet reopen. A fallback-enabled pass is
-not native 16 KB acceptance. Candidate runtime results are pending; this document
-does not yet claim a successful repair. Existing independent source review and
-protected release gates remain required before publication. Unchanged hardware
-paths do not require repeated acceptance for this scoped dependency update.
+The [machine-readable receipt](upstream/jna-5.19.1-compatibility.json) binds the
+release-mode 0.3.33 candidate at `289b8e7bf0047c8d330902483ac34c093d96ddb2`,
+its exact unsigned and disposable-signed APK hashes, environment and native bytes.
+Both accelerated ARM64 environments pass: Android 15 / 16384-byte pages with
+fallback forced off, and Android 16 / 4096-byte pages as the focused control.
+
+Both runs use Testnet and Offline mode. Each creates and verifies a fresh seed,
+saves a wallet, derives a receive address, backgrounds/reopens and force-stops/
+restarts the process. Each then imports the public 12-word BIP39 zero-entropy
+vector and repeats address/persistence checks. Both derive the same imported
+address; each original wallet remains accessible after importing and restarting.
+Encrypted Room DB creation is evidenced by SQLCipher load, non-plaintext DB
+header, plain SQLite rejection, and successful release preflight/row reload.
+Both crash buffers are empty and route tables remain empty. No hardware-wallet
+operation or PIN is used.
+
+JNA ARM64 and x86_64 LOAD alignments are 0x4000; RELRO ends are respectively
+0x2c000 and 0x20000. APK ZIP alignment passes. Every packaged non-JNA native
+library, including BDK and SQLCipher on all three shipped ABIs, matches the
+published v0.3.32 APK byte-for-byte. An initial local build lacked the NDK strip
+tool and retained BDK debug information; stripping with the pinned NDK reproduced
+production bytes exactly. The final tested build uses that pinned NDK normally.
+No library replacement other than JNA was needed.
+
+Strict dependency verification, 568 JVM tests (zero failures/errors/skips), lint,
+native inventory, deterministic/validated 189-component SBOM, 190-identity Maven
+OSV gate, and 198-candidate Cargo gate pass. The latter retains exactly the six
+previous dispositions and original expiry. Native inventory (10), Cargo gate
+(21), BDK packaging (5) regressions and hostile release-tool tests pass.
+
+Raw UI, process lifecycle, databases, logs and first-failure evidence are retained
+in the local audit evidence directories. The fixture APK is not a production
+release. Local builds reuse checksum-verified retained BDK inputs; the unchanged
+hosted CI/release jobs rebuild BDK independently. Runtime claims cover ARM64;
+x86_64 receives static JNA ELF checks, not a new runtime claim.
+
+Independent review and current-head hosted checks remain required before merge.
+Protected signed-tag, separate unsigned rebuilds, isolated signing, public bundle
+verification and subsequent website verification remain publication gates. This
+receipt does not claim they have already run for 0.3.33. Unchanged hardware paths
+do not require repeated acceptance for this scoped dependency update.
