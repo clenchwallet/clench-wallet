@@ -3,13 +3,13 @@
   "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0-clench.1",
   "owner_artifact_sha256": "f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2",
   "source_lock_sha256": "f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2",
-  "application_sha256": "8d139b93dba55e1f8d1188d225789c06d062538a2fd38562723dcfd78bebd068",
-  "reviewed_on": "2026-09-20",
+  "application_sha256": "9e68986b4f3e72b0ecbc6259bfe3925c6007baf8c3a36f876c61d15af3cabcd0",
+  "reviewed_on": "2026-09-23",
   "expires_on": "2026-10-16",
   "evidence": [
     {
       "path": "docs/security/native-cargo-dispositions.md",
-      "sha256": "681b28b6c07f78557126a71aa0ee82991e8c0de35b01919682f4edb9154e06cf"
+      "sha256": "693ac3ed10650904cf8a62067826c26e7df93f43b26a53144a22d18b5b93fac3"
     },
     {
       "path": "docs/security/native-cargo-review.md",
@@ -17,7 +17,7 @@
     },
     {
       "path": "docs/security/native-dependencies.json",
-      "sha256": "7d474d1d31c101c03bc3c55460b793bed11ac5b93791ea29cd7da9e2125c0e80"
+      "sha256": "61a84816f7f2e0c1a725a31780e2c83dfbc948ce0e89cccda70cef0f5af07af8"
     },
     {
       "path": "docs/security/upstream/bdk-ffi-3.0.0-Cargo.lock",

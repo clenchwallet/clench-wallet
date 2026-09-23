@@ -232,3 +232,22 @@ The six legacy WebPKI applicability dispositions remain tied to the same BDK art
 ## Combined maintenance candidate0.3.32/332 — 2026-09-21
 
 Combined reviewed network routing/pin, NFC ownership, asynchronous PSBT and phone-generation corrections with the maintained network-test contract. Application merge conflicts were absent; evidence conflicts retain both source reviews and the reviewed network-specific rationale. The version change is included in the application binding. No native binary, recipe, feature, Cargo lock, direct native TLS, Esplora or CRL input changed. All six exact advisory IDs/content hashes/statuses and original2026-10-16 expiry are preserved. Run the live applicability gate and exact combined runtime checks; component passes alone are insufficient. SQLCipher provenance remains a separately tracked open audit item.
+
+## JNA 16 KB dependency delta re-review — 2026-09-23
+
+Only JNA's complete Android artifact changes, from 5.14.0 to 5.19.1. BDK's
+artifact, Kotlin bindings, native libraries, build recipe and Cargo lock remain
+byte-identical. No production source, Esplora constructor, TLS/CRL input or
+wallet/signing policy changes. The JNA update fixes its native initialization
+on 16 KB pages; it does not select a different Rust TLS implementation.
+
+All six live advisory documents were fetched again and their canonical hashes
+match the existing reviewed records. The same three advisory groups and six
+exact call-path dispositions remain applicable; original expiry 2026-10-16,
+IDs, status and advisory hashes are retained. Application and evidence hashes
+are rebound to this scoped dependency delta. This is not a native clearance or
+independent approval; strict native runtime acceptance and independent review
+remain required.
+
+The 0.3.33/333 version metadata is included in this application binding; no
+additional production logic or dependency changes are introduced.

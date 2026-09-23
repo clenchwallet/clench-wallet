@@ -32,8 +32,8 @@ android {
         applicationId = "net.clench.wallet"
         minSdk = 26
         targetSdk = 35
-        versionCode = 332
-        versionName = "0.3.32"
+        versionCode = 333
+        versionName = "0.3.33"
 
         manifestPlaceholders["appLabel"] = "Clench"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -146,6 +146,9 @@ dependencies {
 
     // BDK - Bitcoin Dev Kit (Block/Spiral funded)
     implementation(libs.bdk.android)
+
+    // BDK uses JNA. Pin its complete Android artifact for 16 KB-safe native initialization.
+    implementation("net.java.dev.jna:jna:5.19.1@aar")
 
     // BC-UR animated QR for hardware wallet PSBT exchange
     implementation("com.sparrowwallet:hummingbird:1.7.4")

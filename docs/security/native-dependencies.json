@@ -238,53 +238,67 @@
       }
     },
     {
-      "artifact": "jna-5.14.0.aar",
-      "artifact_sha256": "81a8b9afc65f9d6b205338c25908af8de0ff8411a00985104c9d83fffdfab380",
+      "artifact": "jna-5.19.1.aar",
+      "artifact_sha256": "b57125cb7d16253f0d65a80f7d3a4c3664effa711b8bdbb7f87fb572ce1624ed",
       "native_payloads": [
         {
-          "bytes": 168176,
+          "bytes": 176520,
           "path": "jni/arm64-v8a/libjnidispatch.so",
-          "sha256": "3730ce014f7a6807ae74af78c3b9f5a3cba1f5886316b3d3858493df923efe96"
+          "sha256": "abc26e994517bcaa3309acdb0a27373864086c7569c89d3087b8626fada9ef06"
         },
         {
-          "bytes": 122296,
+          "bytes": 126496,
           "path": "jni/armeabi-v7a/libjnidispatch.so",
-          "sha256": "73334a01c209297c131cb746d166128f702b44760c9429c0d91d1e8dfdeaa570"
+          "sha256": "9652282ef31834281229370a354d56c1522fe36e93625169df99b3e346f76092"
         },
         {
-          "bytes": 122784,
+          "bytes": 126980,
           "path": "jni/armeabi/libjnidispatch.so",
-          "sha256": "27efc9e8c7320544c8417a1ae4c77d5091702430e6edae9f5dab060430b62ff6"
+          "sha256": "101daa2222382f3727800c0c49731346c5c4f81f1ecf1fde85ebcea64b151901"
         },
         {
-          "bytes": 150924,
+          "bytes": 130556,
           "path": "jni/mips/libjnidispatch.so",
-          "sha256": "c6f2d715fc6a91c4a364aba7e277f4302c726984c3d22860e4b80d80634d9e71"
+          "sha256": "eb549d34eb17b394f4ba74c21c51f41340d8b049aa90cc9feaef734695890402"
         },
         {
-          "bytes": 141904,
+          "bytes": 150256,
           "path": "jni/mips64/libjnidispatch.so",
-          "sha256": "7a9fe9d0d017deb0195dca3d21ef06a7864b9ad66bcab2608e9ad468a511f697"
+          "sha256": "93f5b0bec919b95160db0bf35c5ed6904d4d48f282501f0ff4a85f6511f3e44d"
         },
         {
-          "bytes": 120184,
+          "bytes": 124380,
           "path": "jni/x86/libjnidispatch.so",
-          "sha256": "06c0d445fc1a216f9735d3e23de2b95682db055824928c4554c9728919092729"
+          "sha256": "d10fcc75029621a88fa6020807e7ba82ff434a01ead396cf0e36c50e6c393118"
         },
         {
-          "bytes": 118584,
+          "bytes": 126912,
           "path": "jni/x86_64/libjnidispatch.so",
-          "sha256": "a6d3997d3cfc0dba1b00fd2943b41e7395741e88336ed6f6237b594c94083eea"
+          "sha256": "3809247e9b804a05ed8377b87d545cf5b5e97f960f75e725bc8497b40260e417"
         }
       ],
-      "owner_purl": "pkg:maven/net.java.dev.jna/jna@5.14.0",
+      "owner_purl": "pkg:maven/net.java.dev.jna/jna@5.19.1",
       "source_dependency_assurance": "NOT_REVIEWED",
       "source_review": {
         "advisory_disposition": "PARTIAL_SOURCE_QUERY_NO_MATCHES",
         "advisory_queries": [
           {
-            "date": "2026-09-05",
-            "limitation": "No commit-query matches; OSV coverage of C libraries is incomplete. Not a native clearance.",
+            "date": "2026-09-23",
+            "limitation": "No matches for the queried Maven version/base commit; incomplete C coverage and the vendor patch are not cleared by this query.",
+            "matches": 0,
+            "query": {
+              "package": {
+                "ecosystem": "Maven",
+                "name": "net.java.dev.jna:jna"
+              },
+              "version": "5.19.1"
+            },
+            "response_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "source": "https://api.osv.dev/v1/query"
+          },
+          {
+            "date": "2026-09-23",
+            "limitation": "No matches for the queried Maven version/base commit; incomplete C coverage and the vendor patch are not cleared by this query.",
             "matches": 0,
             "query": {
               "commit": "f24180be1367f942824365b131ae894b9c769c7d"
@@ -293,36 +307,41 @@
             "source": "https://api.osv.dev/v1/query"
           }
         ],
-        "binary_source_correspondence": "Vendor release association only; native binaries not independently reproduced.",
+        "binary_source_correspondence": "Maven AAR exactly matches dist/jna.aar at the immutable vendor commit; native binaries not independently reproduced.",
         "evidence": [
           {
-            "sha256": "a06479cd198a8c8c8ed18da4ef45757a19c5fa74332ebdbced6fd4fe5b7c6061",
-            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/build.xml"
+            "sha256": "6083af77fb89bd89717670785503050067827d199cb81b64f59db88e669b81a5",
+            "url": "https://raw.githubusercontent.com/java-native-access/jna/1a91122853f6ab6f1fb2a4a284a6cf2ed8af0a4d/build.xml"
           },
           {
             "sha256": "d236071538a8ae12b75a267de2fbec80d3f59f05704d04f55ad2bcf3f41ec563",
-            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/native/README.libffi"
+            "url": "https://raw.githubusercontent.com/java-native-access/jna/1a91122853f6ab6f1fb2a4a284a6cf2ed8af0a4d/native/README.libffi"
           },
           {
-            "sha256": "59bbfa4e75f1f60d36568b1b7f46625be512c75d29aff20830ed2778e344a312",
-            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/native/Makefile"
+            "sha256": "2415a84e4a967557b4ef7d67e3daaca51505a94e5d7d57c88e00fa17ffd808a7",
+            "url": "https://raw.githubusercontent.com/java-native-access/jna/1a91122853f6ab6f1fb2a4a284a6cf2ed8af0a4d/native/Makefile"
           },
           {
             "sha256": "b78dbea3292cbe4454c778009dda02b0a41a39fea218f850fd40949e1454e86a",
-            "url": "https://github.com/java-native-access/jna/blob/c366bc4fd0c50a30ac8d2475603ec564f6611462/native/libffi/configure.ac"
+            "url": "https://raw.githubusercontent.com/java-native-access/jna/1a91122853f6ab6f1fb2a4a284a6cf2ed8af0a4d/native/libffi/configure.ac"
+          },
+          {
+            "sha256": "b57125cb7d16253f0d65a80f7d3a4c3664effa711b8bdbb7f87fb572ce1624ed",
+            "url": "https://raw.githubusercontent.com/java-native-access/jna/1a91122853f6ab6f1fb2a4a284a6cf2ed8af0a4d/dist/jna.aar"
           }
         ],
-        "remaining": "Review other applicable native advisories and validate artifact build flags/source correspondence; vendored source tree identity is established.",
+        "remaining": "Complete native advisory and source-to-binary build correspondence remain open. Android 16 KB runtime acceptance is tracked separately in jna-16kb-compatibility.md.",
         "status": "PARTIAL",
-        "upstream_commit": "c366bc4fd0c50a30ac8d2475603ec564f6611462",
+        "upstream_commit": "1a91122853f6ab6f1fb2a4a284a6cf2ed8af0a4d",
         "vendored_libffi": {
           "declared_version": "3.4.4",
-          "git_tree": "e0e8cdf7495229c7e98265886219315ee61b25c5",
-          "scope": "Pinned JNA vendored tree exactly equals upstream libffi v3.4.4 tree; this establishes source content identity, not native binary correspondence.",
+          "git_tree": "b74ce7de3113e5081b612260bcef0c1c05790d69",
+          "scope": "JNA vendors libffi 3.4.4 plus a7e40c6f6aac189b944ff0a5639a71d03b261abf, relocating CFI start directives after AArch64 function labels for newer Apple toolchains. The vendored tree is no longer identical to upstream 3.4.4.",
           "source_path": "native/libffi",
           "upstream_commit": "f24180be1367f942824365b131ae894b9c769c7d",
           "upstream_tag": "v3.4.4",
-          "upstream_tree": "e0e8cdf7495229c7e98265886219315ee61b25c5"
+          "upstream_tree": "e0e8cdf7495229c7e98265886219315ee61b25c5",
+          "vendor_patch": "https://github.com/java-native-access/jna/commit/a7e40c6f6aac189b944ff0a5639a71d03b261abf"
         }
       }
     },
@@ -704,7 +723,7 @@
     }
   ],
   "coverage": "native payload identity only; upstream source graph and advisory review required",
-  "lockfile_sha256": "250146f6ed11425b24c7f7c10021a1984dc796fa7439fed0ff725478866e72eb",
+  "lockfile_sha256": "02a67ba00e247febc7d800c2ca9e896bb2a382953db557329dcfadc3e788769c",
   "schemaVersion": 1,
-  "verification_metadata_sha256": "4513208b727cbd47a995bc2b3ca404ee18b320b8fe637f1dd4a7406c687c92dd"
+  "verification_metadata_sha256": "6accfdffe88648a3e6bcb7a72e99925b0de79cf35ea5516290000322886210d0"
 }
