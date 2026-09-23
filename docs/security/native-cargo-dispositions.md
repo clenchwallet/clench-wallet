@@ -248,3 +248,6 @@ IDs, status and advisory hashes are retained. Application and evidence hashes
 are rebound to this scoped dependency delta. This is not a native clearance or
 independent approval; strict native runtime acceptance and independent review
 remain required.
+
+The 0.3.33/333 version metadata is included in this application binding; no
+additional production logic or dependency changes are introduced.
