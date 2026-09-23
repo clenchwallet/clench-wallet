@@ -147,6 +147,9 @@ dependencies {
     // BDK - Bitcoin Dev Kit (Block/Spiral funded)
     implementation(libs.bdk.android)
 
+    // BDK uses JNA. Pin its complete Android artifact for 16 KB-safe native initialization.
+    implementation("net.java.dev.jna:jna:5.19.1@aar")
+
     // BC-UR animated QR for hardware wallet PSBT exchange
     implementation("com.sparrowwallet:hummingbird:1.7.4")
 

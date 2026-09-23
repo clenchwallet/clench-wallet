@@ -60,11 +60,13 @@ explicit incomplete review status:
   target is declared there. All twelve native source files and bundled math
   headers are pinned by Git blob and SHA-256; further advisory and vendor binary
   correspondence review remains open.
-- JNA 5.14.0: jnidispatch. Vendor tag resolved to an immutable commit; build file
-  evidence recorded. Vendored libffi declares 3.4.4; its exact source tree and
-  manifest/build hashes are recorded. That tree exactly matches upstream libffi
-  v3.4.4. The dated OSV commit query returned no matches; this is not complete C
-  advisory coverage or source-to-binary proof.
+- JNA 5.19.1: jnidispatch updated for Android 16 KB page sizes. The Maven
+  AAR matches the immutable upstream tag's distribution byte-for-byte. Its
+  vendored libffi 3.4.4 includes the upstream JNA AArch64 CFI-label patch, so
+  the tree is no longer claimed identical to unmodified libffi 3.4.4.
+  Dated Maven/base-commit OSV queries returned no matches; incomplete native
+  coverage and binary reproducibility limits remain. See
+  [the scoped compatibility review](jna-16kb-compatibility.md).
 - BDK Android 3.0.0-clench.1: locally source-built bdkffi, retaining the original
   3.0.0 Kotlin wrapper. The immutable vendor source and original lock are retained
   separately from the patched build lock. All three JNI output identities,
