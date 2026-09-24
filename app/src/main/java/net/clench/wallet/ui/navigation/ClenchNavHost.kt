@@ -70,8 +70,6 @@ fun ClenchNavHost(navController: NavHostController) {
         )
     }
 
-    val startupViewModel: StartupViewModel = hiltViewModel()
-    val destination by startupViewModel.destination.collectAsState()
     val pickerHost = LocalPickerRoundTripHost.current
     val pendingPickerResume by pickerHost.pickerResume.collectAsState()
 
@@ -79,18 +77,18 @@ fun ClenchNavHost(navController: NavHostController) {
         navController = navController,
         startDestination = "loading"
     ) {
-        composable("loading") {
+        composable("loading") { loadingEntry ->
+            // A foreground rebuild or an explicit return to loading needs a fresh
+            // decision. An Activity-scoped model retains its pre-onboarding route
+            // and can navigate before an asynchronous refresh has reached Compose.
+            // The entry owns the model (and its initial load) until we leave loading.
+            val startupViewModel: StartupViewModel = hiltViewModel(loadingEntry)
+            val destination by startupViewModel.destination.collectAsState()
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator()
-            }
-
-            // Re-evaluate startup destination every time we land on loading
-            // (handles network switches, wallet deletion, fresh app start)
-            LaunchedEffect(Unit) {
-                startupViewModel.refresh()
             }
 
             LaunchedEffect(destination, pendingPickerResume?.requestId) {

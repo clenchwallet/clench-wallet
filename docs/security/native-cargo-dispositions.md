@@ -251,3 +251,30 @@ remain required.
 
 The 0.3.33/333 version metadata is included in this application binding; no
 additional production logic or dependency changes are introduced.
+
+## Startup route ownership correction re-review — 2026-09-24
+
+Against master `778031f5fba92156bb28e757b627b4c7c3d3a4d7`, the only
+production change moves StartupViewModel ownership from the Activity to the
+explicit loading navigation entry and removes the duplicate refresh effect.
+Each recreated loading entry evaluates current wallets/onboarding once instead
+of exposing the preceding foreground's startup decision. No wallet persistence,
+authentication policy, signing, network transport, native invocation surface,
+features, dependency or build input other than that Kotlin file changes.
+
+Fresh production-source inspection still finds no Esplora construction/reference,
+Class.forName, loadClass, direct Native.load or CRL-configuration entry point.
+SQLCipher is the explicit loadLibrary target; ElectrumConnectionFactory still
+constructs the controlled loopback ElectrumClient and uses the existing Java
+SSLSocket relay for upstream TLS. This navigation ownership change adds no path
+to the legacy verifier or CRL parser discussed above.
+
+All six complete live OSV advisory documents were retrieved and read again on
+September 24. Their canonical hashes are unchanged: legacy WebPKI 0.101.7 remains
+affected by URI/wildcard-name constraints (fixed at 0.103.12) and opt-in CRL
+parsing (fixed at 0.103.13). The existing exact call-path dispositions continue
+to apply; affected code is not claimed patched or removed. Retain the original
+2026-10-16 expiry and all six advisory bindings; refresh only the reviewed date,
+application binding and the hash of this added review. The full live candidate
+gate must pass. This review does not substitute for the focused emulator check
+of immediate post-onboarding background/reopen or broader unexamined audit lanes.
