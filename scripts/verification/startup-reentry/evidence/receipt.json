@@ -1,0 +1,21 @@
+{
+  "status": "PASS",
+  "source_commit": "3bbddaaba5ddc553c71e510260e4abb444bb6dfc",
+  "elapsed_seconds": 189.55,
+  "stages": 14,
+  "fresh_xml_observations": 81,
+  "runtime_zip_sha256": "0f85ad6fbca0c7b4fe083641ad1d1f3adc0f138863c24ded79718090757998f0",
+  "scenario_sha256": "9c29d1cf9ad60195053e69c307f1c35b9faf1d59eaf7ada7c5259c22d8bd3e0b",
+  "unchanged_helper_sha256": "54b18f8dc09ef0aa467b1c25f3b3ed47ff3a9930e5afbf0e6dd47b441c352e01",
+  "apk_sha256": "6fbe9fbceb868523691275407283b7a43de718f863088e58e4dba4a6601ee2e8",
+  "one_force_stop_after_four_foreground_checks": true,
+  "source_capture_matches_committed_scenario": true,
+  "archive_inner_manifest_verified": true,
+  "baseline": "Reuse #101 run03/run04 explicit-intent failures; no new baseline control, no claim old normal-launcher failure reproduced",
+  "limitations": [
+    "Launcher-equivalent resolved MAIN/LAUNCHER intent via Activity Manager, no icon tap",
+    "Offline Testnet default no-lock only; no wider lifecycle/security acceptance",
+    "Creation identity cleared after foreground checks; cold persistence tested on imported identity",
+    "Test-signed minified release candidate, not published v0.3.33 artifact"
+  ]
+}

@@ -1,0 +1,17 @@
+Starting a Gradle Daemon (subsequent builds will be faster)
+
+FAILURE: Build failed with an exception.
+
+* Where:
+Settings file '/Users/pb/clench-startup-reentry-20260924/settings.gradle.kts' line: 16
+
+* What went wrong:
+Source-built BDK artifacts are missing. Run: python3 -B scripts/native/prepare-bdk.py
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 1s

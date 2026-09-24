@@ -3,8 +3,14 @@
 ## Status
 
 Navigation-only correction prepared against master
-`778031f5fba92156bb28e757b627b4c7c3d3a4d7`. Focused emulator confirmation is
-**NOT RUN** for the correction; this is not a passing acceptance receipt.
+`778031f5fba92156bb28e757b627b4c7c3d3a4d7`. Focused emulator confirmation of
+candidate `3bbddaaba5ddc553c71e510260e4abb444bb6dfc`: **PASS**, 14 stages in
+189.55 seconds on a disposable-test-signed release build. Fresh creation and import
+preserve wallet/address through both launcher and explicit MainActivity reentry,
+before the single force-stop persistence check. See the
+[runtime receipt](../../scripts/verification/startup-reentry/evidence/README.md) and
+[repeatable scenario](../../scripts/verification/startup-reentry/README.md).
+Independent runtime-evidence review remains pending; PR #102 is not merged.
 The published v0.3.33 APK and completed strict-16-KB regression remain unchanged.
 
 ## Retained observation and source diagnosis
@@ -31,8 +37,9 @@ The owner-lifetime model follows [Android
 ViewModel scoping](https://developer.android.com/topic/libraries/architecture/viewmodel/viewmodel-apis).
 
 Host tests exercise the real ViewModel with lifecycle owners and deferred repository
-results. They do **not** execute Compose/Hilt or prove actual Android routing. A
-focused emulator check must complete the evidence.
+results. They do **not** execute Compose/Hilt or prove actual Android routing. The
+focused emulator receipt now supplies that bounded runtime evidence; it does not
+replace independent review or extend to other lifecycle/security scenarios.
 
 ## Focused Mac emulator check
 

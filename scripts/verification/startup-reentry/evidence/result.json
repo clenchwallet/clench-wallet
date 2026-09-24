@@ -1,0 +1,277 @@
+{
+  "command": [
+    "scripts/verification/startup-reentry/run.py",
+    "--sdk",
+    "/Users/pb/Library/Android/sdk",
+    "--apk",
+    "/Users/pb/clench-startup-reentry-evidence-20260924/startup-reentry-3bbddaa-test-release.apk",
+    "--fixture",
+    "scripts/verification/startup-reentry/candidate.json",
+    "--evidence",
+    "/Users/pb/clench-startup-reentry-evidence-20260924/run01",
+    "--port",
+    "5590"
+  ],
+  "elapsed_seconds": 189.55,
+  "emulator_command": [
+    "/Users/pb/Library/Android/sdk/emulator/emulator",
+    "-avd",
+    "clench_strict16_clench_strict16_71qxbuop",
+    "-port",
+    "5590",
+    "-accel",
+    "on",
+    "-no-window",
+    "-no-audio",
+    "-no-snapshot",
+    "-no-boot-anim",
+    "-gpu",
+    "swiftshader",
+    "-memory",
+    "2048",
+    "-cores",
+    "4"
+  ],
+  "identifiers": {
+    "apk_sha256": "6fbe9fbceb868523691275407283b7a43de718f863088e58e4dba4a6601ee2e8",
+    "fixture_sha256": "c516f877d88a2a1b96af51f830973e7da57195791d11aab38356b3eb719e72c9",
+    "host": "macOS-26.6.2-arm64-arm-64bit",
+    "java_home": "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home",
+    "python": "3.9.6 (default, Aug 25 2026, 21:26:21) \n[Clang 21.0.0 (clang-2100.3.34.2)]",
+    "runner_git_commit": "3bbddaaba5ddc553c71e510260e4abb444bb6dfc",
+    "runner_git_status": "?? scripts/verification/startup-reentry/\n",
+    "runner_sha256": "9c29d1cf9ad60195053e69c307f1c35b9faf1d59eaf7ada7c5259c22d8bd3e0b",
+    "source_commit": "3bbddaaba5ddc553c71e510260e4abb444bb6dfc",
+    "static_sha256": "69349e36ed61b25e1603aaed69a3229a48f2266172e96ebb147b4489ee8fb227",
+    "tools": {
+      "build-tools/35.0.0/aapt": "c0b5427aeabbbe05023ee2a55e3a9877c99ce57245bb15c21d4802326b86d099",
+      "build-tools/35.0.0/apksigner": "b47549e373b895ce6ca620d0c7887e674d9615ffa837a86ac601dcfd04adb0f0",
+      "build-tools/35.0.0/lib/apksigner.jar": "00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7",
+      "cmdline-tools/latest/bin/avdmanager": "09199f7bca5dc7eb4e4b4ff459dc125579c3e08c61ddc078dcd2c6e8e61efbb6",
+      "emulator/emulator": "c12c8d72da94cb5abd7f9d2578923d05ff94ea827f0ee593c6e563c96edc0d42",
+      "platform-tools/adb": "9fdf861259dc807937b13afdd5f053c7fda9f3b7726933fe0e0f45130ecb8dc7"
+    }
+  },
+  "image_package": "system-images;android-35;google_apis_ps16k;arm64-v8a",
+  "instrumented_build": false,
+  "owned_emulator_stopped": true,
+  "physical_device_used": false,
+  "scenario": "fresh onboarding before cold restart; launcher and explicit intent",
+  "schema_version": 1,
+  "serial": "emulator-5590",
+  "started_utc": "2026-09-24T04:58:55Z",
+  "status": "PASS",
+  "steps": [
+    {
+      "elapsed_seconds": 0.25,
+      "name": "artifact",
+      "signer_sha256": "5d2d91693c1d859b34b153be44a42eb04b4a1db6016883023768376477fc6c86",
+      "status": "PASS",
+      "version": "0.3.33"
+    },
+    {
+      "elapsed_seconds": 0.29,
+      "name": "static",
+      "status": "PASS"
+    },
+    {
+      "abi": "arm64-v8a",
+      "api": 35,
+      "elapsed_seconds": 17.74,
+      "fallback": {
+        "bionic.linker.16kb.app_compat.enabled": "false",
+        "pm.16kb.app_compat.disabled": "true"
+      },
+      "fingerprint": "google/sdk_gphone16k_arm64/emu64a16k:15/AE3A.240806.043/12960925:userdebug/dev-keys",
+      "name": "environment",
+      "page_size": 16384,
+      "qemu": "1",
+      "status": "PASS"
+    },
+    {
+      "elapsed_seconds": 19.15,
+      "installed_apk_sha256": "6fbe9fbceb868523691275407283b7a43de718f863088e58e4dba4a6601ee2e8",
+      "name": "installed",
+      "status": "PASS"
+    },
+    {
+      "app_mode": "Offline",
+      "elapsed_seconds": 30.98,
+      "lock": "default no lock",
+      "name": "create_onboarding",
+      "network": "Testnet",
+      "status": "PASS"
+    },
+    {
+      "address": "tb1qvpnhf3vl7qqq37myh5sa4gkhtra2jpy87wr5cr",
+      "elapsed_seconds": 52.86,
+      "name": "created",
+      "status": "PASS",
+      "verified_seed_questions": 4,
+      "wallet_name": "My Wallet"
+    },
+    {
+      "address": "tb1qvpnhf3vl7qqq37myh5sa4gkhtra2jpy87wr5cr",
+      "after": {
+        "activity_record": "45c902d u0 net.clench.wallet/.ui.MainActivity t8",
+        "pid": "2954",
+        "proc_stat": "2954 (t.clench.wallet) S 371 371 0 0 -1 4194624 26239 0 965 0 146 59 0 0 10 -10 30 0 1750 17214832640 10153 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 1 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "RESUMED",
+        "task_id": "8"
+      },
+      "background": {
+        "activity_record": "45c902d u0 net.clench.wallet/.ui.MainActivity t8",
+        "pid": "2954",
+        "proc_stat": "2954 (t.clench.wallet) S 371 371 0 0 -1 4194624 24427 0 963 0 134 53 0 0 20 0 30 0 1750 17213505536 9924 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 2 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "STOPPED",
+        "task_id": "8"
+      },
+      "before": {
+        "activity_record": "45c902d u0 net.clench.wallet/.ui.MainActivity t8",
+        "pid": "2954",
+        "proc_stat": "2954 (t.clench.wallet) S 371 371 0 0 -1 4194624 23646 0 960 0 132 47 0 0 10 -10 30 0 1750 17213505536 9909 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 2 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "RESUMED",
+        "task_id": "8"
+      },
+      "elapsed_seconds": 65.53,
+      "force_stop_has_occurred": false,
+      "launch_mode": "launcher",
+      "name": "created_launcher",
+      "status": "PASS",
+      "wallet_name": "My Wallet"
+    },
+    {
+      "address": "tb1qvpnhf3vl7qqq37myh5sa4gkhtra2jpy87wr5cr",
+      "after": {
+        "activity_record": "45c902d u0 net.clench.wallet/.ui.MainActivity t8",
+        "pid": "2954",
+        "proc_stat": "2954 (t.clench.wallet) S 371 371 0 0 -1 4194624 27398 0 965 0 153 65 0 0 10 -10 31 0 1750 17232920576 10066 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 2 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "RESUMED",
+        "task_id": "8"
+      },
+      "background": {
+        "activity_record": "45c902d u0 net.clench.wallet/.ui.MainActivity t8",
+        "pid": "2954",
+        "proc_stat": "2954 (t.clench.wallet) S 371 371 0 0 -1 4194624 26289 0 965 0 146 61 0 0 20 0 31 0 1750 17232740352 10185 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 0 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "STOPPED",
+        "task_id": "8"
+      },
+      "before": {
+        "activity_record": "45c902d u0 net.clench.wallet/.ui.MainActivity t8",
+        "pid": "2954",
+        "proc_stat": "2954 (t.clench.wallet) S 371 371 0 0 -1 4194624 26240 0 965 0 146 60 0 0 10 -10 30 0 1750 17214832640 10153 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 2 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "RESUMED",
+        "task_id": "8"
+      },
+      "elapsed_seconds": 78.08,
+      "force_stop_has_occurred": false,
+      "launch_mode": "explicit",
+      "name": "created_explicit",
+      "status": "PASS",
+      "wallet_name": "My Wallet"
+    },
+    {
+      "app_mode": "Offline",
+      "elapsed_seconds": 88.59,
+      "lock": "default no lock",
+      "name": "import_onboarding",
+      "network": "Testnet",
+      "status": "PASS"
+    },
+    {
+      "address": "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+      "elapsed_seconds": 151.4,
+      "name": "imported",
+      "status": "PASS",
+      "wallet_name": "Reentry-Import"
+    },
+    {
+      "address": "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+      "after": {
+        "activity_record": "9e1247 u0 net.clench.wallet/.ui.MainActivity t9",
+        "pid": "4633",
+        "proc_stat": "4633 (t.clench.wallet) S 371 371 0 0 -1 4194624 18890 0 65 0 204 83 0 0 10 -10 30 0 7643 17245863936 11069 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 3 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "RESUMED",
+        "task_id": "9"
+      },
+      "background": {
+        "activity_record": "9e1247 u0 net.clench.wallet/.ui.MainActivity t9",
+        "pid": "4633",
+        "proc_stat": "4633 (t.clench.wallet) S 371 371 0 0 -1 4194624 17613 0 65 0 195 79 0 0 20 0 30 0 7643 17244766208 10723 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 2 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "STOPPED",
+        "task_id": "9"
+      },
+      "before": {
+        "activity_record": "9e1247 u0 net.clench.wallet/.ui.MainActivity t9",
+        "pid": "4633",
+        "proc_stat": "4633 (t.clench.wallet) R 371 371 0 0 -1 4194624 17212 0 65 0 193 76 0 0 10 -10 29 0 7643 17226874880 11058 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 3 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "RESUMED",
+        "task_id": "9"
+      },
+      "elapsed_seconds": 164.06,
+      "force_stop_has_occurred": false,
+      "launch_mode": "explicit",
+      "name": "imported_explicit",
+      "status": "PASS",
+      "wallet_name": "Reentry-Import"
+    },
+    {
+      "address": "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+      "after": {
+        "activity_record": "9e1247 u0 net.clench.wallet/.ui.MainActivity t9",
+        "pid": "4633",
+        "proc_stat": "4633 (t.clench.wallet) S 371 371 0 0 -1 4194624 19777 0 65 0 210 91 0 0 10 -10 30 0 7643 17245863936 11082 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 2 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "RESUMED",
+        "task_id": "9"
+      },
+      "background": {
+        "activity_record": "9e1247 u0 net.clench.wallet/.ui.MainActivity t9",
+        "pid": "4633",
+        "proc_stat": "4633 (t.clench.wallet) S 371 371 0 0 -1 4194624 18964 0 65 0 204 86 0 0 20 0 30 0 7643 17245863936 11069 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 3 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "STOPPED",
+        "task_id": "9"
+      },
+      "before": {
+        "activity_record": "9e1247 u0 net.clench.wallet/.ui.MainActivity t9",
+        "pid": "4633",
+        "proc_stat": "4633 (t.clench.wallet) S 371 371 0 0 -1 4194624 18891 0 65 0 204 84 0 0 10 -10 30 0 7643 17245863936 11069 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 0 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "RESUMED",
+        "task_id": "9"
+      },
+      "elapsed_seconds": 176.7,
+      "force_stop_has_occurred": false,
+      "launch_mode": "launcher",
+      "name": "imported_launcher",
+      "status": "PASS",
+      "wallet_name": "Reentry-Import"
+    },
+    {
+      "address": "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+      "after": {
+        "activity_record": "f838f7e u0 net.clench.wallet/.ui.MainActivity t10",
+        "pid": "6174",
+        "proc_stat": "6174 (t.clench.wallet) S 371 371 0 0 -1 4194624 8276 0 1 0 91 11 0 0 10 -10 28 0 17504 17187848192 10141 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 0 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "RESUMED",
+        "task_id": "10"
+      },
+      "before": {
+        "activity_record": "9e1247 u0 net.clench.wallet/.ui.MainActivity t9",
+        "pid": "4633",
+        "proc_stat": "4633 (t.clench.wallet) S 371 371 0 0 -1 4194624 19778 0 65 0 210 91 0 0 10 -10 30 0 7643 17245863936 11082 18446744073709551615 96788127727616 96788127731552 140736601625216 0 0 0 4612 1 1073775864 0 0 0 17 2 0 0 0 0 0 96788127760384 96788127760408 96789085700096 140736601632233 140736601632332 140736601632332 140736601636830 0",
+        "state": "RESUMED",
+        "task_id": "9"
+      },
+      "elapsed_seconds": 187.53,
+      "name": "imported_restart",
+      "status": "PASS",
+      "wallet_name": "Reentry-Import"
+    },
+    {
+      "crash_buffer_empty": true,
+      "elapsed_seconds": 187.67,
+      "name": "final",
+      "status": "PASS"
+    }
+  ],
+  "test_signed_release_candidate": true
+}

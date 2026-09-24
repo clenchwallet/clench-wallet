@@ -1,0 +1,177 @@
+
+> Configure project :app
+WARNING: The option setting 'android.disallowKotlinSourceSets=false' is experimental.
+The current default is 'true'.
+Add android.sync.suppressAgpWarnings=UNSUPPORTED_PROJECT_OPTION_USE to the gradle.properties file to suppress this warning.
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preReleaseBuild UP-TO-DATE
+> Task :app:mergeReleaseJniLibFolders
+> Task :app:mergeReleaseArtProfile
+> Task :app:generateReleaseBuildConfig
+> Task :app:checkReleaseDuplicateClasses
+> Task :app:generateReleaseResources FROM-CACHE
+> Task :app:packageReleaseResources FROM-CACHE
+> Task :app:processReleaseNavigationResources FROM-CACHE
+> Task :app:mergeReleaseNativeLibs
+> Task :app:parseReleaseLocalResources FROM-CACHE
+> Task :app:generateReleaseRFile FROM-CACHE
+
+> Task :app:stripReleaseDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libjnidispatch.so. Run with --info option to learn more.
+
+> Task :app:javaPreCompileRelease FROM-CACHE
+> Task :app:mapReleaseSourceSetPaths
+> Task :app:compileReleaseNavigationResources FROM-CACHE
+> Task :app:checkReleaseAarMetadata
+> Task :app:mergeReleaseResources FROM-CACHE
+> Task :app:createReleaseCompatibleScreenManifests
+> Task :app:extractDeepLinksRelease FROM-CACHE
+> Task :app:processReleaseMainManifest
+> Task :app:processReleaseManifest
+> Task :app:extractProguardFiles
+> Task :app:mergeReleaseStartupProfile
+> Task :app:generateReleaseAssets UP-TO-DATE
+> Task :app:mergeReleaseAssets
+> Task :app:compressReleaseAssets FROM-CACHE
+> Task :app:extractReleaseVersionControlInfo
+> Task :app:writeReleaseAppMetadata
+> Task :app:writeReleaseSigningConfigVersions
+> Task :app:processReleaseManifestForPackage
+> Task :app:processReleaseResources
+> Task :app:optimizeReleaseResources
+> Task :app:extractReleaseNativeSymbolTables
+> Task :app:mergeReleaseNativeDebugMetadata
+> Task :app:kspReleaseKotlin
+
+> Task :app:compileReleaseKotlin
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:46:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:52:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:58:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:64:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:70:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:83:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:97:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:106:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:123:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:139:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:165:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/ClenchDatabase.kt:185:34 The corresponding parameter in the supertype 'Migration' is named 'db'. This may cause problems when calling this function with named arguments.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/KeystoreManager.kt:27:29 'class MasterKey : Any' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/KeystoreManager.kt:27:39 'constructor(p0: Context): MasterKey.Builder' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/KeystoreManager.kt:28:31 'class MasterKey : Any' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/KeystoreManager.kt:28:41 'enum class KeyScheme : Enum<MasterKey.KeyScheme!>' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/KeystoreManager.kt:30:20 'class EncryptedSharedPreferences : Any, SharedPreferences' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/KeystoreManager.kt:34:17 'class EncryptedSharedPreferences : Any, SharedPreferences' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/KeystoreManager.kt:34:44 'enum class PrefKeyEncryptionScheme : Enum<EncryptedSharedPreferences.PrefKeyEncryptionScheme!>' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/KeystoreManager.kt:35:17 'class EncryptedSharedPreferences : Any, SharedPreferences' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/KeystoreManager.kt:35:44 'enum class PrefValueEncryptionScheme : Enum<EncryptedSharedPreferences.PrefValueEncryptionScheme!>' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/KeystoreManager.kt:154:46 'class MasterKey : Any' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/local/KeystoreManager.kt:154:56 'static field DEFAULT_MASTER_KEY_ALIAS: String' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/repository/BdkBitcoinRepository.kt:1311:17 'when' is exhaustive so 'else' is redundant here.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/data/repository/BdkBitcoinRepository.kt:2393:38 Redundant call of conversion method.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/domain/model/MultisigAccountKey.kt:7:40 Non-public primary constructor is exposed via the generated 'copy()' method of the 'data' class.
+
+The generated 'copy()' will change its visibility in future releases.
+
+To suppress the warning do one of the following:
+- Annotate the data class with the '@ConsistentCopyVisibility' annotation.
+- Use the '-Xconsistent-data-class-copy-visibility' compiler flag.
+- Annotate the data class with the '@ExposedCopyVisibility' annotation 
+  (Discouraged, but can be used to keep binary compatibility).
+
+To learn more, see the documentation of the '@ConsistentCopyVisibility' and '@ExposedCopyVisibility' annotations.
+
+This will become an error in language version 2.5. See https://youtrack.jetbrains.com/issue/KT-11914.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/components/LegacyUrSessionAccumulator.kt:32:27 'constructor(): LegacyURDecoder' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/components/LegacyUrSessionAccumulator.kt:81:19 'constructor(): LegacyURDecoder' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/components/QrScanner.kt:309:30 'fun setTargetResolution(p0: Size): ImageAnalysis.Builder' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/components/QrScanner.kt:386:41 'class LegacyURDecoder : Any' is deprecated. Deprecated in Java.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt:85:54 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt:204:56 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt:224:56 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt:548:54 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt:589:48 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt:701:25 Expression is unused.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/navigation/ClenchNavHost.kt:735:25 Expression is unused.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/AboutScreen.kt:81:56 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/AboutScreen.kt:92:56 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/AboutScreen.kt:103:56 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/AboutScreen.kt:111:56 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/AddressListScreen.kt:27:39 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/AddressListScreen.kt:52:13 'fun TabRow(selectedTabIndex: Int, modifier: Modifier = ..., containerColor: Color = ..., contentColor: Color = ..., indicator: ComposableFunction1<List<TabPosition>, Unit> = ..., divider: ComposableFunction0<Unit> = ..., tabs: ComposableFunction0<Unit>): Unit' is deprecated. Replaced with PrimaryTabRow and SecondaryTabRow.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/AddressesScreen.kt:25:37 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/BackupScreen.kt:34:34 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/BackupScreen.kt:44:27 No cast needed.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/ConnectionSetupScreen.kt:122:43 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/CreateMultisigScreen.kt:67:42 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/CreateMultisigScreen.kt:758:28 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/CreateWalletScreen.kt:30:40 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/DebugScreen.kt:48:36 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/ElectrumServerScreen.kt:26:36 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/ExplorerScreen.kt:20:36 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/FundSatscardScreen.kt:68:40 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/HardwareWalletPsbtScreen.kt:64:46 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/HardwareWalletSettingsScreen.kt:22:50 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/HomeScreen.kt:51:32 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/ImportWalletScreen.kt:70:40 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/NetworkChoiceScreen.kt:30:41 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/NetworkScreen.kt:21:36 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/PassphraseUnlockScreen.kt:34:44 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/PassphraseUnlockScreen.kt:37:26 'val LocalLifecycleOwner: ProvidableCompositionLocal<LifecycleOwner>' is deprecated. Moved to lifecycle-runtime-compose library in androidx.lifecycle.compose package.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/PhoneSignerPsbtScreen.kt:37:43 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/RawTransactionScreen.kt:40:42 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/ReceiveScreen.kt:33:35 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/RecoveryWizardScreen.kt:56:42 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SecurityOnboardingScreen.kt:26:36 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SecurityScreen.kt:36:36 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SecurityScreen.kt:45:27 No cast needed.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SendScreen.kt:52:32 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SendScreen.kt:64:27 No cast needed.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SendScreen.kt:669:40 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/ServerSetupScreen.kt:60:39 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SettingsScreen.kt:31:48 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SettingsScreen.kt:49:36 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SettingsScreen.kt:247:60 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SignerVaultScreen.kt:84:39 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SignerVaultScreen.kt:91:28 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/SweepScreen.kt:61:33 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/TransactionDetailScreen.kt:317:60 Unnecessary non-null assertion (!!) on a non-null receiver of type 'TransactionItem'.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/UtxoListScreen.kt:30:32 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/ViewSeedPhraseScreen.kt:29:42 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/ViewSeedPhraseScreen.kt:41:27 No cast needed.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/WalletInfoScreen.kt:88:38 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/WalletInfoScreen.kt:763:57 'fun Modifier.menuAnchor(): Modifier' is deprecated. Use overload that takes ExposedDropdownMenuAnchorType and enabled parameters.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/WalletInfoScreen.kt:1054:17 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/WalletInfoScreen.kt:1182:17 'fun Divider(modifier: Modifier = ..., thickness: Dp = ..., color: Color = ...): Unit' is deprecated. Renamed to HorizontalDivider.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/WalletListScreen.kt:35:38 'fun <reified VM : ViewModel> hiltViewModel(viewModelStoreOwner: ViewModelStoreOwner = ..., key: String? = ...): VM' is deprecated. Moved to package: androidx.hilt.lifecycle.viewmodel.compose.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/screens/WalletListScreen.kt:114:40 'fun rememberSwipeToDismissBoxState(initialValue: SwipeToDismissBoxValue = ..., confirmValueChange: (SwipeToDismissBoxValue) -> Boolean = ..., positionalThreshold: (Float) -> Float = ...): SwipeToDismissBoxState' is deprecated. confirmValueChange is deprecated without replacement. Rather than relying on a callback to veto state changes, the anchor set should not include disallowed anchors. See androidx.compose.foundation.samples.AnchoredDraggableDynamicAnchorsSample for an example of using dynamic anchors over confirmValueChange.
+w: file:///Users/pb/clench-startup-reentry-20260924/app/src/main/java/net/clench/wallet/ui/viewmodel/SettingsViewModel.kt:577:28 Condition is always 'true'.
+
+> Task :app:compileReleaseJavaWithJavac
+> Task :app:hiltCollectClassesRelease
+> Task :app:hiltAggregateDepsRelease FROM-CACHE
+> Task :app:hiltJavaCompileRelease
+> Task :app:processReleaseJavaRes
+> Task :app:generateReleaseLintVitalReportModel
+> Task :app:transformReleaseClassesWithAsm
+> Task :app:mergeReleaseGeneratedProguardFiles
+> Task :app:mergeReleaseJavaResource
+> Task :app:expandReleaseArtProfileWildcards
+> Task :app:produceReleaseComposeMapping
+> Task :app:reportReleaseComposeMappingErrors
+> Task :app:lintVitalAnalyzeRelease
+> Task :app:minifyReleaseWithR8
+> Task :app:lintVitalReportRelease
+> Task :app:lintVitalRelease
+> Task :app:mergeReleaseComposeMapping
+> Task :app:compileReleaseArtProfile
+> Task :app:packageRelease
+> Task :app:createReleaseApkListingFileRedirect
+> Task :app:assembleRelease
+
+[Incubating] Problems report is available at: file:///Users/pb/clench-startup-reentry-20260924/build/reports/problems/problems-report.html
+
+BUILD SUCCESSFUL in 1m 17s
+53 actionable tasks: 42 executed, 11 from cache
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.6.1/userguide/configuration_cache_enabling.html
