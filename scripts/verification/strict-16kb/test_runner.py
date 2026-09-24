@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import json
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -59,6 +60,75 @@ class Contracts(unittest.TestCase):
             instance.deadline = 0
             with self.assertRaisesRegex(RuntimeError, 'deadline'):
                 instance.command(sys.executable, '-c', 'pass')
+
+    def snapshot_probe(self, mode):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        base = Path(temp.name)
+        instance = runner.Runner(SimpleNamespace(evidence=base / 'evidence', timeout=60,
+                                                port=5584, sdk=base))
+        stale = b'<hierarchy><node text="tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl"/></hierarchy>'
+        (base / 'strict16-ui-0001.xml').write_bytes(stale)
+        (base / 'strict16-ui.xml').write_bytes(stale)
+        # Execute real child commands so zero exit, absent-file failure and both
+        # output streams exercise the production diagnostic capture path.
+        script = """
+import pathlib,sys
+base,mode,*args=sys.argv[1:]
+p=pathlib.Path(base)/pathlib.Path(args[-1]).name
+if args[:3]==['shell','rm','-f']:
+    p.unlink(missing_ok=True)
+elif args[:4]==['shell','test','!','-e']:
+    sys.exit(1 if p.exists() else 0)
+elif args[:3]==['shell','uiautomator','dump']:
+    if mode=='no-write':
+        print('ERROR: null root node returned',file=sys.stderr)
+        print('idle timeout; no dump written')
+    else:
+        p.write_bytes({'empty':b'', 'malformed':b'<hierarchy>',
+                      'valid':b'<hierarchy><node text="fresh"/></hierarchy>'}[mode])
+        print('UI hierarchy dumped to: '+str(p))
+elif args[:2]==['exec-out','cat']:
+    if not p.exists():
+        print('No such file',file=sys.stderr);sys.exit(1)
+    sys.stdout.buffer.write(p.read_bytes())
+else:
+    raise AssertionError(args)
+"""
+        instance.a = lambda *args, **kwargs: instance.command(
+            sys.executable, '-c', script, base, mode, *args, **kwargs)
+        return instance
+
+    def test_zero_exit_no_write_cannot_reuse_stale_xml(self):
+        instance = self.snapshot_probe('no-write')
+        with self.assertRaisesRegex(RuntimeError, 'No such file'):
+            instance.snap()
+        prefix = instance.out / 'ui/0001-setup'
+        self.assertEqual(json.loads(Path(str(prefix)+'-dump.json').read_text())['returncode'], 0)
+        self.assertIn('null root', Path(str(prefix)+'-dump.stderr').read_text())
+        self.assertIn('no dump written', Path(str(prefix)+'-dump.stdout').read_text())
+        self.assertEqual(json.loads(Path(str(prefix)+'-observation.json').read_text())['status'], 'FAIL')
+        self.assertFalse(Path(str(prefix)+'.xml').exists())
+
+    def test_empty_snapshot_is_rejected_and_retained(self):
+        instance = self.snapshot_probe('empty')
+        with self.assertRaisesRegex(RuntimeError, 'Empty UI XML'):
+            instance.snap()
+        self.assertEqual((instance.out / 'ui/0001-setup.xml').read_bytes(), b'')
+
+    def test_malformed_snapshot_is_rejected_and_retained(self):
+        instance = self.snapshot_probe('malformed')
+        with self.assertRaises(ET.ParseError):
+            instance.snap()
+        self.assertEqual((instance.out / 'ui/0001-setup.xml').read_bytes(), b'<hierarchy>')
+
+    def test_fresh_snapshot_replaces_stale_and_uses_unique_paths(self):
+        instance = self.snapshot_probe('valid')
+        self.assertEqual(instance.snap().find('node').get('text'), 'fresh')
+        instance.snap()
+        observations = [json.loads(p.read_text()) for p in sorted((instance.out/'ui').glob('*-observation.json'))]
+        self.assertEqual(len({v['device_path'] for v in observations}), 2)
+        self.assertTrue(all(v['status']=='PASS' and v['prior_absence_verified'] for v in observations))
 
     def test_hashes_bytes_without_python311_dependency(self):
         with tempfile.TemporaryDirectory() as tmp:

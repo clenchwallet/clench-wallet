@@ -97,12 +97,23 @@ class Runner:
         else:
             path.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
 
-    def command(self, *args, timeout=45, check=True, input=None):
+    def command(self, *args, timeout=45, check=True, input=None, diagnostics=None):
         remaining = self.deadline - time.monotonic()
         require(remaining > 0, 'Overall deadline exceeded')
         cmd = list(map(str, args))
-        p = subprocess.run(cmd, input=input, stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE, timeout=min(timeout, remaining), env=self.env)
+        try:
+            p = subprocess.run(cmd, input=input, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, timeout=min(timeout, remaining), env=self.env)
+        except subprocess.TimeoutExpired as exc:
+            if diagnostics:
+                self.save(diagnostics + '.stdout', exc.stdout or b'')
+                self.save(diagnostics + '.stderr', exc.stderr or b'')
+                self.save(diagnostics + '.json', {'command': cmd, 'timeout': exc.timeout})
+            raise
+        if diagnostics:
+            self.save(diagnostics + '.stdout', p.stdout)
+            self.save(diagnostics + '.stderr', p.stderr)
+            self.save(diagnostics + '.json', {'command': cmd, 'returncode': p.returncode})
         with (self.out / 'commands.jsonl').open('a') as log:
             log.write(json.dumps({'command': cmd, 'returncode': p.returncode,
                                   'elapsed': round(time.monotonic() - self.start, 2),
@@ -129,11 +140,32 @@ class Runner:
         print(name + ': PASS', flush=True)
 
     def snap(self):
-        self.a('shell', 'uiautomator', 'dump', '/sdcard/strict16-ui.xml', timeout=20)
-        data = self.a('exec-out', 'cat', '/sdcard/strict16-ui.xml')
         self.seq += 1
-        self.save(f'ui/{self.seq:04}-{self.stage}.xml', data)
-        return ET.fromstring(data)
+        prefix = f'ui/{self.seq:04}-{self.stage}'
+        remote = f'/sdcard/strict16-ui-{self.seq:04}.xml'
+        observation = {'device_path': remote, 'status': 'FAIL'}
+        try:
+            # UIAutomator may exit zero on null-root/idle-timeout without writing.
+            # Remove and verify absence even for the unique per-observation path.
+            self.a('shell', 'rm', '-f', remote, diagnostics=prefix + '-remove')
+            self.a('shell', 'test', '!', '-e', remote, diagnostics=prefix + '-absent')
+            observation['prior_absence_verified'] = True
+            self.a('shell', 'uiautomator', 'dump', remote, timeout=20,
+                   diagnostics=prefix + '-dump')
+            data = self.a('exec-out', 'cat', remote, diagnostics=prefix + '-read')
+            self.save(prefix + '.xml', data)  # retain empty/malformed output too
+            require(data.strip(), 'Empty UI XML observation')
+            tree = ET.fromstring(data)
+            require(tree.tag == 'hierarchy' and next(tree.iter('node'), None) is not None,
+                    'Expected a UI hierarchy containing nodes')
+            observation.update(status='PASS', bytes=len(data),
+                               sha256=hashlib.sha256(data).hexdigest())
+            return tree
+        except Exception as exc:
+            observation['error'] = str(exc)
+            raise
+        finally:
+            self.save(prefix + '-observation.json', observation)
 
     def wait_ui(self, predicate, description, timeout=35):
         end = min(self.deadline, time.monotonic() + timeout)

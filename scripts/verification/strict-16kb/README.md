@@ -113,6 +113,12 @@ Room UUID. SQLCipher mapping + opaque database + successful process reload
 supports encrypted persistence; this is not independent DB decryption, schema
 verification, a cryptographic audit, or SQLCipher provenance work.
 
+Each observation uses a unique device XML path, removes any prior file and verifies
+absence before dumping. A zero dump exit alone cannot pass: the new file must be
+read successfully, be nonempty, parse as XML and contain a UI hierarchy with nodes.
+Dump/read/removal/absence stdout, stderr and exit (or timeout) metadata are retained,
+including empty or malformed XML and a per-observation failure receipt.
+
 UI waits poll observations only; they do not repeat state-changing actions or
 relaunch after a crash. Commands have individual deadlines within the overall
 budget. Failure stops the scenario and retains `first-failure.json`, crash/main
@@ -170,7 +176,8 @@ python3 -B scripts/verification/strict-16kb/test_runner.py
 Harness tests reject wrong page size, API, emulator identity, ABI and fallback;
 missing/ambiguous address observations; missing/reordered/failed steps; reused
 evidence directories and command/overall timeouts. These are harness tests, not
-substitutes for the real run.
+substitutes for the real run. Freshness tests also cover zero-exit/no-write with
+stale prior XML, empty output, malformed output and successful unique snapshots.
 
 The old published v0.3.32 APK is a static negative control and has retained strict
 Android runtime failures at JNA `JNI_OnLoad` from the original baseline. Reusing
