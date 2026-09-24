@@ -1,0 +1,13 @@
+{
+  "classification": "Historical runtime evidence reused; static negative control executed with maintained companion",
+  "source_commit": "7b577182064b3b61768e926aba5431e0d8948a79",
+  "apk_sha256": "1604f314347422852c05ed862149e2e90c775821869727b3fdec9ec42c3e28bf",
+  "runtime_result": "FAIL: original 2026-09-23 create/import JNA JNI_OnLoad SIGSEGV",
+  "new_runtime_execution": false,
+  "new_static_result": "FAIL: arm64-v8a RELRO end is not 16 KB aligned",
+  "original_raw_evidence": "/Users/pb/clench-16kb-baseline-20260923",
+  "original_tombstone_sha256": "60628f3d113d1937a6b4574b032375d5a4518bec03927883752c7fe7e620bc57",
+  "original_manifest_verification": "PASS",
+  "original_manifest_files_verified": 97,
+  "original_manifest_sha256": "ba4fad4f4819f04fe1e0bb2420c60e4bdb8519a1421f9b9dcc5b6d6ae81d7196"
+}

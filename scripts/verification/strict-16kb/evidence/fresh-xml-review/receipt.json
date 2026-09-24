@@ -1,0 +1,18 @@
+{
+  "review": "https://github.com/clenchwallet/clench-wallet/pull/101#pullrequestreview-5298838072",
+  "status": "PASS",
+  "fix_commit": "f8ae80d0e5e117a2466dc7e73393eae87b752cbd",
+  "clean_checkout_at_execution": true,
+  "runner_sha256": "54b18f8dc09ef0aa467b1c25f3b3ed47ff3a9930e5afbf0e6dd47b441c352e01",
+  "runtime_seconds": 185.76,
+  "runtime_executions_for_correction": 1,
+  "fresh_observations": 78,
+  "unique_paths_and_verified_absence": true,
+  "nonempty_parseable_xml_and_complete_diagnostics": true,
+  "all_inner_hashes_verified": true,
+  "runtime_archive_sha256": "84f2036cddeae347653126337e54246b0ff6c031694c8b674631e693b0eaec7f",
+  "helper_tests": 10,
+  "prior_evidence": "unchanged, original manifest still verifies",
+  "source_equivalence": "Evidence/documentation-only child preserves executed runner, static companion and fixture bytes",
+  "raw_local": "/Users/pb/clench-strict-16kb-evidence-20260923/run08-fresh-xml"
+}

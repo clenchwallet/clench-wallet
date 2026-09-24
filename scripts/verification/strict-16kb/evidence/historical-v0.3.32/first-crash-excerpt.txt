@@ -1,0 +1,69 @@
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+Build fingerprint: 'google/sdk_gphone16k_arm64/emu64a16k:15/AE3A.240806.043/12960925:userdebug/dev-keys'
+Revision: '0'
+ABI: 'arm64'
+Timestamp: 2026-09-23 09:33:35.804769102-0700
+Process uptime: 66s
+Page size: 16384 bytes
+Cmdline: net.clench.wallet
+pid: 4134, tid: 4134, name: t.clench.wallet  >>> net.clench.wallet <<<
+uid: 10207
+tagged_addr_ctrl: 0000000000000001 (PR_TAGGED_ADDR_ENABLE)
+pac_enabled_keys: 000000000000000f (PR_PAC_APIAKEY, PR_PAC_APIBKEY, PR_PAC_APDAKEY, PR_PAC_APDBKEY)
+signal 11 (SIGSEGV), code 2 (SEGV_ACCERR), fault addr 0x000076ca01afe590
+    x0  000076ccc325802d  x1  000000005c000000  x2  b40076ca19ac8010  x3  00000000706e8d90
+    x4  0000808080808000  x5  6176616a4c1c0000  x6  00809ccceae17661  x7  00000000003b7463
+    x8  df79da4623abc078  x9  df79da4623abc078  x10 000000000000000b  x11 b40076cb09aceaf0
+    x12 0000000000000001  x13 000000003fffffff  x14 000076ccc325802c  x15 000076ccc3258028
+    x16 0000000000000001  x17 000076ca0785b9b0  x18 000076ccc3f58000  x19 b40076cb69ab5d50
+    x20 000076ca01afe248  x21 b40076cb79aab110  x22 0000000000000001  x23 000076ca01afe000
+    x24 b40076cb69ab5d50  x25 000076ca01ad1848  x26 b40076ca79aba110  x27 b40076ca79aba170
+    x28 000076ccc3258029  x29 00007ffff077c340
+    lr  000076ca01ad18d0  sp  00007ffff077c340  pc  000076ca01ad18d0  pst 0000000060000000
+
+112 total frames
+backtrace:
+      #00 pc 00000000000098d0  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/base.apk (offset 0xb20000) (JNI_OnLoad+136)
+      #01 pc 000000000066bb54  /apex/com.android.art/lib64/libart.so (art::JavaVMExt::LoadNativeLibrary(_JNIEnv*, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, _jobject*, _jclass*, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>*)+1280) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #02 pc 0000000000005914  /apex/com.android.art/lib64/libopenjdkjvm.so (JVM_NativeLoad+356) (BuildId: 52e480f4d160d1f919dafa72cae26e8a)
+      #03 pc 000000000009c764  /system/framework/arm64/boot.oat (art_jni_trampoline+148) (BuildId: 73f9b9faa342a487ed24dfeab499cec25d5fd3c1)
+      #04 pc 00000000000ab390  /system/framework/arm64/boot.oat (java.lang.Runtime.loadLibrary0+320) (BuildId: 73f9b9faa342a487ed24dfeab499cec25d5fd3c1)
+      #05 pc 00000000000ac250  /system/framework/arm64/boot.oat (java.lang.Runtime.loadLibrary0+400) (BuildId: 73f9b9faa342a487ed24dfeab499cec25d5fd3c1)
+      #06 pc 00000000000afad4  /system/framework/arm64/boot.oat (java.lang.System.loadLibrary+84) (BuildId: 73f9b9faa342a487ed24dfeab499cec25d5fd3c1)
+      #07 pc 000000000077f108  /apex/com.android.art/lib64/libart.so (nterp_helper+152) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #08 pc 00000000004e350c  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (com.sun.jna.Native.loadNativeDispatchLibrary+484)
+      #09 pc 000000000077f108  /apex/com.android.art/lib64/libart.so (nterp_helper+152) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #10 pc 00000000004e2ede  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (com.sun.jna.Native.<clinit>+230)
+      #11 pc 0000000000369040  /apex/com.android.art/lib64/libart.so (art_quick_invoke_static_stub+640) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #12 pc 00000000004353cc  /apex/com.android.art/lib64/libart.so (art::ClassLinker::InitializeClass(art::Thread*, art::Handle<art::mirror::Class>, bool, bool)+5260) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #13 pc 0000000000485720  /apex/com.android.art/lib64/libart.so (art::ClassLinker::EnsureInitialized(art::Thread*, art::Handle<art::mirror::Class>, bool, bool)+160) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #14 pc 0000000000353a68  /apex/com.android.art/lib64/libart.so (artQuickToInterpreterBridge+1564) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #15 pc 000000000037f698  /apex/com.android.art/lib64/libart.so (art_quick_to_interpreter_bridge+88) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #16 pc 000000000077f108  /apex/com.android.art/lib64/libart.so (nterp_helper+152) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #17 pc 00000000004ea110  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (com.sun.jna.Structure.setAlignType+16)
+      #18 pc 000000000077ffc4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #19 pc 00000000004e9b50  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (com.sun.jna.Structure.<init>+40)
+      #20 pc 000000000077ffc4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #21 pc 00000000004e9b0e  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (com.sun.jna.Structure.<init>+2)
+      #22 pc 000000000077ffc4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #23 pc 00000000004e9bc2  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (com.sun.jna.Structure.<init>+2)
+      #24 pc 000000000077ffc4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #25 pc 00000000004e9ad6  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (com.sun.jna.Structure.<init>+2)
+      #26 pc 000000000077ffc4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #27 pc 000000000055c87c  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (org.bitcoindevkit.UniffiRustCallStatus.<init>+0)
+      #28 pc 000000000077ffc4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #29 pc 00000000005472a2  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (org.bitcoindevkit.Mnemonic$Companion.fromEntropy+18)
+      #30 pc 000000000077ffc4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #31 pc 00000000004bd37c  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (rx4.a+84)
+      #32 pc 000000000077ffc4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #33 pc 00000000001b8b1e  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (fu.invokeSuspend+2514)
+      #34 pc 000000000077ffc4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #35 pc 00000000001b8078  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (fu.d+376)
+      #36 pc 0000000000780de4  /apex/com.android.art/lib64/libart.so (nterp_helper+7540) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #37 pc 0000000000425fbe  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (jw3.j+118)
+      #38 pc 000000000077ffc4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924) (BuildId: 05bfa63ad29b97d7dde4e764ce193f37)
+      #39 pc 00000000001240e6  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/oat/arm64/base.vdex (i4.invokeSuspend+3186)
+
+FAULT MAPPING:
+    000076ca'01ac8000-000076ca'01aeffff r-x    b20000     28000  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/base.apk
+--->000076ca'01afc000-000076ca'01afffff r--    b44000      4000  /data/app/~~HxPRjaLwxI_QjCDDTXuxqg==/net.clench.wallet-idJdrbe2vzg67uq11bhh_A==/base.apk
