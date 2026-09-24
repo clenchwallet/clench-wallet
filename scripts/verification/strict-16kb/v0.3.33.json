@@ -1,0 +1,11 @@
+{
+  "version": "0.3.33",
+  "version_code": 333,
+  "source_commit": "d472bde3970fa5062728507b15f8ccd1a35ce171",
+  "apk_sha256": "a5fff7ce7d9306d6631c84f68dbaf6461f1208ff00886d6bbbc08aada41a936c",
+  "signer_sha256": "d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca",
+  "apk_url": "https://github.com/clenchwallet/clench-wallet/releases/download/v0.3.33/clench-0.3.33-release.apk",
+  "public_verification": "https://github.com/clenchwallet/clench-wallet/actions/runs/35919899798",
+  "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+  "imported_address": "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl"
+}
