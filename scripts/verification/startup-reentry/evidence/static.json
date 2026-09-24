@@ -1,0 +1,145 @@
+{
+  "apk_native_alignment": [
+    {
+      "offset": 3293184,
+      "path": "lib/arm64-v8a/libandroidx.graphics.path.so"
+    },
+    {
+      "offset": 3309568,
+      "path": "lib/arm64-v8a/libbdkffi.so"
+    },
+    {
+      "offset": 11649024,
+      "path": "lib/arm64-v8a/libimage_processing_util_jni.so"
+    },
+    {
+      "offset": 11681792,
+      "path": "lib/arm64-v8a/libjnidispatch.so"
+    },
+    {
+      "offset": 11862016,
+      "path": "lib/arm64-v8a/libsqlcipher.so"
+    },
+    {
+      "offset": 13975552,
+      "path": "lib/arm64-v8a/libsurface_util_jni.so"
+    },
+    {
+      "offset": 13991936,
+      "path": "lib/armeabi-v7a/libandroidx.graphics.path.so"
+    },
+    {
+      "offset": 14008320,
+      "path": "lib/armeabi-v7a/libbdkffi.so"
+    },
+    {
+      "offset": 19988480,
+      "path": "lib/armeabi-v7a/libimage_processing_util_jni.so"
+    },
+    {
+      "offset": 20021248,
+      "path": "lib/armeabi-v7a/libjnidispatch.so"
+    },
+    {
+      "offset": 20152320,
+      "path": "lib/armeabi-v7a/libsqlcipher.so"
+    },
+    {
+      "offset": 21200896,
+      "path": "lib/armeabi-v7a/libsurface_util_jni.so"
+    },
+    {
+      "offset": 21217280,
+      "path": "lib/x86_64/libandroidx.graphics.path.so"
+    },
+    {
+      "offset": 21233664,
+      "path": "lib/x86_64/libbdkffi.so"
+    },
+    {
+      "offset": 30949376,
+      "path": "lib/x86_64/libimage_processing_util_jni.so"
+    },
+    {
+      "offset": 31014912,
+      "path": "lib/x86_64/libjnidispatch.so"
+    },
+    {
+      "offset": 31145984,
+      "path": "lib/x86_64/libsqlcipher.so"
+    },
+    {
+      "offset": 33390592,
+      "path": "lib/x86_64/libsurface_util_jni.so"
+    }
+  ],
+  "archive_sha256": "6fbe9fbceb868523691275407283b7a43de718f863088e58e4dba4a6601ee2e8",
+  "jna": {
+    "arm64-v8a": {
+      "bytes": 165992,
+      "loads": [
+        {
+          "alignment": 16384,
+          "filesz": 152376,
+          "flags": 5,
+          "memsz": 152376,
+          "offset": 0,
+          "vaddr": 0
+        },
+        {
+          "alignment": 16384,
+          "filesz": 1708,
+          "flags": 6,
+          "memsz": 3816,
+          "offset": 162712,
+          "vaddr": 179096
+        }
+      ],
+      "relro": {
+        "alignment": 1,
+        "filesz": 1128,
+        "flags": 4,
+        "memsz": 1128,
+        "offset": 162712,
+        "vaddr": 179096
+      },
+      "sha256": "ddfc6c965bbe366615c000ec1f06552ddf0bb2b4f9d921d0bff8c75b3cb2ca4c"
+    },
+    "x86_64": {
+      "bytes": 116904,
+      "loads": [
+        {
+          "alignment": 16384,
+          "filesz": 103484,
+          "flags": 5,
+          "memsz": 103484,
+          "offset": 0,
+          "vaddr": 0
+        },
+        {
+          "alignment": 16384,
+          "filesz": 1652,
+          "flags": 6,
+          "memsz": 3912,
+          "offset": 113408,
+          "vaddr": 129792
+        }
+      ],
+      "relro": {
+        "alignment": 64,
+        "filesz": 1280,
+        "flags": 6,
+        "memsz": 1280,
+        "offset": 113408,
+        "vaddr": 129792
+      },
+      "sha256": "288eafff19a70e833498201071c3d724f03f32ee8ff64a14fca50b57d975db70"
+    }
+  },
+  "kind": "apk",
+  "page_size": 16384,
+  "runtime_acceptance": "NOT_RUN",
+  "schemaVersion": 1,
+  "scope": "JNA ARM64/x86_64 ELF layout; APK native ZIP alignment when applicable",
+  "status": "PASS_STATIC_ONLY"
+}

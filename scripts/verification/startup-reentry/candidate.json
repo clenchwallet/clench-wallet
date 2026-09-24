@@ -1,0 +1,10 @@
+{
+  "version": "0.3.33",
+  "version_code": 333,
+  "source_commit": "3bbddaaba5ddc553c71e510260e4abb444bb6dfc",
+  "apk_sha256": "6fbe9fbceb868523691275407283b7a43de718f863088e58e4dba4a6601ee2e8",
+  "signer_sha256": "5d2d91693c1d859b34b153be44a42eb04b4a1db6016883023768376477fc6c86",
+  "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+  "imported_address": "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+  "artifact_kind": "local release-mode candidate with disposable test signing"
+}
