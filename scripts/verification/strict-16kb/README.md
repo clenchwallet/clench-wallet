@@ -31,6 +31,9 @@ not a newly executed reproduction of the historic Android crash. The Python
 self-tests cover both architectures, boundary failure, absent RELRO, missing
 ABI, invalid/truncated metadata, duplicate ZIP entries, and ZIP misalignment.
 
+Latest corrected execution: [fresh-XML delta acceptance](evidence/fresh-xml-review/README.md).
+Original execution and first-failure evidence remain preserved.
+
 ## Maintained external runtime runner
 
 `run.py` drives the **unchanged, signed, non-debuggable public APK**, using adb and
