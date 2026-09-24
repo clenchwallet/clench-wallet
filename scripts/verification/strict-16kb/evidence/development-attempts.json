@@ -1,0 +1,56 @@
+[
+  {
+    "attempt": "run01",
+    "status": "FAIL",
+    "failure": {
+      "error": "module 'hashlib' has no attribute 'file_digest'",
+      "stage": "setup"
+    },
+    "raw_local": "/Users/pb/clench-strict-16kb-evidence-20260923/run01"
+  },
+  {
+    "attempt": "run02",
+    "status": "FAIL",
+    "failure": {
+      "error": "Missing loaded native library: libjnidispatch.so",
+      "stage": "created"
+    },
+    "raw_local": "/Users/pb/clench-strict-16kb-evidence-20260923/run02"
+  },
+  {
+    "attempt": "run03",
+    "status": "FAIL",
+    "failure": {
+      "error": "UI timeout: Receive",
+      "stage": "created_reopen"
+    },
+    "raw_local": "/Users/pb/clench-strict-16kb-evidence-20260923/run03"
+  },
+  {
+    "attempt": "run04",
+    "status": "FAIL",
+    "failure": {
+      "error": "UI timeout: Receive",
+      "stage": "created_reopen"
+    },
+    "raw_local": "/Users/pb/clench-strict-16kb-evidence-20260923/run04"
+  },
+  {
+    "attempt": "run05",
+    "status": "FAIL",
+    "failure": {
+      "error": "[Errno 48] Address already in use",
+      "stage": "environment"
+    },
+    "raw_local": "/Users/pb/clench-strict-16kb-evidence-20260923/run05"
+  },
+  {
+    "attempt": "run06",
+    "status": "FAIL",
+    "failure": {
+      "error": "Ambiguous UI control: Import Wallet",
+      "stage": "imported"
+    },
+    "raw_local": "/Users/pb/clench-strict-16kb-evidence-20260923/run06"
+  }
+]

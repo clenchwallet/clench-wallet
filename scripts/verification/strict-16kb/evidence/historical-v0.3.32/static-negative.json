@@ -1,0 +1,7 @@
+{
+  "error": "arm64-v8a: RELRO end is not 16 KB aligned",
+  "kind": "apk",
+  "runtime_acceptance": "NOT_RUN",
+  "schemaVersion": 1,
+  "status": "FAIL"
+}

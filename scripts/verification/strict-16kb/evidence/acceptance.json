@@ -1,0 +1,29 @@
+{
+  "status": "PASS for documented cold-restart-then-background scenario",
+  "runner_code_commit": "2457ec7980b16b6426bcc46ae991684330d769f1",
+  "source_equivalence": {
+    "executed_runner_was_uncommitted_at_start": true,
+    "proof": "Captured runner/static source bytes equal git blobs in runner_code_commit; fixture JSON values equal. Final evidence commit changes no runner/static/fixture code.",
+    "committed_file_sha256": {
+      "scripts/verification/strict-16kb/run.py": "da617004659ae811faf547a3ed70d6a4a5c17486b665b80a3d42775285322792",
+      "scripts/verification/check-jna-16kb.py": "69349e36ed61b25e1603aaed69a3229a48f2266172e96ebb147b4489ee8fb227",
+      "scripts/verification/strict-16kb/v0.3.33.json": "08829f3d5c533140f19dd25bbfdf13989f51847904a6a4d1ace77268f855dfd6"
+    }
+  },
+  "app_source_commit": "d472bde3970fa5062728507b15f8ccd1a35ce171",
+  "apk_sha256": "a5fff7ce7d9306d6631c84f68dbaf6461f1208ff00886d6bbbc08aada41a936c",
+  "runtime_started_utc": "2026-09-24T00:55:00Z",
+  "runtime_elapsed_seconds": 180.14,
+  "harness_tests": "6 PASS",
+  "static_companion_tests": "10 PASS",
+  "old_static_negative": "FAIL as expected: JNA ARM64 RELRO end",
+  "historical_native_failure": "Reused; not reexecuted",
+  "raw_evidence": "/Users/pb/clench-strict-16kb-evidence-20260923/run07",
+  "public_raw_archive": "v0.3.33-runtime.zip",
+  "limitation": "Fresh-onboarding HOME/reopen before first cold restart returned NetworkChoice in development runs03/04; preserved in development-attempts.zip. No native crash. Maintained scenario first verifies cold persistence, then same-process background/reopen. Cause not established; no app fix included.",
+  "instrumented_build": false,
+  "release_gate_changed": false,
+  "physical_test_repeated": false,
+  "v0.3.33-runtime.zip_sha256": "4351f2b530dfb072ee9e551463397c1f13d9ebaaa24424f36dd2c76d7da1b78f",
+  "development-attempts.zip_sha256": "0d1a3f8d1b9b1909f6af30891ebd01bb68fd7f7e39a7039a88103940ff5625d3"
+}

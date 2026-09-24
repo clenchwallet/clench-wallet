@@ -1,0 +1,11 @@
+{
+  "abi": "arm64-v8a",
+  "api": 35,
+  "fallback": {
+    "bionic.linker.16kb.app_compat.enabled": "false",
+    "pm.16kb.app_compat.disabled": "true"
+  },
+  "fingerprint": "google/sdk_gphone16k_arm64/emu64a16k:15/AE3A.240806.043/12960925:userdebug/dev-keys",
+  "page_size": 16384,
+  "qemu": "1"
+}

@@ -1,0 +1,178 @@
+{
+  "command": [
+    "scripts/verification/strict-16kb/run.py",
+    "--sdk",
+    "/Users/pb/Library/Android/sdk",
+    "--apk",
+    "/Users/pb/clench-jna-16kb-repair-20260923/evidence/333-public-download/clench-0.3.33-release.apk",
+    "--evidence",
+    "/Users/pb/clench-strict-16kb-evidence-20260923/run07",
+    "--port",
+    "5588"
+  ],
+  "elapsed_seconds": 180.14,
+  "emulator_command": [
+    "/Users/pb/Library/Android/sdk/emulator/emulator",
+    "-avd",
+    "clench_strict16_clench_strict16_59ysji_q",
+    "-port",
+    "5588",
+    "-accel",
+    "on",
+    "-no-window",
+    "-no-audio",
+    "-no-snapshot",
+    "-no-boot-anim",
+    "-gpu",
+    "swiftshader",
+    "-memory",
+    "2048",
+    "-cores",
+    "4"
+  ],
+  "identifiers": {
+    "apk_sha256": "a5fff7ce7d9306d6631c84f68dbaf6461f1208ff00886d6bbbc08aada41a936c",
+    "fixture_sha256": "08829f3d5c533140f19dd25bbfdf13989f51847904a6a4d1ace77268f855dfd6",
+    "host": "macOS-26.6.2-arm64-arm-64bit",
+    "java_home": "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home",
+    "python": "3.9.6 (default, Aug 25 2026, 21:26:21) \n[Clang 21.0.0 (clang-2100.3.34.2)]",
+    "runner_git_commit": "d00caf33e5a3b7c69a97d124da1ed799c348b711",
+    "runner_git_status": " M scripts/verification/strict-16kb/README.md\n?? scripts/verification/strict-16kb/evidence/\n?? scripts/verification/strict-16kb/run.py\n?? scripts/verification/strict-16kb/test_runner.py\n?? scripts/verification/strict-16kb/v0.3.33.json\n",
+    "runner_sha256": "da617004659ae811faf547a3ed70d6a4a5c17486b665b80a3d42775285322792",
+    "source_commit": "d472bde3970fa5062728507b15f8ccd1a35ce171",
+    "static_sha256": "69349e36ed61b25e1603aaed69a3229a48f2266172e96ebb147b4489ee8fb227",
+    "tools": {
+      "build-tools/35.0.0/aapt": "c0b5427aeabbbe05023ee2a55e3a9877c99ce57245bb15c21d4802326b86d099",
+      "build-tools/35.0.0/apksigner": "b47549e373b895ce6ca620d0c7887e674d9615ffa837a86ac601dcfd04adb0f0",
+      "build-tools/35.0.0/lib/apksigner.jar": "00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7",
+      "cmdline-tools/latest/bin/avdmanager": "09199f7bca5dc7eb4e4b4ff459dc125579c3e08c61ddc078dcd2c6e8e61efbb6",
+      "emulator/emulator": "c12c8d72da94cb5abd7f9d2578923d05ff94ea827f0ee593c6e563c96edc0d42",
+      "platform-tools/adb": "9fdf861259dc807937b13afdd5f053c7fda9f3b7726933fe0e0f45130ecb8dc7"
+    }
+  },
+  "image_package": "system-images;android-35;google_apis_ps16k;arm64-v8a",
+  "instrumented_build": false,
+  "owned_emulator_stopped": true,
+  "physical_device_used": false,
+  "schema_version": 1,
+  "serial": "emulator-5588",
+  "started_utc": "2026-09-24T00:55:00Z",
+  "status": "PASS",
+  "steps": [
+    {
+      "elapsed_seconds": 0.33,
+      "name": "artifact",
+      "signer_sha256": "d161d82d633347948079cb5bbae0560c2f85622a51c69f3b4a0d283eefc853ca",
+      "status": "PASS",
+      "version": "0.3.33"
+    },
+    {
+      "elapsed_seconds": 0.37,
+      "name": "static",
+      "status": "PASS"
+    },
+    {
+      "abi": "arm64-v8a",
+      "api": 35,
+      "elapsed_seconds": 16.91,
+      "fallback": {
+        "bionic.linker.16kb.app_compat.enabled": "false",
+        "pm.16kb.app_compat.disabled": "true"
+      },
+      "fingerprint": "google/sdk_gphone16k_arm64/emu64a16k:15/AE3A.240806.043/12960925:userdebug/dev-keys",
+      "name": "environment",
+      "page_size": 16384,
+      "qemu": "1",
+      "status": "PASS"
+    },
+    {
+      "elapsed_seconds": 18.52,
+      "installed_apk_sha256": "a5fff7ce7d9306d6631c84f68dbaf6461f1208ff00886d6bbbc08aada41a936c",
+      "name": "installed",
+      "status": "PASS"
+    },
+    {
+      "app_mode": "Offline",
+      "elapsed_seconds": 31.04,
+      "lock": "default no lock",
+      "name": "onboarding",
+      "network": "Testnet",
+      "status": "PASS"
+    },
+    {
+      "address": "tb1qq8ejzdr33a8prn9ppepnqs6tr7ec092unszrcx",
+      "elapsed_seconds": 52.68,
+      "name": "created",
+      "status": "PASS",
+      "verified_seed_questions": 4,
+      "wallet_name": "My Wallet"
+    },
+    {
+      "address": "tb1qq8ejzdr33a8prn9ppepnqs6tr7ec092unszrcx",
+      "elapsed_seconds": 63.48,
+      "name": "created_restart",
+      "pid_after": "4094",
+      "pid_before": "2718",
+      "status": "PASS",
+      "wallet_name": "My Wallet"
+    },
+    {
+      "address": "tb1qq8ejzdr33a8prn9ppepnqs6tr7ec092unszrcx",
+      "elapsed_seconds": 75.92,
+      "name": "created_reopen",
+      "pid_after": "4094",
+      "pid_before": "4094",
+      "status": "PASS",
+      "wallet_name": "My Wallet"
+    },
+    {
+      "address": "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+      "elapsed_seconds": 142.24,
+      "expected_public_fixture_address": "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+      "name": "imported",
+      "status": "PASS",
+      "wallet_name": "Strict16-Import"
+    },
+    {
+      "address": "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+      "elapsed_seconds": 152.9,
+      "name": "imported_restart",
+      "pid_after": "5269",
+      "pid_before": "4094",
+      "status": "PASS",
+      "wallet_name": "Strict16-Import"
+    },
+    {
+      "address": "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+      "elapsed_seconds": 165.31,
+      "name": "imported_reopen",
+      "pid_after": "5269",
+      "pid_before": "5269",
+      "status": "PASS",
+      "wallet_name": "Strict16-Import"
+    },
+    {
+      "created_address": "tb1qq8ejzdr33a8prn9ppepnqs6tr7ec092unszrcx",
+      "elapsed_seconds": 178.92,
+      "imported_address": "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+      "name": "both_wallets",
+      "status": "PASS"
+    },
+    {
+      "bytes": 4096,
+      "elapsed_seconds": 178.97,
+      "header_hex": "1d1569704cc2dcadf3051ed63fd3e325",
+      "inference": "SQLCipher mapping + opaque DB + successful wallet reload support encrypted persistence; no independent decryption or schema proof",
+      "name": "database",
+      "plain_sqlite_rejection": "file is not a database",
+      "sha256": "15e4358f31199225b93d0944122577c54cda68325a2ae4c901ecbc22001a9f66",
+      "status": "PASS"
+    },
+    {
+      "crash_buffer_empty": true,
+      "elapsed_seconds": 179.16,
+      "name": "final",
+      "status": "PASS"
+    }
+  ]
+}
