@@ -278,3 +278,14 @@ to apply; affected code is not claimed patched or removed. Retain the original
 application binding and the hash of this added review. The full live candidate
 gate must pass. This review does not substitute for the focused emulator check
 of immediate post-onboarding background/reopen or broader unexamined audit lanes.
+
+## 0.3.34 release metadata binding — 2026-09-24
+
+Compared with independently reviewed PR #102 head
+`081961da99e19eb109bd11ba21b7a748db8273b7`, the only additional production
+input delta is versionName 0.3.33 to 0.3.34 and versionCode 333 to 334. All
+production source, dependency, native recipe and lock bytes are unchanged.
+This metadata adds no native call path or TLS/CRL input. Retain the existing six
+exact dispositions, advisory hashes and original 2026-10-16 expiry. Rebind the
+application/evidence hashes to the final version metadata; the live gate must
+still validate exact advisory contents. No broader native clearance is claimed.
