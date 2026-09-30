@@ -184,8 +184,11 @@ class SweepViewModel @Inject constructor(
     val uiState = _uiState.asStateFlow()
 
     private var currentWalletId: String = ""
+    private var draftRevision = 0L
+    private var activeBroadcast: Any? = null
 
     fun load(walletId: String) {
+        draftRevision += 1L
         currentWalletId = walletId
         viewModelScope.launch {
             try {
@@ -209,6 +212,7 @@ class SweepViewModel @Inject constructor(
     }
 
     fun setDestinationAddress(addr: String) {
+        draftRevision += 1L
         _uiState.update {
             it.copy(
                 destinationAddress = addr,
@@ -222,10 +226,20 @@ class SweepViewModel @Inject constructor(
     }
 
     fun confirmExternalDestination(confirmed: Boolean) {
-        _uiState.update { it.copy(externalDestinationConfirmed = confirmed) }
+        draftRevision += 1L
+        _uiState.update {
+            it.copy(
+                externalDestinationConfirmed = confirmed,
+                preparedTxHex = null,
+                transactionReview = null,
+                requiresHighFeeConfirmation = false,
+                highFeeAcknowledged = false
+            )
+        }
     }
 
     fun selectFeeTier(tier: FeeTier) {
+        draftRevision += 1L
         _uiState.update { state ->
             val estimates = state.feeEstimates
             val feeRate = if (tier == FeeTier.CUSTOM) state.feeRate
@@ -249,6 +263,7 @@ class SweepViewModel @Inject constructor(
     }
 
     fun setFeeRate(rate: String) {
+        draftRevision += 1L
         _uiState.update {
             it.copy(
                 feeRate = rate,
@@ -278,6 +293,7 @@ class SweepViewModel @Inject constructor(
     }
 
     fun clearSourceValidation() {
+        draftRevision += 1L
         _uiState.update {
             it.copy(
                 sourceBalanceSat = 0L,
@@ -302,6 +318,7 @@ class SweepViewModel @Inject constructor(
     }
 
     fun discardPreparedSweep() {
+        draftRevision += 1L
         _uiState.update {
             it.copy(
                 preparedTxHex = null,
@@ -528,6 +545,7 @@ class SweepViewModel @Inject constructor(
     }
 
     fun broadcastPreparedSweep() {
+        if (activeBroadcast != null || _uiState.value.isSweeping) return
         val state = _uiState.value
         val txHex = state.preparedTxHex ?: run {
             _uiState.update { it.copy(error = "Prepare and review the sweep before broadcasting") }
@@ -537,11 +555,16 @@ class SweepViewModel @Inject constructor(
             _uiState.update { it.copy(error = "Confirm the high network fee before broadcasting") }
             return
         }
+        val revision = draftRevision
+        val operation = Any()
+        activeBroadcast = operation
+        _uiState.update { it.copy(isBroadcasting = true, error = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isBroadcasting = true, error = null) }
             try {
+                if (revision != draftRevision || _uiState.value.preparedTxHex != txHex) return@launch
                 val txid = bitcoinRepository.broadcastTransaction(settingsManager.loadElectrumConfig(), txHex)
                 currentCoroutineContext().ensureActive()
+                if (revision != draftRevision || _uiState.value.preparedTxHex != txHex) return@launch
                 _uiState.update {
                     it.copy(
                         isBroadcasting = false,
@@ -554,7 +577,14 @@ class SweepViewModel @Inject constructor(
                 }
             } catch (t: Throwable) {
                 if (t.shouldRethrowForUiBoundary()) throw t
-                _uiState.update { it.copy(isBroadcasting = false, error = t.message ?: "Sweep broadcast failed") }
+                if (revision == draftRevision && _uiState.value.preparedTxHex == txHex) {
+                    _uiState.update { it.copy(error = t.message ?: "Sweep broadcast failed") }
+                }
+            } finally {
+                if (activeBroadcast === operation) {
+                    activeBroadcast = null
+                    _uiState.update { it.copy(isBroadcasting = false) }
+                }
             }
         }
     }
@@ -671,7 +701,8 @@ class SweepViewModel @Inject constructor(
             currentCoroutineContext().ensureActive()
             _uiState.update { current ->
                 if (current.destinationAddress.trim() != draft.destinationAddress.trim() ||
-                    current.feeRate != draft.feeRate
+                    current.feeRate != draft.feeRate ||
+                    (destinationAddress != current.defaultDestinationAddress && !current.externalDestinationConfirmed)
                 ) {
                     current.copy(
                         isSweeping = false,
