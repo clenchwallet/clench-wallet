@@ -3,6 +3,7 @@ package net.clench.wallet.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -33,11 +34,16 @@ class RawTransactionViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(UiState(isOfflineMode = settingsManager.isOfflineMode()))
     val uiState = _uiState.asStateFlow()
 
+    private var inputGeneration = 0L
+    private var activeBroadcast: Any? = null
+
     fun setInput(input: String) {
+        inputGeneration += 1L
         _uiState.update { it.copy(input = input, preview = null, error = null, broadcastTxid = null) }
     }
 
     fun setError(message: String) {
+        inputGeneration += 1L
         _uiState.update { it.copy(error = message, preview = null, broadcastTxid = null) }
     }
 
@@ -52,6 +58,7 @@ class RawTransactionViewModel @Inject constructor(
     }
 
     fun broadcast() {
+        if (activeBroadcast != null) return
         val preview = _uiState.value.preview ?: run {
             preview()
             _uiState.value.preview
@@ -60,9 +67,15 @@ class RawTransactionViewModel @Inject constructor(
             _uiState.update { it.copy(error = "Offline mode blocks transaction broadcast") }
             return
         }
+        val generation = inputGeneration
+        val operation = Any()
+        activeBroadcast = operation
+        _uiState.update { it.copy(isBroadcasting = true, error = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isBroadcasting = true, error = null) }
             try {
+                // Editing before dispatch revokes the queued request. An already sent
+                // request cannot be undone, so keep it reserved until it completes.
+                if (generation != inputGeneration) return@launch
                 // The raw tool has no original PSBT or prevouts, so it cannot
                 // perform the coordinator's full policy validation. Still fail
                 // closed on every recognizable weak signature-hash flag before
@@ -71,8 +84,11 @@ class RawTransactionViewModel @Inject constructor(
                     RawTransactionPayload.decode(preview.normalizedHex)
                 )
                 val txid = bitcoinRepository.broadcastTransaction(settingsManager.loadElectrumConfig(), preview.normalizedHex)
-                _uiState.update { it.copy(isBroadcasting = false, broadcastTxid = txid) }
+                if (generation == inputGeneration) {
+                    _uiState.update { it.copy(broadcastTxid = txid) }
+                }
             } catch (e: SecurityException) {
+                if (generation != inputGeneration) return@launch
                 _uiState.update {
                     it.copy(
                         isBroadcasting = false,
@@ -80,7 +96,15 @@ class RawTransactionViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isBroadcasting = false, error = e.message ?: "Broadcast failed") }
+                if (e is CancellationException) throw e
+                if (generation == inputGeneration) {
+                    _uiState.update { it.copy(error = e.message ?: "Broadcast failed") }
+                }
+            } finally {
+                if (activeBroadcast === operation) {
+                    activeBroadcast = null
+                    _uiState.update { it.copy(isBroadcasting = false) }
+                }
             }
         }
     }

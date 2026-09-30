@@ -1,5 +1,10 @@
 package net.clench.wallet.viewmodel
 
+import io.mockk.coEvery
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.test.runCurrent
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertEquals
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -64,6 +69,94 @@ class RawTransactionViewModelTest {
         } finally {
             Dispatchers.resetMain()
         }
+    }
+
+    @Test
+    fun `pending broadcast is reserved before dispatch and cannot be submitted twice`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = mockk<BitcoinRepository>(relaxed = true)
+            val settings = mockk<SettingsManager>(relaxed = true)
+            every { settings.isOfflineMode() } returns false
+            val completion = CompletableDeferred<String>()
+            coEvery { repository.broadcastTransaction(any(), any(), any()) } coAnswers { completion.await() }
+            val vm = RawTransactionViewModel(repository, settings)
+            installPreview(vm)
+            vm.broadcast()
+            assertTrue(vm.uiState.value.isBroadcasting)
+            vm.broadcast()
+            runCurrent()
+            completion.complete("accepted")
+            advanceUntilIdle()
+            coVerify(exactly = 1) { repository.broadcastTransaction(any(), any(), any()) }
+        } finally { Dispatchers.resetMain() }
+    }
+
+    @Test
+    fun `late broadcast completion does not describe replacement input`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = mockk<BitcoinRepository>(relaxed = true)
+            val settings = mockk<SettingsManager>(relaxed = true)
+            every { settings.isOfflineMode() } returns false
+            val completion = CompletableDeferred<String>()
+            coEvery { repository.broadcastTransaction(any(), any(), any()) } coAnswers { completion.await() }
+            val vm = RawTransactionViewModel(repository, settings)
+            installPreview(vm)
+            vm.broadcast(); runCurrent()
+            vm.setInput("replacement input")
+            completion.complete("old-accepted")
+            advanceUntilIdle()
+            assertEquals("replacement input", vm.uiState.value.input)
+            assertNull(vm.uiState.value.broadcastTxid)
+            assertFalse(vm.uiState.value.isBroadcasting)
+        } finally { Dispatchers.resetMain() }
+    }
+
+    @Test
+    fun `edit before dispatch revokes queued broadcast and releases reservation`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = mockk<BitcoinRepository>(relaxed = true)
+            val settings = mockk<SettingsManager>(relaxed = true)
+            val vm = RawTransactionViewModel(repository, settings)
+            installPreview(vm); vm.broadcast(); vm.setInput("replacement")
+            advanceUntilIdle()
+            coVerify(exactly = 0) { repository.broadcastTransaction(any(), any(), any()) }
+            verify(exactly = 0) { settings.loadElectrumConfig() }
+            assertFalse(vm.uiState.value.isBroadcasting)
+            installPreview(vm); vm.broadcast(); advanceUntilIdle()
+            coVerify(exactly = 1) { repository.broadcastTransaction(any(), any(), any()) }
+        } finally { Dispatchers.resetMain() }
+    }
+
+    @Test
+    fun `late failure preserves current error and pending request prevents overlap`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val repository = mockk<BitcoinRepository>(relaxed = true)
+            val settings = mockk<SettingsManager>(relaxed = true)
+            val completion = CompletableDeferred<String>()
+            coEvery { repository.broadcastTransaction(any(), any(), any()) } coAnswers { completion.await() }
+            val vm = RawTransactionViewModel(repository, settings)
+            installPreview(vm); vm.broadcast(); runCurrent()
+            vm.setError("new import failed"); vm.broadcast(); runCurrent()
+            completion.completeExceptionally(IllegalStateException("old request failed"))
+            advanceUntilIdle()
+            coVerify(exactly = 1) { repository.broadcastTransaction(any(), any(), any()) }
+            assertEquals("new import failed", vm.uiState.value.error)
+            assertFalse(vm.uiState.value.isBroadcasting)
+        } finally { Dispatchers.resetMain() }
+    }
+
+    private fun installPreview(vm: RawTransactionViewModel) {
+        // Synthetic no-funds fixture: parser/native acceptance is covered separately.
+        val raw = rawTransactionWithWeakEcdsa().also { it[5 + 32 + 4 + 1 + 1 + 70] = 1 }.toHex()
+        val field = RawTransactionViewModel::class.java.getDeclaredField("_uiState").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val state = field.get(vm) as MutableStateFlow<RawTransactionViewModel.UiState>
+        state.value = RawTransactionViewModel.UiState(input = raw,
+            preview = RawTransactionPreview(raw, "fixture", 1, 1, false, emptyList()))
     }
 
     private fun rawTransactionWithWeakEcdsa(): ByteArray {

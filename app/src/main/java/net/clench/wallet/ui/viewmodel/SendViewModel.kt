@@ -106,6 +106,7 @@ class SendViewModel @Inject constructor(
     val uiState = _uiState.asStateFlow()
     private var draftRevision = 0L
     private var psbtRequestId = 0L
+    private var activeBroadcast: Any? = null
 
     private inline fun updateDraft(crossinline transform: (UiState) -> UiState) {
         draftRevision++
@@ -823,6 +824,7 @@ class SendViewModel @Inject constructor(
     }
 
     fun broadcast(onSuccess: (walletId: String) -> Unit) {
+        if (activeBroadcast != null || _uiState.value.isLoading) return
         val state = _uiState.value
         val txHex = state.txHex ?: return
         if (state.proposalFingerprint == null || proposalFingerprint(state) != state.proposalFingerprint) {
@@ -833,9 +835,14 @@ class SendViewModel @Inject constructor(
             _uiState.update { it.copy(error = "Confirm that you understand the unusually high fee before broadcasting") }
             return
         }
+        val revision = draftRevision
+        val request = ++psbtRequestId
+        val operation = Any()
+        activeBroadcast = operation
+        _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
             try {
+                if (revision != draftRevision) return@launch
                 val config = settingsManager.loadElectrumConfig()
                 val txid = bitcoinRepository.broadcastTransaction(config, txHex, state.walletId)
                 if (net.clench.wallet.BuildConfig.DEBUG) android.util.Log.d("SendVM", "Broadcast success: txid=$txid")
@@ -865,15 +872,23 @@ class SendViewModel @Inject constructor(
                 if (!isBatch && state.savePayeeAfterSend && state.toAddress.isNotBlank()) {
                     savePayeeAfterBroadcast(state)
                 }
-                _uiState.update { it.copy(
-                    isLoading = false,
-                    broadcastSuccess = true,
-                    broadcastTxid = txid
-                ) }
+                if (revision == draftRevision && request == psbtRequestId) {
+                    _uiState.update { it.copy(
+                        isLoading = false,
+                        broadcastSuccess = true,
+                        broadcastTxid = txid
+                    ) }
+                }
                 // Trigger a sync in background so HomeScreen shows updated balance
                 try { bitcoinRepository.syncWallet(state.walletId, config) } catch (_: Exception) {}
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, error = e.message) }
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (revision == draftRevision && request == psbtRequestId) {
+                    _uiState.update { it.copy(error = e.message) }
+                }
+            } finally {
+                if (activeBroadcast === operation) activeBroadcast = null
+                if (request == psbtRequestId) _uiState.update { it.copy(isLoading = false) }
             }
         }
     }
