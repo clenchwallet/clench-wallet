@@ -1,4 +1,102 @@
-# Exact-candidate Cargo applicability dispositions — 2026-09-17
+# Exact-candidate Cargo applicability dispositions
+
+## Current reassessment — 2026-10-25
+
+Reviewed production source: `4d8d55cfa3cb141b699f5f16b388ac291b0e06be`
+(v0.3.35 application inputs). The source/native/build binding still equals
+`f494ee2f95f11676496ba7bbf0f819d270547aba0a27a6a4a8de5fc0d1311e97`.
+No application, Cargo lock, native recipe, dependency, APK version or payload
+is changed by this reassessment. The original expired gate was run unchanged:
+it queried all 198 candidates, saved **17 package/advisory matches**, then
+rejected the October 16 expiry. Seventeen matches are not seventeen independent
+vulnerabilities: records can be aliases or match more than one package version.
+
+The complete live advisory documents, raw match list and checksum-verified
+source identities are retained in
+[`native-cargo-review-2026-10-25.json`](native-cargo-review-2026-10-25.json).
+All six earlier advisory documents have unchanged canonical hashes, but eight
+additional advisory identities now produce eleven additional matches. These
+new records were reviewed individually, not admitted by extending old dates.
+
+The renewed interval is **October 25 through November 8, 2026** (14 days).
+Changed production/native/build inputs, changed evidence or advisory contents,
+new findings, lookup failures and expiry still invalidate the review. There is
+no package-wide suppression, automatic renewal or change to the 30-day maximum.
+
+### Decisions for the exact current input set
+
+| Package and matches | Disposition and evidence |
+| --- | --- |
+| rustls-webpki 0.101.7: original six URI/wildcard/CRL IDs | Retain exact reviewed-call-path dispositions. The Esplora constructor remains unused; the minreq TLS configuration has no CRL input. Affected code remains bundled, not patched or removed. |
+| rustls-webpki 0.101.7 and 0.103.14: RUSTSEC-2026-0382 | Two exact native-call-path dispositions. Legacy WebPKI is behind unused Esplora; modern WebPKI is behind native Electrum TLS, while Clench passes only a locally constructed `tcp://127.0.0.1` address. This does **not** establish protection of Android's separate platform trust store; see below. |
+| webpki-roots 0.25.4: RUSTSEC-2026-0381 | The affected root is present. Its minreq and native Electrum TLS consumers are not entered by current application paths. Do not describe the root bundle as fixed, absent or equivalent to Android's root store. |
+| rustls 0.21.12 and 0.23.45: RUSTSEC-2026-0346 | Two exact native-call-path dispositions. Both native TLS construction paths are unused; the reviewed constructors also use built-in session storage, not a custom store logging session-secret values. Ordinary connection/cache Debug output is not the affected operation. |
+| rustls 0.21.12 and 0.23.45: RUSTSEC-2026-0349 | Two exact native-call-path dispositions. The attacker-controlled ServerHello/session-prediction operation requires a native TLS handshake, absent from the reviewed current application routes. No post-quantum protection claim is made. |
+| rustls 0.23.45: RUSTSEC-2026-0347 and RUSTSEC-2026-0348 | Two exact native-call-path dispositions. The native TLS branch is unused; electrum-client's constructor does not configure enabled ECH, and the locked Rustls manifest/features do not enable Brotli certificate decompression. These are not general exceptions for reachable ECH or decompression. |
+| tokio 1.52.3: RUSTSEC-2026-0386 | Exact reviewed-call-path disposition for the affected AsyncFd API. Tokio is a normal Kyoto dependency, **not dev-only**. BDK creates its runtime in `CbfNode::run`, which Clench does not construct/call. Checked Kyoto/bip157/bip324 sources and Tokio TCP/signal internals do not introduce the advisory's AsyncFd registration path. Code remains bundled. |
+| basic-toml 0.1.10: RUSTSEC-2026-0374 | **Applicable informational maintenance warning**, recorded as `informational_unmaintained_reviewed`, not as unaffected. It parses Askama configuration in the host `askama_derive` proc-macro. The notice alleges discontinued maintenance, not an exploitable parsing flaw. The pinned build input is reviewed; replacing the unmaintained parser/toolchain remains maintenance debt. |
+
+Resulting review: **16 exact not-affected-through-reviewed-call-path matches
+and one explicitly applicable informational host-tool maintenance notice**.
+The scanner must still query all candidates and validate every exact live
+document. This review does not assert that dependency versions are patched.
+
+### Source-path checks
+
+- All 213 production files and all production source sets were considered.
+  There is one application `ElectrumClient` constructor, at
+  `ElectrumConnectionFactory.kt:250`, fed by the local relay URL constructed at
+  line 247. `createConnection` always selects this relay. Upstream TLS uses
+  Java `SSLSocket` with normal hostname/trust checks before relay traffic.
+- The pinned upstream `electrum-client` 0.25.0 `ClientType::from_config`
+  enters native TLS only for an `ssl://` URL. Its plain-TCP branch does not
+  initialize TLS as a side effect. Retries retain the same URL; Clench disables
+  native retries. BDK's `src/electrum.rs` passes the supplied URL through.
+- Upstream `src/esplora.rs` requires `EsploraClient::new` to construct the
+  blocking client. minreq 2.14.1 initializes its Rustls configuration lazily
+  when a secured stream is created, not merely when its library is loaded.
+- No production Esplora/Kyoto/Cbf constructor, reflective class loader, direct
+  JNA load, CRL configuration, custom Rustls session store or AsyncFd call was
+  found. The explicit application `System.loadLibrary` target is SQLCipher.
+  These searches supplement inspection of constructors and transitive source;
+  they are not proof that unused exported functionality was removed.
+- UniFFI's `cli` feature **is enabled**. `basic-toml` is a real build dependency
+  through `uniffi_bindgen` -> Askama -> the host proc-macro `askama_derive`.
+  Its `config` feature invokes the TOML parser on pinned build configuration.
+  It is neither described as absent nor silently treated as dev-only.
+
+The new informational status is narrowly checked against the exact hash-bound
+live RustSec document, exact Cargo package, explicit `unmaintained` classifier
+and `host_build_tool_only` scope. Aliases, severity/CVSS, vulnerability categories,
+ambiguous package/source metadata or other informational types are rejected.
+Unknown vulnerability records cannot be relabelled as maintenance notices.
+Expiry, input/evidence binding, raw match retention and live hashing also apply
+to the maintenance entry. Migration to maintained build tooling remains due;
+this status is not a claim that unmaintained software has no risk.
+
+### Separate active-platform emSign boundary
+
+The October emSign incident is not exclusively a Rust library issue. Clench's
+ordinary upstream TLS uses Android's platform trust manager. AOSP Android
+14/15 and main source snapshots still contain the emSign G3 root; root presence
+alone does not establish current trust because a separate blocklist may apply.
+[Google's primary incident notice](https://blog.google/security/protecting-chrome-and-android-users-from-compromised-emudhra-intermediate-ca-certificates/)
+reports equivalent intermediate-SPKI blocking distributed to Android through
+Google Play Services and says a device restart can trigger receipt. That report
+does **not** prove receipt on a particular device, or coverage of non-GMS,
+outdated or custom Android installations. Chrome protection is not by itself
+proof for an application TLS connection.
+
+This native-only review does not clear the active Android TLS path across the
+supported device population. Before a broader security/release sign-off, verify
+the actual platform blocklist behavior on supported targets or implement and
+test an application-level mitigation for uncovered targets. Keep that platform
+acceptance item open; a passing Cargo gate must not silently waive it. SQLCipher
+source correspondence, full native C coverage and physical hardware-wallet
+acceptance likewise remain separate unfinished work. No release is authorized
+or published by this review.
+
+## Historical six-entry review — 2026-09-17
 
 These are six source-call-path dispositions for locally rebuilt **BDK Android
 3.0.0-clench.1**, not claims that all native dependency versions are patched or

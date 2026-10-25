@@ -1,4 +1,29 @@
-# Locally rebuilt BDK Cargo advisory review — 2026-09-16
+# Locally rebuilt BDK Cargo advisory review
+
+## Current reassessment — 2026-10-25
+
+The expired October 16 review has been reassessed against current v0.3.35
+production inputs, without changing the native artifact or Cargo lock. The
+live 198-candidate query now reports **17 package/advisory matches**, not the
+historical six below. Full records and source checksums are retained in
+[`native-cargo-review-2026-10-25.json`](native-cargo-review-2026-10-25.json).
+
+[The current disposition review](native-cargo-dispositions.md#current-reassessment--2026-10-25)
+documents 16 exact native-call-path dispositions and one **applicable**
+informational unmaintained host-tool notice for basic-toml. That maintenance
+condition is not labelled unaffected. Its separate, narrowly validated status
+does not admit ordinary vulnerabilities, and all exact input/content/expiry
+checks remain required. The fresh interval ends **2026-11-08**; renewal is not
+automatic. The native artifact and original/current lock identities below are
+unchanged, but the older advisory results are historical, not current clearance.
+
+Android platform TLS coverage of the new emSign incident must be verified
+separately, especially for non-GMS/outdated/custom devices. The absence of a
+native Rust TLS call path is not an Android-wide security finding. That open
+platform acceptance item, SQLCipher provenance and broader native/hardware
+assurance are not resolved by this Cargo review. No release is published.
+
+## Historical native rebuild and review — 2026-09-16
 
 The remediation uses **BDK Android 3.0.0-clench.1**, a local build based on
 upstream BDK 3.0.0, rather than claiming that the published vendor AAR changed.

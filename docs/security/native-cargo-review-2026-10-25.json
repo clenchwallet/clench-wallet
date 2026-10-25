@@ -1,0 +1,1652 @@
+{
+  "schema_version": 1,
+  "reviewed_on": "2026-10-25",
+  "source_commit": "4d8d55cfa3cb141b699f5f16b388ac291b0e06be",
+  "purpose": "Preserved evidence for an exact, short-lived native Cargo applicability review; not patched dependencies or whole-product security clearance.",
+  "baseline_scan": {
+    "schema_version": 1,
+    "checked_at": "2026-10-25T23:22:09.766879+00:00",
+    "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0-clench.1",
+    "owner_artifact_sha256": "f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2",
+    "base_source_url": "https://github.com/bitcoindevkit/bdk-ffi/blob/cfb3418524d451ba8d1758f0ec27f8443740b422/bdk-ffi/Cargo.lock",
+    "base_source_lock_sha256": "8e86d388a119564809fafa5fed1b851357f08d8a5cb03634ec6092aec074476a",
+    "source_lock_path": "docs/security/upstream/bdk-ffi-3.0.0-clench-Cargo.lock",
+    "source_lock_sha256": "f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2",
+    "coverage": "Rebuilt-source registry candidates, including build/dev/conditional packages; not proof of shipped code or native C coverage.",
+    "query_count": 198,
+    "purls": [
+      "pkg:cargo/ahash@0.8.12",
+      "pkg:cargo/anstyle@1.0.14",
+      "pkg:cargo/anyhow@1.0.103",
+      "pkg:cargo/arrayvec@0.7.6",
+      "pkg:cargo/askama@0.13.1",
+      "pkg:cargo/askama_derive@0.13.1",
+      "pkg:cargo/askama_parser@0.13.0",
+      "pkg:cargo/assert_matches@1.5.0",
+      "pkg:cargo/autocfg@1.5.1",
+      "pkg:cargo/aws-lc-rs@1.18.0",
+      "pkg:cargo/aws-lc-sys@0.44.0",
+      "pkg:cargo/base58ck@0.1.100",
+      "pkg:cargo/base64@0.21.7",
+      "pkg:cargo/base64@0.22.1",
+      "pkg:cargo/basic-toml@0.1.10",
+      "pkg:cargo/bdk_chain@0.23.3",
+      "pkg:cargo/bdk_core@0.6.3",
+      "pkg:cargo/bdk_electrum@0.24.0",
+      "pkg:cargo/bdk_esplora@0.22.2",
+      "pkg:cargo/bdk_kyoto@0.17.0",
+      "pkg:cargo/bdk_wallet@3.0.0",
+      "pkg:cargo/bech32@0.11.1",
+      "pkg:cargo/bip157@0.6.0",
+      "pkg:cargo/bip324@0.7.0",
+      "pkg:cargo/bip39@2.2.2",
+      "pkg:cargo/bitcoin-address-book@0.1.1",
+      "pkg:cargo/bitcoin-consensus-encoding@0.1.0",
+      "pkg:cargo/bitcoin-internals@0.3.0",
+      "pkg:cargo/bitcoin-internals@0.4.2",
+      "pkg:cargo/bitcoin-internals@0.5.0",
+      "pkg:cargo/bitcoin-io@0.1.100",
+      "pkg:cargo/bitcoin-io@0.2.0",
+      "pkg:cargo/bitcoin-units@0.1.100",
+      "pkg:cargo/bitcoin@0.32.8",
+      "pkg:cargo/bitcoin_hashes@0.14.100",
+      "pkg:cargo/bitcoin_hashes@0.15.0",
+      "pkg:cargo/bitcoin_hashes@0.20.0",
+      "pkg:cargo/bitflags@2.11.1",
+      "pkg:cargo/byteorder@1.5.0",
+      "pkg:cargo/bytes@1.11.1",
+      "pkg:cargo/camino@1.2.2",
+      "pkg:cargo/cargo-platform@0.1.9",
+      "pkg:cargo/cargo_metadata@0.19.2",
+      "pkg:cargo/cc@1.2.62",
+      "pkg:cargo/cfg-if@1.0.4",
+      "pkg:cargo/chacha20-poly1305@0.1.2",
+      "pkg:cargo/clap@4.6.1",
+      "pkg:cargo/clap_builder@4.6.0",
+      "pkg:cargo/clap_derive@4.6.1",
+      "pkg:cargo/clap_lex@1.1.0",
+      "pkg:cargo/cmake@0.1.58",
+      "pkg:cargo/dunce@1.0.5",
+      "pkg:cargo/electrum-client@0.25.0",
+      "pkg:cargo/equivalent@1.0.2",
+      "pkg:cargo/errno@0.3.14",
+      "pkg:cargo/esplora-client@0.12.3",
+      "pkg:cargo/fallible-iterator@0.3.0",
+      "pkg:cargo/fallible-streaming-iterator@0.1.9",
+      "pkg:cargo/fastrand@2.4.1",
+      "pkg:cargo/find-msvc-tools@0.1.9",
+      "pkg:cargo/foldhash@0.1.5",
+      "pkg:cargo/fs-err@2.11.0",
+      "pkg:cargo/fs_extra@1.3.0",
+      "pkg:cargo/getrandom@0.2.17",
+      "pkg:cargo/getrandom@0.3.4",
+      "pkg:cargo/getrandom@0.4.2",
+      "pkg:cargo/glob@0.3.3",
+      "pkg:cargo/goblin@0.8.2",
+      "pkg:cargo/hashbrown@0.14.5",
+      "pkg:cargo/hashbrown@0.15.5",
+      "pkg:cargo/hashbrown@0.17.1",
+      "pkg:cargo/hashlink@0.9.1",
+      "pkg:cargo/heck@0.5.0",
+      "pkg:cargo/hex-conservative@0.2.2",
+      "pkg:cargo/hex-conservative@0.3.2",
+      "pkg:cargo/hex_lit@0.1.1",
+      "pkg:cargo/id-arena@2.3.0",
+      "pkg:cargo/indexmap@2.14.0",
+      "pkg:cargo/itoa@1.0.18",
+      "pkg:cargo/jobserver@0.1.34",
+      "pkg:cargo/leb128fmt@0.1.0",
+      "pkg:cargo/libc@0.2.186",
+      "pkg:cargo/libsqlite3-sys@0.28.0",
+      "pkg:cargo/linux-raw-sys@0.12.1",
+      "pkg:cargo/log@0.4.30",
+      "pkg:cargo/memchr@2.8.1",
+      "pkg:cargo/minimal-lexical@0.2.1",
+      "pkg:cargo/miniscript@12.3.7",
+      "pkg:cargo/minreq@2.14.1",
+      "pkg:cargo/mio@1.2.1",
+      "pkg:cargo/nom@7.1.3",
+      "pkg:cargo/once_cell@1.21.4",
+      "pkg:cargo/percent-encoding@2.3.2",
+      "pkg:cargo/pin-project-lite@0.2.17",
+      "pkg:cargo/pkg-config@0.3.33",
+      "pkg:cargo/plain@0.2.3",
+      "pkg:cargo/ppv-lite86@0.2.21",
+      "pkg:cargo/prettyplease@0.2.37",
+      "pkg:cargo/proc-macro2@1.0.106",
+      "pkg:cargo/quote@1.0.45",
+      "pkg:cargo/r-efi@5.3.0",
+      "pkg:cargo/r-efi@6.0.0",
+      "pkg:cargo/rand@0.8.6",
+      "pkg:cargo/rand_chacha@0.3.1",
+      "pkg:cargo/rand_core@0.6.4",
+      "pkg:cargo/ring@0.17.14",
+      "pkg:cargo/rusqlite@0.31.0",
+      "pkg:cargo/rustc-hash@2.1.2",
+      "pkg:cargo/rustix@1.1.4",
+      "pkg:cargo/rustls-pki-types@1.14.1",
+      "pkg:cargo/rustls-webpki@0.101.7",
+      "pkg:cargo/rustls-webpki@0.103.14",
+      "pkg:cargo/rustls@0.21.12",
+      "pkg:cargo/rustls@0.23.45",
+      "pkg:cargo/scroll@0.12.0",
+      "pkg:cargo/scroll_derive@0.12.1",
+      "pkg:cargo/sct@0.7.1",
+      "pkg:cargo/secp256k1-sys@0.10.1",
+      "pkg:cargo/secp256k1@0.29.1",
+      "pkg:cargo/semver@1.0.28",
+      "pkg:cargo/serde@1.0.228",
+      "pkg:cargo/serde_core@1.0.228",
+      "pkg:cargo/serde_derive@1.0.228",
+      "pkg:cargo/serde_json@1.0.150",
+      "pkg:cargo/serde_spanned@1.1.1",
+      "pkg:cargo/shlex@1.3.0",
+      "pkg:cargo/siphasher@0.3.11",
+      "pkg:cargo/smallvec@1.15.1",
+      "pkg:cargo/smawk@0.3.2",
+      "pkg:cargo/socket2@0.6.4",
+      "pkg:cargo/static_assertions@1.1.0",
+      "pkg:cargo/strsim@0.11.1",
+      "pkg:cargo/subtle@2.6.1",
+      "pkg:cargo/syn@2.0.117",
+      "pkg:cargo/tempfile@3.27.0",
+      "pkg:cargo/textwrap@0.16.2",
+      "pkg:cargo/thiserror-impl@2.0.18",
+      "pkg:cargo/thiserror@2.0.18",
+      "pkg:cargo/tinyvec@1.11.0",
+      "pkg:cargo/tinyvec_macros@0.1.1",
+      "pkg:cargo/tokio-macros@2.7.0",
+      "pkg:cargo/tokio@1.52.3",
+      "pkg:cargo/toml@0.9.12+spec-1.1.0",
+      "pkg:cargo/toml_datetime@0.7.5+spec-1.1.0",
+      "pkg:cargo/toml_parser@1.1.2+spec-1.1.0",
+      "pkg:cargo/toml_writer@1.1.1+spec-1.1.0",
+      "pkg:cargo/unicode-ident@1.0.24",
+      "pkg:cargo/unicode-normalization@0.1.25",
+      "pkg:cargo/unicode-xid@0.2.6",
+      "pkg:cargo/uniffi@0.30.0",
+      "pkg:cargo/uniffi_bindgen@0.30.0",
+      "pkg:cargo/uniffi_build@0.30.0",
+      "pkg:cargo/uniffi_core@0.30.0",
+      "pkg:cargo/uniffi_internal_macros@0.30.0",
+      "pkg:cargo/uniffi_macros@0.30.0",
+      "pkg:cargo/uniffi_meta@0.30.0",
+      "pkg:cargo/uniffi_pipeline@0.30.0",
+      "pkg:cargo/uniffi_testing@0.30.0",
+      "pkg:cargo/uniffi_udl@0.30.0",
+      "pkg:cargo/untrusted@0.9.0",
+      "pkg:cargo/vcpkg@0.2.15",
+      "pkg:cargo/version_check@0.9.5",
+      "pkg:cargo/wasi@0.11.1+wasi-snapshot-preview1",
+      "pkg:cargo/wasip2@1.0.3+wasi-0.2.9",
+      "pkg:cargo/wasip3@0.4.0+wasi-0.3.0-rc-2026-01-06",
+      "pkg:cargo/wasm-encoder@0.244.0",
+      "pkg:cargo/wasm-metadata@0.244.0",
+      "pkg:cargo/wasmparser@0.244.0",
+      "pkg:cargo/webpki-roots@0.25.4",
+      "pkg:cargo/weedle2@5.0.0",
+      "pkg:cargo/winapi-i686-pc-windows-gnu@0.4.0",
+      "pkg:cargo/winapi-x86_64-pc-windows-gnu@0.4.0",
+      "pkg:cargo/winapi@0.3.9",
+      "pkg:cargo/windows-link@0.2.1",
+      "pkg:cargo/windows-sys@0.52.0",
+      "pkg:cargo/windows-sys@0.61.2",
+      "pkg:cargo/windows-targets@0.52.6",
+      "pkg:cargo/windows_aarch64_gnullvm@0.52.6",
+      "pkg:cargo/windows_aarch64_msvc@0.52.6",
+      "pkg:cargo/windows_i686_gnu@0.52.6",
+      "pkg:cargo/windows_i686_gnullvm@0.52.6",
+      "pkg:cargo/windows_i686_msvc@0.52.6",
+      "pkg:cargo/windows_x86_64_gnu@0.52.6",
+      "pkg:cargo/windows_x86_64_gnullvm@0.52.6",
+      "pkg:cargo/windows_x86_64_msvc@0.52.6",
+      "pkg:cargo/winnow@0.7.15",
+      "pkg:cargo/winnow@1.0.3",
+      "pkg:cargo/wit-bindgen-core@0.51.0",
+      "pkg:cargo/wit-bindgen-rust-macro@0.51.0",
+      "pkg:cargo/wit-bindgen-rust@0.51.0",
+      "pkg:cargo/wit-bindgen@0.51.0",
+      "pkg:cargo/wit-bindgen@0.57.1",
+      "pkg:cargo/wit-component@0.244.0",
+      "pkg:cargo/wit-parser@0.244.0",
+      "pkg:cargo/zerocopy-derive@0.8.49",
+      "pkg:cargo/zerocopy@0.8.49",
+      "pkg:cargo/zeroize@1.8.2",
+      "pkg:cargo/zmij@1.0.21"
+    ],
+    "findings": [
+      {
+        "purl": "pkg:cargo/basic-toml@0.1.10",
+        "id": "RUSTSEC-2026-0374"
+      },
+      {
+        "purl": "pkg:cargo/rustls-webpki@0.101.7",
+        "id": "GHSA-82j2-j2ch-gfr8"
+      },
+      {
+        "purl": "pkg:cargo/rustls-webpki@0.101.7",
+        "id": "GHSA-965h-392x-2mh5"
+      },
+      {
+        "purl": "pkg:cargo/rustls-webpki@0.101.7",
+        "id": "GHSA-xgp8-3hg3-c2mh"
+      },
+      {
+        "purl": "pkg:cargo/rustls-webpki@0.101.7",
+        "id": "RUSTSEC-2026-0098"
+      },
+      {
+        "purl": "pkg:cargo/rustls-webpki@0.101.7",
+        "id": "RUSTSEC-2026-0099"
+      },
+      {
+        "purl": "pkg:cargo/rustls-webpki@0.101.7",
+        "id": "RUSTSEC-2026-0104"
+      },
+      {
+        "purl": "pkg:cargo/rustls-webpki@0.101.7",
+        "id": "RUSTSEC-2026-0382"
+      },
+      {
+        "purl": "pkg:cargo/rustls-webpki@0.103.14",
+        "id": "RUSTSEC-2026-0382"
+      },
+      {
+        "purl": "pkg:cargo/rustls@0.21.12",
+        "id": "RUSTSEC-2026-0346"
+      },
+      {
+        "purl": "pkg:cargo/rustls@0.21.12",
+        "id": "RUSTSEC-2026-0349"
+      },
+      {
+        "purl": "pkg:cargo/rustls@0.23.45",
+        "id": "RUSTSEC-2026-0346"
+      },
+      {
+        "purl": "pkg:cargo/rustls@0.23.45",
+        "id": "RUSTSEC-2026-0347"
+      },
+      {
+        "purl": "pkg:cargo/rustls@0.23.45",
+        "id": "RUSTSEC-2026-0348"
+      },
+      {
+        "purl": "pkg:cargo/rustls@0.23.45",
+        "id": "RUSTSEC-2026-0349"
+      },
+      {
+        "purl": "pkg:cargo/tokio@1.52.3",
+        "id": "RUSTSEC-2026-0386"
+      },
+      {
+        "purl": "pkg:cargo/webpki-roots@0.25.4",
+        "id": "RUSTSEC-2026-0381"
+      }
+    ]
+  },
+  "baseline_gate_result": "The unchanged gate saved all 17 matches then rejected the expired 2026-10-16 review.",
+  "advisory_documents": [
+    {
+      "id": "GHSA-82j2-j2ch-gfr8",
+      "canonical_sha256": "618f5df0622d59166bab25d1cee15147b98dc0bd90348935fb130f77dc3b07d5",
+      "document": {
+        "id": "GHSA-82j2-j2ch-gfr8",
+        "summary": "rustls-webpki: Denial of service via panic on malformed CRL BIT STRING",
+        "details": "### Summary\n\n`bit_string_flags()` in `src/der.rs` panics with an index-out-of-bounds when given a BIT STRING whose content is exactly `[0x00]` (one byte: zero padding bits, zero data bytes). This is reachable through the public API `BorrowedCertRevocationList::from_der()` via the `issuingDistributionPoint` CRL extension.\n\n**Precondition**: CRL checking is opt-in in rustls-webpki. This vulnerability affects only applications that explicitly pass `RevocationOptions` to `verify_for_usage()` and load CRL bytes from a source the attacker can influence. The default rustls configuration (no `RevocationOptions`) is not affected.\n\n> **AI disclosure**: This report was prepared with AI assistance (Claude). The vulnerability was discovered by differential fuzzing against a formally-verified Rust oracle. All technical claims have been independently verified against the live source code before submission.\n\n### Details\n`bit_string_flags()` in `src/der.rs` reads the content of named-bit BIT\nSTRINGs (KeyUsage, ReasonFlags, etc.). Its input guard:\n\n```rust\nif padding_bits > 7 || (raw_bits.is_empty() && padding_bits != 0) {\n    return Err(Error::BadDer);\n}\nlet last_byte = raw_bits[raw_bits.len() - 1];  // ← crash\n```\nmisses the case `padding_bits == 0 && raw_bits.is_empty()`.\nWhen a BIT STRING has content `[0x00]`  (one padding-bits byte set to zero, no data bytes):\n- padding_bits = 0x00 — passes the > 7 check ✓\n- raw_bits = [] — passes is_empty() && != 0 check ✓ (because 0 != 0 is false)\n- raw_bits.len() - 1 = 0usize - 1 = underflow → usize::MAX\n- raw_bits[usize::MAX] → panic\n\n\nDebug:   thread 'main' panicked: attempt to subtract with overflow\nRelease: thread 'main' panicked: index out of bounds: the len is 0\n         but the index is 18446744073709551615\n\n### PoC\nCargo.toml:\n```\n[dependencies]\nrustls-webpki = \"0.102.8\"   # also reproduces on 0.103.12\n```\nsrc/main.rs:\n```\nfn main() {\n    let crl: &[u8] = &[\n        0x30, 0x65, 0x30, 0x50, 0x02, 0x01, 0x01, 0x30, 0x0d, 0x06, 0x09,\n        0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b, 0x05, 0x00,\n        0x30, 0x0c, 0x31, 0x0a, 0x30, 0x08, 0x06, 0x03, 0x55, 0x04, 0x03,\n        0x13, 0x01, 0x41, 0x17, 0x0d, 0x32, 0x30, 0x30, 0x31, 0x30, 0x31,\n        0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x5a, 0x17, 0x0d, 0x32, 0x31,\n        0x30, 0x31, 0x30, 0x31, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x5a,\n        0xa0, 0x10, 0x30, 0x0e, 0x30, 0x0c, 0x06, 0x03, 0x55, 0x1d, 0x1c,\n        0x04, 0x05, 0x30, 0x03, 0x83, 0x01, 0x00, 0x30, 0x0d, 0x06, 0x09,\n        0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b, 0x05, 0x00,\n        0x03, 0x02, 0x00, 0x00,\n    ];\n    // Panics — never returns\n    let _ = webpki::BorrowedCertRevocationList::from_der(crl);\n}\n```\noutput:\n```\nthread 'main' panicked at src/der.rs:...\nindex out of bounds: the len is 0 but the index is 18446744073709551615\n```\n#### Trigger\n```\na0 10            -- cRLExtensions [0] EXPLICIT\n  30 0e          -- SEQUENCE OF Extension\n    30 0c        -- Extension SEQUENCE\n      06 03 55 1d 1c   -- OID 2.5.29.28 (id-ce-issuingDistributionPoint)\n      04 05            -- OCTET STRING (extnValue)\n        30 03          -- IssuingDistributionPoint SEQUENCE\n          83 01 00     -- [3] onlySomeReasons: BIT STRING, len=1, content=0x00\n                       --   padding_bits=0, data=[]  ← TRIGGER\n```\n\n\n### Impact\n- Who is affected: \nApplications that (1) use rustls-webpki with CRL\nrevocation checking explicitly enabled via RevocationOptions, and (2)\nload CRL bytes from a source an attacker can influence.\n- Attack paths:\n    - mTLS server (most realistic): An attacker obtains any certificate from a CA that permits custom CDP URLs — common in enterprise PKI. They set the CDP to a server they control, serve the 103-byte crafted CRL, and connect to the target. The server fetches the attacker's CRL during the handshake and panics. No MITM required.\n    - TLS client with server-cert CRL checking: An attacker who can MITM an HTTP CRL distribution point (ARP/DNS poisoning on a local network) serves the crafted CRL in place of the legitimate one.",
+        "aliases": [
+          "CVE-2026-93599",
+          "RUSTSEC-2026-0104"
+        ],
+        "modified": "2026-09-19T03:55:33.412079637Z",
+        "published": "2026-04-24T16:20:17Z",
+        "database_specific": {
+          "github_reviewed_at": "2026-04-24T16:20:17Z",
+          "nvd_published_at": null,
+          "cwe_ids": [
+            "CWE-125"
+          ],
+          "severity": "HIGH",
+          "github_reviewed": true
+        },
+        "references": [
+          {
+            "type": "WEB",
+            "url": "https://github.com/rustls/webpki/security/advisories/GHSA-82j2-j2ch-gfr8"
+          },
+          {
+            "type": "PACKAGE",
+            "url": "https://github.com/rustls/webpki"
+          },
+          {
+            "type": "WEB",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0104.html"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "rustls-webpki",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls-webpki"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0"
+                  },
+                  {
+                    "fixed": "0.103.13"
+                  }
+                ]
+              }
+            ],
+            "database_specific": {
+              "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-82j2-j2ch-gfr8/GHSA-82j2-j2ch-gfr8.json"
+            }
+          },
+          {
+            "package": {
+              "name": "rustls-webpki",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls-webpki"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.104.0-alpha.1"
+                  },
+                  {
+                    "fixed": "0.104.0-alpha.7"
+                  }
+                ]
+              }
+            ],
+            "database_specific": {
+              "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-82j2-j2ch-gfr8/GHSA-82j2-j2ch-gfr8.json"
+            }
+          }
+        ],
+        "schema_version": "1.9.0",
+        "severity": [
+          {
+            "type": "CVSS_V3",
+            "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          }
+        ]
+      }
+    },
+    {
+      "id": "GHSA-965h-392x-2mh5",
+      "canonical_sha256": "0077f82e7ccde86e6f0f3c7659081c6f5287ce70062f68bb86080e9629131f9f",
+      "document": {
+        "id": "GHSA-965h-392x-2mh5",
+        "summary": "webpki: Name constraints for URI names were incorrectly accepted",
+        "details": "Name constraints for URI names were ignored and therefore accepted.\n\nNote this library does not provide an API for asserting URI names, and URI name constraints are otherwise not implemented.  URI name constraints are now rejected unconditionally.\n\nSince name constraints are restrictions on otherwise properly-issued certificates, this bug is reachable only after signature verification and requires misissuance to exploit.",
+        "aliases": [
+          "CVE-2026-93600",
+          "RUSTSEC-2026-0098"
+        ],
+        "modified": "2026-09-19T03:55:32.245575348Z",
+        "published": "2026-04-16T21:16:22Z",
+        "database_specific": {
+          "nvd_published_at": null,
+          "cwe_ids": [
+            "CWE-295"
+          ],
+          "severity": "LOW",
+          "github_reviewed": true,
+          "github_reviewed_at": "2026-04-16T21:16:22Z"
+        },
+        "references": [
+          {
+            "type": "WEB",
+            "url": "https://github.com/rustls/webpki/security/advisories/GHSA-965h-392x-2mh5"
+          },
+          {
+            "type": "PACKAGE",
+            "url": "https://github.com/rustls/webpki"
+          },
+          {
+            "type": "WEB",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0098.html"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "rustls-webpki",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls-webpki"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.101.0"
+                  },
+                  {
+                    "fixed": "0.103.12"
+                  }
+                ]
+              }
+            ],
+            "database_specific": {
+              "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-965h-392x-2mh5/GHSA-965h-392x-2mh5.json"
+            }
+          },
+          {
+            "package": {
+              "name": "rustls-webpki",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls-webpki"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.104.0-alpha.1"
+                  },
+                  {
+                    "fixed": "0.104.0-alpha.6"
+                  }
+                ]
+              }
+            ],
+            "database_specific": {
+              "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-965h-392x-2mh5/GHSA-965h-392x-2mh5.json"
+            }
+          }
+        ],
+        "schema_version": "1.9.0",
+        "severity": [
+          {
+            "type": "CVSS_V3",
+            "score": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:N/I:L/A:N"
+          }
+        ]
+      }
+    },
+    {
+      "id": "GHSA-xgp8-3hg3-c2mh",
+      "canonical_sha256": "5cff7d64cac82fcbac4b1fdf266703ea98e772a1c16bafa7c9be3f3fd063ae4c",
+      "document": {
+        "id": "GHSA-xgp8-3hg3-c2mh",
+        "summary": "webpki: Name constraints were accepted for certificates asserting a wildcard name",
+        "details": "Permitted subtree name constraints for DNS names were accepted for certificates asserting a wildcard name.\n\nThis was incorrect because, given a name constraint of `accept.example.com`, `*.example.com` could feasibly allow a name of `reject.example.com` which is outside the constraint.\nThis is very similar to [CVE-2025-61727](https://go.dev/issue/76442).\n\nSince name constraints are restrictions on otherwise properly-issued certificates, this bug is reachable only after signature verification and requires misissuance to exploit.",
+        "aliases": [
+          "CVE-2026-93601",
+          "RUSTSEC-2026-0099"
+        ],
+        "modified": "2026-09-19T03:55:49.146112754Z",
+        "published": "2026-04-16T21:17:12Z",
+        "database_specific": {
+          "severity": "LOW",
+          "github_reviewed": true,
+          "github_reviewed_at": "2026-04-16T21:17:12Z",
+          "nvd_published_at": null,
+          "cwe_ids": [
+            "CWE-295"
+          ]
+        },
+        "references": [
+          {
+            "type": "WEB",
+            "url": "https://github.com/rustls/webpki/security/advisories/GHSA-xgp8-3hg3-c2mh"
+          },
+          {
+            "type": "PACKAGE",
+            "url": "https://github.com/rustls/webpki"
+          },
+          {
+            "type": "WEB",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0099.html"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "rustls-webpki",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls-webpki"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.101.0"
+                  },
+                  {
+                    "fixed": "0.103.12"
+                  }
+                ]
+              }
+            ],
+            "database_specific": {
+              "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-xgp8-3hg3-c2mh/GHSA-xgp8-3hg3-c2mh.json"
+            }
+          },
+          {
+            "package": {
+              "name": "rustls-webpki",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls-webpki"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.104.0-alpha.1"
+                  },
+                  {
+                    "fixed": "0.104.0-alpha.6"
+                  }
+                ]
+              }
+            ],
+            "database_specific": {
+              "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-xgp8-3hg3-c2mh/GHSA-xgp8-3hg3-c2mh.json"
+            }
+          }
+        ],
+        "schema_version": "1.9.0",
+        "severity": [
+          {
+            "type": "CVSS_V3",
+            "score": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:N/I:L/A:N"
+          }
+        ]
+      }
+    },
+    {
+      "id": "RUSTSEC-2026-0098",
+      "canonical_sha256": "284db215d88b037e0d130bb510b36c047383e8dc26b121fa75b01aff0d4570d3",
+      "document": {
+        "id": "RUSTSEC-2026-0098",
+        "summary": "Name constraints for URI names were incorrectly accepted",
+        "details": "Name constraints for URI names were ignored and therefore accepted.\n\nNote this library does not provide an API for asserting URI names, and URI name constraints are otherwise not implemented.  URI name constraints are now rejected unconditionally.\n\nSince name constraints are restrictions on otherwise properly-issued certificates, this bug is reachable only after signature verification and requires misissuance to exploit.\n\nThis vulnerability is identified as [GHSA-965h-392x-2mh5](https://github.com/rustls/webpki/security/advisories/GHSA-965h-392x-2mh5). Thank you to [@1seal](https://github.com/1seal) for the report.",
+        "aliases": [
+          "CVE-2026-93600",
+          "GHSA-965h-392x-2mh5"
+        ],
+        "modified": "2026-09-19T08:42:27Z",
+        "published": "2026-04-14T12:00:00Z",
+        "database_specific": {
+          "license": "CC0-1.0"
+        },
+        "references": [
+          {
+            "type": "PACKAGE",
+            "url": "https://crates.io/crates/rustls-webpki"
+          },
+          {
+            "type": "ADVISORY",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0098.html"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "rustls-webpki",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls-webpki"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.0.0-0"
+                  },
+                  {
+                    "fixed": "0.103.12"
+                  },
+                  {
+                    "introduced": "0.104.0-alpha.1"
+                  },
+                  {
+                    "fixed": "0.104.0-alpha.6"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "affected_functions": null,
+              "affects": {
+                "arch": [],
+                "os": [],
+                "functions": []
+              }
+            },
+            "database_specific": {
+              "categories": [],
+              "cvss": null,
+              "informational": null,
+              "source": "https://github.com/rustsec/advisory-db/blob/osv/crates/RUSTSEC-2026-0098.json"
+            }
+          }
+        ],
+        "schema_version": "1.9.0"
+      }
+    },
+    {
+      "id": "RUSTSEC-2026-0099",
+      "canonical_sha256": "d012c9ae6486f484e459e41f5c8ab273d09bfc206fba9cef10b290aeea517929",
+      "document": {
+        "id": "RUSTSEC-2026-0099",
+        "summary": "Name constraints were accepted for certificates asserting a wildcard name",
+        "details": "Permitted subtree name constraints for DNS names were accepted for certificates asserting a wildcard name.\n\nThis was incorrect because, given a name constraint of `accept.example.com`, `*.example.com` could feasibly allow a name of `reject.example.com` which is outside the constraint.\nThis is very similar to [CVE-2025-61727](https://go.dev/issue/76442).\n\nSince name constraints are restrictions on otherwise properly-issued certificates, this bug is reachable only after signature verification and requires misissuance to exploit.\n\nThis vulnerability is identified as [GHSA-xgp8-3hg3-c2mh](https://github.com/rustls/webpki/security/advisories/GHSA-xgp8-3hg3-c2mh). Thank you to [@1seal](https://github.com/1seal) for the report.",
+        "aliases": [
+          "CVE-2026-93601",
+          "GHSA-xgp8-3hg3-c2mh"
+        ],
+        "modified": "2026-09-19T08:42:27Z",
+        "published": "2026-04-14T12:00:00Z",
+        "database_specific": {
+          "license": "CC0-1.0"
+        },
+        "references": [
+          {
+            "type": "PACKAGE",
+            "url": "https://crates.io/crates/rustls-webpki"
+          },
+          {
+            "type": "ADVISORY",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0099.html"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "rustls-webpki",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls-webpki"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.0.0-0"
+                  },
+                  {
+                    "fixed": "0.103.12"
+                  },
+                  {
+                    "introduced": "0.104.0-alpha.1"
+                  },
+                  {
+                    "fixed": "0.104.0-alpha.6"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "affects": {
+                "arch": [],
+                "os": [],
+                "functions": []
+              },
+              "affected_functions": null
+            },
+            "database_specific": {
+              "categories": [],
+              "cvss": null,
+              "informational": null,
+              "source": "https://github.com/rustsec/advisory-db/blob/osv/crates/RUSTSEC-2026-0099.json"
+            }
+          }
+        ],
+        "schema_version": "1.9.0"
+      }
+    },
+    {
+      "id": "RUSTSEC-2026-0104",
+      "canonical_sha256": "5cf866fd63f4c62cd339170f0c64cb64593ea8c9699e1557f33920bcc90e41f5",
+      "document": {
+        "id": "RUSTSEC-2026-0104",
+        "summary": "Reachable panic in certificate revocation list parsing",
+        "details": "A panic was reachable when parsing certificate revocation lists via [`BorrowedCertRevocationList::from_der`]\nor [`OwnedCertRevocationList::from_der`].  This was the result of mishandling a syntactically valid empty\n`BIT STRING` appearing in the `onlySomeReasons` element of a `IssuingDistributionPoint` CRL extension.\n\nThis panic is reachable prior to a CRL's signature being verified.\n\nApplications that do not use CRLs are not affected.\n\nThank you to [@tynus3](https://github.com/tynus3) for the report.",
+        "aliases": [
+          "CVE-2026-93599",
+          "GHSA-82j2-j2ch-gfr8"
+        ],
+        "modified": "2026-09-19T08:42:27Z",
+        "published": "2026-04-22T12:00:00Z",
+        "database_specific": {
+          "license": "CC0-1.0"
+        },
+        "references": [
+          {
+            "type": "PACKAGE",
+            "url": "https://crates.io/crates/rustls-webpki"
+          },
+          {
+            "type": "ADVISORY",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0104.html"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "rustls-webpki",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls-webpki"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.0.0-0"
+                  },
+                  {
+                    "fixed": "0.103.13"
+                  },
+                  {
+                    "introduced": "0.104.0-alpha.1"
+                  },
+                  {
+                    "fixed": "0.104.0-alpha.7"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "affects": {
+                "os": [],
+                "functions": [],
+                "arch": []
+              },
+              "affected_functions": null
+            },
+            "database_specific": {
+              "cvss": null,
+              "informational": null,
+              "categories": [
+                "denial-of-service"
+              ],
+              "source": "https://github.com/rustsec/advisory-db/blob/osv/crates/RUSTSEC-2026-0104.json"
+            }
+          }
+        ],
+        "schema_version": "1.9.0"
+      }
+    },
+    {
+      "id": "RUSTSEC-2026-0346",
+      "canonical_sha256": "b62f3e96ead3ba67a04477ac7c41aa1d5ecbd1f62580090371310495aa246e2d",
+      "document": {
+        "id": "RUSTSEC-2026-0346",
+        "summary": "`Debug` impls for client session values expose TLS secrets",
+        "details": "The `Debug` implementations of `Tls12ClientSessionValue` and\n`Tls13ClientSessionValue` were derived, and so included the TLS 1.2 master\nsecret or TLS 1.3 resumption PSK in their output.\n\nCustom `ClientSessionStore` implementations that format these values with\n`Debug` (for example, when logging) could disclose these secrets to readers of\nthe logs. This conflicts with rustls's\n[key-material redaction policy](https://github.com/rustls/rustls/blob/99f2358cae2954837dbb866faf6727de75489ab9/SECURITY.md#boundary-public-api).\n\nOrdinary connection and built-in session cache `Debug` output is redacted and\nis not affected.",
+        "aliases": [
+          "GHSA-c8m5-c952-6cm4"
+        ],
+        "modified": "2026-10-14T13:30:02.480694744Z",
+        "published": "2026-10-14T12:00:00Z",
+        "database_specific": {
+          "license": "CC0-1.0"
+        },
+        "references": [
+          {
+            "type": "PACKAGE",
+            "url": "https://crates.io/crates/rustls"
+          },
+          {
+            "type": "ADVISORY",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0346.html"
+          },
+          {
+            "type": "WEB",
+            "url": "https://github.com/rustls/rustls/pull/3299"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "rustls",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.21.0"
+                  },
+                  {
+                    "fixed": "0.23.46"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "affects": {
+                "arch": [],
+                "os": [],
+                "functions": []
+              },
+              "affected_functions": null
+            },
+            "database_specific": {
+              "categories": [
+                "crypto-failure"
+              ],
+              "cvss": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:N/A:N",
+              "informational": null,
+              "source": "https://github.com/rustsec/advisory-db/blob/osv/crates/RUSTSEC-2026-0346.json"
+            }
+          }
+        ],
+        "schema_version": "1.9.0",
+        "severity": [
+          {
+            "type": "CVSS_V3",
+            "score": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:N/A:N"
+          }
+        ]
+      }
+    },
+    {
+      "id": "RUSTSEC-2026-0347",
+      "canonical_sha256": "9f3395f1a45f0b6ff713dc20b42480e0b79ae38bb2db8a71472ca0b8e06bc6cc",
+      "document": {
+        "id": "RUSTSEC-2026-0347",
+        "summary": "Buffered application data sent to outer server after ECH rejection",
+        "details": "When a server rejects Encrypted Client Hello (ECH), the client completes the\nhandshake using the outer ClientHello and authenticates the server against the\nECH config's `public_name`. At the end of that handshake, rustls encrypted and\nqueued any application data buffered via `ClientConnection::writer()` *before*\nqueueing the `ech_required` alert.\n\nThe application correctly receives\n`Error::PeerIncompatible(ServerRejectedEncryptedClientHello)`, but the next\n`write_tls()` call (needed to send the alert) also sends the buffered\napplication data. Plaintext meant for the inner server therefore goes to the\nclient-facing server named by `public_name`.\n\nThat server is authenticated, so this is not exploitable by an unauthenticated\nparty, but it violates RFC 9849 section 6.1.6, which requires the client to\nabort with `ech_required` \"before sending any application data to the server\".\n\nThis affects only clients that:\n\n- use `EchMode::Enable` (GREASE ECH is not affected),\n- write application data before the handshake completes, and\n- connect to a server that rejects their ECH config (for example, because it is stale).\n\nThe underlying ordering bug is older, but before 0.23.44 the client checked\nthe server certificate against the inner server name rather than `public_name`,\nso certificate verification failed first and no data was sent.",
+        "aliases": [
+          "GHSA-vp88-798v-h67f"
+        ],
+        "modified": "2026-10-14T13:30:02.472103370Z",
+        "published": "2026-10-14T12:00:00Z",
+        "database_specific": {
+          "license": "CC0-1.0"
+        },
+        "references": [
+          {
+            "type": "PACKAGE",
+            "url": "https://crates.io/crates/rustls"
+          },
+          {
+            "type": "ADVISORY",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0347.html"
+          },
+          {
+            "type": "WEB",
+            "url": "https://github.com/rustls/rustls/pull/3300"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "rustls",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.23.44"
+                  },
+                  {
+                    "fixed": "0.23.46"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "affected_functions": null,
+              "affects": {
+                "arch": [],
+                "os": [],
+                "functions": []
+              }
+            },
+            "database_specific": {
+              "informational": null,
+              "categories": [
+                "crypto-failure"
+              ],
+              "source": "https://github.com/rustsec/advisory-db/blob/osv/crates/RUSTSEC-2026-0347.json",
+              "cvss": "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
+            }
+          }
+        ],
+        "schema_version": "1.9.0",
+        "severity": [
+          {
+            "type": "CVSS_V3",
+            "score": "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
+          }
+        ]
+      }
+    },
+    {
+      "id": "RUSTSEC-2026-0348",
+      "canonical_sha256": "692d232bf7eeda7e85bed514b2b267044f7b50c50efc42f52592742fda423396",
+      "document": {
+        "id": "RUSTSEC-2026-0348",
+        "summary": "Brotli certificate decompression can allocate up to 1 GiB before authentication",
+        "details": "The built-in Brotli certificate decompressor (enabled by the non-default\n`brotli` crate feature) bounded the size of the decompressed output, but\naccepted a peer-selected history window. Brotli's large-window extension was\nenabled, so a five-byte header could cause an allocation of 1 GiB. A peer can\nabort a process whose allocator cannot satisfy that request.\n\nNo trusted certificate is required by the attacker. Affected configurations are:\n\n- clients that enable the `brotli` feature and connect to a malicious server, and\n- servers that enable the `brotli` feature and request client certificates.\n\nApplications that do not enable the `brotli` feature are not affected.",
+        "aliases": [
+          "GHSA-h2v8-394m-p7vv"
+        ],
+        "modified": "2026-10-14T13:30:02.480925286Z",
+        "published": "2026-10-14T12:00:00Z",
+        "database_specific": {
+          "license": "CC0-1.0"
+        },
+        "references": [
+          {
+            "type": "PACKAGE",
+            "url": "https://crates.io/crates/rustls"
+          },
+          {
+            "type": "ADVISORY",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0348.html"
+          },
+          {
+            "type": "WEB",
+            "url": "https://github.com/rustls/rustls/pull/3297"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "rustls",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.23.9"
+                  },
+                  {
+                    "fixed": "0.23.46"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "affected_functions": null,
+              "affects": {
+                "os": [],
+                "functions": [],
+                "arch": []
+              }
+            },
+            "database_specific": {
+              "source": "https://github.com/rustsec/advisory-db/blob/osv/crates/RUSTSEC-2026-0348.json",
+              "informational": null,
+              "categories": [
+                "denial-of-service"
+              ],
+              "cvss": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:L"
+            }
+          }
+        ],
+        "schema_version": "1.9.0",
+        "severity": [
+          {
+            "type": "CVSS_V3",
+            "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:L"
+          }
+        ]
+      }
+    },
+    {
+      "id": "RUSTSEC-2026-0349",
+      "canonical_sha256": "06aa8136b73ebe1230d32fc9ac7a7a550c570d92083023e6aea15ac6d6f8a64c",
+      "document": {
+        "id": "RUSTSEC-2026-0349",
+        "summary": "Unauthenticated ServerHello can downgrade later connections to classical key exchange",
+        "details": "The client recorded the server-selected key exchange group for each server\nname when processing the ServerHello, before the server was authenticated.\nThis record is used to predict which key share to send in future ClientHellos\nto that server name.\n\nA network attacker can answer one connection attempt with a ServerHello\nselecting X25519, and then close the connection. Later ClientHellos for that\nname carry only an X25519 key share, while `supported_groups` still lists\nX25519MLKEM768 first. If the genuine server accepts that share rather than\nsending a HelloRetryRequest for its preferred hybrid group, the handshake\ncompletes with classical-only key exchange and no error. This persists for as\nlong as the entry stays in the client's session store.\n\nThe impact is loss of post-quantum confidentiality for affected connections\n(\"harvest now, decrypt later\"). There is no key compromise and no\nauthentication bypass.\n\nThe following are not affected:\n\n- connections to servers which send a HelloRetryRequest for their preferred group,\n- clients with resumption disabled (as nothing is stored), and\n- other server names.\n\nThis behaviour is discussed in\n[draft-ietf-tls-key-share-prediction](https://www.ietf.org/archive/id/draft-ietf-tls-key-share-prediction-01.html#name-security-considerations),\nso the practical impact depends largely on server policy.",
+        "aliases": [
+          "GHSA-w44r-93j7-qv28"
+        ],
+        "modified": "2026-10-14T13:30:02.475705129Z",
+        "published": "2026-10-14T12:00:00Z",
+        "database_specific": {
+          "license": "CC0-1.0"
+        },
+        "references": [
+          {
+            "type": "PACKAGE",
+            "url": "https://crates.io/crates/rustls"
+          },
+          {
+            "type": "ADVISORY",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0349.html"
+          },
+          {
+            "type": "WEB",
+            "url": "https://github.com/rustls/rustls/pull/3355"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "rustls",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.0.0-0"
+                  },
+                  {
+                    "fixed": "0.23.46"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "affects": {
+                "arch": [],
+                "os": [],
+                "functions": []
+              },
+              "affected_functions": null
+            },
+            "database_specific": {
+              "cvss": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+              "informational": null,
+              "source": "https://github.com/rustsec/advisory-db/blob/osv/crates/RUSTSEC-2026-0349.json",
+              "categories": [
+                "crypto-failure"
+              ]
+            }
+          }
+        ],
+        "schema_version": "1.9.0",
+        "severity": [
+          {
+            "type": "CVSS_V3",
+            "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N"
+          }
+        ]
+      }
+    },
+    {
+      "id": "RUSTSEC-2026-0374",
+      "canonical_sha256": "746f2e51ece2d8c823f45d92967e87b68abf8445e461fbbeacaf213e40493ecd",
+      "document": {
+        "id": "RUSTSEC-2026-0374",
+        "summary": "`basic-toml` is unmaintained",
+        "details": "The last release was on March 3, 2025, the day after the repository was archived and marked as unmaintained.\n\n## Possible alternatives\n\n- [toml](https://crates.io/crates/toml)",
+        "modified": "2026-10-20T11:15:37.076409305Z",
+        "published": "2026-09-26T12:00:00Z",
+        "database_specific": {
+          "license": "CC0-1.0"
+        },
+        "references": [
+          {
+            "type": "PACKAGE",
+            "url": "https://crates.io/crates/basic-toml"
+          },
+          {
+            "type": "ADVISORY",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0374.html"
+          },
+          {
+            "type": "WEB",
+            "url": "https://github.com/dtolnay/basic-toml/commit/dd2ea1df197f255a402b8990cb852ade3e37ea34"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "basic-toml",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/basic-toml"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.0.0-0"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "affected_functions": null,
+              "affects": {
+                "os": [],
+                "functions": [],
+                "arch": []
+              }
+            },
+            "database_specific": {
+              "source": "https://github.com/rustsec/advisory-db/blob/osv/crates/RUSTSEC-2026-0374.json",
+              "categories": [],
+              "cvss": null,
+              "informational": "unmaintained"
+            }
+          }
+        ],
+        "schema_version": "1.9.0"
+      }
+    },
+    {
+      "id": "RUSTSEC-2026-0381",
+      "canonical_sha256": "996037a33067d56b4b254a55168f617fef3b41d290b6adbf25f874330c10cbd5",
+      "document": {
+        "id": "RUSTSEC-2026-0381",
+        "summary": "Bundled root certificates allow trust in distrusted emSign intermediates",
+        "details": "Affected versions include `emSign ECC Root CA - G3`, which can allow certificate\npaths through distrusted emSign intermediates.\n\nAffected versions may accept certificate paths containing distrusted emSign\nintermediate public keys. The private keys corresponding to these intermediates\nare now well known.\n\nVersion 1.0.10+ removes this root.\n\nThe `webpki-roots` 0.26.11 compatibility package contains no independent trust\nstore and re-exports the roots from its separately resolved 1.x dependency.\nThat parent dependency must resolve to 1.0.10 or newer; an older parent remains\naffected by this advisory.",
+        "aliases": [
+          "CVE-2026-111943",
+          "GO-2026-6809",
+          "RUSTSEC-2026-0382",
+          "RUSTSEC-2026-0383"
+        ],
+        "modified": "2026-10-21T06:30:02.818201920Z",
+        "published": "2026-10-19T12:00:00Z",
+        "database_specific": {
+          "license": "CC0-1.0"
+        },
+        "references": [
+          {
+            "type": "PACKAGE",
+            "url": "https://crates.io/crates/webpki-roots"
+          },
+          {
+            "type": "ADVISORY",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0381.html"
+          },
+          {
+            "type": "WEB",
+            "url": "https://github.com/rustls/webpki-roots/pull/133"
+          },
+          {
+            "type": "WEB",
+            "url": "https://emudhra.we-have-a-problem.com/"
+          },
+          {
+            "type": "WEB",
+            "url": "https://bugzilla.mozilla.org/show_bug.cgi?id=2083449"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "webpki-roots",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/webpki-roots"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.0.0-0"
+                  },
+                  {
+                    "fixed": "0.26.11"
+                  },
+                  {
+                    "introduced": "0.26.12-0"
+                  },
+                  {
+                    "fixed": "1.0.10"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "affected_functions": null,
+              "affects": {
+                "arch": [],
+                "os": [],
+                "functions": []
+              }
+            },
+            "database_specific": {
+              "categories": [
+                "crypto-failure"
+              ],
+              "cvss": null,
+              "informational": null,
+              "source": "https://github.com/rustsec/advisory-db/blob/osv/crates/RUSTSEC-2026-0381.json"
+            }
+          }
+        ],
+        "schema_version": "1.9.0"
+      }
+    },
+    {
+      "id": "RUSTSEC-2026-0382",
+      "canonical_sha256": "cafbdfea1bd1bea967afc279974b9544f1d5c9c8be87f27e941b171af0491190",
+      "document": {
+        "id": "RUSTSEC-2026-0382",
+        "summary": "Certificate verification may accept distrusted intermediates",
+        "details": "Affected versions may accept certificate paths containing distrusted emSign\nintermediate public keys when the configured trust anchors allow such paths.\nThe private keys corresponding to these intermediates are now well known.\n\nVersions 0.103.16 and 0.104.0-alpha.8 reject paths containing these public keys.",
+        "aliases": [
+          "CVE-2026-111943",
+          "GO-2026-6809",
+          "RUSTSEC-2026-0381",
+          "RUSTSEC-2026-0383"
+        ],
+        "modified": "2026-10-21T00:55:56.763143468Z",
+        "published": "2026-10-20T12:00:00Z",
+        "database_specific": {
+          "license": "CC0-1.0"
+        },
+        "references": [
+          {
+            "type": "PACKAGE",
+            "url": "https://crates.io/crates/rustls-webpki"
+          },
+          {
+            "type": "ADVISORY",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0382.html"
+          },
+          {
+            "type": "WEB",
+            "url": "https://github.com/rustls/webpki/pull/546"
+          },
+          {
+            "type": "WEB",
+            "url": "https://emudhra.we-have-a-problem.com/"
+          },
+          {
+            "type": "WEB",
+            "url": "https://bugzilla.mozilla.org/show_bug.cgi?id=2083449"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "rustls-webpki",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/rustls-webpki"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.0.0-0"
+                  },
+                  {
+                    "fixed": "0.103.16"
+                  },
+                  {
+                    "introduced": "0.104.0-alpha.1"
+                  },
+                  {
+                    "fixed": "0.104.0-alpha.8"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "affects": {
+                "os": [],
+                "functions": [],
+                "arch": []
+              },
+              "affected_functions": null
+            },
+            "database_specific": {
+              "categories": [
+                "crypto-failure"
+              ],
+              "cvss": null,
+              "informational": null,
+              "source": "https://github.com/rustsec/advisory-db/blob/osv/crates/RUSTSEC-2026-0382.json"
+            }
+          }
+        ],
+        "schema_version": "1.9.0"
+      }
+    },
+    {
+      "id": "RUSTSEC-2026-0386",
+      "canonical_sha256": "fa1273dfe899509bec01c75da43fadcb547d50e33e10a7a96ed5f6d87a379b36",
+      "document": {
+        "id": "RUSTSEC-2026-0386",
+        "summary": "`AsyncFd::new` and related constructors violate I/O safety",
+        "details": "`tokio::io::unix::AsyncFd` provides safe constructors (`new`, `with_interest`, `try_new`, and `try_with_interest`) that accept any `T: AsRawFd` rather than requiring proof of ownership or validity of the file descriptor. Because `RawFd` implements `AsRawFd`, safe code can construct an `AsyncFd` from an arbitrary or closed file descriptor, or close/replace the underlying file descriptor while the `AsyncFd` is still alive.\n\nThis violates I/O safety in two ways:\n\n1. `AsyncFd<T>` implements `AsFd` for all `T: AsRawFd` by calling `BorrowedFd::borrow_raw(self.as_raw_fd())`, allowing safe code to obtain an arbitrary `BorrowedFd<'_>` without owning the file descriptor.\n2. Tokio's I/O driver stores a pointer to an internal allocation in the `epoll`/`kqueue` user data for registered file descriptors. If the underlying file descriptor is duplicated and then closed while an `AsyncFd` is alive, and the OS reuses that file descriptor number for a another IO resource on the same runtime, dropping the first `AsyncFd` deregisters the reused file descriptor number and frees the first while the original file description remains registered in `epoll`, leading to a use-after-free when a readiness event fires.\n\nStarting in Tokio 1.51.6, 1.53.3, and 1.54.0, `AsyncFd::new`, `AsyncFd::with_interest`, `AsyncFd::try_new`, and `AsyncFd::try_with_interest` are deprecated in favor of the `unsafe` constructors `AsyncFd::register` and `AsyncFd::register_with_interest`. Callers must ensure that the file descriptor remains valid, open, and unchanged for the lifetime of the `AsyncFd`.",
+        "modified": "2026-10-23T14:45:03.847864944Z",
+        "published": "2026-10-13T12:00:00Z",
+        "database_specific": {
+          "license": "CC0-1.0"
+        },
+        "references": [
+          {
+            "type": "PACKAGE",
+            "url": "https://crates.io/crates/tokio"
+          },
+          {
+            "type": "ADVISORY",
+            "url": "https://rustsec.org/advisories/RUSTSEC-2026-0386.html"
+          },
+          {
+            "type": "WEB",
+            "url": "https://github.com/tokio-rs/tokio/pull/8587"
+          },
+          {
+            "type": "REPORT",
+            "url": "https://github.com/tokio-rs/tokio/issues/8538"
+          },
+          {
+            "type": "REPORT",
+            "url": "https://github.com/tokio-rs/tokio/issues/8539"
+          }
+        ],
+        "affected": [
+          {
+            "package": {
+              "name": "tokio",
+              "ecosystem": "crates.io",
+              "purl": "pkg:cargo/tokio"
+            },
+            "ranges": [
+              {
+                "type": "SEMVER",
+                "events": [
+                  {
+                    "introduced": "0.3.2"
+                  },
+                  {
+                    "fixed": "1.51.6"
+                  },
+                  {
+                    "introduced": "1.52.0"
+                  },
+                  {
+                    "fixed": "1.53.3"
+                  }
+                ]
+              }
+            ],
+            "ecosystem_specific": {
+              "affects": {
+                "arch": [],
+                "os": [],
+                "functions": [
+                  "tokio::io::unix::AsyncFd::new",
+                  "tokio::io::unix::AsyncFd::try_new",
+                  "tokio::io::unix::AsyncFd::try_with_interest",
+                  "tokio::io::unix::AsyncFd::with_interest"
+                ]
+              },
+              "affected_functions": null
+            },
+            "database_specific": {
+              "categories": [
+                "memory-corruption"
+              ],
+              "cvss": null,
+              "informational": "unsound",
+              "source": "https://github.com/rustsec/advisory-db/blob/osv/crates/RUSTSEC-2026-0386.json"
+            }
+          }
+        ],
+        "schema_version": "1.9.0"
+      }
+    }
+  ],
+  "source_archives": [
+    {
+      "name": "askama-0.13.1",
+      "url": "https://static.crates.io/crates/askama/askama-0.13.1.crate",
+      "sha256": "5d4744ed2eef2645831b441d8f5459689ade2ab27c854488fbab1fbe94fce1a7",
+      "bytes": 41236,
+      "verified": true
+    },
+    {
+      "name": "askama_derive-0.13.1",
+      "url": "https://static.crates.io/crates/askama_derive/askama_derive-0.13.1.crate",
+      "sha256": "d661e0f57be36a5c14c48f78d09011e67e0cb618f269cca9f2fd8d15b68c46ac",
+      "bytes": 63648,
+      "verified": true
+    },
+    {
+      "name": "basic-toml-0.1.10",
+      "url": "https://static.crates.io/crates/basic-toml/basic-toml-0.1.10.crate",
+      "sha256": "ba62675e8242a4c4e806d12f11d136e626e6c8361d6b829310732241652a178a",
+      "bytes": 50648,
+      "verified": true
+    },
+    {
+      "name": "bdk_esplora-0.22.2",
+      "url": "https://static.crates.io/crates/bdk_esplora/bdk_esplora-0.22.2.crate",
+      "sha256": "83986307ea92997c3d051e8c306af8115a05add601e22acb7c1903008e6b614e",
+      "bytes": 30028,
+      "verified": true
+    },
+    {
+      "name": "bip157-0.6.0",
+      "url": "https://static.crates.io/crates/bip157/bip157-0.6.0.crate",
+      "sha256": "b0baddc6c57202ec7bb76d2232aa243f8f529c4450bb873d55349f4d55ce94a2",
+      "bytes": 95012,
+      "verified": true
+    },
+    {
+      "name": "bip324-0.7.0",
+      "url": "https://static.crates.io/crates/bip324/bip324-0.7.0.crate",
+      "sha256": "53157fcb2d6ec2851c7602d0690536d0b79209e393972cb2b36bd5d72dbd1879",
+      "bytes": 36519,
+      "verified": true
+    },
+    {
+      "name": "electrum-client-0.25.0",
+      "url": "https://static.crates.io/crates/electrum-client/electrum-client-0.25.0.crate",
+      "sha256": "1970c5d7bd9de6d4041cbfc3e46faa3e85fe7efcea2b0eb06750d3ae1ef577b7",
+      "bytes": 57256,
+      "verified": true
+    },
+    {
+      "name": "esplora-client-0.12.3",
+      "url": "https://static.crates.io/crates/esplora-client/esplora-client-0.12.3.crate",
+      "sha256": "f19e3ea99dbfbef0c1ec26d83e69de0c579f6aa6aaac4f44597805fcc27e97af",
+      "bytes": 37613,
+      "verified": true
+    },
+    {
+      "name": "minreq-2.14.1",
+      "url": "https://static.crates.io/crates/minreq/minreq-2.14.1.crate",
+      "sha256": "05015102dad0f7d61691ca347e9d9d9006685a64aefb3d79eecf62665de2153d",
+      "bytes": 43501,
+      "verified": true
+    },
+    {
+      "name": "rustls-0.21.12",
+      "url": "https://static.crates.io/crates/rustls/rustls-0.21.12.crate",
+      "sha256": "3f56a14d1f48b391359b22f731fd4bd7e43c97f3c50eee276f3aa09c94784d3e",
+      "bytes": 285674,
+      "verified": true
+    },
+    {
+      "name": "rustls-0.23.45",
+      "url": "https://static.crates.io/crates/rustls/rustls-0.23.45.crate",
+      "sha256": "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634",
+      "bytes": 378933,
+      "verified": true
+    },
+    {
+      "name": "rustls-webpki-0.101.7",
+      "url": "https://static.crates.io/crates/rustls-webpki/rustls-webpki-0.101.7.crate",
+      "sha256": "8b6275d1ee7a1cd780b64aca7726599a1dbc893b1e64144529e55c3c2f745765",
+      "bytes": 168808,
+      "verified": true
+    },
+    {
+      "name": "rustls-webpki-0.103.14",
+      "url": "https://static.crates.io/crates/rustls-webpki/rustls-webpki-0.103.14.crate",
+      "sha256": "0527518605e68109d875e248ea259b6758801cf165e4b2c2733ae3b51f12535a",
+      "bytes": 87490,
+      "verified": true
+    },
+    {
+      "name": "tokio-1.52.3",
+      "url": "https://static.crates.io/crates/tokio/tokio-1.52.3.crate",
+      "sha256": "8fc7f01b389ac15039e4dc9531aa973a135d7a4135281b12d7c1bc79fd57fffe",
+      "bytes": 901393,
+      "verified": true
+    },
+    {
+      "name": "uniffi-0.30.0",
+      "url": "https://static.crates.io/crates/uniffi/uniffi-0.30.0.crate",
+      "sha256": "c866f627c3f04c3df068b68bb2d725492caaa539dd313e2a9d26bb85b1a32f4e",
+      "bytes": 17700,
+      "verified": true
+    },
+    {
+      "name": "uniffi_bindgen-0.30.0",
+      "url": "https://static.crates.io/crates/uniffi_bindgen/uniffi_bindgen-0.30.0.crate",
+      "sha256": "7c8ca600167641ebe7c8ba9254af40492dda3397c528cc3b2f511bd23e8541a5",
+      "bytes": 188117,
+      "verified": true
+    },
+    {
+      "name": "uniffi_build-0.30.0",
+      "url": "https://static.crates.io/crates/uniffi_build/uniffi_build-0.30.0.crate",
+      "sha256": "3e55c05228f4858bb258f651d21d743fcc1fe5a2ec20d3c0f9daefddb105ee4d",
+      "bytes": 9029,
+      "verified": true
+    },
+    {
+      "name": "uniffi_macros-0.30.0",
+      "url": "https://static.crates.io/crates/uniffi_macros/uniffi_macros-0.30.0.crate",
+      "sha256": "64c6309fc36c7992afc03bc0c5b059c656bccbef3f2a4bc362980017f8936141",
+      "bytes": 47172,
+      "verified": true
+    },
+    {
+      "name": "webpki-roots-0.25.4",
+      "url": "https://static.crates.io/crates/webpki-roots/webpki-roots-0.25.4.crate",
+      "sha256": "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1",
+      "bytes": 253559,
+      "verified": true
+    },
+    {
+      "name": "bdk-ffi",
+      "url": "https://codeload.github.com/bitcoindevkit/bdk-ffi/tar.gz/cfb3418524d451ba8d1758f0ec27f8443740b422",
+      "sha256": "629e3dc3f17050d500cafb71c17977f35bfaab5a947a3d6d082a7992bf784ec6",
+      "bytes": 216590,
+      "verified": true
+    },
+    {
+      "name": "bdk_kyoto-0.17.0",
+      "url": "https://static.crates.io/crates/bdk_kyoto/bdk_kyoto-0.17.0.crate",
+      "sha256": "346c1d502ee4613cf2201db9c3b93a2317772d8eaa372114f34bf5f374be94fd",
+      "verified": true
+    },
+    {
+      "name": "uniffi_core-0.30.0",
+      "url": "https://static.crates.io/crates/uniffi_core/uniffi_core-0.30.0.crate",
+      "sha256": "7e7a5a038ebffe8f4cf91416b154ef3c2468b18e828b7009e01b1b99938089f9",
+      "verified": true
+    },
+    {
+      "name": "bdk_electrum-0.24.0",
+      "url": "https://static.crates.io/crates/bdk_electrum/bdk_electrum-0.24.0.crate",
+      "sha256": "00a9846105bf6e751adbb6946b000ff919ce24a15a941cbfe68485549b552a9c",
+      "verified": true
+    }
+  ],
+  "application_review": {
+    "source_commit": "4d8d55cfa3cb141b699f5f16b388ac291b0e06be",
+    "application_sha256": "f494ee2f95f11676496ba7bbf0f819d270547aba0a27a6a4a8de5fc0d1311e97",
+    "prior_binding_matches": true,
+    "production_file_count": 213,
+    "source_sets": [
+      "androidTest",
+      "main",
+      "test"
+    ],
+    "search_results": {
+      "esplora": [],
+      "kyoto_entry": [],
+      "reflection_or_jna_load": [],
+      "native_load": [
+        {
+          "path": "app/src/main/java/net/clench/wallet/di/AppModule.kt",
+          "line": 48,
+          "text": "System.loadLibrary(\"sqlcipher\")"
+        }
+      ],
+      "electrum_constructor": [
+        {
+          "path": "app/src/main/java/net/clench/wallet/data/network/ElectrumConnectionFactory.kt",
+          "line": 250,
+          "text": "val client = ElectrumClient(url, timeout = 15u, retry = 0u)"
+        }
+      ],
+      "crl_or_session_configuration": []
+    },
+    "limitations": "Source search is supporting evidence, not a proof of transitive absence. Constructors and full dependency source must be reviewed separately."
+  },
+  "application_source_files": [
+    {
+      "path": "app/src/main/java/net/clench/wallet/data/network/ElectrumConnectionFactory.kt",
+      "sha256": "7072a234c8fe36dda887cbbbf6a802feb0aab24a88f411d2cc4e0943ac6a4cf3"
+    },
+    {
+      "path": "app/src/main/java/net/clench/wallet/data/network/TorAwareHttpClient.kt",
+      "sha256": "64a290b8d5df38f34888b537ad2fe32b833ff6c8397b7703e18168b20b738e0d"
+    },
+    {
+      "path": "app/src/main/java/net/clench/wallet/data/repository/BdkBitcoinRepository.kt",
+      "sha256": "ba2f284abf9848c0e25d323ed2a348e36040eebaddac17bde092ee14344ecc1e"
+    },
+    {
+      "path": "app/build.gradle.kts",
+      "sha256": "5d1c417e3067eb942fbe5624a93fd3836ac1429d34e12e4077ada53f38eb2901"
+    }
+  ],
+  "source_call_path_assessment_markdown": "## Positive call-path evidence\n\n### 1. Active Electrum networking reaches Java upstream TLS, not Rustls\n\n- Repository `app/src/main/java/net/clench/wallet/data/network/ElectrumConnectionFactory.kt:185–202`: `createConnection` always calls `createRelayedConnection`; that opens the controlled upstream socket first.\n- Same file `:204–250`: listener is bound to `127.0.0.1`, and the sole production `ElectrumClient` constructor receives the locally constructed literal `tcp://127.0.0.1:$localPort`, with native retry disabled. It does not receive the saved server URL or an attacker-provided transport scheme.\n- Repository `app/src/main/java/net/clench/wallet/data/repository/BdkBitcoinRepository.kt:1163,1408,1758,2139`: relevant repository operations obtain connections from this factory. Production source search found no alternate `ElectrumClient(...)` construction.\n- `BDK/src/electrum.rs:36–60`: FFI constructor passes that URL through to `electrum_client::Client::from_config`.\n- `sources/electrum-client-0.25.0/src/client.rs:116–179`: TLS initialization requires the `ssl://` branch. The application URL instead selects `ClientType::TCP` and `RawClient::new`.\n- `sources/electrum-client-0.25.0/src/raw_client.rs:451–517`: provider installation, root-store loading, `ClientConfig` construction and TLS session creation are all **inside** `new_ssl_from_stream`, not eager initialization of every native client.\n\nThis is a traced branch exclusion, not merely the absence of the word Rustls from Kotlin. Native TLS remains present in the bundled library, and directly exposing a native SSL constructor would invalidate this disposition.\n\n### 2. Legacy Esplora is bundled but not constructed; its TLS state is lazy\n\n- `BDK/Cargo.toml:18–23` explicitly enables Esplora blocking HTTPS/Rustls as well as Electrum Rustls/Ring. Do not claim these capabilities were removed or disabled.\n- `BDK/src/esplora.rs:29–42` wraps an explicit `Builder::new(...).build_blocking()` constructor; requests are methods on that object, not automatic initialization of another BDK wallet or Electrum object.\n- `sources/minreq-2.14.1/src/connection/rustls_stream.rs:18–57`: the legacy client configuration is `LazyLock`; it is first dereferenced by `create_secured_stream`, not by loading the library. That configuration imports bundled roots and uses safe defaults with no CRLs or custom client-session store.\n- Production source search found no Esplora, Kyoto/`CbfBuilder`/`CbfNode` reference, `Class.forName`, `loadClass`, or direct `Native.load` entry path. The explicit application `System.loadLibrary` call is SQLCipher. This search is supporting, not sole, evidence.\n- Native FFI setup is `BDK/src/lib.rs:20`, using `uniffi::setup_scaffolding!`. Reviewed `sources/uniffi_macros-0.30.0/src/setup_scaffolding.rs:29–107` emits contract-version, metadata and buffer functions, not network-client constructors.\n- `sources/uniffi_bindgen-0.30.0/src/bindings/kotlin/templates/NamespaceLibraryTemplate.kt:76–137` registers the native mapping and performs API/initialization checks. The initialization-function generator in `src/bindings/kotlin/gen_kotlin/mod.rs:316–341` handles type/callback registrations and external-module setup, not invoking all object constructors. Thus exposing an FFI constructor does not by itself instantiate its networking capability.\n\nThese conclusions are source-call-path applicability, not proof of binary code elimination or exhaustive native assurance.\n\n## Proposed disposition for every new match\n\n| Exact candidate | Advisory | Proposed disposition and boundary |\n| --- | --- | --- |\n| `basic-toml 0.1.10` | `RUSTSEC-2026-0374` | **Reviewed informational maintenance finding accepted temporarily.** The crate really is unmaintained; used in host Askama proc-macro configuration parsing. No exploit is asserted by this record. Do not label its maintenance status unaffected. |\n| `rustls 0.21.12` | `RUSTSEC-2026-0346` | Affected debug API not reached: unconstructed legacy Esplora TLS, standard built-in cache, no custom store logging session values. |\n| `rustls 0.23.45` | `RUSTSEC-2026-0346` | Affected debug API not reached: native Electrum TLS branch not entered, and reviewed native TLS builder uses the built-in cache, not a custom value-logging store. |\n| `rustls 0.23.45` | `RUSTSEC-2026-0347` | Required ECH configuration absent from reviewed constructor; active native route is plaintext loopback. ECH is not auto-enabled by importing Rustls. |\n| `rustls 0.23.45` | `RUSTSEC-2026-0348` | Required `brotli` feature absent in selected manifests/lock, independently of native TLS branch exclusion. |\n| `rustls 0.21.12` | `RUSTSEC-2026-0349` | Legacy TLS not constructed. No claim that current Rustls is patched. This older Ring implementation also has only classical groups, so the advisory's loss of a previously available hybrid PQ group does not describe this configuration. |\n| `rustls 0.23.45` | `RUSTSEC-2026-0349` | Native TLS branch not entered. Electrum explicitly selects Ring, whose available groups are classical; do not misrepresent this as post-quantum protection or a fixed version. |\n| `rustls-webpki 0.101.7` | `RUSTSEC-2026-0382` | **Native verifier path unreachable**, not trusted-root incident dismissed: legacy Esplora not constructed. Active Android concern remains separate below. |\n| `rustls-webpki 0.103.14` | `RUSTSEC-2026-0382` | **Native verifier path unreachable**: Electrum SSL branch not selected. Android concern remains separate. |\n| `webpki-roots 0.25.4` | `RUSTSEC-2026-0381` | **Native root-store use unreachable** on both reviewed native clients. Root actually exists in archive and is not repaired. Android concern remains separate. |\n| `tokio 1.52.3` | `RUSTSEC-2026-0386` | Affected `AsyncFd` constructors are not called by the reviewed dependency consumers or Tokio's normal TCP/signal internals. Tokio is a normal dependency, not dev-only; no confirmed application UAF path established. |\n\n### Rustls conditions checked, not inferred from severity labels\n\n`RUSTSEC-2026-0346` requires formatting exposed TLS session values, e.g. from a custom `ClientSessionStore`; ordinary built-in cache/connection debug output is explicitly excluded by the advisory. Both native wrappers construct standard `ClientConfig`s and do not supply custom stores (`electrum-client/src/raw_client.rs:482–517`, `minreq/src/connection/rustls_stream.rs:41–57`). Rustls builders initialize `Resumption::default()` (`rustls-0.23.45/src/client/builder.rs:168–187`; `rustls-0.21.12/src/client/builder.rs:210`). No exception is justified merely because logs are debug-only; the relevant store/formatting path is absent.\n\n`RUSTSEC-2026-0347` requires `EchMode::Enable`, pre-handshake application writes and ECH rejection. The Electrum builder is the standard builder plus roots/no client auth, without `with_ech`. Rustls's ECH is explicit (`rustls-0.23.45/src/client/builder.rs:17–33`), not configured automatically by that builder.\n\n`RUSTSEC-2026-0348` requires the nondefault `brotli` feature. `rustls-0.23.45/Cargo.toml:64–76` shows it is separate from defaults. `BDK/Cargo.toml:20`, `bdk_electrum-0.24.0/Cargo.toml:29–55`, and `electrum-client-0.25.0/Cargo.toml:51–57,102–105` select Ring/logging/std/tls12 without Brotli. The complete locked Rustls dependencies have neither `brotli` nor `brotli-decompressor`, and no other normal dependency consumes modern Rustls. This is feature evidence in addition to call-path exclusion.\n\nFor `RUSTSEC-2026-0349`, do **not** assume resumption is disabled; builders default it on. Branch exclusion is sufficient here. Supporting context: modern Electrum installs Ring (`raw_client.rs:471–479`), `rustls-0.23.45/src/crypto/ring/mod.rs:168–181` lists only X25519/P-256/P-384, and legacy `rustls-0.21.12/src/kx.rs:96` similarly lists three classical groups. The source flaw is not relabelled fixed, and this app is not asserted to have PQ confidentiality.\n\n### Tokio: normal dependency, specific affected API absent\n\nActual normal dependency route: BDK → `bdk_kyoto 0.17.0` → `bip157 0.6.0` → Tokio, with `bip324 0.7.0` also consuming Tokio. Reverse-dependency inspection of the complete lock identifies only bip157 and bip324 as direct Tokio consumers. `uniffi_core 0.30.0` does not have a resolved Tokio/async-compat dependency in this lock; I did not infer this merely from UniFFI's category.\n\n- `BDK/src/kyoto.rs:1–24,67–81,351–356` uses the re-exported Tokio and explicitly creates runtimes when its methods are invoked. This is runtime-capable library code, not a dev-only crate.\n- `bip157-0.6.0/Cargo.toml:70–80` selects rt-multi-thread/sync/time/io-util/net/macros normally; `:100–106` separately enables full/test-util for its own tests. The latter must not be mistaken for the application's normal feature selection. `bip324-0.7.0/Cargo.toml:58–62` adds io-util.\n- Source searches over BDK, bdk_kyoto, bip157, bip324 and UniFFI core found no `AsyncFd` constructors or arbitrary raw-file-descriptor adaptation. Reviewed bip157 networking is `tokio::net::TcpStream`, channels, tasks and timing; bip324 accepts asynchronous read/write abstractions.\n- Crucially, Tokio TCP is **not implemented using AsyncFd**: `tokio-1.52.3/src/net/tcp/stream.rs:73–74,163–166` owns `PollEvented<mio::net::TcpStream>`; `src/io/poll_evented.rs:66,120` registers that owned event source.\n- I also checked automatic runtime initialization: `src/runtime/driver.rs:149–159,243–261` may create a signal driver when configured. `src/runtime/signal/mod.rs:43–80` registers a cloned, owned `mio::net::UnixStream`; it does not call `AsyncFd`. The normal selected features do not enable signal, but this inspection avoids making symbol absence in application code the only basis.\n- The actual affected generic constructors are present in `src/io/async_fd.rs:210–315`, with the generic `AsFd` implementation at `:933–935`. Their presence is acknowledged. The advisory's unsafe descriptor-lifetime behavior requires using that API with descriptors that do not maintain the required validity/ownership invariants; the examined wrappers do not expose such a path.\n\nRecommendation is an exact affected-API-unreachable disposition for this source set, not that Tokio is inherently safe, not shipped, or patched. Any new native dependency/raw-FD wrapper or Kyoto exposure requires another review.\n\n### basic-toml: genuine host maintenance debt, not runtime parsing exposure\n\nThe lock has one reverse consumer: `askama_derive 0.13.1`. `askama_derive-0.13.1/Cargo.toml:63–70` declares `proc-macro = true` and the basic-toml dependency. `src/config.rs:307–312,339–375` parses local Askama configuration (`askama.toml`) during macro expansion; `src/lib.rs:318–319` calls that configuration loader. This is a compiler-host procedural-macro dependency even when compiling a normal target library.\n\nDo not argue UniFFI is globally build-only: **`BDK/Cargo.toml:23` explicitly enables UniFFI `cli` as a normal dependency**, alongside a separate build dependency at `:26–27`. `uniffi-0.30.0/Cargo.toml:47–51,112–118` maps cli to bindgen; `uniffi_bindgen-0.30.0/Cargo.toml:52–59` selects Askama config/derive; `askama-0.13.1/Cargo.toml:55,63` maps these to the procedural macro. That precise edge is why basic-toml is host-side here, not an assumption that every UniFFI dependency is absent from Android.\n\nThe advisory is explicitly `informational: unmaintained`, not a reported parser exploit. A temporary, exact, expiry-bound maintenance acceptance is defensible; update/migrate the Askama/UniFFI build chain in a separately verified dependency change. Do not silently exempt all unmaintained crates.\n\n## Existing six legacy WebPKI dispositions\n\nThe three GHSA records and corresponding RustSec records for URI constraints (`GHSA-965h-392x-2mh5`, `RUSTSEC-2026-0098`), wildcard constraints (`GHSA-xgp8-3hg3-c2mh`, `RUSTSEC-2026-0099`), and CRL parsing (`GHSA-82j2-j2ch-gfr8`, `RUSTSEC-2026-0104`) retain unchanged complete-document hashes in `advisory-review-inputs.json`. Reviewed legacy Esplora call-path exclusion still applies. The CRL case additionally lacks a CRL loading/configuration path in the standard minreq builder. Signature/misissuance requirements for constraint bugs are not by themselves a reason to waive them. These remain six exact IDs on `rustls-webpki 0.101.7`, not a package-wide exception.\n\n## emSign: separate active-platform finding\n\n`webpki-roots-0.25.4/src/lib.rs:2928–2953` actually includes emSign ECC Root CA - G3. The native verifier/root-store matches are real version/content matches; only current application branch exclusion justifies their native disposition. The known intermediate private keys make certificate forgery an authentication issue, not a low-impact logging concern.\n\nThe application actively uses platform trust:\n\n- Repository `ElectrumConnectionFactory.kt:383–415` uses default `SSLSocketFactory` for unpinned TLS and performs hostname identification plus handshake. An attacker with a usable compromised CA can forge the correct hostname; hostname checks alone do not address CA compromise.\n- Explicit pins take a separate path using a narrowed trust store and exact leaf-certificate comparison (`:384–399,416–424`). This does not establish protection for normal unpinned connections or for a maliciously chosen pin.\n- Repository `TorAwareHttpClient.kt:34–49` opens the Java HTTP(S) connection over the controlled tunnel without a separate app certificate-deny policy; HTTPS therefore relies on platform trust too.\n- Repository `app/build.gradle.kts:33–34` supports API 26+ and targets SDK 35. The primary notice's statement about CT for applications targeting the latest SDK or opting in is not proof that this source configuration universally enforces CT. No such opt-in was established in this review.\n\nI read main's primary-source evidence in `google-emudhra-notice-excerpt.txt` (full saved HTML `google-emudhra-notice.html`) and `android-emsign-root-check.json`. Google states an equivalent intermediate-SPKI block reached Android/Googlebooks via Google Play Services around 22:00 UTC Monday, with most Android devices updated and restart able to trigger an update. Thus root presence in AOSP alone does not prove a current patched GMS device is vulnerable. Conversely, a Google Play Services update is not proof of protection on all supported/F-Droid/non-GMS devices or stale installations. The AOSP root records are supporting trust-store evidence, not a device-level exploit demonstration.\n\n**Required honest status:** native gate applicability may pass separately; active platform trust protection is update/device-dependent and not universally verified. Do not describe this as all Clench users vulnerable, all Clench users protected, or fixed by renewing the native gate. Before asserting protected operation across the supported device population, establish platform block coverage or implement and meaningfully verify an application-level mitigation across both Electrum and HTTPS paths. Simply upgrading dormant Rustls/WebPKI packages would not repair the active Java path.\n\n",
+  "separate_android_platform_issue": {
+    "status": "Open: platform blocklist protection is device/update-dependent; non-GMS, outdated and custom installations are unverified.",
+    "primary_notice_url": "https://blog.google/security/protecting-chrome-and-android-users-from-compromised-emudhra-intermediate-ca-certificates/",
+    "primary_notice_fetched_on": "2026-10-25",
+    "primary_notice_html_sha256": "1c1adf064858e115fba387869bd18af896c9973168c1b7abe4ad648920fdd536",
+    "primary_notice_relevant_text": "Protecting Chrome and Android Users from Compromised eMudhra Intermediate CA Certificates\nProtecting Chrome and Android Users from Compromised eMudhra Intermediate CA Certificates\nProtecting Chrome and Android Users from Compromised eMudhra Intermediate CA Certificates\nChrome and Android Security Teams\nOn Saturday, October 17, 2026, at 18:05 UTC, the Chrome Root Program received a report from a security researcher regarding the compromise of private keys associated with eight eMudhra subordinate Certification Authority (CA) certificates. The private keys for these certificates were generated with insufficient randomness (i.e., weak cryptographic entropy), enabling anyone to forge trusted HTTPS certificates to impersonate any website against clients that have not yet removed trust in those CAs.\nAt 19:45 UTC, Chrome completed corroborating the findings and landed a CRLSet update blocking the Subject Public Key Info (SPKI) hashes of the affected intermediate CAs. Because this CRLSet update blocks by SPKI, Chrome users were immediately protected against all certificates sharing those keys, without requiring a browser update or restart. Android devices and Googlebooks received an equivalent update through Google Play Services around 22:00 UTC on Monday. While the majority of Android devices have already received this update, users can also trigger an immediate update by restarting their device.\nBecause no TLS certificates chaining to these six intermediate CAs were logged to Certificate Transparency (CT) before our blocking action, no fraudulent certificates issued by these CAs could have been used against CT-enforcing clients. This includes Chrome, which enforces CT for all publicly trusted certificates by default. This also includes Android applications that target the latest SDK version or have otherwise opted in to CT enforcement.\nTo support other consumers of the Chrome Root Store that do not consume CRLSet updates, we have also removed emSign ECC Root CA - G3 (the root certificate that signed the compromised CA certificates) from the Chrome Root Store. Some legitimate certificates chaining to this root will cease to function in Chrome as a result, and eMudhra has committed to working with impacted subscribers to migrate customers off of the impacted root. This root removal is expected to be released for all devices relying on the Chrome Root Store Tuesday morning, October 27, 2026 PDT, and sooner on prerelease channels like Chrome Canary and Chrome Beta. To avoid breakage, website operators with certificates chaining to emSign ECC Root CA - G3 must immediately acquire and install a new TLS certificate from another PKI hierarchy included in the Chrome Root Store.\nInclusion in the Chrome Root Store requires that a CA Owner continuously demonstrate the technical competence and operational rigor necessary to protect Chrome users. Due to the seriousness of this incident, the Chrome Root Program is closely investigating the ongoing inclusion of eMudhra's remaining CA certificates in the Chrome Root Store and will share further updates in public forums (e.g., the Common CA Database Public list) as our evaluation progresses.",
+    "aosp_root_observations": [
+      {
+        "ref": "refs/heads/main",
+        "url": "https://android.googlesource.com/platform/system/ca-certificates/+/refs/heads/main/files/b74d2bd5.0?format=TEXT",
+        "present": true,
+        "file_sha256": "780b4313a0198dd600452627de43639e24f45f9a0d013e0b869aedfb3aa2d0d9"
+      },
+      {
+        "ref": "android-15.0.0_r1",
+        "url": "https://android.googlesource.com/platform/system/ca-certificates/+/android-15.0.0_r1/files/b74d2bd5.0?format=TEXT",
+        "present": true,
+        "file_sha256": "780b4313a0198dd600452627de43639e24f45f9a0d013e0b869aedfb3aa2d0d9"
+      },
+      {
+        "ref": "android-14.0.0_r1",
+        "url": "https://android.googlesource.com/platform/system/ca-certificates/+/android-14.0.0_r1/files/b74d2bd5.0?format=TEXT",
+        "present": true,
+        "file_sha256": "4a33b5238103584621e2b7171538be970905d16365964c5c0542864f5eb01518"
+      }
+    ],
+    "limitation": "Root presence alone does not prove trust on an updated device; Google Play Services rollout does not prove coverage of every supported Android installation. Native dispositions do not waive this item.",
+    "acceptance_required": "Verify platform blocking on supported targets or implement and test application-level mitigation across Electrum and HTTPS before broader security/release sign-off."
+  },
+  "verification_boundary": "No native rebuild, Android device handshake/exploit, hardware-wallet acceptance, or full application test suite is claimed by this evidence. SQLCipher source correspondence and full native C coverage remain open."
+}
