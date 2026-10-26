@@ -3,13 +3,13 @@
   "owner_purl": "pkg:maven/org.bitcoindevkit/bdk-android@3.0.0-clench.1",
   "owner_artifact_sha256": "f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2",
   "source_lock_sha256": "f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2",
-  "application_sha256": "f494ee2f95f11676496ba7bbf0f819d270547aba0a27a6a4a8de5fc0d1311e97",
+  "application_sha256": "bf1fd28fd2f0b64eae4483b0675ce0cb47fa0f65f8cd5abafe4364767335a00d",
   "reviewed_on": "2026-10-25",
   "expires_on": "2026-11-08",
   "evidence": [
     {
       "path": "docs/security/native-cargo-dispositions.md",
-      "sha256": "1e910e808da31c381804ef405e14ebf6c38366b77b5e24ffff5e4079be71514b"
+      "sha256": "1ea99675b381c6e4e0ddecfefacfacacd6634024e4a66a090282126ec616e921"
     },
     {
       "path": "docs/security/native-cargo-review.md",
@@ -50,6 +50,10 @@
     {
       "path": "docs/security/native-cargo-review-2026-10-25.json",
       "sha256": "bc70d5010b58648922000281ef1966f70b3af39b9fcfb48ba5ab8bb073c19caa"
+    },
+    {
+      "path": "docs/security/android-emsign-distrust.md",
+      "sha256": "f200eea7529a37241d345130a674621f3247de44d4d44f7899a943460b85a129"
     }
   ],
   "entries": [

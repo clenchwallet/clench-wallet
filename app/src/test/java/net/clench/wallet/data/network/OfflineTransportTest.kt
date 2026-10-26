@@ -195,9 +195,8 @@ class OfflineTransportTest {
             trust.init(store)
             val tls = javax.net.ssl.SSLContext.getInstance("TLS")
             tls.init(keys.keyManagers, trust.trustManagers, null)
-            val originalFactory = javax.net.ssl.HttpsURLConnection.getDefaultSSLSocketFactory()
-            javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(tls.socketFactory)
-            try {
+            val http = TorAwareHttpClient(settings, TlsSocketFactoryProvider { _, _ -> tls.socketFactory })
+            run {
                 (tls.serverSocketFactory.createServerSocket(0) as javax.net.ssl.SSLServerSocket).use { server ->
                     val worker = Executors.newSingleThreadExecutor()
                     try {
@@ -208,15 +207,15 @@ class OfflineTransportTest {
                                 peer.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\ntls".toByteArray())
                             }
                         }
-                        assertEquals("tls", TorAwareHttpClient(settings).fetchText("https://localhost:${server.localPort}/"))
+                        assertEquals("tls", http.fetchText("https://localhost:${server.localPort}/"))
                         served.get(5, TimeUnit.SECONDS)
                         val rejected = worker.submit { runCatching { server.accept().use { it.getInputStream().read() } } }
                         // The proxy uses loopback too; verification must still use original URL host.
-                        assertTrue(runCatching { TorAwareHttpClient(settings).fetchText("https://127.0.0.1:${server.localPort}/") }.isFailure)
+                        assertTrue(runCatching { http.fetchText("https://127.0.0.1:${server.localPort}/") }.isFailure)
                         rejected.get(5, TimeUnit.SECONDS)
                     } finally { worker.shutdownNow() }
                 }
-            } finally { javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(originalFactory) }
+            }
         } finally {
             java.nio.file.Files.deleteIfExists(keystore)
             java.nio.file.Files.deleteIfExists(generationLog)

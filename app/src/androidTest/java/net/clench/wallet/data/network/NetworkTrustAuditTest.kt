@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
 import javax.net.ssl.*
 
 /** Disposable loopback endpoints only. Public keys in androidTest assets are synthetic.
- * Custom root trust is installed only on URLConnection inside a test and restored in finally;
+ * Custom root trust is explicitly injected into test clients only;
  * the release platform trust configuration and the phone trust store are never modified.
  */
 @RunWith(AndroidJUnit4::class)
@@ -40,35 +40,69 @@ class NetworkTrustAuditTest {
         }
         try { block(SettingsManager(wrapper)) } finally { context.deleteSharedPreferences(name) }
     }
-    private fun clientFactory(): SSLSocketFactory {
-        val ks = KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null); setCertificateEntry("root", cert("root")) }
+    private fun trustManager(vararg roots: X509Certificate): X509ExtendedTrustManager {
+        val ks = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
+            load(null); roots.forEachIndexed { index, root -> setCertificateEntry("root-$index", root) }
+        }
         val tm = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(ks) }
-        return SSLContext.getInstance("TLS").apply { init(null, tm.trustManagers, null) }.socketFactory
+        return tm.trustManagers.filterIsInstance<X509ExtendedTrustManager>().single()
     }
-    private inner class Endpoint(name: String) : AutoCloseable {
+    private fun provider(
+        manager: X509ExtendedTrustManager,
+        policy: CertificateDistrust = CertificateDistrust.EMSIGN,
+    ) = TlsSocketFactoryProvider { host, pinned ->
+        val delegate = if (pinned == null) manager else trustManager(
+            CertificateFactory.getInstance("X.509").generateCertificate(pinned.inputStream()) as X509Certificate)
+        distrustingSocketFactory(host, delegate, policy)
+    }
+
+    private data class PeerObservation(
+        val handshakeComplete: Boolean,
+        val firstApplicationByte: Int?,
+        val failure: Exception?,
+    )
+    private inner class Endpoint(name: String, issuers: List<String>? = null) : AutoCloseable {
         val received = CompletableFuture<String>()
+        val observation = CompletableFuture<PeerObservation>()
         private var peer: Socket? = null
         val server: SSLServerSocket
         init {
             val key = KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(bytes("$name.key")))
             val ks = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
-                load(null); setKeyEntry("fixture", key, charArrayOf(), if (name in listOf("unknown", "expired-self")) arrayOf(cert(name)) else arrayOf(cert(name), cert("root")))
+                val chain = issuers?.let { listOf(name) + it }
+                    ?: if (name in listOf("unknown", "expired-self")) listOf(name) else listOf(name, "root")
+                load(null); setKeyEntry("fixture", key, charArrayOf(), chain.map { cert(it) }.toTypedArray())
             }
             val km = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply { init(ks, charArrayOf()) }
             val ctx = SSLContext.getInstance("TLS").apply { init(km.keyManagers, null, null) }
             server = ctx.serverSocketFactory.createServerSocket(0, 1, InetAddress.getByName("127.0.0.1")) as SSLServerSocket
             Thread {
+                var handshakeComplete = false
+                var firstApplicationByte: Int? = null
+                var failure: Exception? = null
                 try {
                     server.accept().use { socket ->
                         peer = socket; socket.soTimeout = 5000
-                        val first = socket.getInputStream().bufferedReader().readLine()
+                        (socket as SSLSocket).startHandshake()
+                        handshakeComplete = true
+                        val input = socket.getInputStream()
+                        val byte = input.read()
+                        firstApplicationByte = byte
+                        val first = if (byte < 0) null else byte.toChar() + input.bufferedReader().readLine().orEmpty()
                         received.complete(first ?: "EOF")
                         if (first?.startsWith("GET ") == true) {
                             socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK".toByteArray())
                         } else socket.getOutputStream().write("OK\n".toByteArray())
                         socket.getOutputStream().flush()
                     }
-                } catch (e: Exception) { received.completeExceptionally(e) }
+                } catch (e: Exception) {
+                    failure = e
+                    received.completeExceptionally(e)
+                } finally {
+                    // Publish only after the peer has closed; retain even a partial payload
+                    // if a later read, write, or close fails.
+                    observation.complete(PeerObservation(handshakeComplete, firstApplicationByte, failure))
+                }
             }.apply { isDaemon = true; start() }
         }
         override fun close() { peer?.close(); server.close() }
@@ -93,7 +127,8 @@ class NetworkTrustAuditTest {
                     val remote = Socket("127.0.0.1", targetPort); upstream = remote
                     out.write(byteArrayOf(5,0,0,1,127,0,0,1,0,0)); out.flush()
                     Thread { runCatching { remote.getInputStream().copyTo(out) }; runCatching { s.shutdownOutput() } }.apply { isDaemon=true; start() }
-                    input.copyTo(remote.getOutputStream())
+                    try { input.copyTo(remote.getOutputStream()) }
+                    finally { runCatching { remote.shutdownOutput() } }
                 } catch (e: Exception) { destination.completeExceptionally(e) }
             }.apply { isDaemon = true; start() }
         }
@@ -131,21 +166,123 @@ class NetworkTrustAuditTest {
     @Test fun expiredPinnedLeafIsRejectedIncludingSelfSignedAnchor() {
         for (tor in listOf(false,true)) for (name in listOf("expired","expired-self")) raw(name,name,false,tor)
     }
-    @Test fun platformTrustRejectsUnknownCaDirectAndThroughSocks() { for (tor in listOf(false,true)) raw("unknown",null,false,tor) }
+    @Test fun platformTrustRejectsUnknownCaDirectAndThroughSocks() {
+        // A broken/unsupported default manager must not masquerade as expected CA rejection.
+        assertNotNull(PlatformTlsTrust.create("fixture.invalid", null))
+        for (tor in listOf(false,true)) raw("unknown",null,false,tor)
+    }
     @Test fun pinIsExactCertificateNotPermissionForAnotherLeaf() { for (tor in listOf(false,true)) raw("valid","root",false,tor) }
     @Test fun httpPlatformChainExpiryHostnameAndProxyDns() {
-        val previous = HttpsURLConnection.getDefaultSSLSocketFactory()
-        try {
-            // Standard Android TrustManagerFactory, restricted to this synthetic CA; no permissive manager.
-            HttpsURLConnection.setDefaultSSLSocketFactory(clientFactory())
+            // Same production wrapper, with standard Android trust restricted to this synthetic CA.
+            val tls = provider(trustManager(cert("root")))
             for (tor in listOf(false,true)) for (name in listOf("valid","expired","wrong-host","unknown")) settings { settings ->
                 Endpoint(name).use { endpoint -> route(settings, endpoint, tor) { host, port ->
-                    val result=runCatching { TorAwareHttpClient(settings).fetchText("https://$host:$port/",5000,5000) }
+                    val result=runCatching { TorAwareHttpClient(settings, tls).fetchText("https://$host:$port/",5000,5000) }
                     if (name=="valid") assertEquals("OK",result.getOrThrow())
                     else assertTlsRejection("HTTP $name/tor=$tor",result.exceptionOrNull())
                 } }
             }
-        } finally { HttpsURLConnection.setDefaultSSLSocketFactory(previous) }
+    }
+
+    private fun exchange(settings: SettingsManager, tls: TlsSocketFactoryProvider, host: String,
+                         port: Int, https: Boolean, pin: ByteArray? = null) {
+        if (https) {
+            assertEquals("OK", TorAwareHttpClient(settings, tls).fetchText("https://$host:$port/", 5000, 5000))
+        } else {
+            ElectrumConnectionFactory(settings, tls).createRawSocket(ElectrumConfig(
+                serverUrl=host, port=port, useSsl=true,
+                pinnedCert=pin?.let { Base64.getEncoder().encodeToString(it) },
+            )).use { socket ->
+                socket.soTimeout=5000
+                socket.getOutputStream().write("probe\n".toByteArray()); socket.getOutputStream().flush()
+                assertEquals("OK", socket.getInputStream().bufferedReader().readLine())
+            }
+        }
+    }
+
+    private fun rejectedBeforeApplicationData(endpoint: Endpoint, failure: Throwable?) {
+        assertTlsRejection("distrusted validated path", failure)
+        assertTrue("The distrust policy itself must reject the client connection: $failure",
+            generateSequence(failure) { it.cause }.take(12).any {
+                it is java.security.cert.CertificateException &&
+                    it.message == "Server certificate path contains a distrusted public key"
+            })
+        // A future timeout is a failure, not evidence of rejection. This immutable
+        // observation is available only after the endpoint has finished and closed.
+        val peer = endpoint.observation.get(6, TimeUnit.SECONDS)
+        assertTrue("No decrypted HTTP or Electrum byte may precede rejection: $peer",
+            peer.firstApplicationByte == null || peer.firstApplicationByte == -1)
+        // Peer EOF, TLS alert, or reset is normal. Neither handshake nor application
+        // read timeout is accepted, and a partial payload cannot be hidden by an error.
+        assertFalse("Endpoint timeout is not proof of rejection: $peer",
+            generateSequence<Throwable>(peer.failure) { it.cause }.take(12).any {
+                it is SocketTimeoutException || it is java.util.concurrent.TimeoutException
+            })
+        assertTrue("Unexpected endpoint termination: $peer",
+            (peer.firstApplicationByte == -1 && peer.failure == null) ||
+                peer.failure is SSLException || peer.failure is SocketException)
+    }
+
+    @Test fun distrustRejectsLeafIntermediateAndOmittedAnchorBeforeApplicationData() {
+        for (tor in listOf(false,true)) for (https in listOf(false,true)) {
+            for (blocked in listOf(null, "path-leaf", "path-intermediate", "path-root")) settings { settings ->
+                val policy = if (blocked == null) CertificateDistrust.EMSIGN
+                    else CertificateDistrust(setOf(CertificateDistrust.publicKeySha256(cert(blocked))))
+                val tls = provider(trustManager(cert("path-root")), policy)
+                // The root is deliberately NOT supplied by the peer.
+                Endpoint("path-leaf", listOf("path-intermediate")).use { endpoint -> route(settings, endpoint, tor) { host, port ->
+                    val result = runCatching { exchange(settings, tls, host, port, https) }
+                    if (blocked == null) result.getOrThrow()
+                    else rejectedBeforeApplicationData(endpoint, result.exceptionOrNull())
+                } }
+            }
+        }
+    }
+
+    @Test fun distrustRejectsReissuedAndCrossSignedIntermediateKeys() {
+        val blocked = CertificateDistrust(setOf(CertificateDistrust.publicKeySha256(cert("path-intermediate"))))
+        for (tor in listOf(false,true)) for (https in listOf(false,true)) {
+            for (issuer in listOf("path-intermediate-reissued", "path-intermediate-cross")) {
+                assertEquals(CertificateDistrust.publicKeySha256(cert("path-intermediate")), CertificateDistrust.publicKeySha256(cert(issuer)))
+                assertFalse(cert("path-intermediate").encoded.contentEquals(cert(issuer).encoded))
+                for (reject in listOf(false,true)) settings { settings ->
+                    val tls = provider(trustManager(cert("path-root"), cert("path-other-root")),
+                        if (reject) blocked else CertificateDistrust.EMSIGN)
+                    Endpoint("path-leaf", listOf(issuer)).use { endpoint -> route(settings, endpoint, tor) { host, port ->
+                        val result = runCatching { exchange(settings, tls, host, port, https) }
+                        if (reject) rejectedBeforeApplicationData(endpoint, result.exceptionOrNull()) else result.getOrThrow()
+                    } }
+                }
+            }
+        }
+    }
+
+    @Test fun distrustRejectsCachedIntermediateOmittedByPeer() {
+        for (tor in listOf(false,true)) for (https in listOf(false,true)) settings { settings ->
+            val manager = trustManager(cert("path-root"))
+            val normal = provider(manager)
+            val blocked = provider(manager, CertificateDistrust(setOf(CertificateDistrust.publicKeySha256(cert("path-intermediate")))))
+            // Prime Android's intermediate cache, then prove omission is normally accepted.
+            for (issuers in listOf(listOf("path-intermediate"), emptyList())) {
+                Endpoint("path-leaf", issuers).use { endpoint -> route(settings, endpoint, tor) { host, port ->
+                    exchange(settings, normal, host, port, https)
+                } }
+            }
+            Endpoint("path-leaf", emptyList()).use { endpoint -> route(settings, endpoint, tor) { host, port ->
+                val result = runCatching { exchange(settings, blocked, host, port, https) }
+                rejectedBeforeApplicationData(endpoint, result.exceptionOrNull())
+            } }
+        }
+    }
+
+    @Test fun exactLeafPinCannotOverridePublicKeyDistrust() {
+        for (tor in listOf(false,true)) settings { settings ->
+            val tls = provider(trustManager(cert("root")), CertificateDistrust(setOf(CertificateDistrust.publicKeySha256(cert("valid")))))
+            Endpoint("valid").use { endpoint -> route(settings, endpoint, tor) { host, port ->
+                val result = runCatching { exchange(settings, tls, host, port, false, bytes("valid.der")) }
+                rejectedBeforeApplicationData(endpoint, result.exceptionOrNull())
+            } }
+        }
     }
 
     @Test fun unavailableSocksCannotFallBackToDirectElectrum() = settings { settings ->

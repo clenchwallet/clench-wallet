@@ -10,16 +10,11 @@ import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.security.KeyStore
-import java.security.cert.CertificateFactory
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
-import javax.net.ssl.SSLContext
-import javax.net.ssl.SSLSocketFactory
-import javax.net.ssl.TrustManagerFactory
 
 /**
  * Connection mode for Electrum server.
@@ -96,9 +91,12 @@ internal fun isOnionElectrumHost(rawHost: String): Boolean =
  * patched native Rustls remains bundled but is not this factory's active TLS route.
  */
 @Singleton
-class ElectrumConnectionFactory @Inject constructor(
-    private val settingsManager: SettingsManager
+class ElectrumConnectionFactory internal constructor(
+    private val settingsManager: SettingsManager,
+    private val tlsSocketFactories: TlsSocketFactoryProvider,
 ) {
+    @Inject constructor(settingsManager: SettingsManager) : this(settingsManager, PlatformTlsTrust)
+
     companion object {
         private const val TAG = "ElectrumConnFactory"
         private const val SOCKS5_CONNECT_TIMEOUT_MS = 15_000
@@ -381,32 +379,8 @@ class ElectrumConnectionFactory @Inject constructor(
      * Wrap an existing socket in TLS, optionally with a pinned certificate.
      */
     private fun wrapTls(socket: Socket, host: String, pinnedCertDer: ByteArray?): Socket {
-        val sslSocketFactory: SSLSocketFactory = if (pinnedCertDer != null) {
-            // Build a TrustManager that only trusts the pinned cert
-            try {
-                val certFactory = CertificateFactory.getInstance("X.509")
-                val cert = certFactory.generateCertificate(pinnedCertDer.inputStream()) as X509Certificate
-
-                val keyStore = KeyStore.getInstance(KeyStore.getDefaultType())
-                keyStore.load(null, null)
-                keyStore.setCertificateEntry("pinned", cert)
-
-                val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-                tmf.init(keyStore)
-
-                val sslContext = SSLContext.getInstance("TLS")
-                sslContext.init(null, tmf.trustManagers, null)
-                sslContext.socketFactory
-            } catch (e: Exception) {
-                socket.close()
-                throw ElectrumConnectionException.TlsCertPinningFailed(host, e)
-            }
-        } else {
-            // System trust store
-            SSLSocketFactory.getDefault() as SSLSocketFactory
-        }
-
         return try {
+            val sslSocketFactory = tlsSocketFactories.create(host, pinnedCertDer)
             val sslSocket = sslSocketFactory.createSocket(socket, host, socket.port, true) as javax.net.ssl.SSLSocket
             // Pinning narrows certificate trust; it does not replace hostname verification.
             val sslParameters = sslSocket.sslParameters

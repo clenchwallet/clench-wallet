@@ -1,0 +1,1 @@
+Blocks eight compromised emSign certificate keys for wallet-server and HTTPS connections, including through Tor, without relying on Google Play Services updates. Preserves normal certificate, hostname and server-pin checks. Refreshes the native dependency advisory review through November 8; broader hardware-wallet testing and native assurance remain separate.

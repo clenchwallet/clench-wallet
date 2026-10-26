@@ -1,6 +1,36 @@
 # Exact-candidate Cargo applicability dispositions
 
-## Current reassessment — 2026-10-25
+## Android trust correction delta — 2026-10-25
+
+The release preparation based on merged PR #107 (`07379ed04040d64589df09b60e62fd79c76fdb0f`)
+adds application-level emSign public-key distrust to the existing Java TLS
+transports. See [the separate Android trust review](android-emsign-distrust.md)
+for its design, upstream identity evidence and required runtime acceptance.
+This section supplements, not rewrites, the native-only renewal below.
+
+Production review confirms that `ElectrumConnectionFactory.createConnection`
+still always selects `createRelayedConnection`. Its single native
+`ElectrumClient` constructor still receives only the locally constructed
+`tcp://127.0.0.1` relay address with retries disabled. The change replaces the
+Java upstream socket factory, not that native URL or any native constructor.
+HTTPS still goes through `TorAwareHttpClient` and its controlled tunnel. The
+new policy uses Java/Android certificate APIs, not Rustls, WebPKI or native CRLs.
+
+Fresh searches across all production source sets and inspection of the changed
+call paths found no Esplora/Kyoto/Cbf construction, reflective class loader,
+direct JNA load, custom native TLS session store or AsyncFd entry point. The
+only explicit application `System.loadLibrary` target remains SQLCipher.
+No Cargo lock, native recipe, dependency, artifact or selected feature changes.
+The 16 exact native call-path dispositions and one host-build maintenance
+notice therefore retain their October 25 rationale and **November 8 expiry**.
+The live gate must still re-fetch every exact advisory and reject any change.
+
+Version metadata for the next candidate is included in the application binding.
+Rebinding follows review of this bounded production delta; it is not a blind
+extension of the earlier source approval. Android runtime acceptance, broader
+physical hardware-wallet testing and SQLCipher/native assurance remain distinct.
+
+## Native-only renewal baseline — 2026-10-25
 
 Reviewed production source: `4d8d55cfa3cb141b699f5f16b388ac291b0e06be`
 (v0.3.35 application inputs). The source/native/build binding still equals
