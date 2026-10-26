@@ -56,9 +56,14 @@ class NetworkTrustAuditTest {
         distrustingSocketFactory(host, delegate, policy)
     }
 
+    private data class PeerObservation(
+        val handshakeComplete: Boolean,
+        val firstApplicationByte: Int?,
+        val failure: Exception?,
+    )
     private inner class Endpoint(name: String, issuers: List<String>? = null) : AutoCloseable {
         val received = CompletableFuture<String>()
-        val firstApplicationByte = CompletableFuture<Int>()
+        val observation = CompletableFuture<PeerObservation>()
         private var peer: Socket? = null
         val server: SSLServerSocket
         init {
@@ -72,12 +77,17 @@ class NetworkTrustAuditTest {
             val ctx = SSLContext.getInstance("TLS").apply { init(km.keyManagers, null, null) }
             server = ctx.serverSocketFactory.createServerSocket(0, 1, InetAddress.getByName("127.0.0.1")) as SSLServerSocket
             Thread {
+                var handshakeComplete = false
+                var firstApplicationByte: Int? = null
+                var failure: Exception? = null
                 try {
                     server.accept().use { socket ->
                         peer = socket; socket.soTimeout = 5000
+                        (socket as SSLSocket).startHandshake()
+                        handshakeComplete = true
                         val input = socket.getInputStream()
                         val byte = input.read()
-                        firstApplicationByte.complete(byte)
+                        firstApplicationByte = byte
                         val first = if (byte < 0) null else byte.toChar() + input.bufferedReader().readLine().orEmpty()
                         received.complete(first ?: "EOF")
                         if (first?.startsWith("GET ") == true) {
@@ -86,8 +96,12 @@ class NetworkTrustAuditTest {
                         socket.getOutputStream().flush()
                     }
                 } catch (e: Exception) {
-                    firstApplicationByte.completeExceptionally(e)
+                    failure = e
                     received.completeExceptionally(e)
+                } finally {
+                    // Publish only after the peer has closed; retain even a partial payload
+                    // if a later read, write, or close fails.
+                    observation.complete(PeerObservation(handshakeComplete, firstApplicationByte, failure))
                 }
             }.apply { isDaemon = true; start() }
         }
@@ -113,7 +127,8 @@ class NetworkTrustAuditTest {
                     val remote = Socket("127.0.0.1", targetPort); upstream = remote
                     out.write(byteArrayOf(5,0,0,1,127,0,0,1,0,0)); out.flush()
                     Thread { runCatching { remote.getInputStream().copyTo(out) }; runCatching { s.shutdownOutput() } }.apply { isDaemon=true; start() }
-                    input.copyTo(remote.getOutputStream())
+                    try { input.copyTo(remote.getOutputStream()) }
+                    finally { runCatching { remote.shutdownOutput() } }
                 } catch (e: Exception) { destination.completeExceptionally(e) }
             }.apply { isDaemon = true; start() }
         }
@@ -187,15 +202,25 @@ class NetworkTrustAuditTest {
 
     private fun rejectedBeforeApplicationData(endpoint: Endpoint, failure: Throwable?) {
         assertTlsRejection("distrusted validated path", failure)
-        try {
-            assertEquals("No decrypted HTTP or Electrum byte may precede rejection",
-                -1, endpoint.firstApplicationByte.get(6, TimeUnit.SECONDS).toInt())
-        } catch (e: java.util.concurrent.ExecutionException) {
-            // Peer TLS-alert or reset is normal after the client's certificate rejection.
-            // Do not accept an endpoint timeout, incomplete line, or arbitrary exception.
-            val cause = e.cause
-            assertTrue("Unexpected endpoint failure: $cause", cause is SSLException || cause is SocketException)
-        }
+        assertTrue("The distrust policy itself must reject the client connection: $failure",
+            generateSequence(failure) { it.cause }.take(12).any {
+                it is java.security.cert.CertificateException &&
+                    it.message == "Server certificate path contains a distrusted public key"
+            })
+        // A future timeout is a failure, not evidence of rejection. This immutable
+        // observation is available only after the endpoint has finished and closed.
+        val peer = endpoint.observation.get(6, TimeUnit.SECONDS)
+        assertTrue("No decrypted HTTP or Electrum byte may precede rejection: $peer",
+            peer.firstApplicationByte == null || peer.firstApplicationByte == -1)
+        // Peer EOF, TLS alert, or reset is normal. Neither handshake nor application
+        // read timeout is accepted, and a partial payload cannot be hidden by an error.
+        assertFalse("Endpoint timeout is not proof of rejection: $peer",
+            generateSequence<Throwable>(peer.failure) { it.cause }.take(12).any {
+                it is SocketTimeoutException || it is java.util.concurrent.TimeoutException
+            })
+        assertTrue("Unexpected endpoint termination: $peer",
+            (peer.firstApplicationByte == -1 && peer.failure == null) ||
+                peer.failure is SSLException || peer.failure is SocketException)
     }
 
     @Test fun distrustRejectsLeafIntermediateAndOmittedAnchorBeforeApplicationData() {
