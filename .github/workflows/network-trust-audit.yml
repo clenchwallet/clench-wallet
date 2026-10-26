@@ -11,8 +11,17 @@ permissions:
   contents: read
 jobs:
   network-trust:
+    name: ${{ matrix.api == 35 && 'network-trust' || 'network-trust-api26' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 26
+            image: default
+          - api: 35
+            image: google_apis
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
@@ -26,7 +35,7 @@ jobs:
         id: native
         run: python3 -B scripts/native/prepare-bdk.py
       - name: Targeted route policy regressions
-        run: ./gradlew --no-daemon --dependency-verification=strict :app:testDebugUnitTest --tests net.clench.wallet.data.network.ElectrumConnectionFactoryTest
+        run: ./gradlew --no-daemon --dependency-verification=strict :app:testDebugUnitTest --tests net.clench.wallet.data.network.ElectrumConnectionFactoryTest --tests net.clench.wallet.data.network.CertificateDistrustTest --tests net.clench.wallet.data.network.OfflineTransportTest
       - name: Install Android emulator image
         if: always() && steps.native.outcome == 'success'
         run: |
@@ -39,11 +48,11 @@ jobs:
           "$SDKMANAGER" --install \
             'platform-tools' \
             'emulator' \
-            'system-images;android-35;google_apis;x86_64'
+            'system-images;android-${{ matrix.api }};${{ matrix.image }};x86_64'
           echo no | "$AVDMANAGER" create avd \
             --force \
             --name clench-ci \
-            --package 'system-images;android-35;google_apis;x86_64'
+            --package 'system-images;android-${{ matrix.api }};${{ matrix.image }};x86_64'
           test -f "$ANDROID_AVD_HOME/clench-ci.ini"
           echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
@@ -97,7 +106,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: network-trust-audit
+          name: network-trust-audit-api${{ matrix.api }}
           path: |
             app/build/test-results/testDebugUnitTest
             app/build/outputs/androidTest-results

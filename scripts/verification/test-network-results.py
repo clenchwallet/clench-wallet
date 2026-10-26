@@ -10,7 +10,7 @@ contract = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(contract)
 
 def suite():
-    root = ET.Element('testsuite', tests='9', failures='0', errors='0', skipped='0')
+    root = ET.Element('testsuite', tests=str(len(contract.EXPECTED)), failures='0', errors='0', skipped='0')
     for name in sorted(contract.EXPECTED):
         ET.SubElement(root, 'testcase', classname=contract.CLASS, name=name)
     return root

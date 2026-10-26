@@ -4,15 +4,19 @@ import net.clench.wallet.data.local.SettingsManager
 import net.clench.wallet.security.readTextBounded
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.net.ssl.HttpsURLConnection
 
 /**
  * Tor-aware HTTP helper for plain HTTPS fetches used by mempool.space, Coinbase, and CoinGecko.
  * Routes traffic through the configured SOCKS5 proxy when Tor is enabled.
  */
 @Singleton
-class TorAwareHttpClient @Inject constructor(
-    private val settingsManager: SettingsManager
+class TorAwareHttpClient internal constructor(
+    private val settingsManager: SettingsManager,
+    private val tlsSocketFactories: TlsSocketFactoryProvider,
 ) {
+    @Inject constructor(settingsManager: SettingsManager) : this(settingsManager, PlatformTlsTrust)
+
     /**
      * Fetch URL content as plain text.
      * When Tor is enabled, routes through the configured SOCKS5 proxy.
@@ -41,6 +45,9 @@ class TorAwareHttpClient @Inject constructor(
         val conn = target.openConnection(tunnel.proxy) as java.net.HttpURLConnection
 
         lease.register { conn.disconnect() }
+        if (conn is HttpsURLConnection) {
+            conn.sslSocketFactory = tlsSocketFactories.create(target.host, null)
+        }
         conn.instanceFollowRedirects = false // Follow-ups require fresh route/admission review.
         conn.connectTimeout = connectTimeoutMs
         conn.readTimeout = readTimeoutMs

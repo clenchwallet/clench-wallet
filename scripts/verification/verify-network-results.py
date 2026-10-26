@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed unless all nine Android network regressions passed exactly once."""
+"""Fail closed unless all thirteen Android network regressions passed exactly once."""
 import argparse
 from collections import Counter
 from pathlib import Path
@@ -17,6 +17,10 @@ EXPECTED = {
     'httpPlatformChainExpiryHostnameAndProxyDns',
     'unavailableSocksCannotFallBackToDirectElectrum',
     'offlineInterruptsTlsHandshakeAndFreshConnectionRecovers',
+    'distrustRejectsLeafIntermediateAndOmittedAnchorBeforeApplicationData',
+    'distrustRejectsReissuedAndCrossSignedIntermediateKeys',
+    'distrustRejectsCachedIntermediateOmittedByPeer',
+    'exactLeafPinCannotOverridePublicKeyDistrust',
 }
 
 
@@ -39,8 +43,8 @@ def verify(directory):
                 raise ValueError(f'{file}: unexpected testcase class')
             seen[case.get('name')] += 1
     if seen != Counter(EXPECTED):
-        raise ValueError(f'Expected each of nine network tests once; got {dict(seen)}')
-    print('PASS: exact nine Android network tests, no failures/errors/skips')
+        raise ValueError(f'Expected each of {len(EXPECTED)} network tests once; got {dict(seen)}')
+    print(f'PASS: exact {len(EXPECTED)} Android network tests, no failures/errors/skips')
 
 
 if __name__ == '__main__':
