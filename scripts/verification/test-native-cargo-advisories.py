@@ -118,6 +118,76 @@ class NativeCargoTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "rationale"):
             run()
 
+    def maintenance_fixture(self):
+        root, document, advisory, findings, run = self.disposition_fixture()
+        advisory["affected"] = [{
+            "package": {"name": "example", "ecosystem": "crates.io", "purl": "pkg:cargo/example"},
+            "database_specific": {"informational": "unmaintained", "categories": [], "cvss": None,
+                "source": f"https://github.com/rustsec/advisory-db/blob/osv/crates/{advisory['id']}.json"},
+        }]
+        document["entries"][0].update(status="informational_unmaintained_reviewed",
+            review_scope="host_build_tool_only", advisory_sha256=scanner.canonical_hash(advisory))
+        return document, advisory, findings, run
+
+    def test_maintenance_notice_keeps_applicable_warning_and_distinct_status(self):
+        document, advisory, findings, run = self.maintenance_fixture()
+        reviewed, unresolved = run()
+        self.assertEqual(document["entries"], reviewed)
+        self.assertEqual("informational_unmaintained_reviewed", reviewed[0]["status"])
+        self.assertEqual([], unresolved)
+        self.assertEqual(1, len(findings))
+
+    def test_vulnerability_cannot_be_relabeled_as_maintenance(self):
+        document, advisory, _, run = self.maintenance_fixture()
+        mutations = [
+            lambda a: a.update(aliases=["CVE-2099-0001"]),
+            lambda a: a.update(severity=[{"type": "CVSS_V3", "score": "9.8"}]),
+            lambda a: a.update(withdrawn="2099-01-02T00:00:00Z"),
+            lambda a: a["affected"][0].update(severity=[{"score": "9.8"}]),
+            lambda a: a["affected"][0]["database_specific"].update(informational="unsound"),
+            lambda a: a["affected"][0]["database_specific"].pop("informational"),
+            lambda a: a["affected"][0]["database_specific"].update(categories=["memory-corruption"]),
+            lambda a: a["affected"][0]["database_specific"].update(cvss="CVSS:3.1/AV:N"),
+            lambda a: a["affected"][0]["database_specific"].update(severity="HIGH"),
+            lambda a: a.update(database_specific={"severity": "HIGH"}),
+            lambda a: a.update(database_specific={"cvss": "CVSS:3.1/AV:N"}),
+            lambda a: a.update(database_specific={"categories": ["memory-corruption"]}),
+            lambda a: a.update(database_specific={"informational": "unsound"}),
+            lambda a: a.update(database_specific=["ambiguous"]),
+        ]
+        for index, mutate in enumerate(mutations):
+            changed, live = copy.deepcopy(document), copy.deepcopy(advisory)
+            mutate(live)
+            changed["entries"][0]["advisory_sha256"] = scanner.canonical_hash(live)
+            with self.subTest(index=index), self.assertRaisesRegex(ValueError, "exact unmaintained"):
+                run(changed, live=live)
+
+    def test_maintenance_rejects_wrong_package_ambiguous_source_and_runtime_scope(self):
+        document, advisory, _, run = self.maintenance_fixture()
+        mutations = [
+            lambda a: a.update(affected=[]),
+            lambda a: a["affected"].append({"package": {"name": "other"}}),
+            lambda a: a["affected"][0]["package"].update(name="other"),
+            lambda a: a["affected"][0]["database_specific"].update(source="https://example.invalid/notice"),
+        ]
+        for index, mutate in enumerate(mutations):
+            changed, live = copy.deepcopy(document), copy.deepcopy(advisory)
+            mutate(live)
+            changed["entries"][0]["advisory_sha256"] = scanner.canonical_hash(live)
+            with self.subTest(index=index), self.assertRaisesRegex(ValueError, "exact unmaintained"):
+                run(changed, live=live)
+        document["entries"][0]["review_scope"] = "runtime"
+        with self.assertRaisesRegex(ValueError, "exact unmaintained"):
+            run(document)
+
+    def test_maintenance_still_requires_current_review_and_live_document(self):
+        document, advisory, _, run = self.maintenance_fixture()
+        with self.assertRaisesRegex(ValueError, "review interval"):
+            run(today=dt.date(2099, 2, 1))
+        live = dict(advisory, details="Changed maintenance conditions")
+        with self.assertRaisesRegex(ValueError, "content changed"):
+            run(live=live)
+
     def fixture(self, text, *, digest=None):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

@@ -62,6 +62,37 @@ def advisory_document(advisory_id):
     return document
 
 
+def is_unmaintained_notice(document, purl):
+    """Distinguish an exact RustSec maintenance notice from a vulnerability waiver."""
+    advisory_id = document.get("id", "")
+    package_purl, separator, version = purl.rpartition("@")
+    if (not advisory_id.startswith("RUSTSEC-") or not separator or not version or
+            not package_purl.startswith("pkg:cargo/") or document.get("aliases") or
+            document.get("severity") or document.get("withdrawn")):
+        return False
+    metadata = document.get("database_specific", {})
+    if (not isinstance(metadata, dict) or metadata.get("severity") or
+            metadata.get("categories") or metadata.get("cvss") or
+            metadata.get("informational") not in (None, "unmaintained")):
+        return False
+    affected = document.get("affected")
+    if not isinstance(affected, list) or not affected:
+        return False
+    expected_package = {"name": package_purl.removeprefix("pkg:cargo/"),
+                        "ecosystem": "crates.io", "purl": package_purl}
+    for item in affected:
+        if not isinstance(item, dict) or item.get("package") != expected_package or item.get("severity"):
+            return False
+        metadata = item.get("database_specific")
+        if (not isinstance(metadata, dict) or
+                metadata.get("informational") != "unmaintained" or
+                metadata.get("categories") or metadata.get("cvss") or metadata.get("severity") or
+                metadata.get("source") !=
+                f"https://github.com/rustsec/advisory-db/blob/osv/crates/{advisory_id}.json"):
+            return False
+    return True
+
+
 def disposition_results(document, owner, lock_digest, findings, root, *, today=None,
                         fetch_advisory=advisory_document):
     """No package-wide suppression: exact inputs, exact IDs, live content and short expiry."""
@@ -99,10 +130,17 @@ def disposition_results(document, owner, lock_digest, findings, root, *, today=N
         seen.add(key)
         if key not in findings:
             raise ValueError("Stale native disposition; advisory no longer reported")
-        if entry.get("status") != "not_affected_reviewed_call_path" or len(entry.get("reason", "")) < 80:
+        status = entry.get("status")
+        if (status not in ("not_affected_reviewed_call_path", "informational_unmaintained_reviewed") or
+                len(entry.get("reason", "")) < 80):
             raise ValueError("Missing explicit native applicability rationale")
-        if canonical_hash(fetch_advisory(key[1])) != entry["advisory_sha256"]:
+        advisory = fetch_advisory(key[1])
+        if canonical_hash(advisory) != entry["advisory_sha256"]:
             raise ValueError("Advisory content changed; applicability re-review required")
+        if status == "informational_unmaintained_reviewed" and (
+                entry.get("review_scope") != "host_build_tool_only" or
+                not is_unmaintained_notice(advisory, key[0])):
+            raise ValueError("Informational disposition requires an exact unmaintained host-tool notice")
         results.append(entry)
     return results, sorted(set(findings) - seen)
 
@@ -189,16 +227,20 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     # Preserve raw findings even when review validation or a network request fails.
     args.output.write_text(json.dumps(report, indent=2) + "\n")
-    print(f"Queried {len(purls)} Cargo candidates; {len(findings)} advisory IDs (aliases may overlap).")
+    print(f"Queried {len(purls)} Cargo candidates; {len(findings)} package/advisory matches (aliases may overlap).")
     reviewed, unresolved = disposition_results(json.loads(args.dispositions.read_text()), owner,
                                                digest, findings, ROOT)
     report["reviewed_dispositions"] = reviewed
     report["unresolved_findings"] = [{"purl": p, "id": i} for p, i in unresolved]
-    report["disposition_limitations"] = "Source-call-path applicability review; not patched versions, binary reproducibility or C/native clearance."
+    report["disposition_counts"] = {
+        status: sum(entry["status"] == status for entry in reviewed)
+        for status in sorted({entry["status"] for entry in reviewed})
+    }
+    report["disposition_limitations"] = "Exact source-call-path and informational host-tool review; maintenance warnings remain applicable. Not patched versions, binary reproducibility or C/native clearance."
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     if unresolved:
         raise SystemExit("Unreviewed native advisories block release")
-    print(f"Native applicability gate passed: {len(reviewed)} exact reviewed IDs, no unresolved IDs. Not a native clearance.")
+    print(f"Native applicability gate passed: {len(reviewed)} exact reviewed matches, no unresolved matches. {report['disposition_counts']}. Not a native clearance.")
 
 
 if __name__ == "__main__":

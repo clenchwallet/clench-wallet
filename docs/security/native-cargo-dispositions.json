@@ -4,16 +4,16 @@
   "owner_artifact_sha256": "f9605a9302e4d53706dc32a34771fc5281b93628c6b6b854353bd860a2273dc2",
   "source_lock_sha256": "f75230c54970038d85db0dbb03529582fefdd8e6cf208fc65872d3344b36c4e2",
   "application_sha256": "f494ee2f95f11676496ba7bbf0f819d270547aba0a27a6a4a8de5fc0d1311e97",
-  "reviewed_on": "2026-09-30",
-  "expires_on": "2026-10-16",
+  "reviewed_on": "2026-10-25",
+  "expires_on": "2026-11-08",
   "evidence": [
     {
       "path": "docs/security/native-cargo-dispositions.md",
-      "sha256": "12a5395c304e7e160367f57fb5e49a77f3ff2bfeb5fea0fdcc20c654d4f264e4"
+      "sha256": "1e910e808da31c381804ef405e14ebf6c38366b77b5e24ffff5e4079be71514b"
     },
     {
       "path": "docs/security/native-cargo-review.md",
-      "sha256": "625eccbc344cfb6c424efe44550f35daae265204a3091ede936613a0854abe4b"
+      "sha256": "ae4770763248961538f2ee7ba80aa860ae7b56f037ed138a93cb92fccdb3b398"
     },
     {
       "path": "docs/security/native-dependencies.json",
@@ -46,50 +46,132 @@
     {
       "path": "docs/security/upstream/bdk-ffi-3.0.0-clench-packaging.json",
       "sha256": "1e36efbcd14d7328b078a0cd39798d83b541a8af7d294de6b4bf90838885b5d0"
+    },
+    {
+      "path": "docs/security/native-cargo-review-2026-10-25.json",
+      "sha256": "bc70d5010b58648922000281ef1966f70b3af39b9fcfb48ba5ab8bb073c19caa"
     }
   ],
   "entries": [
     {
-      "purl": "pkg:cargo/rustls-webpki@0.101.7",
-      "id": "RUSTSEC-2026-0098",
-      "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-30 for broadcast operation ownership, sweep confirmation invalidation and version metadata. TLS, network routing, native source/features, resolved dependencies, Esplora/CRL entry points and all six advisory identities/content hashes are unchanged. Legacy code remains bundled; original October 16 expiry is unchanged. Existing source-bound call-path evidence remains applicable.",
-      "advisory_sha256": "284db215d88b037e0d130bb510b36c047383e8dc26b121fa75b01aff0d4570d3"
-    },
-    {
-      "purl": "pkg:cargo/rustls-webpki@0.101.7",
-      "id": "GHSA-965h-392x-2mh5",
-      "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-30 for broadcast operation ownership, sweep confirmation invalidation and version metadata. TLS, network routing, native source/features, resolved dependencies, Esplora/CRL entry points and all six advisory identities/content hashes are unchanged. Legacy code remains bundled; original October 16 expiry is unchanged. Existing source-bound call-path evidence remains applicable.",
-      "advisory_sha256": "0077f82e7ccde86e6f0f3c7659081c6f5287ce70062f68bb86080e9629131f9f"
-    },
-    {
-      "purl": "pkg:cargo/rustls-webpki@0.101.7",
-      "id": "RUSTSEC-2026-0099",
-      "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-30 for broadcast operation ownership, sweep confirmation invalidation and version metadata. TLS, network routing, native source/features, resolved dependencies, Esplora/CRL entry points and all six advisory identities/content hashes are unchanged. Legacy code remains bundled; original October 16 expiry is unchanged. Existing source-bound call-path evidence remains applicable.",
-      "advisory_sha256": "d012c9ae6486f484e459e41f5c8ab273d09bfc206fba9cef10b290aeea517929"
-    },
-    {
-      "purl": "pkg:cargo/rustls-webpki@0.101.7",
-      "id": "GHSA-xgp8-3hg3-c2mh",
-      "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-30 for broadcast operation ownership, sweep confirmation invalidation and version metadata. TLS, network routing, native source/features, resolved dependencies, Esplora/CRL entry points and all six advisory identities/content hashes are unchanged. Legacy code remains bundled; original October 16 expiry is unchanged. Existing source-bound call-path evidence remains applicable.",
-      "advisory_sha256": "5cff7d64cac82fcbac4b1fdf266703ea98e772a1c16bafa7c9be3f3fd063ae4c"
-    },
-    {
-      "purl": "pkg:cargo/rustls-webpki@0.101.7",
-      "id": "RUSTSEC-2026-0104",
-      "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-30 for broadcast operation ownership, sweep confirmation invalidation and version metadata. TLS, network routing, native source/features, resolved dependencies, Esplora/CRL entry points and all six advisory identities/content hashes are unchanged. Legacy code remains bundled; original October 16 expiry is unchanged. Existing source-bound call-path evidence remains applicable.",
-      "advisory_sha256": "5cf866fd63f4c62cd339170f0c64cb64593ea8c9699e1557f33920bcc90e41f5"
+      "purl": "pkg:cargo/basic-toml@0.1.10",
+      "id": "RUSTSEC-2026-0374",
+      "status": "informational_unmaintained_reviewed",
+      "reason": "Reviewed 2026-10-25. The unmaintained condition genuinely applies. basic-toml parses pinned Askama configuration through host askama_derive procedural-macro expansion, not wallet or network input. This exact RustSec record is informational and alleges no parser exploit. Temporarily accept this host-tool maintenance debt; migrate the Askama/UniFFI build chain in a separately verified dependency update.",
+      "advisory_sha256": "746f2e51ece2d8c823f45d92967e87b68abf8445e461fbbeacaf213e40493ecd",
+      "review_scope": "host_build_tool_only"
     },
     {
       "purl": "pkg:cargo/rustls-webpki@0.101.7",
       "id": "GHSA-82j2-j2ch-gfr8",
       "status": "not_affected_reviewed_call_path",
-      "reason": "Re-reviewed 2026-09-30 for broadcast operation ownership, sweep confirmation invalidation and version metadata. TLS, network routing, native source/features, resolved dependencies, Esplora/CRL entry points and all six advisory identities/content hashes are unchanged. Legacy code remains bundled; original October 16 expiry is unchanged. Existing source-bound call-path evidence remains applicable.",
+      "reason": "Reviewed 2026-10-25. The legacy Esplora client is not constructed by production code. Its minreq Rustls configuration is lazy and no application path enters that native TLS verifier. Affected code remains bundled; this is source-call-path exclusion, not a patched version. The reviewed minreq builder also has no CRL input or opt-in revocation configuration.",
       "advisory_sha256": "618f5df0622d59166bab25d1cee15147b98dc0bd90348935fb130f77dc3b07d5"
+    },
+    {
+      "purl": "pkg:cargo/rustls-webpki@0.101.7",
+      "id": "GHSA-965h-392x-2mh5",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The legacy Esplora client is not constructed by production code. Its minreq Rustls configuration is lazy and no application path enters that native TLS verifier. Affected code remains bundled; this is source-call-path exclusion, not a patched version. URI name-constraint verification therefore has no reviewed application input path.",
+      "advisory_sha256": "0077f82e7ccde86e6f0f3c7659081c6f5287ce70062f68bb86080e9629131f9f"
+    },
+    {
+      "purl": "pkg:cargo/rustls-webpki@0.101.7",
+      "id": "GHSA-xgp8-3hg3-c2mh",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The legacy Esplora client is not constructed by production code. Its minreq Rustls configuration is lazy and no application path enters that native TLS verifier. Affected code remains bundled; this is source-call-path exclusion, not a patched version. Wildcard name-constraint verification therefore has no reviewed application input path.",
+      "advisory_sha256": "5cff7d64cac82fcbac4b1fdf266703ea98e772a1c16bafa7c9be3f3fd063ae4c"
+    },
+    {
+      "purl": "pkg:cargo/rustls-webpki@0.101.7",
+      "id": "RUSTSEC-2026-0098",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The legacy Esplora client is not constructed by production code. Its minreq Rustls configuration is lazy and no application path enters that native TLS verifier. Affected code remains bundled; this is source-call-path exclusion, not a patched version. URI name-constraint verification therefore has no reviewed application input path.",
+      "advisory_sha256": "284db215d88b037e0d130bb510b36c047383e8dc26b121fa75b01aff0d4570d3"
+    },
+    {
+      "purl": "pkg:cargo/rustls-webpki@0.101.7",
+      "id": "RUSTSEC-2026-0099",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The legacy Esplora client is not constructed by production code. Its minreq Rustls configuration is lazy and no application path enters that native TLS verifier. Affected code remains bundled; this is source-call-path exclusion, not a patched version. Wildcard name-constraint verification therefore has no reviewed application input path.",
+      "advisory_sha256": "d012c9ae6486f484e459e41f5c8ab273d09bfc206fba9cef10b290aeea517929"
+    },
+    {
+      "purl": "pkg:cargo/rustls-webpki@0.101.7",
+      "id": "RUSTSEC-2026-0104",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The legacy Esplora client is not constructed by production code. Its minreq Rustls configuration is lazy and no application path enters that native TLS verifier. Affected code remains bundled; this is source-call-path exclusion, not a patched version. The reviewed minreq builder also has no CRL input or opt-in revocation configuration.",
+      "advisory_sha256": "5cf866fd63f4c62cd339170f0c64cb64593ea8c9699e1557f33920bcc90e41f5"
+    },
+    {
+      "purl": "pkg:cargo/rustls-webpki@0.101.7",
+      "id": "RUSTSEC-2026-0382",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The legacy Esplora client is not constructed by production code. Its minreq Rustls configuration is lazy and no application path enters that native TLS verifier. Affected code remains bundled; this is source-call-path exclusion, not a patched version. The emSign compromise is real. This excludes only the native verifier path; active Android platform trust protection remains device/update-dependent and separately unverified.",
+      "advisory_sha256": "cafbdfea1bd1bea967afc279974b9544f1d5c9c8be87f27e941b171af0491190"
+    },
+    {
+      "purl": "pkg:cargo/rustls-webpki@0.103.14",
+      "id": "RUSTSEC-2026-0382",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The sole production BDK Electrum constructor receives controlled tcp://127.0.0.1 relay addresses. electrum-client selects native TLS only for ssl://, so this native TLS branch is not entered. Upstream TLS is handled separately by Java. The emSign compromise is real. This excludes only the native verifier path; active Android platform trust protection remains device/update-dependent and separately unverified.",
+      "advisory_sha256": "cafbdfea1bd1bea967afc279974b9544f1d5c9c8be87f27e941b171af0491190"
+    },
+    {
+      "purl": "pkg:cargo/rustls@0.21.12",
+      "id": "RUSTSEC-2026-0346",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The legacy Esplora client is not constructed by production code. Its minreq Rustls configuration is lazy and no application path enters that native TLS verifier. Affected code remains bundled; this is source-call-path exclusion, not a patched version. The reviewed constructors also use built-in session storage, not custom storage formatting secret-bearing session values.",
+      "advisory_sha256": "b62f3e96ead3ba67a04477ac7c41aa1d5ecbd1f62580090371310495aa246e2d"
+    },
+    {
+      "purl": "pkg:cargo/rustls@0.21.12",
+      "id": "RUSTSEC-2026-0349",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The legacy Esplora client is not constructed by production code. Its minreq Rustls configuration is lazy and no application path enters that native TLS verifier. Affected code remains bundled; this is source-call-path exclusion, not a patched version. The affected ServerHello/session-prediction operation requires a native TLS handshake. No claim of a patched version or post-quantum protection is made.",
+      "advisory_sha256": "06aa8136b73ebe1230d32fc9ac7a7a550c570d92083023e6aea15ac6d6f8a64c"
+    },
+    {
+      "purl": "pkg:cargo/rustls@0.23.45",
+      "id": "RUSTSEC-2026-0346",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The sole production BDK Electrum constructor receives controlled tcp://127.0.0.1 relay addresses. electrum-client selects native TLS only for ssl://, so this native TLS branch is not entered. Upstream TLS is handled separately by Java. The reviewed constructors also use built-in session storage, not custom storage formatting secret-bearing session values.",
+      "advisory_sha256": "b62f3e96ead3ba67a04477ac7c41aa1d5ecbd1f62580090371310495aa246e2d"
+    },
+    {
+      "purl": "pkg:cargo/rustls@0.23.45",
+      "id": "RUSTSEC-2026-0347",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The sole production BDK Electrum constructor receives controlled tcp://127.0.0.1 relay addresses. electrum-client selects native TLS only for ssl://, so this native TLS branch is not entered. Upstream TLS is handled separately by Java. The explicit ECH enablement required by this advisory is also absent from the reviewed native builder.",
+      "advisory_sha256": "9f3395f1a45f0b6ff713dc20b42480e0b79ae38bb2db8a71472ca0b8e06bc6cc"
+    },
+    {
+      "purl": "pkg:cargo/rustls@0.23.45",
+      "id": "RUSTSEC-2026-0348",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The sole production BDK Electrum constructor receives controlled tcp://127.0.0.1 relay addresses. electrum-client selects native TLS only for ssl://, so this native TLS branch is not entered. Upstream TLS is handled separately by Java. The nondefault Brotli certificate-decompression feature required by this advisory is not selected in the reviewed manifests/locked dependencies.",
+      "advisory_sha256": "692d232bf7eeda7e85bed514b2b267044f7b50c50efc42f52592742fda423396"
+    },
+    {
+      "purl": "pkg:cargo/rustls@0.23.45",
+      "id": "RUSTSEC-2026-0349",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The sole production BDK Electrum constructor receives controlled tcp://127.0.0.1 relay addresses. electrum-client selects native TLS only for ssl://, so this native TLS branch is not entered. Upstream TLS is handled separately by Java. The affected ServerHello/session-prediction operation requires a native TLS handshake. No claim of a patched version or post-quantum protection is made.",
+      "advisory_sha256": "06aa8136b73ebe1230d32fc9ac7a7a550c570d92083023e6aea15ac6d6f8a64c"
+    },
+    {
+      "purl": "pkg:cargo/tokio@1.52.3",
+      "id": "RUSTSEC-2026-0386",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. Tokio is a normal Kyoto dependency, not dev-only. Production code does not construct CbfNode or invoke its runtime; checked BDK/Kyoto/bip157/bip324 consumers do not invoke the affected AsyncFd constructors. Tokio TCP uses owned PollEvented event sources; signal internals directly register an owned Mio UnixStream, not AsyncFd. This excludes the specific reviewed descriptor-lifetime path, not all Tokio risks or bundled code.",
+      "advisory_sha256": "fa1273dfe899509bec01c75da43fadcb547d50e33e10a7a96ed5f6d87a379b36"
+    },
+    {
+      "purl": "pkg:cargo/webpki-roots@0.25.4",
+      "id": "RUSTSEC-2026-0381",
+      "status": "not_affected_reviewed_call_path",
+      "reason": "Reviewed 2026-10-25. The legacy Esplora client is not constructed by production code. Its minreq Rustls configuration is lazy and no application path enters that native TLS verifier. Affected code remains bundled; this is source-call-path exclusion, not a patched version. The sole production BDK Electrum constructor receives controlled tcp://127.0.0.1 relay addresses. electrum-client selects native TLS only for ssl://, so this native TLS branch is not entered. Upstream TLS is handled separately by Java. The emSign root really remains in the native bundle. The distinct active Android platform trust/blocklist issue remains open and is not cleared by this native disposition.",
+      "advisory_sha256": "996037a33067d56b4b254a55168f617fef3b41d290b6adbf25f874330c10cbd5"
     }
   ]
 }
